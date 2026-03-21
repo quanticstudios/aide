@@ -129,6 +129,57 @@ button:hover {
   grid-column: span 2;
 }
 
+.editor-shell {
+  min-height: auto;
+}
+
+.editor-toolbar {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.editor-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.editor-controls label {
+  color: #8ea5c8;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.editor-controls select {
+  appearance: none;
+  background: rgba(10, 17, 31, 0.9);
+  border: 1px solid rgba(132, 151, 183, 0.2);
+  border-radius: 999px;
+  color: #edf3ff;
+  font: inherit;
+  padding: 0.65rem 1rem;
+}
+
+.editor-path {
+  color: #8ea5c8;
+  margin: 0 0 1rem;
+}
+
+.editor-frame {
+  border: 1px solid rgba(132, 151, 183, 0.16);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.error-copy {
+  color: #ff8f8f;
+  margin-top: 1rem;
+}
+
 .panel-error {
   border-color: rgba(255, 143, 143, 0.32);
 }
@@ -170,6 +221,10 @@ button:hover {
 @media (max-width: 900px) {
   .shell {
     padding: 1rem;
+  }
+
+  .editor-toolbar {
+    flex-direction: column;
   }
 
   .panel-primary {

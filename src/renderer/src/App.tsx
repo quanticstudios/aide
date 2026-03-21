@@ -1,5 +1,7 @@
+import Editor from '@monaco-editor/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { EDITOR_SAMPLE_FILES, type ProjectTextFile } from '../../shared/editor'
 import {
   type RuntimeSnapshot,
   formatPlatformLabel,
@@ -20,6 +22,14 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<RuntimeSnapshot | null>(null)
   const [state, setState] = useState<LoadState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState(
+    EDITOR_SAMPLE_FILES[0]?.relativePath ?? '',
+  )
+  const [editorDocument, setEditorDocument] = useState<ProjectTextFile | null>(
+    null,
+  )
+  const [editorState, setEditorState] = useState<LoadState>('idle')
+  const [editorError, setEditorError] = useState<string | null>(null)
 
   const summary = useMemo(() => {
     if (!snapshot) {
@@ -48,6 +58,32 @@ export default function App() {
     void refreshSnapshot()
   }, [refreshSnapshot])
 
+  const loadProjectFile = useCallback(
+    async (relativePath: string): Promise<void> => {
+      setEditorState('loading')
+
+      try {
+        const nextDocument = await window.aide.readProjectFile(relativePath)
+        setEditorDocument(nextDocument)
+        setEditorError(null)
+        setEditorState('ready')
+      } catch (loadError) {
+        setEditorDocument(null)
+        setEditorError(getErrorMessage(loadError))
+        setEditorState('error')
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!selectedFile) {
+      return
+    }
+
+    void loadProjectFile(selectedFile)
+  }, [loadProjectFile, selectedFile])
+
   const platformLabel = snapshot
     ? formatPlatformLabel(snapshot.platform, snapshot.arch)
     : 'Pending'
@@ -55,11 +91,11 @@ export default function App() {
   return (
     <main className="shell">
       <section className="hero">
-        <p className="eyebrow">Phase 0 / P0-002</p>
-        <h1>Electron shell spike</h1>
+        <p className="eyebrow">Phase 0 / P0-003</p>
+        <h1>Electron + Monaco spike</h1>
         <p className="lede">
-          This scaffold proves the desktop shell, Bun tooling, React renderer,
-          and preload IPC bridge before the pane system lands.
+          The renderer now hosts Monaco with syntax highlighting and opens real
+          project files through a safe main-process file bridge.
         </p>
         <div className="actions">
           <button onClick={() => void refreshSnapshot()} type="button">
@@ -69,6 +105,58 @@ export default function App() {
             {state === 'ready' ? 'IPC connected' : state}
           </span>
         </div>
+      </section>
+
+      <section className="panel editor-shell">
+        <div className="editor-toolbar">
+          <div>
+            <p className="eyebrow">Editor spike</p>
+            <h2>Monaco file preview</h2>
+          </div>
+          <div className="editor-controls">
+            <label htmlFor="editor-file">Open file</label>
+            <select
+              id="editor-file"
+              onChange={(event) => setSelectedFile(event.target.value)}
+              value={selectedFile}
+            >
+              {EDITOR_SAMPLE_FILES.map((file) => (
+                <option key={file.relativePath} value={file.relativePath}>
+                  {file.label}
+                </option>
+              ))}
+            </select>
+            <span className={`status status-${editorState}`}>
+              {editorState === 'ready' ? 'File loaded' : editorState}
+            </span>
+          </div>
+        </div>
+
+        <p className="editor-path mono">
+          {editorDocument?.absolutePath ??
+            'Waiting for the selected file to load'}
+        </p>
+
+        <div className="editor-frame">
+          <Editor
+            height="520px"
+            loading="Booting Monaco..."
+            options={{
+              automaticLayout: true,
+              fontFamily: 'IBM Plex Mono',
+              fontSize: 13,
+              minimap: { enabled: false },
+              readOnly: true,
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+            }}
+            path={editorDocument?.relativePath ?? selectedFile}
+            theme="vs-dark"
+            value={editorDocument?.content ?? ''}
+          />
+        </div>
+
+        {editorError ? <p className="error-copy">{editorError}</p> : null}
       </section>
 
       <section className="grid">

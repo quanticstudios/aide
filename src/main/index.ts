@@ -5,6 +5,7 @@ import { BrowserWindow, app, ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../shared/ipc'
 import type { RuntimeSnapshot } from '../shared/runtime'
+import { readProjectFile } from './project-files'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -52,6 +53,9 @@ function createMainWindow(): BrowserWindow {
 
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
+  ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
+    readProjectFile(process.cwd(), relativePath),
+  )
 }
 
 app.whenReady().then(() => {
