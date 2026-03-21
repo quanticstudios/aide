@@ -4,14 +4,16 @@ This folder contains a build plan for a cross-platform, Electron-based coding sh
 
 ## What this package contains
 
-1. [`01-product-decisions.md`](./01-product-decisions.md) — fixed product decisions from the conversation
-2. [`02-architecture.md`](./02-architecture.md) — system design, data model, module boundaries
-3. [`03-roadmap-phases.md`](./03-roadmap-phases.md) — phased delivery plan, milestones, rough estimates
-4. [`04-ticket-backlog-foundations.md`](./04-ticket-backlog-foundations.md) — phases 0–2 tickets
-5. [`05-ticket-backlog-core-panes-and-ai.md`](./05-ticket-backlog-core-panes-and-ai.md) — phases 3–4 tickets
-6. [`06-ticket-backlog-notifications-multiwindow.md`](./06-ticket-backlog-notifications-multiwindow.md) — phases 5–6 tickets
-7. [`07-execution-order.md`](./07-execution-order.md) — strict order of execution, dependencies, critical path
-8. [`08-risks-cuts-open-questions.md`](./08-risks-cuts-open-questions.md) — risk register, cut lines, things to defer
+1. [`docs/01-product-decisions.md`](./docs/01-product-decisions.md) — fixed product decisions from discovery
+2. [`docs/02-architecture.md`](./docs/02-architecture.md) — system design, data model, module boundaries
+3. [`docs/03-roadmap-phases.md`](./docs/03-roadmap-phases.md) — phased delivery plan, milestones, rough estimates
+4. [`docs/04-ticket-backlog-foundations.md`](./docs/04-ticket-backlog-foundations.md) — phases 0–2 tickets
+5. [`docs/05-ticket-backlog-core-panes-and-ai.md`](./docs/05-ticket-backlog-core-panes-and-ai.md) — phases 3–4 tickets
+6. [`docs/06-ticket-backlog-notifications-multiwindow.md`](./docs/06-ticket-backlog-notifications-multiwindow.md) — phases 5–6 tickets
+7. [`docs/07-execution-order.md`](./docs/07-execution-order.md) — strict order of execution, dependencies, critical path
+8. [`docs/08-risks-cuts-open-questions.md`](./docs/08-risks-cuts-open-questions.md) — risk register, cut lines, things to defer
+9. [`docs/09-beads-execution-plan.md`](./docs/09-beads-execution-plan.md) — execution plan for beads, Bun, Vite, React Doctor, and Biome
+10. [`docs/decisions/README.md`](./docs/decisions/README.md) — accepted decision log and locked scope docs
 
 ## Product summary
 
