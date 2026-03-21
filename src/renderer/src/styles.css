@@ -1,3 +1,9 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
 :root {
   color-scheme: dark;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -23,7 +29,7 @@
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 button {
@@ -42,16 +48,30 @@ button:hover {
 }
 
 #root {
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 .shell {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 1.5rem;
+  height: 100%;
   margin: 0 auto;
   max-width: 1200px;
+  overflow: hidden;
   padding: 2rem;
+}
+
+.workspace-stage {
+  display: grid;
+  gap: 1rem;
+  grid-template-areas:
+    "navigation editor"
+    "details editor";
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(240px, auto);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .hero {
@@ -91,6 +111,10 @@ button:hover {
   margin-top: 1.5rem;
 }
 
+.compact-actions {
+  margin-top: 0;
+}
+
 .status {
   border: 1px solid rgba(132, 151, 183, 0.2);
   border-radius: 999px;
@@ -121,7 +145,7 @@ button:hover {
   background: rgba(8, 14, 27, 0.68);
   border: 1px solid rgba(132, 151, 183, 0.16);
   border-radius: 24px;
-  min-height: 180px;
+  min-height: 0;
   padding: 1.4rem;
 }
 
@@ -130,7 +154,18 @@ button:hover {
 }
 
 .editor-shell {
+  display: flex;
+  flex-direction: column;
+  grid-area: editor;
   min-height: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.navigation-shell {
+  grid-area: navigation;
+  min-height: auto;
+  overflow: auto;
 }
 
 .editor-toolbar {
@@ -172,6 +207,8 @@ button:hover {
 .editor-frame {
   border: 1px solid rgba(132, 151, 183, 0.16);
   border-radius: 18px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -182,6 +219,48 @@ button:hover {
 
 .panel-error {
   border-color: rgba(255, 143, 143, 0.32);
+}
+
+.nested-panel {
+  background: rgba(10, 17, 31, 0.78);
+  min-height: auto;
+}
+
+.small-copy {
+  font-size: 0.95rem;
+}
+
+.storage-grid {
+  margin-top: 1rem;
+  grid-template-columns: 1fr;
+}
+
+.details-grid {
+  grid-area: details;
+  min-height: 0;
+  overflow: auto;
+}
+
+.record-list {
+  display: grid;
+  gap: 0.9rem;
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.record-list li {
+  border: 1px solid rgba(132, 151, 183, 0.14);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.9rem;
+}
+
+.record-list strong,
+.panel h3 {
+  margin: 0;
 }
 
 .panel dl {
@@ -219,12 +298,31 @@ button:hover {
 }
 
 @media (max-width: 900px) {
+  body,
+  #root,
+  .shell,
+  .workspace-stage {
+    overflow: auto;
+  }
+
   .shell {
+    display: flex;
+    height: auto;
+    min-height: 100vh;
     padding: 1rem;
+  }
+
+  .workspace-stage {
+    display: flex;
+    flex-direction: column;
   }
 
   .editor-toolbar {
     flex-direction: column;
+  }
+
+  .editor-shell {
+    min-height: 560px;
   }
 
   .panel-primary {

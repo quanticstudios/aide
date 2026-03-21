@@ -4,10 +4,17 @@ import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../shared/ipc'
+import type {
+  CreateProjectInput,
+  CreateWorkspaceInput,
+} from '../shared/persistence'
 import type { RuntimeSnapshot } from '../shared/runtime'
+import { createAideDatabase } from './database'
 import { readProjectFile } from './project-files'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const database = createAideDatabase(path.join(process.cwd(), '.aide.sqlite3'))
 
 function createRuntimeSnapshot(): RuntimeSnapshot {
   return {
@@ -52,7 +59,22 @@ function createMainWindow(): BrowserWindow {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
+  ipcMain.handle(
+    IPC_CHANNELS.createProject,
+    (_event, input: CreateProjectInput) => {
+      database.createProject(input)
+      return database.getSnapshot()
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.createWorkspace,
+    (_event, input: CreateWorkspaceInput) => {
+      database.createWorkspace(input)
+      return database.getSnapshot()
+    },
+  )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
     readProjectFile(process.cwd(), relativePath),
   )
@@ -71,6 +93,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    database.close()
     app.quit()
   }
 })
