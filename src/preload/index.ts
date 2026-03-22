@@ -11,6 +11,8 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   readProjectFile: (relativePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, relativePath),
+  setActiveSelection: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
 }
 
 contextBridge.exposeInMainWorld('aide', aideApi)

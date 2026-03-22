@@ -50,6 +50,18 @@ export function resolveShellSelection(
   }
 }
 
+export function resolveBootSelection(
+  snapshot: PersistenceSnapshot,
+  activeProjectId: string | null,
+  activeWorkspaceId: string | null,
+): ShellSelection {
+  return resolveShellSelection(
+    snapshot,
+    activeProjectId ?? snapshot.lastActiveProjectId,
+    activeWorkspaceId ?? snapshot.lastActiveWorkspaceId,
+  )
+}
+
 export function selectProject(
   snapshot: PersistenceSnapshot,
   projectId: string,

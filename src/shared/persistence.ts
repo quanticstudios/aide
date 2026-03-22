@@ -21,10 +21,17 @@ export interface WorkspaceRecord {
 
 export interface PersistenceSnapshot {
   databasePath: string
+  lastActiveProjectId: string | null
+  lastActiveWorkspaceId: string | null
   migrationStrategy: string
   schemaVersion: number
   projects: ProjectRecord[]
   workspaces: WorkspaceRecord[]
+}
+
+export interface SetActiveSelectionInput {
+  projectId: string | null
+  workspaceId: string | null
 }
 
 export interface CreateProjectInput {

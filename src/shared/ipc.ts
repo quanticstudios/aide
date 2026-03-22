@@ -3,6 +3,7 @@ import type {
   CreateProjectInput,
   CreateWorkspaceInput,
   PersistenceSnapshot,
+  SetActiveSelectionInput,
 } from './persistence'
 import type { RuntimeSnapshot } from './runtime'
 
@@ -12,6 +13,7 @@ export const IPC_CHANNELS = {
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
+  setActiveSelection: 'storage:set-active-selection',
 } as const
 
 export interface AideApi {
@@ -20,4 +22,5 @@ export interface AideApi {
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
+  setActiveSelection: (input: SetActiveSelectionInput) => Promise<void>
 }

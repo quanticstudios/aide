@@ -6,6 +6,7 @@ import type {
   CreateWorkspaceInput,
   PersistenceSnapshot,
   ProjectRecord,
+  SetActiveSelectionInput,
   UpdateProjectInput,
   UpdateWorkspaceInput,
   WorkspaceRecord,
@@ -30,6 +31,11 @@ interface SqlWorkspaceRow {
   updated_at: string
   window_id: string | null
   worktree_path: string
+}
+
+interface SqlAppStateRow {
+  last_active_project_id: string | null
+  last_active_workspace_id: string | null
 }
 
 const MIGRATION_STRATEGY =
@@ -63,6 +69,21 @@ const MIGRATIONS = [
 
       CREATE INDEX IF NOT EXISTS idx_workspaces_project_id
       ON workspaces(project_id);
+    `,
+  },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        last_active_project_id TEXT,
+        last_active_workspace_id TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO app_state (id, last_active_project_id, last_active_workspace_id, updated_at)
+      VALUES (1, NULL, NULL, CURRENT_TIMESTAMP)
+      ON CONFLICT(id) DO NOTHING;
     `,
   },
 ]
@@ -319,13 +340,29 @@ export class AideDatabase {
   }
 
   public getSnapshot(): PersistenceSnapshot {
+    const activeSelection = this.getActiveSelection()
+
     return {
       databasePath: this.databasePath,
+      lastActiveProjectId: activeSelection.projectId,
+      lastActiveWorkspaceId: activeSelection.workspaceId,
       migrationStrategy: MIGRATION_STRATEGY,
       schemaVersion: this.getSchemaVersion(),
       projects: this.listProjects(),
       workspaces: this.listWorkspaces(),
     }
+  }
+
+  public setActiveSelection(input: SetActiveSelectionInput): void {
+    this.database
+      .prepare(
+        `
+          UPDATE app_state
+          SET last_active_project_id = ?, last_active_workspace_id = ?, updated_at = ?
+          WHERE id = 1
+        `,
+      )
+      .run(input.projectId, input.workspaceId, new Date().toISOString())
   }
 
   private getSchemaVersion(): number {
@@ -334,6 +371,23 @@ export class AideDatabase {
     }
 
     return row.user_version
+  }
+
+  private getActiveSelection(): SetActiveSelectionInput {
+    const row = this.database
+      .prepare(
+        `
+          SELECT last_active_project_id, last_active_workspace_id
+          FROM app_state
+          WHERE id = 1
+        `,
+      )
+      .get() as SqlAppStateRow | undefined
+
+    return {
+      projectId: row?.last_active_project_id ?? null,
+      workspaceId: row?.last_active_workspace_id ?? null,
+    }
   }
 
   private mapProjectRow(row: SqlProjectRow): ProjectRecord {

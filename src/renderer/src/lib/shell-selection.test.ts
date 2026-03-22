@@ -6,6 +6,7 @@ import type {
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import {
+  resolveBootSelection,
   resolveShellSelection,
   selectLatestProject,
   selectLatestWorkspace,
@@ -47,8 +48,10 @@ function createSnapshot(
 ): PersistenceSnapshot {
   return {
     databasePath: '.aide.sqlite3',
+    lastActiveProjectId: null,
+    lastActiveWorkspaceId: null,
     migrationStrategy: 'test',
-    schemaVersion: 1,
+    schemaVersion: 2,
     projects,
     workspaces,
   }
@@ -106,6 +109,46 @@ describe('resolveShellSelection', () => {
     expect(resolveShellSelection(snapshot, '2', '1')).toEqual({
       activeProjectId: '2',
       activeWorkspaceId: null,
+    })
+  })
+})
+
+describe('resolveBootSelection', () => {
+  it('restores the stored selection when local state is empty', () => {
+    const snapshot = {
+      ...createSnapshot(
+        [createProject('1', 'alpha'), createProject('2', 'beta')],
+        [
+          createWorkspace('1', '1', 'alpha-one'),
+          createWorkspace('2', '2', 'beta-one'),
+        ],
+      ),
+      lastActiveProjectId: '2',
+      lastActiveWorkspaceId: '2',
+    }
+
+    expect(resolveBootSelection(snapshot, null, null)).toEqual({
+      activeProjectId: '2',
+      activeWorkspaceId: '2',
+    })
+  })
+
+  it('prefers current in-memory selection over stored restore state', () => {
+    const snapshot = {
+      ...createSnapshot(
+        [createProject('1', 'alpha'), createProject('2', 'beta')],
+        [
+          createWorkspace('1', '1', 'alpha-one'),
+          createWorkspace('2', '2', 'beta-one'),
+        ],
+      ),
+      lastActiveProjectId: '2',
+      lastActiveWorkspaceId: '2',
+    }
+
+    expect(resolveBootSelection(snapshot, '1', '1')).toEqual({
+      activeProjectId: '1',
+      activeWorkspaceId: '1',
     })
   })
 })

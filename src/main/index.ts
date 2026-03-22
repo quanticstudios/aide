@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '../shared/ipc'
 import type {
   CreateProjectInput,
   CreateWorkspaceInput,
+  SetActiveSelectionInput,
 } from '../shared/persistence'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import { createAideDatabase } from './database'
@@ -73,6 +74,12 @@ function registerIpcHandlers(): void {
     (_event, input: CreateWorkspaceInput) => {
       database.createWorkspace(input)
       return database.getSnapshot()
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.setActiveSelection,
+    (_event, input: SetActiveSelectionInput) => {
+      database.setActiveSelection(input)
     },
   )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>

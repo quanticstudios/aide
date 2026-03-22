@@ -8,10 +8,12 @@ describe('createAideDatabase', () => {
 
     expect(database.getSnapshot()).toMatchObject({
       databasePath: ':memory:',
+      lastActiveProjectId: null,
+      lastActiveWorkspaceId: null,
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 1,
+      schemaVersion: 2,
       workspaces: [],
     })
 
@@ -146,6 +148,35 @@ describe('createAideDatabase', () => {
     expect(database.getWorkspace('missing')).toBeNull()
     expect(database.updateWorkspace('missing', { name: 'ignored' })).toBeNull()
     expect(database.deleteWorkspace('missing')).toBe(false)
+
+    database.close()
+  })
+
+  it('persists the last active project and workspace selection', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'feature/nav',
+      name: 'Navigation shell',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide/.worktrees/navigation',
+    })
+
+    database.setActiveSelection({
+      projectId: project.id,
+      workspaceId: workspace.id,
+    })
+
+    expect(database.getSnapshot()).toMatchObject({
+      lastActiveProjectId: project.id,
+      lastActiveWorkspaceId: workspace.id,
+    })
 
     database.close()
   })

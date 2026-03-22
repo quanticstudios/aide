@@ -5,7 +5,7 @@ import type { PersistenceSnapshot } from '../../shared/persistence'
 import AppShell from './components/AppShell'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import {
-  resolveShellSelection,
+  resolveBootSelection,
   selectLatestProject,
   selectLatestWorkspace,
   selectProject,
@@ -50,7 +50,7 @@ export default function App() {
 
     try {
       const snapshot = await api.getStorageSnapshot()
-      const selection = resolveShellSelection(
+      const selection = resolveBootSelection(
         snapshot,
         activeProjectId,
         activeWorkspaceId,
@@ -135,6 +135,23 @@ export default function App() {
   useEffect(() => {
     void refreshStorage()
   }, [refreshStorage])
+
+  useEffect(() => {
+    const api = getAideApi()
+
+    if (!api || !storageSnapshot) {
+      return
+    }
+
+    void api
+      .setActiveSelection({
+        projectId: activeProjectId,
+        workspaceId: activeWorkspaceId,
+      })
+      .catch((error: unknown) => {
+        setShellError(getErrorMessage(error))
+      })
+  }, [activeProjectId, activeWorkspaceId, storageSnapshot])
 
   const handleProjectSelection = useCallback(
     (projectId: string) => {
