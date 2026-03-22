@@ -36,12 +36,12 @@ function createMainWindow(): BrowserWindow {
     minWidth: 1100,
     minHeight: 720,
     show: false,
-    backgroundColor: '#0c1222',
+    backgroundColor: '#18181b',
     title: 'aide',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/index.mjs'),
     },
   })
 

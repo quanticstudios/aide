@@ -1,331 +1,140 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Always-dark Electron shell: set theme vars directly on :root */
+:root {
+  color-scheme: dark;
+  --radius: 0.5rem;
+
+  /* Core */
+  --background: #111114;
+  --foreground: #f4f4f5;
+
+  /* Surfaces */
+  --card: #16161a;
+  --card-foreground: #f4f4f5;
+  --popover: #16161a;
+  --popover-foreground: #f4f4f5;
+
+  /* Primary = teal accent */
+  --primary: #5cb89a;
+  --primary-foreground: #111114;
+
+  /* Secondary */
+  --secondary: #222228;
+  --secondary-foreground: #f4f4f5;
+
+  /* Muted */
+  --muted: #222228;
+  --muted-foreground: #a1a1aa;
+
+  /* Accent */
+  --accent: #1a1a1f;
+  --accent-foreground: #f4f4f5;
+
+  /* Destructive */
+  --destructive: #f87171;
+  --destructive-foreground: #111114;
+
+  /* Borders & rings */
+  --border: #2a2a31;
+  --input: #2a2a31;
+  --ring: #5cb89a;
+
+  /* Sidebar */
+  --sidebar: #111114;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #5cb89a;
+  --sidebar-primary-foreground: #111114;
+  --sidebar-accent: #1a1a1f;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: #222228;
+  --sidebar-ring: #5cb89a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ── Base resets ──────────────────────────────── */
+
 html,
 body,
 #root {
   height: 100%;
 }
 
-:root {
-  color-scheme: dark;
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  background: radial-gradient(
-      circle at top left,
-      rgba(83, 191, 167, 0.2),
-      transparent 30%
-    ),
-    radial-gradient(
-      circle at top right,
-      rgba(238, 163, 90, 0.18),
-      transparent 28%
-    ), linear-gradient(180deg, #0c1222 0%, #0a0f1b 100%);
-  color: #edf3ff;
-}
-
-* {
-  box-sizing: border-box;
-}
-
 body {
   margin: 0;
   min-width: 320px;
   overflow: hidden;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: var(--background);
+  color: var(--foreground);
 }
 
-button {
-  border: 0;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #67d6bb 0%, #2aa3ff 100%);
-  color: #07111d;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 600;
-  padding: 0.8rem 1.2rem;
+/* ── Glass sidebar ────────────────────────────── */
+
+[data-state="expanded"] [data-sidebar="sidebar"] {
+  background: rgba(17, 17, 20, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
-button:hover {
-  filter: brightness(1.05);
+/* ── Active sidebar item — teal left border ──── */
+
+[data-sidebar="menu-button"][data-active="true"] {
+  box-shadow: inset 2px 0 0 var(--primary);
+  background: rgba(92, 184, 154, 0.06);
 }
 
-#root {
-  overflow: hidden;
+/* ── Sidebar hover — luminous ────────────────── */
+
+[data-sidebar="menu-button"]:hover {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
-.shell {
+/* ── Editor pane ─────────────────────────────── */
+
+.editor-pane {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 1.5rem;
   height: 100%;
-  margin: 0 auto;
-  max-width: 1200px;
-  overflow: hidden;
-  padding: 2rem;
-}
-
-.workspace-stage {
-  display: grid;
-  gap: 1rem;
-  grid-template-areas:
-    "navigation editor"
-    "details editor";
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) minmax(240px, auto);
-  min-height: 0;
-  overflow: hidden;
-}
-
-.hero {
-  backdrop-filter: blur(18px);
-  background: rgba(8, 14, 27, 0.72);
-  border: 1px solid rgba(132, 151, 183, 0.18);
-  border-radius: 28px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-  padding: 1.8rem;
-}
-
-.eyebrow {
-  color: #67d6bb;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  margin: 0 0 0.75rem;
-  text-transform: uppercase;
-}
-
-.hero h1,
-.panel h2 {
-  margin: 0;
-}
-
-.lede {
-  color: #c0d0eb;
-  margin: 0.85rem 0 0;
-  max-width: 60ch;
-}
-
-.actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.85rem;
-  margin-top: 1.5rem;
-}
-
-.compact-actions {
-  margin-top: 0;
-}
-
-.status {
-  border: 1px solid rgba(132, 151, 183, 0.2);
-  border-radius: 999px;
-  color: #c0d0eb;
-  padding: 0.55rem 0.85rem;
-}
-
-.status-ready {
-  color: #67d6bb;
-}
-
-.status-error {
-  color: #ff8f8f;
-}
-
-.status-loading,
-.status-idle {
-  color: #ffd587;
-}
-
-.grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-}
-
-.panel {
-  background: rgba(8, 14, 27, 0.68);
-  border: 1px solid rgba(132, 151, 183, 0.16);
-  border-radius: 24px;
-  min-height: 0;
-  padding: 1.4rem;
-}
-
-.panel-primary {
-  grid-column: span 2;
-}
-
-.editor-shell {
-  display: flex;
-  flex-direction: column;
-  grid-area: editor;
-  min-height: auto;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.navigation-shell {
-  grid-area: navigation;
-  min-height: auto;
-  overflow: auto;
-}
-
-.editor-toolbar {
-  align-items: flex-start;
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.editor-controls {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-}
-
-.editor-controls label {
-  color: #8ea5c8;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-}
-
-.editor-controls select {
-  appearance: none;
-  background: rgba(10, 17, 31, 0.9);
-  border: 1px solid rgba(132, 151, 183, 0.2);
-  border-radius: 999px;
-  color: #edf3ff;
-  font: inherit;
-  padding: 0.65rem 1rem;
-}
-
-.editor-path {
-  color: #8ea5c8;
-  margin: 0 0 1rem;
+  width: 100%;
 }
 
 .editor-frame {
-  border: 1px solid rgba(132, 151, 183, 0.16);
-  border-radius: 18px;
-  flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.error-copy {
-  color: #ff8f8f;
-  margin-top: 1rem;
-}
-
-.panel-error {
-  border-color: rgba(255, 143, 143, 0.32);
-}
-
-.nested-panel {
-  background: rgba(10, 17, 31, 0.78);
-  min-height: auto;
-}
-
-.small-copy {
-  font-size: 0.95rem;
-}
-
-.storage-grid {
-  margin-top: 1rem;
-  grid-template-columns: 1fr;
-}
-
-.details-grid {
-  grid-area: details;
-  min-height: 0;
-  overflow: auto;
-}
-
-.record-list {
-  display: grid;
-  gap: 0.9rem;
-  list-style: none;
-  margin: 1rem 0 0;
-  padding: 0;
-}
-
-.record-list li {
-  border: 1px solid rgba(132, 151, 183, 0.14);
-  border-radius: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.9rem;
-}
-
-.record-list strong,
-.panel h3 {
-  margin: 0;
-}
-
-.panel dl {
-  display: grid;
-  gap: 0.9rem;
-  margin: 1rem 0 0;
-}
-
-.panel dl div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.panel dt {
-  color: #8ea5c8;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-}
-
-.panel dd,
-.panel p,
-.panel li {
-  margin: 0;
-}
-
-.panel ul {
-  margin: 1rem 0 0;
-  padding-left: 1.1rem;
-}
-
-.mono {
-  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-  word-break: break-all;
-}
-
-@media (max-width: 900px) {
-  body,
-  #root,
-  .shell,
-  .workspace-stage {
-    overflow: auto;
-  }
-
-  .shell {
-    display: flex;
-    height: auto;
-    min-height: 100vh;
-    padding: 1rem;
-  }
-
-  .workspace-stage {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .editor-toolbar {
-    flex-direction: column;
-  }
-
-  .editor-shell {
-    min-height: 560px;
-  }
-
-  .panel-primary {
-    grid-column: span 1;
-  }
 }
