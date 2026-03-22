@@ -7,6 +7,7 @@ import type {
   PersistenceSnapshot,
   ProjectRecord,
   UpdateProjectInput,
+  UpdateWorkspaceInput,
   WorkspaceRecord,
 } from '../shared/persistence'
 
@@ -232,6 +233,91 @@ export class AideDatabase {
     return workspace
   }
 
+  public deleteWorkspace(workspaceId: string): boolean {
+    const result = this.database
+      .prepare(
+        `
+          DELETE FROM workspaces
+          WHERE id = ?
+        `,
+      )
+      .run(workspaceId) as { changes: number }
+
+    return result.changes > 0
+  }
+
+  public getWorkspace(workspaceId: string): WorkspaceRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          FROM workspaces
+          WHERE id = ?
+        `,
+      )
+      .get(workspaceId) as SqlWorkspaceRow | undefined
+
+    return row ? this.mapWorkspaceRow(row) : null
+  }
+
+  public listWorkspaces(): WorkspaceRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          FROM workspaces
+          ORDER BY created_at ASC
+        `,
+      )
+      .all() as unknown as SqlWorkspaceRow[]
+
+    return rows.map((row) => this.mapWorkspaceRow(row))
+  }
+
+  public updateWorkspace(
+    workspaceId: string,
+    input: UpdateWorkspaceInput,
+  ): WorkspaceRecord | null {
+    const existingWorkspace = this.getWorkspace(workspaceId)
+
+    if (!existingWorkspace) {
+      return null
+    }
+
+    const updatedWorkspace: WorkspaceRecord = {
+      ...existingWorkspace,
+      branchName: input.branchName ?? existingWorkspace.branchName,
+      name: input.name ?? existingWorkspace.name,
+      projectId: input.projectId ?? existingWorkspace.projectId,
+      windowId:
+        input.windowId !== undefined
+          ? input.windowId
+          : existingWorkspace.windowId,
+      worktreePath: input.worktreePath ?? existingWorkspace.worktreePath,
+      updatedAt: new Date().toISOString(),
+    }
+
+    this.database
+      .prepare(
+        `
+          UPDATE workspaces
+          SET project_id = ?, name = ?, branch_name = ?, worktree_path = ?, window_id = ?, updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        updatedWorkspace.projectId,
+        updatedWorkspace.name,
+        updatedWorkspace.branchName,
+        updatedWorkspace.worktreePath,
+        updatedWorkspace.windowId,
+        updatedWorkspace.updatedAt,
+        workspaceId,
+      )
+
+    return this.getWorkspace(workspaceId)
+  }
+
   public getSnapshot(): PersistenceSnapshot {
     return {
       databasePath: this.databasePath,
@@ -262,18 +348,8 @@ export class AideDatabase {
     }
   }
 
-  private listWorkspaces(): WorkspaceRecord[] {
-    const rows = this.database
-      .prepare(
-        `
-          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
-          FROM workspaces
-          ORDER BY created_at ASC
-        `,
-      )
-      .all() as unknown as SqlWorkspaceRow[]
-
-    return rows.map((row) => ({
+  private mapWorkspaceRow(row: SqlWorkspaceRow): WorkspaceRecord {
+    return {
       id: row.id,
       name: row.name,
       projectId: row.project_id,
@@ -282,7 +358,7 @@ export class AideDatabase {
       windowId: row.window_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    }))
+    }
   }
 
   private runMigrations(): void {

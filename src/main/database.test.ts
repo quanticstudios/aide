@@ -88,4 +88,65 @@ describe('createAideDatabase', () => {
 
     database.close()
   })
+
+  it('supports workspace CRUD operations with project linkage', () => {
+    const database = createAideDatabase(':memory:')
+    const firstProject = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const secondProject = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide-next',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide-next',
+    })
+
+    const createdWorkspace = database.createWorkspace({
+      branchName: 'feature/nav',
+      name: 'Navigation shell',
+      projectId: firstProject.id,
+      windowId: null,
+      worktreePath: '/workspace/aide/.worktrees/navigation',
+    })
+
+    expect(database.listWorkspaces()).toEqual([createdWorkspace])
+    expect(database.getWorkspace(createdWorkspace.id)).toEqual(createdWorkspace)
+
+    const updatedWorkspace = database.updateWorkspace(createdWorkspace.id, {
+      branchName: 'feature/nav-2',
+      name: 'Navigation shell v2',
+      projectId: secondProject.id,
+      windowId: 'window-1',
+      worktreePath: '/workspace/aide-next/.worktrees/navigation-2',
+    })
+
+    expect(updatedWorkspace).toMatchObject({
+      branchName: 'feature/nav-2',
+      id: createdWorkspace.id,
+      name: 'Navigation shell v2',
+      projectId: secondProject.id,
+      windowId: 'window-1',
+      worktreePath: '/workspace/aide-next/.worktrees/navigation-2',
+    })
+    expect(database.getSnapshot().workspaces).toEqual([updatedWorkspace])
+
+    expect(database.deleteWorkspace(createdWorkspace.id)).toBe(true)
+    expect(database.getWorkspace(createdWorkspace.id)).toBeNull()
+    expect(database.listWorkspaces()).toEqual([])
+
+    database.close()
+  })
+
+  it('returns null or false when workspace records are missing', () => {
+    const database = createAideDatabase(':memory:')
+
+    expect(database.getWorkspace('missing')).toBeNull()
+    expect(database.updateWorkspace('missing', { name: 'ignored' })).toBeNull()
+    expect(database.deleteWorkspace('missing')).toBe(false)
+
+    database.close()
+  })
 })

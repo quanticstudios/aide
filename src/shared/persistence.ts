@@ -48,3 +48,11 @@ export interface CreateWorkspaceInput {
   windowId: string | null
   worktreePath: string
 }
+
+export interface UpdateWorkspaceInput {
+  branchName?: string
+  name?: string
+  projectId?: string
+  windowId?: string | null
+  worktreePath?: string
+}
