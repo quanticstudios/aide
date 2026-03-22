@@ -10,6 +10,7 @@ import {
   selectLatestWorkspace,
   selectProject,
 } from './lib/shell-selection'
+import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -35,10 +36,13 @@ export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
-    null,
+  const activeProjectId = useWorkspaceSelectionStore(
+    (state) => state.activeProjectId,
   )
+  const activeWorkspaceId = useWorkspaceSelectionStore(
+    (state) => state.activeWorkspaceId,
+  )
+  const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
 
   const refreshStorage = useCallback(async () => {
     const api = getAideApi()
@@ -57,13 +61,12 @@ export default function App() {
       )
 
       setStorageSnapshot(snapshot)
-      setActiveProjectId(selection.activeProjectId)
-      setActiveWorkspaceId(selection.activeWorkspaceId)
+      setSelection(selection)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
-  }, [activeProjectId, activeWorkspaceId])
+  }, [activeProjectId, activeWorkspaceId, setSelection])
 
   const createProject = useCallback(async () => {
     const api = getAideApi()
@@ -84,13 +87,12 @@ export default function App() {
       const selection = selectLatestProject(snapshot)
 
       setStorageSnapshot(snapshot)
-      setActiveProjectId(selection.activeProjectId)
-      setActiveWorkspaceId(selection.activeWorkspaceId)
+      setSelection(selection)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
-  }, [])
+  }, [setSelection])
 
   const createWorkspace = useCallback(async () => {
     const api = getAideApi()
@@ -124,13 +126,12 @@ export default function App() {
       const selection = selectLatestWorkspace(snapshot, activeProjectId)
 
       setStorageSnapshot(snapshot)
-      setActiveProjectId(selection.activeProjectId)
-      setActiveWorkspaceId(selection.activeWorkspaceId)
+      setSelection(selection)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
-  }, [activeProjectId, storageSnapshot])
+  }, [activeProjectId, setSelection, storageSnapshot])
 
   useEffect(() => {
     void refreshStorage()
@@ -156,17 +157,18 @@ export default function App() {
   const handleProjectSelection = useCallback(
     (projectId: string) => {
       if (!storageSnapshot) {
-        setActiveProjectId(projectId)
-        setActiveWorkspaceId(null)
+        setSelection({
+          activeProjectId: projectId,
+          activeWorkspaceId: null,
+        })
         return
       }
 
       const selection = selectProject(storageSnapshot, projectId)
 
-      setActiveProjectId(selection.activeProjectId)
-      setActiveWorkspaceId(selection.activeWorkspaceId)
+      setSelection(selection)
     },
-    [storageSnapshot],
+    [setSelection, storageSnapshot],
   )
 
   const handleWorkspaceSelection = useCallback(
@@ -179,10 +181,12 @@ export default function App() {
         return
       }
 
-      setActiveProjectId(workspace.projectId)
-      setActiveWorkspaceId(workspace.id)
+      setSelection({
+        activeProjectId: workspace.projectId,
+        activeWorkspaceId: workspace.id,
+      })
     },
-    [storageSnapshot],
+    [setSelection, storageSnapshot],
   )
 
   const projects = storageSnapshot?.projects ?? []
