@@ -43,4 +43,49 @@ describe('createAideDatabase', () => {
 
     database.close()
   })
+
+  it('supports project CRUD operations', () => {
+    const database = createAideDatabase(':memory:')
+
+    const createdProject = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: 'https://github.com/example/aide',
+      repoRoot: '/workspace/aide',
+    })
+
+    expect(database.listProjects()).toEqual([createdProject])
+    expect(database.getProject(createdProject.id)).toEqual(createdProject)
+
+    const updatedProject = database.updateProject(createdProject.id, {
+      defaultBranch: 'develop',
+      name: 'aide-desktop',
+      remoteUrl: null,
+    })
+
+    expect(updatedProject).toMatchObject({
+      defaultBranch: 'develop',
+      id: createdProject.id,
+      name: 'aide-desktop',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    expect(database.getSnapshot().projects).toEqual([updatedProject])
+
+    expect(database.deleteProject(createdProject.id)).toBe(true)
+    expect(database.getProject(createdProject.id)).toBeNull()
+    expect(database.listProjects()).toEqual([])
+
+    database.close()
+  })
+
+  it('returns null or false when project records are missing', () => {
+    const database = createAideDatabase(':memory:')
+
+    expect(database.getProject('missing')).toBeNull()
+    expect(database.updateProject('missing', { name: 'ignored' })).toBeNull()
+    expect(database.deleteProject('missing')).toBe(false)
+
+    database.close()
+  })
 })

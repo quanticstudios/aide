@@ -6,6 +6,7 @@ import type {
   CreateWorkspaceInput,
   PersistenceSnapshot,
   ProjectRecord,
+  UpdateProjectInput,
   WorkspaceRecord,
 } from '../shared/persistence'
 
@@ -114,6 +115,89 @@ export class AideDatabase {
     return project
   }
 
+  public deleteProject(projectId: string): boolean {
+    const result = this.database
+      .prepare(
+        `
+          DELETE FROM projects
+          WHERE id = ?
+        `,
+      )
+      .run(projectId) as { changes: number }
+
+    return result.changes > 0
+  }
+
+  public getProject(projectId: string): ProjectRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          FROM projects
+          WHERE id = ?
+        `,
+      )
+      .get(projectId) as SqlProjectRow | undefined
+
+    return row ? this.mapProjectRow(row) : null
+  }
+
+  public listProjects(): ProjectRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          FROM projects
+          ORDER BY created_at ASC
+        `,
+      )
+      .all() as unknown as SqlProjectRow[]
+
+    return rows.map((row) => this.mapProjectRow(row))
+  }
+
+  public updateProject(
+    projectId: string,
+    input: UpdateProjectInput,
+  ): ProjectRecord | null {
+    const existingProject = this.getProject(projectId)
+
+    if (!existingProject) {
+      return null
+    }
+
+    const updatedProject: ProjectRecord = {
+      ...existingProject,
+      defaultBranch: input.defaultBranch ?? existingProject.defaultBranch,
+      name: input.name ?? existingProject.name,
+      remoteUrl:
+        input.remoteUrl !== undefined
+          ? input.remoteUrl
+          : existingProject.remoteUrl,
+      repoRoot: input.repoRoot ?? existingProject.repoRoot,
+      updatedAt: new Date().toISOString(),
+    }
+
+    this.database
+      .prepare(
+        `
+          UPDATE projects
+          SET name = ?, repo_root = ?, remote_url = ?, default_branch = ?, updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        updatedProject.name,
+        updatedProject.repoRoot,
+        updatedProject.remoteUrl,
+        updatedProject.defaultBranch,
+        updatedProject.updatedAt,
+        projectId,
+      )
+
+    return this.getProject(projectId)
+  }
+
   public createWorkspace(input: CreateWorkspaceInput): WorkspaceRecord {
     const now = new Date().toISOString()
     const workspace: WorkspaceRecord = {
@@ -166,18 +250,8 @@ export class AideDatabase {
     return row.user_version
   }
 
-  private listProjects(): ProjectRecord[] {
-    const rows = this.database
-      .prepare(
-        `
-          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
-          FROM projects
-          ORDER BY created_at ASC
-        `,
-      )
-      .all() as unknown as SqlProjectRow[]
-
-    return rows.map((row) => ({
+  private mapProjectRow(row: SqlProjectRow): ProjectRecord {
+    return {
       id: row.id,
       name: row.name,
       repoRoot: row.repo_root,
@@ -185,7 +259,7 @@ export class AideDatabase {
       defaultBranch: row.default_branch,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    }))
+    }
   }
 
   private listWorkspaces(): WorkspaceRecord[] {

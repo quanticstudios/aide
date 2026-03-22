@@ -34,6 +34,13 @@ export interface CreateProjectInput {
   repoRoot: string
 }
 
+export interface UpdateProjectInput {
+  defaultBranch?: string
+  name?: string
+  remoteUrl?: string | null
+  repoRoot?: string
+}
+
 export interface CreateWorkspaceInput {
   branchName: string
   name: string
