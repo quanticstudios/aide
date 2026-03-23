@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { AideApi } from '../../shared/ipc'
-import type { PersistenceSnapshot } from '../../shared/persistence'
+import type {
+  CreateProjectInput,
+  PersistenceSnapshot,
+} from '../../shared/persistence'
 import AppShell from './components/AppShell'
+import ProjectCreationModal from './components/ProjectCreationModal'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
@@ -12,6 +16,7 @@ import {
   resolveWorkspacePaneId,
   selectRelativePane,
 } from './lib/navigation-poc'
+import { createProjectDraftValues } from './lib/project-draft'
 import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
   resolveBootSelection,
@@ -38,10 +43,6 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown renderer error'
 }
 
-function getPathLeaf(pathValue: string): string {
-  return pathValue.split(/[/\\]/).filter(Boolean).at(-1) ?? 'project'
-}
-
 function shouldIgnoreGlobalNavigation(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false
@@ -56,6 +57,9 @@ export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
+  const [isProjectCreationOpen, setIsProjectCreationOpen] = useState(false)
+  const [projectCreationDefaults, setProjectCreationDefaults] =
+    useState<ReturnType<typeof createProjectDraftValues> | null>(null)
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
@@ -142,24 +146,41 @@ export default function App() {
 
     try {
       const runtimeSnapshot = await api.getRuntimeSnapshot()
-      const snapshot = await api.createProject({
-        name: getPathLeaf(runtimeSnapshot.workingDirectory),
-        repoRoot: runtimeSnapshot.workingDirectory,
-        remoteUrl: null,
-        defaultBranch: 'main',
-      })
-      const selection = selectLatestProject(snapshot)
-
-      setStorageSnapshot(snapshot)
-      setSelection({
-        ...selection,
-        activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-      })
-      setShellError(null)
+      setProjectCreationDefaults(
+        createProjectDraftValues(runtimeSnapshot.workingDirectory),
+      )
+      setIsProjectCreationOpen(true)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
-  }, [resolveRememberedPaneId, setSelection])
+  }, [])
+
+  const submitProjectCreation = useCallback(
+    async (input: CreateProjectInput) => {
+      const api = getAideApi()
+
+      if (!api) {
+        return 'Desktop bridge did not load. Reload the app window.'
+      }
+
+      try {
+        const snapshot = await api.createProject(input)
+        const selection = selectLatestProject(snapshot)
+
+        setStorageSnapshot(snapshot)
+        setSelection({
+          ...selection,
+          activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
+        })
+        setShellError(null)
+        setIsProjectCreationOpen(false)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [resolveRememberedPaneId, setSelection],
+  )
 
   const createWorkspace = useCallback(() => {
     if (!activeProjectId) {
@@ -446,6 +467,12 @@ export default function App() {
       projects={projects}
     >
       <>
+        <ProjectCreationModal
+          defaults={projectCreationDefaults}
+          isOpen={isProjectCreationOpen}
+          onOpenChange={setIsProjectCreationOpen}
+          onSubmit={submitProjectCreation}
+        />
         <WorkspaceCreationModal
           isOpen={isWorkspaceCreationOpen}
           onOpenChange={setIsWorkspaceCreationOpen}
