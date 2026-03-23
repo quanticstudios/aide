@@ -10,12 +10,29 @@ import type {
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import type { RuntimeSnapshot } from '../shared/runtime'
+import type {
+  TerminalResizeInput,
+  TerminalSessionConfig,
+} from '../shared/terminal'
 import { createAideDatabase } from './database'
 import { readProjectFile } from './project-files'
+import { TerminalSessionManager } from './terminal-session-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const database = createAideDatabase(path.join(process.cwd(), '.aide.sqlite3'))
+const terminalSessionManager = new TerminalSessionManager({
+  onEvent: (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.terminalEvent, event)
+    }
+  },
+})
+
+if (process.platform === 'linux') {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-gpu')
+}
 
 function createRuntimeSnapshot(): RuntimeSnapshot {
   return {
@@ -82,6 +99,27 @@ function registerIpcHandlers(): void {
       database.setActiveSelection(input)
     },
   )
+  ipcMain.handle(
+    IPC_CHANNELS.terminalCreate,
+    (_event, input: TerminalSessionConfig) => {
+      terminalSessionManager.createSession(input)
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {
+    terminalSessionManager.killSession(sessionId)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.terminalResize,
+    (_event, sessionId: string, size: TerminalResizeInput) => {
+      terminalSessionManager.resizeSession(sessionId, size)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.terminalWrite,
+    (_event, sessionId: string, data: string) => {
+      terminalSessionManager.writeToSession(sessionId, data)
+    },
+  )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
     readProjectFile(process.cwd(), relativePath),
   )
@@ -100,6 +138,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    terminalSessionManager.killAll()
     database.close()
     app.quit()
   }

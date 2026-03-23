@@ -1,18 +1,41 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
+import type {
+  TerminalEvent,
+  TerminalResizeInput,
+  TerminalSessionConfig,
+} from '../shared/terminal'
 
 const aideApi: AideApi = {
+  createTerminalSession: (input: TerminalSessionConfig) =>
+    ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
   createProject: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createProject, input),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  killTerminalSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
+  onTerminalEvent: (callback: (event: TerminalEvent) => void) => {
+    const listener = (_event: unknown, payload: TerminalEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.terminalEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.terminalEvent, listener)
+    }
+  },
   readProjectFile: (relativePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, relativePath),
+  resizeTerminalSession: (sessionId: string, size: TerminalResizeInput) =>
+    ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
+  writeTerminalInput: (sessionId: string, data: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.terminalWrite, sessionId, data),
 }
 
 contextBridge.exposeInMainWorld('aide', aideApi)

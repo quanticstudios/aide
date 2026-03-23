@@ -7,6 +7,7 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import TerminalPane from './TerminalPane'
 
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
@@ -167,83 +168,94 @@ export default function WorkspaceCanvas({
                   </div>
 
                   <div className="mt-6 flex min-h-0 flex-1 flex-col">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                        View
-                      </p>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">
-                        {pane.label}
-                      </h2>
-                      <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                        {pane.description}
-                      </p>
-                    </div>
-
-                    <div className="mt-5 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                      <Surface
-                        className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-4"
-                        variant="secondary"
-                      >
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                          Active view
-                        </p>
-                        <ScrollShadow
-                          className="mt-4 min-h-0 flex-1 rounded-xl border border-border/60 bg-surface-tertiary/70 p-4"
-                          hideScrollBar
-                          size={28}
-                        >
-                          <div className="space-y-3">
-                            {paneViewSections.map((section) => (
-                              <Surface
-                                className="rounded-xl border border-border/50 p-3"
-                                key={section}
-                                variant="tertiary"
-                              >
-                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                  {section}
-                                </p>
-                                <p className="mt-2 text-sm text-foreground/90">
-                                  {pane.label} stays inside the pane while
-                                  navigation keeps the shell spatial and
-                                  predictable.
-                                </p>
-                              </Surface>
-                            ))}
-                          </div>
-                        </ScrollShadow>
-                      </Surface>
-
-                      <div className="flex min-h-0 flex-col gap-3">
-                        <Surface
-                          className="rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground"
-                          variant="tertiary"
-                        >
-                          {workspaceScene.headline}
-                        </Surface>
-                        <Surface
-                          className="rounded-2xl border border-border/60 p-4 font-mono text-xs text-muted-foreground"
-                          variant="secondary"
-                        >
-                          {activeWorkspace.worktreePath}
-                        </Surface>
-                        <Surface
-                          className="rounded-2xl border border-border/60 p-4"
-                          variant="secondary"
-                        >
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                            Navigation
-                          </p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Chip size="sm" variant="secondary">
-                              Pane H/L
-                            </Chip>
-                            <Chip size="sm" variant="secondary">
-                              Workspace Alt J/K
-                            </Chip>
-                          </div>
-                        </Surface>
+                    {pane.type === 'Terminal' && isActive ? (
+                      <div className="mt-5 min-h-0 flex-1">
+                        <TerminalPane
+                          paneId={pane.id}
+                          workspace={activeWorkspace}
+                        />
                       </div>
-                    </div>
+                    ) : (
+                      <>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                            View
+                          </p>
+                          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">
+                            {pane.label}
+                          </h2>
+                          <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
+                            {pane.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-5 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                          <Surface
+                            className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-4"
+                            variant="secondary"
+                          >
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              Active view
+                            </p>
+                            <ScrollShadow
+                              className="mt-4 min-h-0 flex-1 rounded-xl border border-border/60 bg-surface-tertiary/70 p-4"
+                              hideScrollBar
+                              size={28}
+                            >
+                              <div className="space-y-3">
+                                {paneViewSections.map((section) => (
+                                  <Surface
+                                    className="rounded-xl border border-border/50 p-3"
+                                    key={section}
+                                    variant="tertiary"
+                                  >
+                                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                      {section}
+                                    </p>
+                                    <p className="mt-2 text-sm text-foreground/90">
+                                      {pane.label} stays inside the pane while
+                                      navigation keeps the shell spatial and
+                                      predictable.
+                                    </p>
+                                  </Surface>
+                                ))}
+                              </div>
+                            </ScrollShadow>
+                          </Surface>
+
+                          <div className="flex min-h-0 flex-col gap-3">
+                            <Surface
+                              className="rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground"
+                              variant="tertiary"
+                            >
+                              {workspaceScene.headline}
+                            </Surface>
+                            <Surface
+                              className="rounded-2xl border border-border/60 p-4 font-mono text-xs text-muted-foreground"
+                              variant="secondary"
+                            >
+                              {activeWorkspace.worktreePath}
+                            </Surface>
+                            <Surface
+                              className="rounded-2xl border border-border/60 p-4"
+                              variant="secondary"
+                            >
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                                Navigation
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Chip size="sm" variant="secondary">
+                                  Pane H/L
+                                </Chip>
+                                <Chip size="sm" variant="secondary">
+                                  Workspace Alt J/K
+                                </Chip>
+                              </div>
+                            </Surface>
+                          </div>
+                        </div>
+                      </>
+                    )}
 
                     <div className="mt-auto flex items-center justify-between gap-4 pt-6 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
                       <span className="truncate">{activeWorkspace.name}</span>

@@ -6,6 +6,11 @@ import type {
   SetActiveSelectionInput,
 } from './persistence'
 import type { RuntimeSnapshot } from './runtime'
+import type {
+  TerminalEvent,
+  TerminalResizeInput,
+  TerminalSessionConfig,
+} from './terminal'
 
 export const IPC_CHANNELS = {
   createProject: 'storage:create-project',
@@ -14,6 +19,11 @@ export const IPC_CHANNELS = {
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
+  terminalCreate: 'terminal:create-session',
+  terminalEvent: 'terminal:event',
+  terminalKill: 'terminal:kill-session',
+  terminalResize: 'terminal:resize-session',
+  terminalWrite: 'terminal:write',
 } as const
 
 export interface AideApi {
@@ -21,6 +31,14 @@ export interface AideApi {
   createWorkspace: (input: CreateWorkspaceInput) => Promise<PersistenceSnapshot>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
+  createTerminalSession: (input: TerminalSessionConfig) => Promise<void>
+  killTerminalSession: (sessionId: string) => Promise<void>
+  onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
+  resizeTerminalSession: (
+    sessionId: string,
+    size: TerminalResizeInput,
+  ) => Promise<void>
   setActiveSelection: (input: SetActiveSelectionInput) => Promise<void>
+  writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }
