@@ -4,6 +4,7 @@ import type { AideApi } from '../../shared/ipc'
 import type { PersistenceSnapshot } from '../../shared/persistence'
 import AppShell from './components/AppShell'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
+import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import {
   isNavigationPocSnapshot,
@@ -57,6 +58,7 @@ export default function App() {
   const [shellError, setShellError] = useState<string | null>(null)
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
+  const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -159,47 +161,57 @@ export default function App() {
     }
   }, [resolveRememberedPaneId, setSelection])
 
-  const createWorkspace = useCallback(async () => {
-    const api = getAideApi()
-
-    if (!api || !activeProjectId) {
+  const createWorkspace = useCallback(() => {
+    if (!activeProjectId) {
       return
     }
 
-    const projectWorkspaces =
-      storageSnapshot?.workspaces.filter(
-        (ws) => ws.projectId === activeProjectId,
-      ) ?? []
+    setIsWorkspaceCreationOpen(true)
+  }, [activeProjectId])
 
-    const selectedProject = storageSnapshot?.projects.find(
-      (project) => project.id === activeProjectId,
-    )
+  const submitWorkspaceCreation = useCallback(
+    async (input: {
+      branchName: string
+      name: string
+      projectId: string
+      worktreePath: string
+    }) => {
+      const api = getAideApi()
 
-    if (!selectedProject) {
-      return
-    }
+      if (!api) {
+        return 'Desktop bridge did not load. Reload the app window.'
+      }
 
-    try {
-      const workspaceNumber = projectWorkspaces.length + 1
-      const snapshot = await api.createWorkspace({
-        projectId: activeProjectId,
-        name: `Workspace ${workspaceNumber}`,
-        branchName: 'main',
-        worktreePath: `${selectedProject.repoRoot}/.worktrees/workspace-${workspaceNumber}`,
-        windowId: null,
-      })
-      const selection = selectLatestWorkspace(snapshot, activeProjectId)
+      try {
+        const gitValidation = await api.validateExecutableCommand('git')
 
-      setStorageSnapshot(snapshot)
-      setSelection({
-        ...selection,
-        activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-      })
-      setShellError(null)
-    } catch (error) {
-      setShellError(getErrorMessage(error))
-    }
-  }, [activeProjectId, resolveRememberedPaneId, setSelection, storageSnapshot])
+        if (!gitValidation.ok) {
+          return gitValidation.error
+        }
+
+        const snapshot = await api.createWorkspace({
+          branchName: input.branchName,
+          name: input.name,
+          projectId: input.projectId,
+          worktreePath: input.worktreePath,
+          windowId: null,
+        })
+        const selection = selectLatestWorkspace(snapshot, input.projectId)
+
+        setStorageSnapshot(snapshot)
+        setSelection({
+          ...selection,
+          activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
+        })
+        setShellError(null)
+        setIsWorkspaceCreationOpen(false)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [resolveRememberedPaneId, setSelection],
+  )
 
   useEffect(() => {
     void refreshStorage()
@@ -434,6 +446,13 @@ export default function App() {
       projects={projects}
     >
       <>
+        <WorkspaceCreationModal
+          isOpen={isWorkspaceCreationOpen}
+          onOpenChange={setIsWorkspaceCreationOpen}
+          onSubmit={submitWorkspaceCreation}
+          project={activeProject}
+          workspaceCount={projectWorkspaces.length}
+        />
         <WorkspaceSwitcherOverlay
           activeWorkspaceId={activeWorkspace?.id ?? null}
           onSelectWorkspace={handleWorkspaceSelection}
