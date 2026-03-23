@@ -7,6 +7,7 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import PreviewPane from './PreviewPane'
 import TerminalPane from './TerminalPane'
 
 interface WorkspaceCanvasProps {
@@ -174,6 +175,10 @@ export default function WorkspaceCanvas({
                           paneId={pane.id}
                           workspace={activeWorkspace}
                         />
+                      </div>
+                    ) : pane.type === 'Preview' && isActive ? (
+                      <div className="mt-5 min-h-0 flex-1">
+                        <PreviewPane />
                       </div>
                     ) : (
                       <>
