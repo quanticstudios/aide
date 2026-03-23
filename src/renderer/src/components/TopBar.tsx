@@ -1,7 +1,6 @@
+import { Button, Chip, Kbd, Tooltip } from '@heroui/react'
 import { GitBranch, Plus } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
 import { cn } from '@/lib/utils'
 import type {
@@ -54,34 +53,44 @@ export default function TopBar({
             const isActive = pane.id === resolvedPaneId
 
             return (
-              <button
-                className={cn(
-                  'workspace-strip-item group flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-all',
-                  isActive
-                    ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
-                    : 'border-border bg-card text-muted-foreground hover:border-primary/35 hover:text-foreground',
-                )}
-                key={pane.id}
-                onClick={() => onSelectPane(pane.id)}
-                type="button"
-              >
-                <span className="rounded-full border border-border px-1.5 py-0 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {index + 1}
-                </span>
-                <span className="text-[12px] font-medium leading-none">
-                  {pane.type}
-                </span>
-              </button>
+              <Tooltip delay={120} key={pane.id}>
+                <Tooltip.Trigger>
+                  <button
+                    className={cn(
+                      'workspace-strip-item group flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-all',
+                      isActive
+                        ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/35 hover:text-foreground',
+                    )}
+                    onClick={() => onSelectPane(pane.id)}
+                    type="button"
+                  >
+                    <Chip
+                      className="h-5 min-w-5 border border-border bg-background px-0 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+                      color="default"
+                      size="sm"
+                      variant="secondary"
+                    >
+                      {index + 1}
+                    </Chip>
+                    <span className="text-[12px] font-medium leading-none">
+                      {pane.type}
+                    </span>
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Content className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]">
+                  {pane.label}
+                </Tooltip.Content>
+              </Tooltip>
             )
           })}
 
           {activeProject && !isDemoMode ? (
             <Button
               className="size-8 shrink-0 rounded-lg"
-              onClick={onCreateWorkspace}
-              size="icon"
-              title="Create workspace"
-              type="button"
+              isIconOnly
+              onPress={onCreateWorkspace}
+              size="sm"
               variant="ghost"
             >
               <Plus className="size-4" />
@@ -91,16 +100,23 @@ export default function TopBar({
 
         <div className="hidden shrink-0 items-center gap-2 lg:flex">
           {isDemoMode ? (
-            <Badge
+            <Chip
               className="text-[10px] uppercase tracking-[0.18em]"
-              variant="outline"
+              color="default"
+              size="sm"
+              variant="secondary"
             >
               Demo
-            </Badge>
+            </Chip>
           ) : null}
 
-          <div className="rounded-full border border-border px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-            Pane H/L
+          <div className="flex items-center gap-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+              H
+            </Kbd>
+            <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+              L
+            </Kbd>
           </div>
         </div>
       </div>

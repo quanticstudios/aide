@@ -1,4 +1,4 @@
-import { Surface } from '@heroui/react'
+import { Chip, Kbd, Surface } from '@heroui/react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -45,10 +45,15 @@ export default function WorkspaceSwitcherOverlay({
             </p>
           </div>
 
-          <div className="flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             <ArrowUp className="size-3" />
-            k
-            <ArrowDown className="ml-1 size-3" />j
+            <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+              K
+            </Kbd>
+            <ArrowDown className="ml-1 size-3" />
+            <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+              J
+            </Kbd>
           </div>
         </div>
 
@@ -75,9 +80,14 @@ export default function WorkspaceSwitcherOverlay({
                   </p>
                 </div>
 
-                <span className="ml-3 shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                <Chip
+                  className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+                  color="default"
+                  size="sm"
+                  variant="secondary"
+                >
                   {index + 1}
-                </span>
+                </Chip>
               </div>
             )
           })}

@@ -1,6 +1,6 @@
+import { Button, Chip, Tooltip } from '@heroui/react'
 import { FolderKanban, Plus } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { ProjectRecord } from '../../../shared/persistence'
 
@@ -43,31 +43,43 @@ export default function AppSidebar({
           const isActive = project.id === activeProjectId
 
           return (
-            <button
-              aria-label={project.name}
-              className={cn(
-                'group relative flex size-12 items-center justify-center rounded-2xl border text-sm font-semibold tracking-[0.12em] transition-all',
-                isActive
-                  ? 'border-primary/60 bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
-                  : 'border-border bg-background text-muted-foreground hover:border-primary/35 hover:text-foreground',
-              )}
-              key={project.id}
-              onClick={() => onSelectProject(project.id)}
-              title={`${index + 1}. ${project.name}`}
-              type="button"
-            >
-              <span>{getProjectGlyph(project.name)}</span>
-              <span
-                className={cn(
-                  'absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full border border-border bg-background text-[9px] font-medium text-muted-foreground transition-all duration-120 ease-out',
-                  showProjectHints
-                    ? 'scale-100 opacity-100'
-                    : 'scale-75 opacity-0',
-                )}
-              >
-                {index + 1}
-              </span>
-            </button>
+            <Tooltip delay={120} key={project.id}>
+              <Tooltip.Trigger>
+                <button
+                  aria-label={project.name}
+                  className={cn(
+                    'group relative flex size-12 items-center justify-center rounded-2xl border text-sm font-semibold tracking-[0.12em] transition-all',
+                    isActive
+                      ? 'border-primary/60 bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
+                      : 'border-border bg-background text-muted-foreground hover:border-primary/35 hover:text-foreground',
+                  )}
+                  onClick={() => onSelectProject(project.id)}
+                  type="button"
+                >
+                  <span>{getProjectGlyph(project.name)}</span>
+                  <span
+                    className={cn(
+                      'absolute -right-1.5 -top-1.5 transition-all duration-120 ease-out',
+                      showProjectHints
+                        ? 'scale-100 opacity-100'
+                        : 'scale-75 opacity-0',
+                    )}
+                  >
+                    <Chip
+                      className="h-4 min-w-4 border border-border bg-background px-0 text-[9px] font-medium text-muted-foreground"
+                      color="default"
+                      size="sm"
+                      variant="secondary"
+                    >
+                      {index + 1}
+                    </Chip>
+                  </span>
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Content className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]">
+                {index + 1}. {project.name}
+              </Tooltip.Content>
+            </Tooltip>
           )
         })}
       </div>
@@ -76,19 +88,23 @@ export default function AppSidebar({
         {!isDemoMode ? (
           <Button
             className="size-10 rounded-2xl"
-            onClick={onCreateProject}
-            size="icon"
-            title="Create project"
-            type="button"
+            isIconOnly
+            onPress={onCreateProject}
+            size="md"
             variant="ghost"
           >
             <Plus className="size-4" />
           </Button>
         ) : null}
 
-        <div className="rounded-2xl border border-border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        <Chip
+          className="rounded-2xl border border-border bg-background px-2 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+          color="default"
+          size="sm"
+          variant="secondary"
+        >
           {projects.length}
-        </div>
+        </Chip>
       </div>
     </aside>
   )

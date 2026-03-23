@@ -1,7 +1,6 @@
+import { Button, Chip } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
 import { cn } from '@/lib/utils'
 import type {
@@ -53,7 +52,7 @@ function EmptyState({
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button onClick={onAction} size="sm" type="button">
+        <Button onPress={onAction} size="sm" variant="primary">
           <Plus className="size-4" />
           {actionLabel}
         </Button>
@@ -142,12 +141,14 @@ export default function WorkspaceCanvas({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <Badge
-                        className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.18em]"
+                      <Chip
+                        className="rounded-full px-2 text-[10px] uppercase tracking-[0.18em]"
+                        color="default"
+                        size="sm"
                         variant="secondary"
                       >
                         {pane.type}
-                      </Badge>
+                      </Chip>
                       <span className="rounded-full border border-border/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                         {index + 1}
                       </span>
