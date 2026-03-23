@@ -1,5 +1,10 @@
 import type { ProjectTextFile } from './editor'
 import type {
+  ExecutableProbeInput,
+  ExecutableProbeResult,
+  ExecutableValidationResult,
+} from './executable'
+import type {
   CreateProjectInput,
   CreateWorkspaceInput,
   PersistenceSnapshot,
@@ -15,6 +20,8 @@ import type {
 export const IPC_CHANNELS = {
   createProject: 'storage:create-project',
   createWorkspace: 'storage:create-workspace',
+  executableProbe: 'executables:probe',
+  executableValidate: 'executables:validate',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -29,6 +36,12 @@ export const IPC_CHANNELS = {
 export interface AideApi {
   createProject: (input: CreateProjectInput) => Promise<PersistenceSnapshot>
   createWorkspace: (input: CreateWorkspaceInput) => Promise<PersistenceSnapshot>
+  probeExecutableCommand: (
+    input: ExecutableProbeInput,
+  ) => Promise<ExecutableProbeResult>
+  validateExecutableCommand: (
+    command: string,
+  ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   createTerminalSession: (input: TerminalSessionConfig) => Promise<void>

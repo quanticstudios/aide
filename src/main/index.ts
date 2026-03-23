@@ -15,6 +15,10 @@ import type {
   TerminalSessionConfig,
 } from '../shared/terminal'
 import { createAideDatabase } from './database'
+import {
+  probeExecutable,
+  validateExecutablePath,
+} from './executable-resolution'
 import { readProjectFile } from './project-files'
 import { TerminalSessionManager } from './terminal-session-manager'
 
@@ -92,6 +96,14 @@ function registerIpcHandlers(): void {
       database.createWorkspace(input)
       return database.getSnapshot()
     },
+  )
+  ipcMain.handle(IPC_CHANNELS.executableValidate, (_event, command: string) =>
+    validateExecutablePath(command),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.executableProbe,
+    (_event, input: { args?: string[]; command: string }) =>
+      probeExecutable(input.command, { args: input.args }),
   )
   ipcMain.handle(
     IPC_CHANNELS.setActiveSelection,

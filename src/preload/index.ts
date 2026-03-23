@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
 import type {
   TerminalEvent,
@@ -28,12 +29,16 @@ const aideApi: AideApi = {
       ipcRenderer.off(IPC_CHANNELS.terminalEvent, listener)
     }
   },
+  probeExecutableCommand: (input: ExecutableProbeInput) =>
+    ipcRenderer.invoke(IPC_CHANNELS.executableProbe, input),
   readProjectFile: (relativePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, relativePath),
   resizeTerminalSession: (sessionId: string, size: TerminalResizeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
+  validateExecutableCommand: (command: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),
   writeTerminalInput: (sessionId: string, data: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalWrite, sessionId, data),
 }
