@@ -1,4 +1,4 @@
-import { Button, Chip, Kbd, Tooltip } from '@heroui/react'
+import { Button, Chip, Kbd, Toolbar, Tooltip } from '@heroui/react'
 import { GitBranch, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
@@ -48,35 +48,32 @@ export default function TopBar({
           </div>
         </div>
 
-        <nav className="workspace-strip flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+        <Toolbar
+          aria-label="Pane selector"
+          className="workspace-strip min-w-0 flex-1 overflow-x-auto rounded-xl border border-border/80 bg-surface/80 p-1"
+          isAttached
+        >
           {workspaceScene.panes.map((pane, index) => {
             const isActive = pane.id === resolvedPaneId
 
             return (
               <Tooltip delay={120} key={pane.id}>
                 <Tooltip.Trigger>
-                  <button
+                  <Button
                     className={cn(
-                      'workspace-strip-item group flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-all',
+                      'workspace-strip-item h-8 shrink-0 rounded-lg px-2.5 text-left text-[12px] font-medium transition-all',
                       isActive
                         ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
-                        : 'border-border bg-card text-muted-foreground hover:border-primary/35 hover:text-foreground',
+                        : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
                     )}
-                    onClick={() => onSelectPane(pane.id)}
-                    type="button"
+                    onPress={() => onSelectPane(pane.id)}
+                    variant={isActive ? 'secondary' : 'ghost'}
                   >
-                    <Chip
-                      className="h-5 min-w-5 border border-border bg-background px-0 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-                      color="default"
-                      size="sm"
-                      variant="secondary"
-                    >
+                    <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">
                       {index + 1}
-                    </Chip>
-                    <span className="text-[12px] font-medium leading-none">
-                      {pane.type}
                     </span>
-                  </button>
+                    <span>{pane.type}</span>
+                  </Button>
                 </Tooltip.Trigger>
                 <Tooltip.Content className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]">
                   {pane.label}
@@ -96,7 +93,7 @@ export default function TopBar({
               <Plus className="size-4" />
             </Button>
           ) : null}
-        </nav>
+        </Toolbar>
 
         <div className="hidden shrink-0 items-center gap-2 lg:flex">
           {isDemoMode ? (
