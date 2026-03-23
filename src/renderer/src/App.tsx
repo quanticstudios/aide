@@ -5,6 +5,10 @@ import type { PersistenceSnapshot } from '../../shared/persistence'
 import AppShell from './components/AppShell'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import {
+  isNavigationPocSnapshot,
+  resolveNavigationSnapshot,
+} from './lib/navigation-poc'
+import {
   resolveBootSelection,
   selectLatestProject,
   selectLatestWorkspace,
@@ -43,6 +47,13 @@ export default function App() {
     (state) => state.activeWorkspaceId,
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
+  const navigationSnapshot = resolveNavigationSnapshot(storageSnapshot)
+  const navigationSelection = resolveBootSelection(
+    navigationSnapshot,
+    activeProjectId,
+    activeWorkspaceId,
+  )
+  const isDemoMode = isNavigationPocSnapshot(navigationSnapshot)
 
   const refreshStorage = useCallback(async () => {
     const api = getAideApi()
@@ -140,7 +151,7 @@ export default function App() {
   useEffect(() => {
     const api = getAideApi()
 
-    if (!api || !storageSnapshot) {
+    if (!api || !storageSnapshot || storageSnapshot.projects.length === 0) {
       return
     }
 
@@ -156,24 +167,16 @@ export default function App() {
 
   const handleProjectSelection = useCallback(
     (projectId: string) => {
-      if (!storageSnapshot) {
-        setSelection({
-          activeProjectId: projectId,
-          activeWorkspaceId: null,
-        })
-        return
-      }
-
-      const selection = selectProject(storageSnapshot, projectId)
+      const selection = selectProject(navigationSnapshot, projectId)
 
       setSelection(selection)
     },
-    [setSelection, storageSnapshot],
+    [navigationSnapshot, setSelection],
   )
 
   const handleWorkspaceSelection = useCallback(
     (workspaceId: string) => {
-      const workspace = storageSnapshot?.workspaces.find(
+      const workspace = navigationSnapshot.workspaces.find(
         (candidate) => candidate.id === workspaceId,
       )
 
@@ -186,19 +189,23 @@ export default function App() {
         activeWorkspaceId: workspace.id,
       })
     },
-    [setSelection, storageSnapshot],
+    [navigationSnapshot.workspaces, setSelection],
   )
 
-  const projects = storageSnapshot?.projects ?? []
-  const allWorkspaces = storageSnapshot?.workspaces ?? []
-  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
+  const projects = navigationSnapshot.projects
+  const allWorkspaces = navigationSnapshot.workspaces
+  const activeProject =
+    projects.find((p) => p.id === navigationSelection.activeProjectId) ?? null
   const activeWorkspace =
-    allWorkspaces.find((ws) => ws.id === activeWorkspaceId) ?? null
+    allWorkspaces.find(
+      (ws) => ws.id === navigationSelection.activeWorkspaceId,
+    ) ?? null
 
   return (
     <AppShell
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
+      isDemoMode={isDemoMode}
       onCreateProject={createProject}
       onCreateWorkspace={createWorkspace}
       onSelectProject={handleProjectSelection}
@@ -209,9 +216,10 @@ export default function App() {
       <WorkspaceCanvas
         activeProject={activeProject}
         activeWorkspace={activeWorkspace}
+        isDemoMode={isDemoMode}
         onCreateProject={createProject}
         onCreateWorkspace={createWorkspace}
-        shellError={shellError}
+        shellError={isDemoMode ? null : shellError}
       />
     </AppShell>
   )

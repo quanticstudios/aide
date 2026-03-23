@@ -11,6 +11,7 @@ import type {
 interface TopBarProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly isDemoMode: boolean
   readonly workspaces: readonly WorkspaceRecord[]
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onCreateWorkspace: () => void
@@ -19,6 +20,7 @@ interface TopBarProps {
 export default function TopBar({
   activeProject,
   activeWorkspace,
+  isDemoMode,
   workspaces,
   onSelectWorkspace,
   onCreateWorkspace,
@@ -32,6 +34,15 @@ export default function TopBar({
       <span className="shrink-0 text-sm font-bold text-muted-foreground">
         aide
       </span>
+
+      {isDemoMode ? (
+        <Badge
+          className="hidden shrink-0 text-[10px] uppercase tracking-[0.18em] md:inline-flex"
+          variant="outline"
+        >
+          Navigation POC
+        </Badge>
+      ) : null}
 
       <nav className="flex h-full flex-1 items-stretch overflow-x-auto">
         {projectWorkspaces.map((ws) => (
@@ -48,7 +59,7 @@ export default function TopBar({
           </button>
         ))}
 
-        {activeProject ? (
+        {activeProject && !isDemoMode ? (
           <Button
             className="my-auto ml-1 size-6"
             onClick={onCreateWorkspace}

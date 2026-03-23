@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import type {
@@ -13,6 +13,7 @@ interface AppShellProps {
   readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly isDemoMode: boolean
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onCreateProject: () => void
@@ -25,22 +26,36 @@ export default function AppShell({
   workspaces,
   activeProject,
   activeWorkspace,
+  isDemoMode,
   onSelectProject,
   onSelectWorkspace,
   onCreateProject,
   onCreateWorkspace,
   children,
 }: AppShellProps) {
+  const [sidebarHovered, setSidebarHovered] = useState(false)
+  const [sidebarPinned, setSidebarPinned] = useState(false)
+
   return (
-    <SidebarProvider className="h-full" defaultOpen={false}>
+    <SidebarProvider
+      className="h-full"
+      defaultOpen={false}
+      onOpenChange={setSidebarPinned}
+      open={sidebarPinned || sidebarHovered}
+    >
       <AppSidebar
         activeProjectId={activeProject?.id ?? null}
         activeWorkspaceId={activeWorkspace?.id ?? null}
+        isDemoMode={isDemoMode}
         onCreateProject={onCreateProject}
         onCreateWorkspace={onCreateWorkspace}
+        onSidebarHoverEnd={() => setSidebarHovered(false)}
+        onSidebarHoverStart={() => setSidebarHovered(true)}
+        onSidebarPinToggle={() => setSidebarPinned((value) => !value)}
         onSelectProject={onSelectProject}
         onSelectWorkspace={onSelectWorkspace}
         projects={projects}
+        sidebarPinned={sidebarPinned}
         workspaces={workspaces}
       />
 
@@ -48,6 +63,7 @@ export default function AppShell({
         <TopBar
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
+          isDemoMode={isDemoMode}
           onCreateWorkspace={onCreateWorkspace}
           onSelectWorkspace={onSelectWorkspace}
           workspaces={workspaces}
