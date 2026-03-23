@@ -1,4 +1,4 @@
-import { Button, Chip } from '@heroui/react'
+import { Button, Chip, ScrollShadow, Surface } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
@@ -27,6 +27,13 @@ const paneAccentClassNames = {
   violet:
     'border-violet-400/30 bg-violet-500/6 shadow-[inset_0_1px_0_rgba(167,139,250,0.08)]',
 } as const
+
+const paneViewSections = [
+  'Primary workspace surface',
+  'Focused context block',
+  'Linked review target',
+  'Next split candidate',
+] as const
 
 function EmptyState({
   actionLabel,
@@ -172,12 +179,69 @@ export default function WorkspaceCanvas({
                       </p>
                     </div>
 
-                    <div className="mt-5 grid gap-2 text-sm text-muted-foreground">
-                      <div className="rounded-xl border border-border/60 bg-background/25 px-3 py-2">
-                        {workspaceScene.headline}
-                      </div>
-                      <div className="rounded-xl border border-border/60 bg-background/25 px-3 py-2 font-mono text-xs">
-                        {activeWorkspace.worktreePath}
+                    <div className="mt-5 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                      <Surface
+                        className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-4"
+                        variant="secondary"
+                      >
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                          Active view
+                        </p>
+                        <ScrollShadow
+                          className="mt-4 min-h-0 flex-1 rounded-xl border border-border/60 bg-surface-tertiary/70 p-4"
+                          hideScrollBar
+                          size={28}
+                        >
+                          <div className="space-y-3">
+                            {paneViewSections.map((section) => (
+                              <Surface
+                                className="rounded-xl border border-border/50 p-3"
+                                key={section}
+                                variant="tertiary"
+                              >
+                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                  {section}
+                                </p>
+                                <p className="mt-2 text-sm text-foreground/90">
+                                  {pane.label} stays inside the pane while
+                                  navigation keeps the shell spatial and
+                                  predictable.
+                                </p>
+                              </Surface>
+                            ))}
+                          </div>
+                        </ScrollShadow>
+                      </Surface>
+
+                      <div className="flex min-h-0 flex-col gap-3">
+                        <Surface
+                          className="rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground"
+                          variant="tertiary"
+                        >
+                          {workspaceScene.headline}
+                        </Surface>
+                        <Surface
+                          className="rounded-2xl border border-border/60 p-4 font-mono text-xs text-muted-foreground"
+                          variant="secondary"
+                        >
+                          {activeWorkspace.worktreePath}
+                        </Surface>
+                        <Surface
+                          className="rounded-2xl border border-border/60 p-4"
+                          variant="secondary"
+                        >
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                            Navigation
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Chip size="sm" variant="secondary">
+                              Pane H/L
+                            </Chip>
+                            <Chip size="sm" variant="secondary">
+                              Workspace Alt J/K
+                            </Chip>
+                          </div>
+                        </Surface>
                       </div>
                     </div>
 
