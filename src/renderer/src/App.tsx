@@ -242,6 +242,26 @@ export default function App() {
     [navigationSnapshot, resolveRememberedPaneId, setSelection],
   )
 
+  const handleWorkspaceSelection = useCallback(
+    (workspaceId: string) => {
+      const workspace = navigationSnapshot.workspaces.find(
+        (candidate) => candidate.id === workspaceId,
+      )
+
+      if (!workspace) {
+        return
+      }
+
+      setSelection({
+        activePaneId: resolveRememberedPaneId(workspace.id),
+        activeProjectId: workspace.projectId,
+        activeWorkspaceId: workspace.id,
+      })
+      setIsWorkspaceSwitcherVisible(false)
+    },
+    [navigationSnapshot.workspaces, resolveRememberedPaneId, setSelection],
+  )
+
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
       const selection = selectRelativeWorkspace(
@@ -416,6 +436,7 @@ export default function App() {
       <>
         <WorkspaceSwitcherOverlay
           activeWorkspaceId={activeWorkspace?.id ?? null}
+          onSelectWorkspace={handleWorkspaceSelection}
           projectName={activeProject?.name ?? null}
           visible={isWorkspaceSwitcherVisible}
           workspaces={projectWorkspaces}

@@ -1,11 +1,13 @@
-import { Chip, Kbd, Surface } from '@heroui/react'
+import { Chip, Description, Kbd, Label, ListBox, Surface } from '@heroui/react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
+import type { Key } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 
 interface WorkspaceSwitcherOverlayProps {
   readonly activeWorkspaceId: string | null
+  readonly onSelectWorkspace: (workspaceId: string) => void
   readonly projectName: string | null
   readonly visible: boolean
   readonly workspaces: readonly WorkspaceRecord[]
@@ -13,6 +15,7 @@ interface WorkspaceSwitcherOverlayProps {
 
 export default function WorkspaceSwitcherOverlay({
   activeWorkspaceId,
+  onSelectWorkspace,
   projectName,
   visible,
   workspaces,
@@ -25,7 +28,8 @@ export default function WorkspaceSwitcherOverlay({
     <div
       aria-hidden={!visible}
       className={cn(
-        'pointer-events-none absolute right-4 top-1/2 z-20 w-72 -translate-y-1/2 transform-gpu origin-center will-change-[transform,opacity] transition-[opacity,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
+        'absolute right-4 top-1/2 z-20 w-72 -translate-y-1/2 transform-gpu origin-center will-change-[transform,opacity] transition-[opacity,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
+        visible ? 'pointer-events-auto' : 'pointer-events-none',
         visible
           ? 'scale-100 opacity-100'
           : 'translate-x-3 -translate-y-1/2 scale-[0.98] opacity-0',
@@ -57,27 +61,28 @@ export default function WorkspaceSwitcherOverlay({
           </div>
         </div>
 
-        <div className="space-y-1">
-          {workspaces.map((workspace, index) => {
-            const isActive = workspace.id === activeWorkspaceId
-
-            return (
-              <div
-                className={cn(
-                  'flex items-center justify-between rounded-xl border px-3 py-2 transition-all',
-                  isActive
-                    ? 'border-primary/60 bg-surface-tertiary text-foreground shadow-[var(--surface-shadow)]'
-                    : 'border-border/80 bg-surface text-muted-foreground',
-                )}
-                key={workspace.id}
-              >
+        <ListBox
+          aria-label="Workspace switcher"
+          className="space-y-1"
+          onAction={(key: Key) => onSelectWorkspace(String(key))}
+          selectedKeys={new Set(activeWorkspaceId ? [activeWorkspaceId] : [])}
+          selectionMode="single"
+        >
+          {workspaces.map((workspace, index) => (
+            <ListBox.Item
+              className="rounded-xl border border-border/80 bg-surface px-3 py-2 text-muted-foreground transition-all data-[focused=true]:border-primary/45 data-[selected=true]:border-primary/60 data-[selected=true]:bg-surface-tertiary data-[selected=true]:text-foreground data-[selected=true]:shadow-[var(--surface-shadow)]"
+              id={workspace.id}
+              key={workspace.id}
+              textValue={workspace.name}
+            >
+              <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
+                  <Label className="truncate text-sm font-medium">
                     {workspace.name}
-                  </p>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">
+                  </Label>
+                  <Description className="truncate font-mono text-[11px] text-muted-foreground">
                     {workspace.branchName}
-                  </p>
+                  </Description>
                 </div>
 
                 <Chip
@@ -89,9 +94,9 @@ export default function WorkspaceSwitcherOverlay({
                   {index + 1}
                 </Chip>
               </div>
-            )
-          })}
-        </div>
+            </ListBox.Item>
+          ))}
+        </ListBox>
       </Surface>
     </div>
   )
