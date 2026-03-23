@@ -1,3 +1,4 @@
+import { Surface } from '@heroui/react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -30,7 +31,10 @@ export default function WorkspaceSwitcherOverlay({
           : 'translate-x-3 -translate-y-1/2 scale-[0.98] opacity-0',
       )}
     >
-      <div className="rounded-2xl border border-border bg-card/98 p-3 shadow-[0_18px_60px_rgba(0,0,0,0.32)]">
+      <Surface
+        className="rounded-2xl border border-border/90 bg-overlay/98 p-3 shadow-[var(--overlay-shadow)]"
+        variant="secondary"
+      >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -57,8 +61,8 @@ export default function WorkspaceSwitcherOverlay({
                 className={cn(
                   'flex items-center justify-between rounded-xl border px-3 py-2 transition-all',
                   isActive
-                    ? 'border-primary/60 bg-primary/12 text-foreground'
-                    : 'border-border bg-background/40 text-muted-foreground',
+                    ? 'border-primary/60 bg-surface-tertiary text-foreground shadow-[var(--surface-shadow)]'
+                    : 'border-border/80 bg-surface text-muted-foreground',
                 )}
                 key={workspace.id}
               >
@@ -78,7 +82,7 @@ export default function WorkspaceSwitcherOverlay({
             )
           })}
         </div>
-      </div>
+      </Surface>
     </div>
   )
 }

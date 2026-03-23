@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@heroui/styles";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -16,6 +17,16 @@
   --card-foreground: #f4f4f5;
   --popover: #16161a;
   --popover-foreground: #f4f4f5;
+  --surface: #16161a;
+  --surface-foreground: #f4f4f5;
+  --surface-secondary: #1b1b20;
+  --surface-secondary-foreground: #f4f4f5;
+  --surface-tertiary: #202028;
+  --surface-tertiary-foreground: #f4f4f5;
+  --overlay: #18181d;
+  --overlay-foreground: #f4f4f5;
+  --surface-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+  --overlay-shadow: 0 20px 60px rgba(0, 0, 0, 0.34);
 
   /* Primary = teal accent */
   --primary: #5cb89a;
@@ -41,6 +52,16 @@
   --border: #2a2a31;
   --input: #2a2a31;
   --ring: #5cb89a;
+  --focus: #5cb89a;
+  --separator: #222228;
+
+  /* HeroUI field tokens */
+  --field-background: #18181d;
+  --field-foreground: #f4f4f5;
+  --field-placeholder: #8b8b95;
+  --field-border: #2a2a31;
+  --field-radius: 0.75rem;
+  --field-shadow: 0 0 0 0 transparent inset;
 
   /* Sidebar */
   --sidebar: #111114;
