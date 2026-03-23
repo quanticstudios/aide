@@ -96,3 +96,49 @@ export function selectLatestWorkspace(
     activeWorkspaceId: latestWorkspace?.id ?? null,
   }
 }
+
+export function selectRelativeWorkspace(
+  snapshot: PersistenceSnapshot,
+  activeProjectId: string | null,
+  activeWorkspaceId: string | null,
+  direction: -1 | 1,
+): ShellSelection {
+  const currentSelection = resolveShellSelection(
+    snapshot,
+    activeProjectId,
+    activeWorkspaceId,
+  )
+
+  if (
+    !currentSelection.activeProjectId ||
+    !currentSelection.activeWorkspaceId
+  ) {
+    return currentSelection
+  }
+
+  const projectWorkspaces = getWorkspacesForProject(
+    snapshot,
+    currentSelection.activeProjectId,
+  )
+
+  if (projectWorkspaces.length === 0) {
+    return currentSelection
+  }
+
+  const currentIndex = projectWorkspaces.findIndex(
+    (workspace) => workspace.id === currentSelection.activeWorkspaceId,
+  )
+
+  if (currentIndex === -1) {
+    return currentSelection
+  }
+
+  const nextIndex =
+    (currentIndex + direction + projectWorkspaces.length) %
+    projectWorkspaces.length
+
+  return {
+    activeProjectId: currentSelection.activeProjectId,
+    activeWorkspaceId: projectWorkspaces[nextIndex]?.id ?? null,
+  }
+}

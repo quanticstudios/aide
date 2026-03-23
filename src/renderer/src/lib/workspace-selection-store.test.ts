@@ -8,6 +8,7 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: null,
+      activePaneIdsByWorkspace: {},
       activeProjectId: null,
       activeWorkspaceId: null,
     })
@@ -22,8 +23,24 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: 'pane-1',
+      activePaneIdsByWorkspace: {},
       activeProjectId: 'project-1',
       activeWorkspaceId: 'workspace-1',
+    })
+  })
+
+  it('remembers the last active pane per workspace', () => {
+    const store = createWorkspaceSelectionStore()
+
+    store.getState().setActivePaneForWorkspace('workspace-1', 'pane-a')
+    store.getState().setActivePaneForWorkspace('workspace-2', 'pane-b')
+
+    expect(store.getState()).toMatchObject({
+      activePaneId: 'pane-b',
+      activePaneIdsByWorkspace: {
+        'workspace-1': 'pane-a',
+        'workspace-2': 'pane-b',
+      },
     })
   })
 
@@ -48,6 +65,7 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: null,
+      activePaneIdsByWorkspace: {},
       activeProjectId: null,
       activeWorkspaceId: null,
     })

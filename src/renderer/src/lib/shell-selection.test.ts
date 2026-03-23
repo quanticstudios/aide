@@ -11,6 +11,7 @@ import {
   selectLatestProject,
   selectLatestWorkspace,
   selectProject,
+  selectRelativeWorkspace,
 } from './shell-selection'
 
 function createProject(id: string, name: string): ProjectRecord {
@@ -179,6 +180,18 @@ describe('project selection helpers', () => {
 
   it('selectLatestWorkspace chooses the newest workspace in the active project', () => {
     expect(selectLatestWorkspace(snapshot, '1')).toEqual({
+      activeProjectId: '1',
+      activeWorkspaceId: '2',
+    })
+  })
+
+  it('selectRelativeWorkspace moves horizontally through workspaces and wraps', () => {
+    expect(selectRelativeWorkspace(snapshot, '1', '1', 1)).toEqual({
+      activeProjectId: '1',
+      activeWorkspaceId: '2',
+    })
+
+    expect(selectRelativeWorkspace(snapshot, '1', '1', -1)).toEqual({
       activeProjectId: '1',
       activeWorkspaceId: '2',
     })

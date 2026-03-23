@@ -6,6 +6,8 @@ import {
   getWorkspaceScene,
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
+  resolveWorkspacePaneId,
+  selectRelativePane,
 } from './navigation-poc'
 
 describe('resolveNavigationSnapshot', () => {
@@ -68,5 +70,18 @@ describe('navigation POC helpers', () => {
 
   it('returns a pane scene for a known demo workspace', () => {
     expect(getWorkspaceScene('demo-workspace-aide-nav').panes.length).toBe(5)
+  })
+
+  it('repairs an invalid active pane to the first pane in the scene', () => {
+    expect(resolveWorkspacePaneId('demo-workspace-aide-nav', null)).toBe('chat')
+  })
+
+  it('moves left and right across panes with wraparound', () => {
+    expect(selectRelativePane('demo-workspace-aide-nav', 'chat', 1)).toBe(
+      'terminal',
+    )
+    expect(selectRelativePane('demo-workspace-aide-nav', 'chat', -1)).toBe(
+      'preview',
+    )
   })
 })

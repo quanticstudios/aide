@@ -138,3 +138,26 @@ body {
   min-height: 0;
   overflow: hidden;
 }
+
+.workspace-strip,
+.pane-strip {
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+}
+
+.workspace-strip::-webkit-scrollbar,
+.pane-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-strip-item {
+  scroll-snap-align: center;
+}
+.pane-strip {
+  scroll-padding-inline: 1.25rem;
+}
+
+.pane-strip-card {
+  scroll-snap-align: center;
+}

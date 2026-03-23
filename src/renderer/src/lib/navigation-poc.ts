@@ -331,6 +331,45 @@ export function getWorkspaceScene(workspaceId: string | null): WorkspaceScene {
   return workspaceScenes[workspaceId] ?? defaultWorkspaceScene
 }
 
+export function resolveWorkspacePaneId(
+  workspaceId: string | null,
+  activePaneId: string | null,
+): string | null {
+  const scene = getWorkspaceScene(workspaceId)
+
+  if (scene.panes.some((pane) => pane.id === activePaneId)) {
+    return activePaneId
+  }
+
+  return scene.panes[0]?.id ?? null
+}
+
+export function selectRelativePane(
+  workspaceId: string | null,
+  activePaneId: string | null,
+  direction: -1 | 1,
+): string | null {
+  const scene = getWorkspaceScene(workspaceId)
+
+  if (scene.panes.length === 0) {
+    return null
+  }
+
+  const resolvedPaneId = resolveWorkspacePaneId(workspaceId, activePaneId)
+  const currentIndex = scene.panes.findIndex(
+    (pane) => pane.id === resolvedPaneId,
+  )
+
+  if (currentIndex === -1) {
+    return scene.panes[0]?.id ?? null
+  }
+
+  const nextIndex =
+    (currentIndex + direction + scene.panes.length) % scene.panes.length
+
+  return scene.panes[nextIndex]?.id ?? null
+}
+
 export function isNavigationPocSnapshot(
   snapshot: PersistenceSnapshot | null,
 ): boolean {
