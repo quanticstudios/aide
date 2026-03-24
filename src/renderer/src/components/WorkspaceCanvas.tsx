@@ -4,6 +4,10 @@ import { FolderOpen, Plus } from 'lucide-react'
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
 import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { cn } from '@/lib/utils'
+import {
+  getWorkspaceSlideHeight,
+  getWorkspaceTrackStyle,
+} from '@/lib/workspace-camera'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -17,6 +21,7 @@ interface WorkspaceCanvasProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly projectWorkspaces: readonly WorkspaceRecord[]
   readonly shellError: string | null
 }
 
@@ -77,20 +82,21 @@ export default function WorkspaceCanvas({
   activeWorkspace,
   onCreateProject,
   onCreateWorkspace,
+  projectWorkspaces,
   shellError,
 }: WorkspaceCanvasProps) {
-  const workspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
-  const resolvedPaneId = resolveWorkspacePaneId(
-    activeWorkspace?.id ?? null,
-    activePaneId,
-  )
-  const paneCount = Math.max(workspaceScene.panes.length, 1)
-  const activePaneIndex = Math.max(
-    workspaceScene.panes.findIndex((pane) => pane.id === resolvedPaneId),
+  const workspaceCount = Math.max(projectWorkspaces.length, 1)
+  const activeWorkspaceIndex = Math.max(
+    projectWorkspaces.findIndex(
+      (workspace) => workspace.id === activeWorkspace?.id,
+    ),
     0,
   )
-  const paneTrackStyle = getPaneTrackStyle(paneCount, activePaneIndex)
-  const paneSlideWidth = getPaneSlideWidth(paneCount)
+  const workspaceTrackStyle = getWorkspaceTrackStyle(
+    workspaceCount,
+    activeWorkspaceIndex,
+  )
+  const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
 
   if (shellError) {
     return (
@@ -132,159 +138,202 @@ export default function WorkspaceCanvas({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
-        <div
-          className="pane-slider-track flex min-h-0 shrink-0 items-stretch transition-transform duration-200 ease-out"
-          style={paneTrackStyle}
-        >
-          {workspaceScene.panes.map((pane, index) => {
-            const isActive = pane.id === resolvedPaneId
+      <div
+        className="workspace-slider flex min-h-0 flex-1 shrink-0 flex-col items-stretch transition-transform duration-200 ease-out"
+        style={workspaceTrackStyle}
+      >
+        {projectWorkspaces.map((workspace) => {
+          const workspaceScene = getWorkspaceScene(workspace.id)
+          const isActiveWorkspace = workspace.id === activeWorkspace.id
+          const resolvedPaneId = resolveWorkspacePaneId(
+            workspace.id,
+            isActiveWorkspace ? activePaneId : null,
+          )
+          const paneCount = Math.max(workspaceScene.panes.length, 1)
+          const activePaneIndex = Math.max(
+            workspaceScene.panes.findIndex(
+              (pane) => pane.id === resolvedPaneId,
+            ),
+            0,
+          )
+          const paneTrackStyle = getPaneTrackStyle(paneCount, activePaneIndex)
+          const paneSlideWidth = getPaneSlideWidth(paneCount)
 
-            if (pane.type === 'Terminal') {
-              return (
-                <article
-                  className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
-                  key={pane.id}
-                  style={{ width: paneSlideWidth }}
-                >
-                  <TerminalPane paneId={pane.id} workspace={activeWorkspace} />
-                </article>
-              )
-            }
-
-            return (
-              <article
-                className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
-                key={pane.id}
-                style={{ width: paneSlideWidth }}
-              >
+          return (
+            <section
+              className="workspace-slide flex min-h-0 shrink-0 flex-col"
+              key={workspace.id}
+              style={{ height: workspaceSlideHeight }}
+            >
+              <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
                 <div
-                  className={cn(
-                    'flex h-full min-h-0 flex-col overflow-hidden rounded-2xl p-5 text-left lg:p-6',
-                    paneAccentClassNames[pane.accent],
-                    isActive ? 'opacity-100' : 'opacity-86',
-                  )}
+                  className="pane-slider-track flex min-h-0 shrink-0 items-stretch transition-transform duration-200 ease-out"
+                  style={paneTrackStyle}
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <Chip
-                        className="rounded-full px-2 text-[10px] uppercase tracking-[0.18em]"
-                        color="default"
-                        size="sm"
-                        variant="secondary"
+                  {workspaceScene.panes.map((pane, index) => {
+                    const isActive = pane.id === resolvedPaneId
+
+                    if (pane.type === 'Terminal') {
+                      return (
+                        <article
+                          className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
+                          key={pane.id}
+                          style={{ width: paneSlideWidth }}
+                        >
+                          {isActiveWorkspace ? (
+                            <TerminalPane
+                              paneId={pane.id}
+                              workspace={workspace}
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
+                              Terminal session hidden until this workspace is
+                              active.
+                            </div>
+                          )}
+                        </article>
+                      )
+                    }
+
+                    return (
+                      <article
+                        className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
+                        key={pane.id}
+                        style={{ width: paneSlideWidth }}
                       >
-                        {pane.type}
-                      </Chip>
-                      <span className="rounded-full border border-border/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                        {index + 1}
-                      </span>
-                    </div>
+                        <div
+                          className={cn(
+                            'flex h-full min-h-0 flex-col overflow-hidden rounded-2xl p-5 text-left lg:p-6',
+                            paneAccentClassNames[pane.accent],
+                            isActive ? 'opacity-100' : 'opacity-86',
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <Chip
+                                className="rounded-full px-2 text-[10px] uppercase tracking-[0.18em]"
+                                color="default"
+                                size="sm"
+                                variant="secondary"
+                              >
+                                {pane.type}
+                              </Chip>
+                              <span className="rounded-full border border-border/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                                {index + 1}
+                              </span>
+                            </div>
 
-                    <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                      {isActive ? 'Focused pane' : 'Pane'}
-                    </span>
-                  </div>
+                            <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              {isActive ? 'Focused pane' : 'Pane'}
+                            </span>
+                          </div>
 
-                  <div className="mt-6 flex min-h-0 flex-1 flex-col">
-                    {pane.type === 'Preview' && isActive ? (
-                      <div className="mt-5 min-h-0 flex-1">
-                        <PreviewPane />
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                            View
-                          </p>
-                          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">
-                            {pane.label}
-                          </h2>
-                          <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-                            {pane.description}
-                          </p>
-                        </div>
+                          <div className="mt-6 flex min-h-0 flex-1 flex-col">
+                            {pane.type === 'Preview' &&
+                            isActive &&
+                            isActiveWorkspace ? (
+                              <div className="mt-5 min-h-0 flex-1">
+                                <PreviewPane />
+                              </div>
+                            ) : (
+                              <>
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                                    View
+                                  </p>
+                                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">
+                                    {pane.label}
+                                  </h2>
+                                  <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
+                                    {pane.description}
+                                  </p>
+                                </div>
 
-                        <div className="mt-5 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                          <Surface
-                            className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-4"
-                            variant="secondary"
-                          >
-                            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                              Active view
-                            </p>
-                            <ScrollShadow
-                              className="mt-4 min-h-0 flex-1 rounded-xl border border-border/60 bg-surface-tertiary/70 p-4"
-                              hideScrollBar
-                              size={28}
-                            >
-                              <div className="space-y-3">
-                                {paneViewSections.map((section) => (
+                                <div className="mt-5 grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
                                   <Surface
-                                    className="rounded-xl border border-border/50 p-3"
-                                    key={section}
-                                    variant="tertiary"
+                                    className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-4"
+                                    variant="secondary"
                                   >
-                                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                                      {section}
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                                      Active view
                                     </p>
-                                    <p className="mt-2 text-sm text-foreground/90">
-                                      {pane.label} stays inside the pane while
-                                      navigation keeps the shell spatial and
-                                      predictable.
-                                    </p>
+                                    <ScrollShadow
+                                      className="mt-4 min-h-0 flex-1 rounded-xl border border-border/60 bg-surface-tertiary/70 p-4"
+                                      hideScrollBar
+                                      size={28}
+                                    >
+                                      <div className="space-y-3">
+                                        {paneViewSections.map((section) => (
+                                          <Surface
+                                            className="rounded-xl border border-border/50 p-3"
+                                            key={section}
+                                            variant="tertiary"
+                                          >
+                                            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                                              {section}
+                                            </p>
+                                            <p className="mt-2 text-sm text-foreground/90">
+                                              {pane.label} stays inside the pane
+                                              while navigation keeps the shell
+                                              spatial and predictable.
+                                            </p>
+                                          </Surface>
+                                        ))}
+                                      </div>
+                                    </ScrollShadow>
                                   </Surface>
-                                ))}
-                              </div>
-                            </ScrollShadow>
-                          </Surface>
 
-                          <div className="flex min-h-0 flex-col gap-3">
-                            <Surface
-                              className="rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground"
-                              variant="tertiary"
-                            >
-                              {workspaceScene.headline}
-                            </Surface>
-                            <Surface
-                              className="rounded-2xl border border-border/60 p-4 font-mono text-xs text-muted-foreground"
-                              variant="secondary"
-                            >
-                              {activeWorkspace.worktreePath}
-                            </Surface>
-                            <Surface
-                              className="rounded-2xl border border-border/60 p-4"
-                              variant="secondary"
-                            >
-                              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                                Navigation
-                              </p>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <Chip size="sm" variant="secondary">
-                                  Pane H/L
-                                </Chip>
-                                <Chip size="sm" variant="secondary">
-                                  Workspace Alt J/K
-                                </Chip>
-                              </div>
-                            </Surface>
+                                  <div className="flex min-h-0 flex-col gap-3">
+                                    <Surface
+                                      className="rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground"
+                                      variant="tertiary"
+                                    >
+                                      {workspaceScene.headline}
+                                    </Surface>
+                                    <Surface
+                                      className="rounded-2xl border border-border/60 p-4 font-mono text-xs text-muted-foreground"
+                                      variant="secondary"
+                                    >
+                                      {workspace.worktreePath}
+                                    </Surface>
+                                    <Surface
+                                      className="rounded-2xl border border-border/60 p-4"
+                                      variant="secondary"
+                                    >
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                                        Navigation
+                                      </p>
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        <Chip size="sm" variant="secondary">
+                                          Pane H/L
+                                        </Chip>
+                                        <Chip size="sm" variant="secondary">
+                                          Workspace Alt J/K
+                                        </Chip>
+                                      </div>
+                                    </Surface>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+
+                            <div className="mt-auto flex items-center justify-between gap-4 pt-6 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                              <span className="truncate">{workspace.name}</span>
+                              <span className="flex items-center gap-2">
+                                <span className="size-2 rounded-full bg-foreground/30" />
+                                {pane.type}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </>
-                    )}
-
-                    <div className="mt-auto flex items-center justify-between gap-4 pt-6 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                      <span className="truncate">{activeWorkspace.name}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="size-2 rounded-full bg-foreground/30" />
-                        {pane.type}
-                      </span>
-                    </div>
-                  </div>
+                      </article>
+                    )
+                  })}
                 </div>
-              </article>
-            )
-          })}
-        </div>
+              </div>
+            </section>
+          )
+        })}
       </div>
     </section>
   )

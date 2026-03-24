@@ -647,6 +647,7 @@ export default function App() {
           activeWorkspace={activeWorkspace}
           onCreateProject={createProject}
           onCreateWorkspace={createWorkspace}
+          projectWorkspaces={projectWorkspaces}
           shellError={isDemoMode ? null : shellError}
           activePaneId={activePaneId}
         />
