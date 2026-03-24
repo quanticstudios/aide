@@ -35,6 +35,8 @@ interface SqlWorkspaceRow {
 
 interface SqlAppStateRow {
   last_active_project_id: string | null
+  last_active_workspace_ids_by_project: string
+  last_active_pane_ids_by_workspace: string
   last_active_workspace_id: string | null
 }
 
@@ -78,12 +80,21 @@ const MIGRATIONS = [
         id INTEGER PRIMARY KEY CHECK (id = 1),
         last_active_project_id TEXT,
         last_active_workspace_id TEXT,
+        last_active_workspace_ids_by_project TEXT NOT NULL DEFAULT '{}',
+        last_active_pane_ids_by_workspace TEXT NOT NULL DEFAULT '{}',
         updated_at TEXT NOT NULL
       );
 
-      INSERT INTO app_state (id, last_active_project_id, last_active_workspace_id, updated_at)
-      VALUES (1, NULL, NULL, CURRENT_TIMESTAMP)
+      INSERT INTO app_state (id, last_active_project_id, last_active_workspace_id, last_active_workspace_ids_by_project, last_active_pane_ids_by_workspace, updated_at)
+      VALUES (1, NULL, NULL, '{}', '{}', CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO NOTHING;
+    `,
+  },
+  {
+    version: 3,
+    sql: `
+      ALTER TABLE app_state ADD COLUMN last_active_workspace_ids_by_project TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE app_state ADD COLUMN last_active_pane_ids_by_workspace TEXT NOT NULL DEFAULT '{}';
     `,
   },
 ]
@@ -344,7 +355,10 @@ export class AideDatabase {
 
     return {
       databasePath: this.databasePath,
+      lastActivePaneIdsByWorkspace: activeSelection.paneIdsByWorkspace ?? {},
       lastActiveProjectId: activeSelection.projectId,
+      lastActiveWorkspaceIdsByProject:
+        activeSelection.workspaceIdsByProject ?? {},
       lastActiveWorkspaceId: activeSelection.workspaceId,
       migrationStrategy: MIGRATION_STRATEGY,
       schemaVersion: this.getSchemaVersion(),
@@ -358,11 +372,17 @@ export class AideDatabase {
       .prepare(
         `
           UPDATE app_state
-          SET last_active_project_id = ?, last_active_workspace_id = ?, updated_at = ?
+          SET last_active_project_id = ?, last_active_workspace_id = ?, last_active_workspace_ids_by_project = ?, last_active_pane_ids_by_workspace = ?, updated_at = ?
           WHERE id = 1
         `,
       )
-      .run(input.projectId, input.workspaceId, new Date().toISOString())
+      .run(
+        input.projectId,
+        input.workspaceId,
+        JSON.stringify(input.workspaceIdsByProject ?? {}),
+        JSON.stringify(input.paneIdsByWorkspace ?? {}),
+        new Date().toISOString(),
+      )
   }
 
   private getSchemaVersion(): number {
@@ -377,7 +397,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT last_active_project_id, last_active_workspace_id
+          SELECT last_active_project_id, last_active_workspace_id, last_active_workspace_ids_by_project, last_active_pane_ids_by_workspace
           FROM app_state
           WHERE id = 1
         `,
@@ -385,7 +405,13 @@ export class AideDatabase {
       .get() as SqlAppStateRow | undefined
 
     return {
+      paneIdsByWorkspace: row?.last_active_pane_ids_by_workspace
+        ? JSON.parse(row.last_active_pane_ids_by_workspace)
+        : {},
       projectId: row?.last_active_project_id ?? null,
+      workspaceIdsByProject: row?.last_active_workspace_ids_by_project
+        ? JSON.parse(row.last_active_workspace_ids_by_project)
+        : {},
       workspaceId: row?.last_active_workspace_id ?? null,
     }
   }
@@ -422,7 +448,18 @@ export class AideDatabase {
     )
 
     for (const migration of pendingMigrations) {
-      this.database.exec(migration.sql)
+      try {
+        this.database.exec(migration.sql)
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes('duplicate column name')
+        ) {
+          // Ignore duplicate column errors when migrating existing local databases.
+        } else {
+          throw error
+        }
+      }
       this.database.exec(`PRAGMA user_version = ${migration.version};`)
     }
   }

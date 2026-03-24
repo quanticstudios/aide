@@ -8,12 +8,14 @@ describe('createAideDatabase', () => {
 
     expect(database.getSnapshot()).toMatchObject({
       databasePath: ':memory:',
+      lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: null,
+      lastActiveWorkspaceIdsByProject: {},
       lastActiveWorkspaceId: null,
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 2,
+      schemaVersion: 3,
       workspaces: [],
     })
 
@@ -169,12 +171,16 @@ describe('createAideDatabase', () => {
     })
 
     database.setActiveSelection({
+      paneIdsByWorkspace: { [workspace.id]: 'terminal' },
       projectId: project.id,
+      workspaceIdsByProject: { [project.id]: workspace.id },
       workspaceId: workspace.id,
     })
 
     expect(database.getSnapshot()).toMatchObject({
+      lastActivePaneIdsByWorkspace: { [workspace.id]: 'terminal' },
       lastActiveProjectId: project.id,
+      lastActiveWorkspaceIdsByProject: { [project.id]: workspace.id },
       lastActiveWorkspaceId: workspace.id,
     })
 

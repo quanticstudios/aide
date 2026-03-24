@@ -47,10 +47,12 @@ function createWorkspace(
 function createSnapshot(): PersistenceSnapshot {
   return {
     databasePath: '.aide.sqlite3',
+    lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: 'project-b',
+    lastActiveWorkspaceIdsByProject: {},
     lastActiveWorkspaceId: 'workspace-b2',
     migrationStrategy: 'test',
-    schemaVersion: 2,
+    schemaVersion: 3,
     projects: [
       createProject('project-a', 'aide'),
       createProject('project-b', 'storefront'),
@@ -199,5 +201,30 @@ describe('spatial navigation transitions', () => {
       moveRelativeWorkspace(snapshot, baseState, -1, getPaneIdsForWorkspace)
         .activeWorkspaceId,
     ).toBe('workspace-b1')
+  })
+
+  it('uses durable snapshot memory when in-memory memory is empty', () => {
+    const snapshot = {
+      ...createSnapshot(),
+      lastActivePaneIdsByWorkspace: {
+        'workspace-a2': 'preview',
+      },
+      lastActiveWorkspaceIdsByProject: {
+        'project-a': 'workspace-a2',
+      },
+    }
+
+    const state = applyProjectSelection(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      'project-a',
+      getPaneIdsForWorkspace,
+    )
+
+    expect(state).toMatchObject({
+      activePaneId: 'preview',
+      activeProjectId: 'project-a',
+      activeWorkspaceId: 'workspace-a2',
+    })
   })
 })

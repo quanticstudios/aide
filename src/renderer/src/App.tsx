@@ -299,15 +299,21 @@ export default function App() {
 
     void api
       .setActiveSelection({
+        paneIdsByWorkspace:
+          resolvedNavigationState.rememberedPaneIdsByWorkspace,
         projectId: resolvedNavigationState.activeProjectId,
+        workspaceIdsByProject:
+          resolvedNavigationState.rememberedWorkspaceIdsByProject,
         workspaceId: resolvedNavigationState.activeWorkspaceId,
       })
       .catch((error: unknown) => {
         setShellError(getErrorMessage(error))
       })
   }, [
+    resolvedNavigationState.rememberedPaneIdsByWorkspace,
     resolvedNavigationState.activeProjectId,
     resolvedNavigationState.activeWorkspaceId,
+    resolvedNavigationState.rememberedWorkspaceIdsByProject,
     storageSnapshot,
   ])
 

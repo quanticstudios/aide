@@ -59,6 +59,7 @@ function resolveWorkspaceId(
   const candidates = [
     activeWorkspaceId,
     state.rememberedWorkspaceIdsByProject[projectId] ?? null,
+    snapshot.lastActiveWorkspaceIdsByProject[projectId] ?? null,
     snapshot.lastActiveWorkspaceId,
   ]
 
@@ -75,6 +76,7 @@ function resolveWorkspaceId(
 }
 
 function resolvePaneId(
+  snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   workspaceId: string | null,
   activePaneId: string | null,
@@ -90,6 +92,9 @@ function resolvePaneId(
     activePaneId,
     workspaceId
       ? (state.rememberedPaneIdsByWorkspace[workspaceId] ?? null)
+      : null,
+    workspaceId
+      ? (snapshot.lastActivePaneIdsByWorkspace[workspaceId] ?? null)
       : null,
   ]
 
@@ -125,6 +130,7 @@ export function resolveSpatialNavigationState(
     state.activeWorkspaceId,
   )
   const activePaneId = resolvePaneId(
+    snapshot,
     state,
     activeWorkspaceId,
     state.activePaneId,
@@ -280,6 +286,7 @@ export function moveRelativePane(
   }
 
   const currentPaneId = resolvePaneId(
+    snapshot,
     state,
     state.activeWorkspaceId,
     state.activePaneId,

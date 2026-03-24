@@ -14,10 +14,12 @@ describe('resolveNavigationSnapshot', () => {
   it('falls back to the navigation POC snapshot when storage is empty', () => {
     const emptySnapshot: PersistenceSnapshot = {
       databasePath: '.aide.sqlite3',
+      lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: null,
+      lastActiveWorkspaceIdsByProject: {},
       lastActiveWorkspaceId: null,
       migrationStrategy: 'test',
-      schemaVersion: 2,
+      schemaVersion: 3,
       projects: [],
       workspaces: [],
     }
@@ -30,10 +32,12 @@ describe('resolveNavigationSnapshot', () => {
   it('keeps the real snapshot when persisted projects exist', () => {
     const realSnapshot: PersistenceSnapshot = {
       databasePath: '.aide.sqlite3',
+      lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: 'project-1',
+      lastActiveWorkspaceIdsByProject: {},
       lastActiveWorkspaceId: 'workspace-1',
       migrationStrategy: 'test',
-      schemaVersion: 2,
+      schemaVersion: 3,
       projects: [
         {
           id: 'project-1',

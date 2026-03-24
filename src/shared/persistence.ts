@@ -21,7 +21,9 @@ export interface WorkspaceRecord {
 
 export interface PersistenceSnapshot {
   databasePath: string
+  lastActivePaneIdsByWorkspace: Record<string, string | null>
   lastActiveProjectId: string | null
+  lastActiveWorkspaceIdsByProject: Record<string, string | null>
   lastActiveWorkspaceId: string | null
   migrationStrategy: string
   schemaVersion: number
@@ -30,7 +32,9 @@ export interface PersistenceSnapshot {
 }
 
 export interface SetActiveSelectionInput {
+  paneIdsByWorkspace?: Record<string, string | null>
   projectId: string | null
+  workspaceIdsByProject?: Record<string, string | null>
   workspaceId: string | null
 }
 

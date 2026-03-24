@@ -315,7 +315,9 @@ const defaultWorkspaceScene: WorkspaceScene = {
 
 export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   databasePath: 'demo://navigation-poc',
+  lastActivePaneIdsByWorkspace: {},
   lastActiveProjectId: 'demo-project-aide',
+  lastActiveWorkspaceIdsByProject: {},
   lastActiveWorkspaceId: 'demo-workspace-aide-nav',
   migrationStrategy: 'Navigation-first POC fallback snapshot',
   schemaVersion: 0,

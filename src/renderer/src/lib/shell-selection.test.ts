@@ -49,10 +49,12 @@ function createSnapshot(
 ): PersistenceSnapshot {
   return {
     databasePath: '.aide.sqlite3',
+    lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: null,
+    lastActiveWorkspaceIdsByProject: {},
     lastActiveWorkspaceId: null,
     migrationStrategy: 'test',
-    schemaVersion: 2,
+    schemaVersion: 3,
     projects,
     workspaces,
   }
