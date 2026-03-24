@@ -82,6 +82,7 @@ export default function App() {
     signature: '',
     time: 0,
   })
+  const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
   )
@@ -263,6 +264,8 @@ export default function App() {
   }, [refreshStorage])
 
   useEffect(() => {
+    const resolvedSignature = JSON.stringify(resolvedNavigationState)
+
     if (
       activePaneId === resolvedNavigationState.activePaneId &&
       activeProjectId === resolvedNavigationState.activeProjectId &&
@@ -276,9 +279,15 @@ export default function App() {
         resolvedNavigationState.rememberedWorkspaceIdsByProject,
       )
     ) {
+      lastResolvedNavigationRef.current = resolvedSignature
       return
     }
 
+    if (lastResolvedNavigationRef.current === resolvedSignature) {
+      return
+    }
+
+    lastResolvedNavigationRef.current = resolvedSignature
     setSelection(resolvedNavigationState)
   }, [
     activePaneId,

@@ -27,6 +27,14 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown terminal error'
 }
 
+function safeFit(fitAddon: FitAddon): void {
+  try {
+    fitAddon.fit()
+  } catch {
+    // Ignore xterm fit errors until the terminal has valid render dimensions.
+  }
+}
+
 export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
   const sessionId = useMemo(
     () => `${workspace.id}:${paneId}`,
@@ -49,7 +57,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
       return
     }
 
-    fitAddon.fit()
+    safeFit(fitAddon)
     setError(null)
     terminal.clear()
 
@@ -180,7 +188,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     })
 
     const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit()
+      safeFit(fitAddon)
       void aideApi.resizeTerminalSession(sessionId, {
         cols: terminal.cols,
         rows: terminal.rows,

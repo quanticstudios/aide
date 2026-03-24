@@ -45,7 +45,7 @@ export default function AppSidebar({
           return (
             <Tooltip delay={120} key={project.id}>
               <Tooltip.Trigger>
-                <button
+                <Button
                   aria-label={project.name}
                   className={cn(
                     'group relative flex size-12 items-center justify-center rounded-2xl border text-sm font-semibold tracking-[0.12em] transition-all',
@@ -53,8 +53,8 @@ export default function AppSidebar({
                       ? 'border-primary/60 bg-primary/12 text-primary shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
                       : 'border-border bg-background text-muted-foreground hover:border-primary/35 hover:text-foreground',
                   )}
-                  onClick={() => onSelectProject(project.id)}
-                  type="button"
+                  onPress={() => onSelectProject(project.id)}
+                  variant="ghost"
                 >
                   <span>{getProjectGlyph(project.name)}</span>
                   <span
@@ -74,7 +74,7 @@ export default function AppSidebar({
                       {index + 1}
                     </Chip>
                   </span>
-                </button>
+                </Button>
               </Tooltip.Trigger>
               <Tooltip.Content className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]">
                 {index + 1}. {project.name}

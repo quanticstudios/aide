@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "heroui-migration": {
+      "url": "https://migration-mcp.heroui.com"
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": ["shadcn@latest", "mcp"]
+    }
+  }
+}
