@@ -2,6 +2,7 @@ import { Button, Chip, ScrollShadow, Surface } from '@heroui/react'
 import { ChevronRight, GitBranch, LayoutGrid } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -13,6 +14,7 @@ interface ProjectWorkspaceTreeProps {
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly projects: readonly ProjectRecord[]
+  readonly summaries: Record<string, WorkspaceSummary>
   readonly workspaces: readonly WorkspaceRecord[]
 }
 
@@ -22,6 +24,7 @@ export default function ProjectWorkspaceTree({
   onSelectProject,
   onSelectWorkspace,
   projects,
+  summaries,
   workspaces,
 }: ProjectWorkspaceTreeProps) {
   return (
@@ -83,6 +86,7 @@ export default function ProjectWorkspaceTree({
                 <div className="mt-3 space-y-2">
                   {projectWorkspaces.map((workspace) => {
                     const isActiveWorkspace = workspace.id === activeWorkspaceId
+                    const summary = summaries[workspace.id]
 
                     return (
                       <Button
@@ -102,16 +106,18 @@ export default function ProjectWorkspaceTree({
                           </div>
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">
-                              {workspace.name}
+                              {summary?.workspaceName ?? workspace.name}
                             </p>
                             <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                              {workspace.branchName}
+                              {summary?.branchName ?? workspace.branchName}
                             </p>
                           </div>
                         </div>
 
                         <Chip size="sm" variant="secondary">
-                          idle
+                          {summary
+                            ? `${summary.status} · ${summary.jobCount}`
+                            : 'idle · 0'}
                         </Chip>
                       </Button>
                     )

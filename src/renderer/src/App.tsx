@@ -26,6 +26,7 @@ import {
   resolveSpatialNavigationState,
 } from './lib/spatial-navigation-state'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
+import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -613,6 +614,15 @@ export default function App() {
         (workspace) => workspace.projectId === activeProject.id,
       )
     : []
+  const workspaceSummaries = useMemo(
+    () =>
+      buildWorkspaceSummaryMap(
+        projects,
+        allWorkspaces,
+        resolvedNavigationState.activeWorkspaceId,
+      ),
+    [allWorkspaces, projects, resolvedNavigationState.activeWorkspaceId],
+  )
 
   return (
     <AppShell
@@ -637,6 +647,7 @@ export default function App() {
       onSelectWorkspace={handleWorkspaceSelection}
       projects={projects}
       workspaces={allWorkspaces}
+      workspaceSummaries={workspaceSummaries}
     >
       <>
         <ProjectCreationModal
@@ -656,6 +667,7 @@ export default function App() {
           activeWorkspaceId={activeWorkspace?.id ?? null}
           onSelectWorkspace={handleWorkspaceSelection}
           projectName={activeProject?.name ?? null}
+          summaries={workspaceSummaries}
           visible={isWorkspaceSwitcherVisible}
           workspaces={projectWorkspaces}
         />

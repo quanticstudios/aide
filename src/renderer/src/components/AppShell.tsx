@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -21,6 +22,7 @@ interface AppShellProps {
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly workspaceSummaries: Record<string, WorkspaceSummary>
   readonly children: ReactNode
 }
 
@@ -37,6 +39,7 @@ export default function AppShell({
   onSelectWorkspace,
   onCreateProject,
   onCreateWorkspace,
+  workspaceSummaries,
   children,
 }: AppShellProps) {
   return (
@@ -56,6 +59,7 @@ export default function AppShell({
         onSelectProject={onSelectProject}
         onSelectWorkspace={onSelectWorkspace}
         projects={projects}
+        summaries={workspaceSummaries}
         workspaces={workspaces}
       />
 

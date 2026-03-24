@@ -3,12 +3,14 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Key } from 'react'
 
 import { cn } from '@/lib/utils'
+import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 
 interface WorkspaceSwitcherOverlayProps {
   readonly activeWorkspaceId: string | null
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly projectName: string | null
+  readonly summaries: Record<string, WorkspaceSummary>
   readonly visible: boolean
   readonly workspaces: readonly WorkspaceRecord[]
 }
@@ -17,6 +19,7 @@ export default function WorkspaceSwitcherOverlay({
   activeWorkspaceId,
   onSelectWorkspace,
   projectName,
+  summaries,
   visible,
   workspaces,
 }: WorkspaceSwitcherOverlayProps) {
@@ -75,25 +78,33 @@ export default function WorkspaceSwitcherOverlay({
               key={workspace.id}
               textValue={workspace.name}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <Label className="truncate text-sm font-medium">
-                    {workspace.name}
-                  </Label>
-                  <Description className="truncate font-mono text-[11px] text-muted-foreground">
-                    {workspace.branchName}
-                  </Description>
-                </div>
+              {(() => {
+                const summary = summaries[workspace.id]
 
-                <Chip
-                  className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-                  color="default"
-                  size="sm"
-                  variant="secondary"
-                >
-                  {index + 1}
-                </Chip>
-              </div>
+                return (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <Label className="truncate text-sm font-medium">
+                        {summary?.workspaceName ?? workspace.name}
+                      </Label>
+                      <Description className="truncate font-mono text-[11px] text-muted-foreground">
+                        {summary?.branchName ?? workspace.branchName}
+                      </Description>
+                    </div>
+
+                    <Chip
+                      className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+                      color="default"
+                      size="sm"
+                      variant="secondary"
+                    >
+                      {summary
+                        ? `${summary.status} · ${summary.jobCount}`
+                        : index + 1}
+                    </Chip>
+                  </div>
+                )
+              })()}
             </ListBox.Item>
           ))}
         </ListBox>
