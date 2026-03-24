@@ -5,17 +5,20 @@ import type {
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import AppSidebar from './AppSidebar'
+import ProjectWorkspaceTree from './ProjectWorkspaceTree'
 import TopBar from './TopBar'
 
 interface AppShellProps {
   readonly activePaneId: string | null
   readonly projects: readonly ProjectRecord[]
+  readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
   readonly showProjectHints: boolean
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
+  readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly children: ReactNode
@@ -24,18 +27,20 @@ interface AppShellProps {
 export default function AppShell({
   activePaneId,
   projects,
+  workspaces,
   activeProject,
   activeWorkspace,
   isDemoMode,
   showProjectHints,
   onSelectPane,
   onSelectProject,
+  onSelectWorkspace,
   onCreateProject,
   onCreateWorkspace,
   children,
 }: AppShellProps) {
   return (
-    <div className="grid h-full w-full grid-cols-[4.5rem_minmax(0,1fr)] bg-background text-foreground">
+    <div className="grid h-full w-full grid-cols-[4.5rem_18rem_minmax(0,1fr)] bg-background text-foreground">
       <AppSidebar
         activeProjectId={activeProject?.id ?? null}
         isDemoMode={isDemoMode}
@@ -43,6 +48,15 @@ export default function AppShell({
         onSelectProject={onSelectProject}
         projects={projects}
         showProjectHints={showProjectHints}
+      />
+
+      <ProjectWorkspaceTree
+        activeProjectId={activeProject?.id ?? null}
+        activeWorkspaceId={activeWorkspace?.id ?? null}
+        onSelectProject={onSelectProject}
+        onSelectWorkspace={onSelectWorkspace}
+        projects={projects}
+        workspaces={workspaces}
       />
 
       <div className="flex min-w-0 flex-col overflow-hidden">

@@ -634,7 +634,9 @@ export default function App() {
       onCreateProject={createProject}
       onCreateWorkspace={createWorkspace}
       onSelectProject={handleProjectSelection}
+      onSelectWorkspace={handleWorkspaceSelection}
       projects={projects}
+      workspaces={allWorkspaces}
     >
       <>
         <ProjectCreationModal
