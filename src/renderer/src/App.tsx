@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AideApi } from '../../shared/ipc'
 import type {
@@ -11,20 +11,20 @@ import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import {
+  getWorkspaceScene,
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
-  resolveWorkspacePaneId,
-  selectRelativePane,
 } from './lib/navigation-poc'
 import { createProjectDraftValues } from './lib/project-draft'
 import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
-  resolveBootSelection,
-  selectLatestProject,
-  selectLatestWorkspace,
-  selectProject,
-  selectRelativeWorkspace,
-} from './lib/shell-selection'
+  applyPaneSelection,
+  applyProjectSelection,
+  applyWorkspaceSelection,
+  moveRelativePane,
+  moveRelativeWorkspace,
+  resolveSpatialNavigationState,
+} from './lib/spatial-navigation-state'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 
 function getAideApi(): AideApi | null {
@@ -53,6 +53,20 @@ function shouldIgnoreGlobalNavigation(target: EventTarget | null): boolean {
   )
 }
 
+function recordsEqual(
+  left: Record<string, string | null>,
+  right: Record<string, string | null>,
+): boolean {
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false
+  }
+
+  return leftKeys.every((key) => left[key] === right[key])
+}
+
 export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
@@ -64,6 +78,10 @@ export default function App() {
     useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
+  const lastShortcutRef = useRef<{ signature: string; time: number }>({
+    signature: '',
+    time: 0,
+  })
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
   )
@@ -74,30 +92,39 @@ export default function App() {
   const activePaneIdsByWorkspace = useWorkspaceSelectionStore(
     (state) => state.activePaneIdsByWorkspace,
   )
-  const setActivePaneForWorkspace = useWorkspaceSelectionStore(
-    (state) => state.setActivePaneForWorkspace,
+  const rememberedWorkspaceIdsByProject = useWorkspaceSelectionStore(
+    (state) => state.rememberedWorkspaceIdsByProject,
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = resolveNavigationSnapshot(storageSnapshot)
-  const navigationSelection = resolveBootSelection(
-    navigationSnapshot,
-    activeProjectId,
-    activeWorkspaceId,
-  )
   const isDemoMode = isNavigationPocSnapshot(navigationSnapshot)
-
-  const resolveRememberedPaneId = useCallback(
-    (workspaceId: string | null, fallbackPaneId: string | null = null) => {
-      const rememberedPaneId = workspaceId
-        ? (activePaneIdsByWorkspace[workspaceId] ?? null)
-        : null
-
-      return resolveWorkspacePaneId(
-        workspaceId,
-        fallbackPaneId ?? rememberedPaneId,
-      )
-    },
-    [activePaneIdsByWorkspace],
+  const getPaneIdsForWorkspace = useCallback((workspaceId: string | null) => {
+    return getWorkspaceScene(workspaceId).panes.map((pane) => pane.id)
+  }, [])
+  const currentNavigationState = useMemo(
+    () => ({
+      activePaneId,
+      activeProjectId,
+      activeWorkspaceId,
+      rememberedPaneIdsByWorkspace: activePaneIdsByWorkspace,
+      rememberedWorkspaceIdsByProject,
+    }),
+    [
+      activePaneId,
+      activePaneIdsByWorkspace,
+      activeProjectId,
+      activeWorkspaceId,
+      rememberedWorkspaceIdsByProject,
+    ],
+  )
+  const resolvedNavigationState = useMemo(
+    () =>
+      resolveSpatialNavigationState(
+        navigationSnapshot,
+        currentNavigationState,
+        getPaneIdsForWorkspace,
+      ),
+    [currentNavigationState, getPaneIdsForWorkspace, navigationSnapshot],
   )
 
   const refreshStorage = useCallback(async () => {
@@ -110,31 +137,12 @@ export default function App() {
 
     try {
       const snapshot = await api.getStorageSnapshot()
-      const selection = resolveBootSelection(
-        snapshot,
-        activeProjectId,
-        activeWorkspaceId,
-      )
-
       setStorageSnapshot(snapshot)
-      setSelection({
-        ...selection,
-        activePaneId: resolveRememberedPaneId(
-          selection.activeWorkspaceId,
-          activePaneId,
-        ),
-      })
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
-  }, [
-    activePaneId,
-    activeProjectId,
-    activeWorkspaceId,
-    resolveRememberedPaneId,
-    setSelection,
-  ])
+  }, [])
 
   const createProject = useCallback(async () => {
     const api = getAideApi()
@@ -165,13 +173,21 @@ export default function App() {
 
       try {
         const snapshot = await api.createProject(input)
-        const selection = selectLatestProject(snapshot)
+        const latestProjectId = snapshot.projects.at(-1)?.id ?? null
+
+        if (!latestProjectId) {
+          return 'Project was created but no project record was returned.'
+        }
+
+        const nextState = applyProjectSelection(
+          snapshot,
+          resolvedNavigationState,
+          latestProjectId,
+          getPaneIdsForWorkspace,
+        )
 
         setStorageSnapshot(snapshot)
-        setSelection({
-          ...selection,
-          activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-        })
+        setSelection(nextState)
         setShellError(null)
         setIsProjectCreationOpen(false)
         return null
@@ -179,7 +195,7 @@ export default function App() {
         return getErrorMessage(error)
       }
     },
-    [resolveRememberedPaneId, setSelection],
+    [getPaneIdsForWorkspace, resolvedNavigationState, setSelection],
   )
 
   const createWorkspace = useCallback(() => {
@@ -217,13 +233,21 @@ export default function App() {
           worktreePath: input.worktreePath,
           windowId: null,
         })
-        const selection = selectLatestWorkspace(snapshot, input.projectId)
+        const latestWorkspaceId = snapshot.workspaces.at(-1)?.id ?? null
+
+        if (!latestWorkspaceId) {
+          return 'Workspace was created but no workspace record was returned.'
+        }
+
+        const nextState = applyWorkspaceSelection(
+          snapshot,
+          resolvedNavigationState,
+          latestWorkspaceId,
+          getPaneIdsForWorkspace,
+        )
 
         setStorageSnapshot(snapshot)
-        setSelection({
-          ...selection,
-          activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-        })
+        setSelection(nextState)
         setShellError(null)
         setIsWorkspaceCreationOpen(false)
         return null
@@ -231,12 +255,40 @@ export default function App() {
         return getErrorMessage(error)
       }
     },
-    [resolveRememberedPaneId, setSelection],
+    [getPaneIdsForWorkspace, resolvedNavigationState, setSelection],
   )
 
   useEffect(() => {
     void refreshStorage()
   }, [refreshStorage])
+
+  useEffect(() => {
+    if (
+      activePaneId === resolvedNavigationState.activePaneId &&
+      activeProjectId === resolvedNavigationState.activeProjectId &&
+      activeWorkspaceId === resolvedNavigationState.activeWorkspaceId &&
+      recordsEqual(
+        activePaneIdsByWorkspace,
+        resolvedNavigationState.rememberedPaneIdsByWorkspace,
+      ) &&
+      recordsEqual(
+        rememberedWorkspaceIdsByProject,
+        resolvedNavigationState.rememberedWorkspaceIdsByProject,
+      )
+    ) {
+      return
+    }
+
+    setSelection(resolvedNavigationState)
+  }, [
+    activePaneId,
+    activePaneIdsByWorkspace,
+    activeProjectId,
+    activeWorkspaceId,
+    rememberedWorkspaceIdsByProject,
+    resolvedNavigationState,
+    setSelection,
+  ])
 
   useEffect(() => {
     const api = getAideApi()
@@ -247,95 +299,168 @@ export default function App() {
 
     void api
       .setActiveSelection({
-        projectId: activeProjectId,
-        workspaceId: activeWorkspaceId,
+        projectId: resolvedNavigationState.activeProjectId,
+        workspaceId: resolvedNavigationState.activeWorkspaceId,
       })
       .catch((error: unknown) => {
         setShellError(getErrorMessage(error))
       })
-  }, [activeProjectId, activeWorkspaceId, storageSnapshot])
-
-  useEffect(() => {
-    const nextPaneId = resolveRememberedPaneId(activeWorkspaceId, activePaneId)
-
-    if (nextPaneId !== activePaneId) {
-      setSelection({ activePaneId: nextPaneId })
-    }
-  }, [activePaneId, activeWorkspaceId, resolveRememberedPaneId, setSelection])
+  }, [
+    resolvedNavigationState.activeProjectId,
+    resolvedNavigationState.activeWorkspaceId,
+    storageSnapshot,
+  ])
 
   const handleProjectSelection = useCallback(
     (projectId: string) => {
-      const selection = selectProject(navigationSnapshot, projectId)
-
-      setSelection({
-        ...selection,
-        activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-      })
+      setSelection(
+        applyProjectSelection(
+          navigationSnapshot,
+          resolvedNavigationState,
+          projectId,
+          getPaneIdsForWorkspace,
+        ),
+      )
     },
-    [navigationSnapshot, resolveRememberedPaneId, setSelection],
+    [
+      getPaneIdsForWorkspace,
+      navigationSnapshot,
+      resolvedNavigationState,
+      setSelection,
+    ],
   )
 
   const handleWorkspaceSelection = useCallback(
     (workspaceId: string) => {
-      const workspace = navigationSnapshot.workspaces.find(
-        (candidate) => candidate.id === workspaceId,
+      setSelection(
+        applyWorkspaceSelection(
+          navigationSnapshot,
+          resolvedNavigationState,
+          workspaceId,
+          getPaneIdsForWorkspace,
+        ),
       )
-
-      if (!workspace) {
-        return
-      }
-
-      setSelection({
-        activePaneId: resolveRememberedPaneId(workspace.id),
-        activeProjectId: workspace.projectId,
-        activeWorkspaceId: workspace.id,
-      })
       setIsWorkspaceSwitcherVisible(false)
     },
-    [navigationSnapshot.workspaces, resolveRememberedPaneId, setSelection],
+    [
+      getPaneIdsForWorkspace,
+      navigationSnapshot,
+      resolvedNavigationState,
+      setSelection,
+    ],
   )
 
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
-      const selection = selectRelativeWorkspace(
-        navigationSnapshot,
-        navigationSelection.activeProjectId,
-        navigationSelection.activeWorkspaceId,
-        direction,
+      setSelection(
+        moveRelativeWorkspace(
+          navigationSnapshot,
+          resolvedNavigationState,
+          direction,
+          getPaneIdsForWorkspace,
+        ),
       )
-
-      setSelection({
-        ...selection,
-        activePaneId: resolveRememberedPaneId(selection.activeWorkspaceId),
-      })
     },
     [
-      navigationSelection.activeProjectId,
-      navigationSelection.activeWorkspaceId,
+      getPaneIdsForWorkspace,
       navigationSnapshot,
-      resolveRememberedPaneId,
+      resolvedNavigationState,
       setSelection,
     ],
   )
 
   const handleRelativePaneSelection = useCallback(
     (direction: -1 | 1) => {
-      const nextPaneId = selectRelativePane(
-        navigationSelection.activeWorkspaceId,
-        activePaneId,
-        direction,
-      )
-
-      setActivePaneForWorkspace(
-        navigationSelection.activeWorkspaceId,
-        nextPaneId,
+      setSelection(
+        moveRelativePane(
+          navigationSnapshot,
+          resolvedNavigationState,
+          direction,
+          getPaneIdsForWorkspace,
+        ),
       )
     },
     [
-      activePaneId,
-      navigationSelection.activeWorkspaceId,
-      setActivePaneForWorkspace,
+      getPaneIdsForWorkspace,
+      navigationSnapshot,
+      resolvedNavigationState,
+      setSelection,
     ],
+  )
+
+  const handleAppShortcut = useCallback(
+    (shortcut: {
+      projectIndex?: number
+      type:
+        | 'pane-next'
+        | 'pane-previous'
+        | 'project-jump'
+        | 'workspace-next'
+        | 'workspace-previous'
+    }) => {
+      if (shortcut.type === 'pane-previous') {
+        handleRelativePaneSelection(-1)
+        return
+      }
+
+      if (shortcut.type === 'pane-next') {
+        handleRelativePaneSelection(1)
+        return
+      }
+
+      if (shortcut.type === 'workspace-previous') {
+        handleRelativeWorkspaceSelection(-1)
+        return
+      }
+
+      if (shortcut.type === 'workspace-next') {
+        handleRelativeWorkspaceSelection(1)
+        return
+      }
+
+      if (shortcut.type === 'project-jump') {
+        const targetProject =
+          typeof shortcut.projectIndex === 'number'
+            ? (navigationSnapshot.projects[shortcut.projectIndex] ?? null)
+            : null
+
+        if (targetProject) {
+          handleProjectSelection(targetProject.id)
+        }
+      }
+    },
+    [
+      handleProjectSelection,
+      handleRelativePaneSelection,
+      handleRelativeWorkspaceSelection,
+      navigationSnapshot.projects,
+    ],
+  )
+
+  const dispatchShortcut = useCallback(
+    (shortcut: {
+      projectIndex?: number
+      type:
+        | 'pane-next'
+        | 'pane-previous'
+        | 'project-jump'
+        | 'workspace-next'
+        | 'workspace-previous'
+    }) => {
+      const signature = `${shortcut.type}:${shortcut.projectIndex ?? ''}`
+      const now = performance.now()
+
+      if (
+        lastShortcutRef.current.signature === signature &&
+        now - lastShortcutRef.current.time < 80
+      ) {
+        return
+      }
+
+      lastShortcutRef.current = { signature, time: now }
+      handleAppShortcut(shortcut)
+    },
+    [handleAppShortcut],
   )
 
   useEffect(() => {
@@ -346,63 +471,6 @@ export default function App() {
 
       if (event.key === 'Control') {
         setShowProjectHints(true)
-      }
-
-      if (
-        event.defaultPrevented ||
-        shouldIgnoreGlobalNavigation(event.target)
-      ) {
-        return
-      }
-
-      const normalizedKey = event.key.toLowerCase()
-      const isAltChord = event.altKey && !event.metaKey && !event.ctrlKey
-      const isPaneChord = event.altKey && !event.metaKey && !event.ctrlKey
-      const isPlainChord = !event.altKey && !event.metaKey && !event.ctrlKey
-      const shortcutProject = event.ctrlKey
-        ? resolveProjectShortcutTarget(navigationSnapshot.projects, event.key)
-        : null
-
-      if (shortcutProject) {
-        event.preventDefault()
-        handleProjectSelection(shortcutProject.id)
-        return
-      }
-
-      if (isAltChord && event.key === 'ArrowUp') {
-        event.preventDefault()
-        handleRelativeWorkspaceSelection(-1)
-      }
-
-      if (isAltChord && normalizedKey === 'k') {
-        event.preventDefault()
-        handleRelativeWorkspaceSelection(-1)
-      }
-
-      if (isAltChord && event.key === 'ArrowDown') {
-        event.preventDefault()
-        handleRelativeWorkspaceSelection(1)
-      }
-
-      if (isAltChord && normalizedKey === 'j') {
-        event.preventDefault()
-        handleRelativeWorkspaceSelection(1)
-      }
-
-      if (
-        (isAltChord && event.key === 'ArrowLeft') ||
-        (normalizedKey === 'h' && (isPaneChord || isPlainChord))
-      ) {
-        event.preventDefault()
-        handleRelativePaneSelection(-1)
-      }
-
-      if (
-        (isAltChord && event.key === 'ArrowRight') ||
-        (normalizedKey === 'l' && (isPaneChord || isPlainChord))
-      ) {
-        event.preventDefault()
-        handleRelativePaneSelection(1)
       }
     }
 
@@ -430,20 +498,100 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [
-    handleProjectSelection,
-    handleRelativePaneSelection,
-    handleRelativeWorkspaceSelection,
-    navigationSnapshot.projects,
-  ])
+  }, [])
+
+  useEffect(() => {
+    const aideApi = getAideApi()
+    const unsubscribeShortcut = aideApi?.onAppShortcut(dispatchShortcut)
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const normalizedKey = event.key.toLowerCase()
+      const normalizedCode = event.code.toLowerCase()
+      const isAltChord = event.altKey && !event.metaKey && !event.ctrlKey
+      const isCtrlChord = event.ctrlKey && !event.metaKey && !event.altKey
+
+      if (event.defaultPrevented) {
+        return
+      }
+
+      if (
+        shouldIgnoreGlobalNavigation(event.target) &&
+        !isAltChord &&
+        !isCtrlChord
+      ) {
+        return
+      }
+
+      const shortcutProject = event.ctrlKey
+        ? resolveProjectShortcutTarget(navigationSnapshot.projects, event.key)
+        : null
+
+      if (shortcutProject) {
+        event.preventDefault()
+        dispatchShortcut({
+          projectIndex: navigationSnapshot.projects.findIndex(
+            (project) => project.id === shortcutProject.id,
+          ),
+          type: 'project-jump',
+        })
+        return
+      }
+
+      if (isAltChord && event.key === 'ArrowUp') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-previous' })
+      }
+
+      if (isAltChord && normalizedKey === 'k') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-previous' })
+      }
+
+      if (isAltChord && event.key === 'ArrowDown') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-next' })
+      }
+
+      if (isAltChord && normalizedKey === 'j') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-next' })
+      }
+
+      if (
+        (isAltChord && event.key === 'ArrowLeft') ||
+        (normalizedKey === 'h' && isAltChord) ||
+        (normalizedCode === 'keyh' && isAltChord)
+      ) {
+        event.preventDefault()
+        dispatchShortcut({ type: 'pane-previous' })
+      }
+
+      if (
+        (isAltChord && event.key === 'ArrowRight') ||
+        (normalizedKey === 'l' && isAltChord) ||
+        (normalizedCode === 'keyl' && isAltChord)
+      ) {
+        event.preventDefault()
+        dispatchShortcut({ type: 'pane-next' })
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true)
+      unsubscribeShortcut?.()
+    }
+  }, [dispatchShortcut, navigationSnapshot.projects])
 
   const projects = navigationSnapshot.projects
   const allWorkspaces = navigationSnapshot.workspaces
   const activeProject =
-    projects.find((p) => p.id === navigationSelection.activeProjectId) ?? null
+    projects.find((p) => p.id === resolvedNavigationState.activeProjectId) ??
+    null
   const activeWorkspace =
     allWorkspaces.find(
-      (ws) => ws.id === navigationSelection.activeWorkspaceId,
+      (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
     ) ?? null
   const projectWorkspaces = activeProject
     ? allWorkspaces.filter(
@@ -459,7 +607,14 @@ export default function App() {
       isDemoMode={isDemoMode}
       showProjectHints={showProjectHints}
       onSelectPane={(paneId: string) =>
-        setActivePaneForWorkspace(activeWorkspaceId, paneId)
+        setSelection(
+          applyPaneSelection(
+            navigationSnapshot,
+            resolvedNavigationState,
+            paneId,
+            getPaneIdsForWorkspace,
+          ),
+        )
       }
       onCreateProject={createProject}
       onCreateWorkspace={createWorkspace}

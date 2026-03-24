@@ -11,6 +11,7 @@ describe('createWorkspaceSelectionStore', () => {
       activePaneIdsByWorkspace: {},
       activeProjectId: null,
       activeWorkspaceId: null,
+      rememberedWorkspaceIdsByProject: {},
     })
   })
 
@@ -26,6 +27,7 @@ describe('createWorkspaceSelectionStore', () => {
       activePaneIdsByWorkspace: {},
       activeProjectId: 'project-1',
       activeWorkspaceId: 'workspace-1',
+      rememberedWorkspaceIdsByProject: {},
     })
   })
 
@@ -41,6 +43,7 @@ describe('createWorkspaceSelectionStore', () => {
         'workspace-1': 'pane-a',
         'workspace-2': 'pane-b',
       },
+      rememberedWorkspaceIdsByProject: {},
     })
   })
 
@@ -68,6 +71,7 @@ describe('createWorkspaceSelectionStore', () => {
       activePaneIdsByWorkspace: {},
       activeProjectId: null,
       activeWorkspaceId: null,
+      rememberedWorkspaceIdsByProject: {},
     })
   })
 })

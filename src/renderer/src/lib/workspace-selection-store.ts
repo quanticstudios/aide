@@ -6,6 +6,7 @@ export interface WorkspaceSelectionState {
   activePaneIdsByWorkspace: Record<string, string | null>
   activeProjectId: string | null
   activeWorkspaceId: string | null
+  rememberedWorkspaceIdsByProject: Record<string, string | null>
 }
 
 export interface WorkspaceSelectionActions {
@@ -28,6 +29,7 @@ const defaultSelectionState: WorkspaceSelectionState = {
   activePaneIdsByWorkspace: {},
   activeProjectId: null,
   activeWorkspaceId: null,
+  rememberedWorkspaceIdsByProject: {},
 }
 
 export function createWorkspaceSelectionStore(
