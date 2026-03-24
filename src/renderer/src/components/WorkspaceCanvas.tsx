@@ -97,6 +97,12 @@ export default function WorkspaceCanvas({
     activeWorkspaceIndex,
   )
   const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
+  const activeWorkspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
+  const activePaneLabel =
+    activeWorkspaceScene.panes.find((pane) => pane.id === activePaneId)
+      ?.label ??
+    activeWorkspaceScene.panes[0]?.label ??
+    ''
 
   if (shellError) {
     return (
@@ -138,6 +144,10 @@ export default function WorkspaceCanvas({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <div className="sr-only">
+        <span data-testid="active-workspace-name">{activeWorkspace.name}</span>
+        <span data-testid="active-pane-name">{activePaneLabel}</span>
+      </div>
       <div
         className="workspace-slider flex min-h-0 flex-1 shrink-0 flex-col items-stretch transition-transform duration-200 ease-out"
         style={workspaceTrackStyle}
@@ -180,15 +190,15 @@ export default function WorkspaceCanvas({
                           key={pane.id}
                           style={{ width: paneSlideWidth }}
                         >
-                          {isActiveWorkspace ? (
+                          {isActiveWorkspace && isActive ? (
                             <TerminalPane
                               paneId={pane.id}
                               workspace={workspace}
                             />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
-                              Terminal session hidden until this workspace is
-                              active.
+                              Terminal session hidden until this pane is
+                              focused.
                             </div>
                           )}
                         </article>

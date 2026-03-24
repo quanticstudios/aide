@@ -10,6 +10,7 @@
     "start": "electron-vite preview",
     "build": "tsc --noEmit && electron-vite build",
     "test": "vitest run",
+    "test:e2e": "bun run build && playwright test --config=playwright.electron.config.ts",
     "test:watch": "vitest",
     "check": "biome check .",
     "format": "biome format --write ."
@@ -42,6 +43,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
@@ -50,6 +52,7 @@
     "shadcn": "^4.1.0",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "wait-on": "^9.0.4"
   }
 }
