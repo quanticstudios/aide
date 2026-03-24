@@ -6,7 +6,8 @@
       "node_modules/**",
       "out/**",
       "dist/**",
-      "coverage/**"
+      "coverage/**",
+      "test-results/**"
     ]
   },
   "formatter": {
