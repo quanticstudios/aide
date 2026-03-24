@@ -1,5 +1,6 @@
 import { Button, Chip, ScrollShadow, Surface } from '@heroui/react'
 import { ChevronRight, GitBranch, LayoutGrid } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
@@ -27,6 +28,21 @@ export default function ProjectWorkspaceTree({
   summaries,
   workspaces,
 }: ProjectWorkspaceTreeProps) {
+  const [expandedProjectIds, setExpandedProjectIds] = useState<
+    Record<string, boolean>
+  >({})
+
+  useEffect(() => {
+    if (!activeProjectId) {
+      return
+    }
+
+    setExpandedProjectIds((current) => ({
+      ...current,
+      [activeProjectId]: true,
+    }))
+  }, [activeProjectId])
+
   return (
     <aside className="flex h-full w-72 flex-col border-r border-border bg-card/55">
       <div className="border-b border-border px-4 py-3">
@@ -45,6 +61,14 @@ export default function ProjectWorkspaceTree({
               (workspace) => workspace.projectId === project.id,
             )
             const isActiveProject = project.id === activeProjectId
+            const isExpanded = expandedProjectIds[project.id] ?? isActiveProject
+
+            function toggleProject(): void {
+              setExpandedProjectIds((current) => ({
+                ...current,
+                [project.id]: !(current[project.id] ?? isActiveProject),
+              }))
+            }
 
             return (
               <Surface
@@ -55,35 +79,47 @@ export default function ProjectWorkspaceTree({
                 key={project.id}
                 variant={isActiveProject ? 'secondary' : 'tertiary'}
               >
-                <button
-                  className="flex w-full items-center justify-between gap-3 text-left"
-                  onClick={() => onSelectProject(project.id)}
-                  type="button"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {project.name}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <GitBranch className="size-3" />
-                      <span className="truncate">{project.defaultBranch}</span>
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label={`Toggle ${project.name} workspaces`}
+                    aria-expanded={isExpanded}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/50 text-muted-foreground transition-colors hover:text-foreground"
+                    onClick={toggleProject}
+                    type="button"
+                  >
+                    <ChevronRight
+                      className={cn(
+                        'size-4 transition-transform',
+                        isExpanded ? 'rotate-90' : 'rotate-0',
+                      )}
+                    />
+                  </button>
 
-                  <div className="flex items-center gap-2">
+                  <button
+                    aria-current={isActiveProject ? 'true' : undefined}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                    onClick={() => onSelectProject(project.id)}
+                    type="button"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {project.name}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <GitBranch className="size-3" />
+                        <span className="truncate">
+                          {project.defaultBranch}
+                        </span>
+                      </div>
+                    </div>
+
                     <Chip size="sm" variant="secondary">
                       {projectWorkspaces.length}
                     </Chip>
-                    <ChevronRight
-                      className={cn(
-                        'size-4 text-muted-foreground transition-transform',
-                        isActiveProject ? 'rotate-90' : 'rotate-0',
-                      )}
-                    />
-                  </div>
-                </button>
+                  </button>
+                </div>
 
-                <div className="mt-3 space-y-2">
+                <div className={cn('mt-3 space-y-2', !isExpanded && 'hidden')}>
                   {projectWorkspaces.map((workspace) => {
                     const isActiveWorkspace = workspace.id === activeWorkspaceId
                     const summary = summaries[workspace.id]
