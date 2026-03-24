@@ -2,6 +2,7 @@ import { Button, Chip, ScrollShadow, Surface } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
+import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { cn } from '@/lib/utils'
 import type {
   ProjectRecord,
@@ -83,10 +84,13 @@ export default function WorkspaceCanvas({
     activeWorkspace?.id ?? null,
     activePaneId,
   )
+  const paneCount = Math.max(workspaceScene.panes.length, 1)
   const activePaneIndex = Math.max(
     workspaceScene.panes.findIndex((pane) => pane.id === resolvedPaneId),
     0,
   )
+  const paneTrackStyle = getPaneTrackStyle(paneCount, activePaneIndex)
+  const paneSlideWidth = getPaneSlideWidth(paneCount)
 
   if (shellError) {
     return (
@@ -128,18 +132,31 @@ export default function WorkspaceCanvas({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
         <div
-          className="pane-slider-track flex h-full min-h-0 w-full transition-transform duration-200 ease-out"
-          style={{ transform: `translateX(-${activePaneIndex * 100}%)` }}
+          className="pane-slider-track flex min-h-0 shrink-0 items-stretch transition-transform duration-200 ease-out"
+          style={paneTrackStyle}
         >
           {workspaceScene.panes.map((pane, index) => {
             const isActive = pane.id === resolvedPaneId
 
+            if (pane.type === 'Terminal') {
+              return (
+                <article
+                  className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
+                  key={pane.id}
+                  style={{ width: paneSlideWidth }}
+                >
+                  <TerminalPane paneId={pane.id} workspace={activeWorkspace} />
+                </article>
+              )
+            }
+
             return (
               <article
-                className="pane-slide h-full min-h-0 min-w-full flex-[0_0_100%] p-4"
+                className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
                 key={pane.id}
+                style={{ width: paneSlideWidth }}
               >
                 <div
                   className={cn(
@@ -169,14 +186,7 @@ export default function WorkspaceCanvas({
                   </div>
 
                   <div className="mt-6 flex min-h-0 flex-1 flex-col">
-                    {pane.type === 'Terminal' && isActive ? (
-                      <div className="mt-5 min-h-0 flex-1">
-                        <TerminalPane
-                          paneId={pane.id}
-                          workspace={activeWorkspace}
-                        />
-                      </div>
-                    ) : pane.type === 'Preview' && isActive ? (
+                    {pane.type === 'Preview' && isActive ? (
                       <div className="mt-5 min-h-0 flex-1">
                         <PreviewPane />
                       </div>

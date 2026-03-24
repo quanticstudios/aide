@@ -1,11 +1,4 @@
-import {
-  Button,
-  Chip,
-  Kbd,
-  ScrollShadow,
-  Toolbar,
-  Tooltip,
-} from '@heroui/react'
+import { Button, Chip, Kbd, Toolbar } from '@heroui/react'
 import { GitBranch, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
@@ -55,43 +48,33 @@ export default function TopBar({
           </div>
         </div>
 
-        <ScrollShadow
-          className="min-w-0 flex-1"
-          hideScrollBar
-          orientation="horizontal"
-          size={36}
-        >
+        <div className="min-w-0 flex-1 overflow-x-auto">
           <Toolbar
             aria-label="Pane selector"
-            className="workspace-strip inline-flex min-w-full rounded-xl border border-border/80 bg-surface/80 p-1"
+            className="workspace-strip inline-flex min-w-max rounded-xl border border-border/80 bg-surface/80 p-1"
             isAttached
           >
             {workspaceScene.panes.map((pane, index) => {
               const isActive = pane.id === resolvedPaneId
 
               return (
-                <Tooltip delay={120} key={pane.id}>
-                  <Tooltip.Trigger>
-                    <Button
-                      className={cn(
-                        'workspace-strip-item h-8 shrink-0 rounded-lg px-2.5 text-left text-[12px] font-medium transition-all',
-                        isActive
-                          ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
-                          : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
-                      )}
-                      onPress={() => onSelectPane(pane.id)}
-                      variant={isActive ? 'secondary' : 'ghost'}
-                    >
-                      <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">
-                        {index + 1}
-                      </span>
-                      <span>{pane.type}</span>
-                    </Button>
-                  </Tooltip.Trigger>
-                  <Tooltip.Content className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]">
-                    {pane.label}
-                  </Tooltip.Content>
-                </Tooltip>
+                <Button
+                  aria-label={pane.label}
+                  className={cn(
+                    'workspace-strip-item h-8 shrink-0 rounded-lg px-2.5 text-left text-[12px] font-medium transition-all',
+                    isActive
+                      ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
+                      : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
+                  )}
+                  key={pane.id}
+                  onPress={() => onSelectPane(pane.id)}
+                  variant={isActive ? 'secondary' : 'ghost'}
+                >
+                  <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  <span>{pane.type}</span>
+                </Button>
               )
             })}
 
@@ -107,7 +90,7 @@ export default function TopBar({
               </Button>
             ) : null}
           </Toolbar>
-        </ScrollShadow>
+        </div>
 
         <div className="hidden shrink-0 items-center gap-2 lg:flex">
           {isDemoMode ? (
