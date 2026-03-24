@@ -10,6 +10,12 @@ export interface TerminalResizeInput {
   rows: number
 }
 
+export interface TerminalSessionSnapshot {
+  buffer: string
+  exitCode: number | null
+  running: boolean
+}
+
 export type TerminalEvent =
   | {
       data: string

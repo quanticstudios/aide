@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+
 export interface TerminalLaunchConfig {
   args: string[]
   command: string
@@ -18,4 +20,18 @@ export function resolveTerminalLaunchConfig(
     args: [],
     command: env.SHELL ?? '/bin/bash',
   }
+}
+
+export function resolveTerminalWorkingDirectory(
+  requestedCwd: string,
+  homeDirectory: string,
+  pathExists: (pathValue: string) => boolean = existsSync,
+): string {
+  const trimmedPath = requestedCwd.trim()
+
+  if (trimmedPath && pathExists(trimmedPath)) {
+    return trimmedPath
+  }
+
+  return homeDirectory
 }

@@ -11,10 +11,12 @@ import type {
   SetActiveSelectionInput,
 } from './persistence'
 import type { RuntimeSnapshot } from './runtime'
+import type { AppShortcutEvent } from './shortcuts'
 import type {
   TerminalEvent,
   TerminalResizeInput,
   TerminalSessionConfig,
+  TerminalSessionSnapshot,
 } from './terminal'
 
 export const IPC_CHANNELS = {
@@ -22,6 +24,7 @@ export const IPC_CHANNELS = {
   createWorkspace: 'storage:create-workspace',
   executableProbe: 'executables:probe',
   executableValidate: 'executables:validate',
+  appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -36,6 +39,7 @@ export const IPC_CHANNELS = {
 export interface AideApi {
   createProject: (input: CreateProjectInput) => Promise<PersistenceSnapshot>
   createWorkspace: (input: CreateWorkspaceInput) => Promise<PersistenceSnapshot>
+  onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (
     input: ExecutableProbeInput,
   ) => Promise<ExecutableProbeResult>
@@ -44,7 +48,9 @@ export interface AideApi {
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
-  createTerminalSession: (input: TerminalSessionConfig) => Promise<void>
+  createTerminalSession: (
+    input: TerminalSessionConfig,
+  ) => Promise<TerminalSessionSnapshot>
   killTerminalSession: (sessionId: string) => Promise<void>
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>

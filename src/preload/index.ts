@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
+import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   TerminalEvent,
   TerminalResizeInput,
@@ -19,6 +20,16 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
+  onAppShortcut: (callback: (event: AppShortcutEvent) => void) => {
+    const listener = (_event: unknown, payload: AppShortcutEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.appShortcut, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.appShortcut, listener)
+    }
+  },
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => {
     const listener = (_event: unknown, payload: TerminalEvent) =>
       callback(payload)

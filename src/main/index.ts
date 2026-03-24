@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, app, ipcMain } from 'electron'
+import { BrowserWindow, Menu, app, ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../shared/ipc'
 import type {
@@ -34,8 +34,14 @@ const terminalSessionManager = new TerminalSessionManager({
 })
 
 if (process.platform === 'linux') {
+  process.env.LIBGL_ALWAYS_SOFTWARE ??= '1'
+  process.env.MESA_LOADER_DRIVER_OVERRIDE ??= 'llvmpipe'
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
+  app.commandLine.appendSwitch('disable-gpu-compositing')
+  app.commandLine.appendSwitch('disable-gpu-sandbox')
+  app.commandLine.appendSwitch('use-angle', 'swiftshader')
+  app.commandLine.appendSwitch('use-gl', 'swiftshader')
 }
 
 function createRuntimeSnapshot(): RuntimeSnapshot {
@@ -53,23 +59,51 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
 
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
+    autoHideMenuBar: true,
     width: 1440,
     height: 920,
     minWidth: 1100,
     minHeight: 720,
-    show: false,
+    show: true,
     backgroundColor: '#18181b',
     title: 'aide',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(__dirname, '../preload/index.js'),
     },
   })
 
   window.on('ready-to-show', () => {
     window.show()
+    window.focus()
   })
+
+  window.webContents.on('did-finish-load', () => {
+    if (!window.isVisible()) {
+      window.show()
+    }
+
+    window.focus()
+  })
+
+  window.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription) => {
+      console.error('Renderer failed to load', errorCode, errorDescription)
+
+      if (!window.isVisible()) {
+        window.show()
+      }
+    },
+  )
+
+  setTimeout(() => {
+    if (!window.isDestroyed() && !window.isVisible()) {
+      window.show()
+      window.focus()
+    }
+  }, 1500)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -113,9 +147,8 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.terminalCreate,
-    (_event, input: TerminalSessionConfig) => {
-      terminalSessionManager.createSession(input)
-    },
+    (_event, input: TerminalSessionConfig) =>
+      terminalSessionManager.createSession(input),
   )
   ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {
     terminalSessionManager.killSession(sessionId)
@@ -138,6 +171,7 @@ function registerIpcHandlers(): void {
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
   registerIpcHandlers()
   createMainWindow()
 
