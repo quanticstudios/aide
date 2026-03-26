@@ -19,6 +19,41 @@ export interface WorkspaceRecord {
   updatedAt: string
 }
 
+export type PersistedLayoutNodeType =
+  | 'split-horizontal'
+  | 'split-vertical'
+  | 'pane'
+
+export interface PersistedSplitLayoutNode {
+  children: string[]
+  id: string
+  paneId: null
+  parentId: string | null
+  sizeWeights: number[]
+  type: 'split-horizontal' | 'split-vertical'
+  workspaceId: string
+}
+
+export interface PersistedPaneLayoutNode {
+  children: []
+  id: string
+  paneId: string
+  parentId: string | null
+  sizeWeights: []
+  type: 'pane'
+  workspaceId: string
+}
+
+export type PersistedLayoutNode =
+  | PersistedSplitLayoutNode
+  | PersistedPaneLayoutNode
+
+export interface WorkspaceLayoutRecord {
+  nodes: PersistedLayoutNode[]
+  rootNodeId: string
+  workspaceId: string
+}
+
 export interface PersistenceSnapshot {
   databasePath: string
   lastActivePaneIdsByWorkspace: Record<string, string | null>
@@ -28,6 +63,7 @@ export interface PersistenceSnapshot {
   migrationStrategy: string
   schemaVersion: number
   projects: ProjectRecord[]
+  workspaceLayouts: Record<string, WorkspaceLayoutRecord>
   workspaces: WorkspaceRecord[]
 }
 
@@ -66,4 +102,9 @@ export interface UpdateWorkspaceInput {
   projectId?: string
   windowId?: string | null
   worktreePath?: string
+}
+
+export interface SaveWorkspaceLayoutInput {
+  nodes: PersistedLayoutNode[]
+  rootNodeId: string
 }

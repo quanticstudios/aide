@@ -21,6 +21,7 @@ describe('resolveNavigationSnapshot', () => {
       migrationStrategy: 'test',
       schemaVersion: 3,
       projects: [],
+      workspaceLayouts: {},
       workspaces: [],
     }
 
@@ -49,6 +50,7 @@ describe('resolveNavigationSnapshot', () => {
           updatedAt: '2026-03-22T00:00:00Z',
         },
       ],
+      workspaceLayouts: {},
       workspaces: [
         {
           id: 'workspace-1',

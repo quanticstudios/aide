@@ -57,6 +57,7 @@ function createSnapshot(): PersistenceSnapshot {
       createProject('project-a', 'aide'),
       createProject('project-b', 'storefront'),
     ],
+    workspaceLayouts: {},
     workspaces: [
       createWorkspace('workspace-a1', 'project-a', 'nav'),
       createWorkspace('workspace-a2', 'project-a', 'review'),

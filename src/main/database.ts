@@ -4,11 +4,14 @@ import { DatabaseSync } from 'node:sqlite'
 import type {
   CreateProjectInput,
   CreateWorkspaceInput,
+  PersistedLayoutNode,
   PersistenceSnapshot,
   ProjectRecord,
+  SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
   UpdateProjectInput,
   UpdateWorkspaceInput,
+  WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../shared/persistence'
 
@@ -38,6 +41,12 @@ interface SqlAppStateRow {
   last_active_workspace_ids_by_project: string
   last_active_pane_ids_by_workspace: string
   last_active_workspace_id: string | null
+}
+
+interface SqlWorkspaceLayoutRow {
+  nodes_json: string
+  root_node_id: string
+  workspace_id: string
 }
 
 const MIGRATION_STRATEGY =
@@ -95,6 +104,18 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE app_state ADD COLUMN last_active_workspace_ids_by_project TEXT NOT NULL DEFAULT '{}';
       ALTER TABLE app_state ADD COLUMN last_active_pane_ids_by_workspace TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS workspace_layouts (
+        workspace_id TEXT PRIMARY KEY,
+        root_node_id TEXT NOT NULL,
+        nodes_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
     `,
   },
 ]
@@ -363,8 +384,73 @@ export class AideDatabase {
       migrationStrategy: MIGRATION_STRATEGY,
       schemaVersion: this.getSchemaVersion(),
       projects: this.listProjects(),
+      workspaceLayouts: this.listWorkspaceLayouts().reduce<
+        Record<string, WorkspaceLayoutRecord>
+      >((layouts, layout) => {
+        layouts[layout.workspaceId] = layout
+        return layouts
+      }, {}),
       workspaces: this.listWorkspaces(),
     }
+  }
+
+  public getWorkspaceLayout(workspaceId: string): WorkspaceLayoutRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT workspace_id, root_node_id, nodes_json
+          FROM workspace_layouts
+          WHERE workspace_id = ?
+        `,
+      )
+      .get(workspaceId) as SqlWorkspaceLayoutRow | undefined
+
+    return row ? this.mapWorkspaceLayoutRow(row) : null
+  }
+
+  public listWorkspaceLayouts(): WorkspaceLayoutRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT workspace_id, root_node_id, nodes_json
+          FROM workspace_layouts
+          ORDER BY workspace_id ASC
+        `,
+      )
+      .all() as unknown as SqlWorkspaceLayoutRow[]
+
+    return rows.map((row) => this.mapWorkspaceLayoutRow(row))
+  }
+
+  public saveWorkspaceLayout(
+    workspaceId: string,
+    input: SaveWorkspaceLayoutInput,
+  ): WorkspaceLayoutRecord | null {
+    if (!this.getWorkspace(workspaceId)) {
+      return null
+    }
+
+    const layout = this.normalizeWorkspaceLayout(workspaceId, input)
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO workspace_layouts (workspace_id, root_node_id, nodes_json, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET
+            root_node_id = excluded.root_node_id,
+            nodes_json = excluded.nodes_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        layout.workspaceId,
+        layout.rootNodeId,
+        JSON.stringify(layout.nodes),
+        new Date().toISOString(),
+      )
+
+    return this.getWorkspaceLayout(workspaceId)
   }
 
   public setActiveSelection(input: SetActiveSelectionInput): void {
@@ -438,6 +524,85 @@ export class AideDatabase {
       windowId: row.window_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    }
+  }
+
+  private mapWorkspaceLayoutRow(
+    row: SqlWorkspaceLayoutRow,
+  ): WorkspaceLayoutRecord {
+    const parsedNodes = JSON.parse(row.nodes_json) as PersistedLayoutNode[]
+
+    return this.normalizeWorkspaceLayout(row.workspace_id, {
+      nodes: parsedNodes,
+      rootNodeId: row.root_node_id,
+    })
+  }
+
+  private normalizeWorkspaceLayout(
+    workspaceId: string,
+    input: SaveWorkspaceLayoutInput,
+  ): WorkspaceLayoutRecord {
+    if (!input.rootNodeId) {
+      throw new Error('Workspace layouts require a root node id.')
+    }
+
+    if (input.nodes.length === 0) {
+      throw new Error('Workspace layouts require at least one layout node.')
+    }
+
+    const nodes = input.nodes.map((node) =>
+      this.normalizeLayoutNode(workspaceId, node),
+    )
+
+    if (!nodes.some((node) => node.id === input.rootNodeId)) {
+      throw new Error('Workspace layout root node must exist in the node list.')
+    }
+
+    return {
+      nodes,
+      rootNodeId: input.rootNodeId,
+      workspaceId,
+    }
+  }
+
+  private normalizeLayoutNode(
+    workspaceId: string,
+    node: PersistedLayoutNode,
+  ): PersistedLayoutNode {
+    if (node.workspaceId !== workspaceId) {
+      throw new Error('Layout nodes must belong to the workspace being saved.')
+    }
+
+    if (node.type === 'pane') {
+      if (node.children.length > 0 || node.sizeWeights.length > 0) {
+        throw new Error('Pane layout nodes cannot declare children or weights.')
+      }
+
+      if (!node.paneId) {
+        throw new Error('Pane layout nodes require a pane id.')
+      }
+
+      return {
+        ...node,
+        children: [],
+        sizeWeights: [],
+      }
+    }
+
+    if (node.paneId !== null) {
+      throw new Error('Split layout nodes cannot declare a pane id.')
+    }
+
+    if (node.children.length !== node.sizeWeights.length) {
+      throw new Error(
+        'Split layout nodes must keep children and weight counts aligned.',
+      )
+    }
+
+    return {
+      ...node,
+      children: [...node.children],
+      sizeWeights: [...node.sizeWeights],
     }
   }
 

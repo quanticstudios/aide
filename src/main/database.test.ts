@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import { createAideDatabase } from './database'
@@ -15,7 +19,8 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 3,
+      schemaVersion: 4,
+      workspaceLayouts: {},
       workspaces: [],
     })
 
@@ -185,5 +190,138 @@ describe('createAideDatabase', () => {
     })
 
     database.close()
+  })
+
+  it('persists workspace split layouts across relaunches', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-layout-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'feature/layout-tree',
+        name: 'Layout shell',
+        projectId: project.id,
+        windowId: null,
+        worktreePath: '/workspace/aide/.worktrees/layout-tree',
+      })
+
+      database.saveWorkspaceLayout(workspace.id, {
+        rootNodeId: 'root-horizontal',
+        nodes: [
+          {
+            children: ['left-pane', 'nested-vertical'],
+            id: 'root-horizontal',
+            paneId: null,
+            parentId: null,
+            sizeWeights: [0.6, 0.4],
+            type: 'split-horizontal',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'left-pane',
+            paneId: 'terminal',
+            parentId: 'root-horizontal',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+          {
+            children: ['top-pane', 'bottom-pane'],
+            id: 'nested-vertical',
+            paneId: null,
+            parentId: 'root-horizontal',
+            sizeWeights: [0.5, 0.5],
+            type: 'split-vertical',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'top-pane',
+            paneId: 'git',
+            parentId: 'nested-vertical',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'bottom-pane',
+            paneId: 'preview',
+            parentId: 'nested-vertical',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+        ],
+      })
+      database.close()
+
+      const reopenedDatabase = createAideDatabase(databasePath)
+      const snapshot = reopenedDatabase.getSnapshot()
+
+      expect(snapshot.workspaceLayouts[workspace.id]).toEqual({
+        nodes: [
+          {
+            children: ['left-pane', 'nested-vertical'],
+            id: 'root-horizontal',
+            paneId: null,
+            parentId: null,
+            sizeWeights: [0.6, 0.4],
+            type: 'split-horizontal',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'left-pane',
+            paneId: 'terminal',
+            parentId: 'root-horizontal',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+          {
+            children: ['top-pane', 'bottom-pane'],
+            id: 'nested-vertical',
+            paneId: null,
+            parentId: 'root-horizontal',
+            sizeWeights: [0.5, 0.5],
+            type: 'split-vertical',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'top-pane',
+            paneId: 'git',
+            parentId: 'nested-vertical',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+          {
+            children: [],
+            id: 'bottom-pane',
+            paneId: 'preview',
+            parentId: 'nested-vertical',
+            sizeWeights: [],
+            type: 'pane',
+            workspaceId: workspace.id,
+          },
+        ],
+        rootNodeId: 'root-horizontal',
+        workspaceId: workspace.id,
+      })
+
+      reopenedDatabase.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
   })
 })

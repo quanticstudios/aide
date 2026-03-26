@@ -322,6 +322,7 @@ export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   migrationStrategy: 'Navigation-first POC fallback snapshot',
   schemaVersion: 0,
   projects: demoProjects,
+  workspaceLayouts: {},
   workspaces: demoWorkspaces,
 }
 

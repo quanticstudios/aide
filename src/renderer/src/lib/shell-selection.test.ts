@@ -56,6 +56,7 @@ function createSnapshot(
     migrationStrategy: 'test',
     schemaVersion: 3,
     projects,
+    workspaceLayouts: {},
     workspaces,
   }
 }
