@@ -4,6 +4,7 @@ import type { AideApi } from '../../shared/ipc'
 import type {
   CreateProjectInput,
   PersistenceSnapshot,
+  WorkspaceLayoutRecord,
 } from '../../shared/persistence'
 import AppShell from './components/AppShell'
 import ProjectCreationModal from './components/ProjectCreationModal'
@@ -28,6 +29,11 @@ import {
   collectWorkspaceLayoutPaneIds,
   resolveWorkspaceLayout,
 } from './lib/workspace-layout'
+import {
+  closeWorkspacePane,
+  resizeWorkspacePane,
+  splitWorkspacePane,
+} from './lib/workspace-layout-mutations'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
@@ -103,13 +109,18 @@ export default function App() {
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = resolveNavigationSnapshot(storageSnapshot)
   const isDemoMode = isNavigationPocSnapshot(navigationSnapshot)
-  const getPaneIdsForWorkspace = useCallback(
-    (workspaceId: string | null) => {
-      const layout = resolveWorkspaceLayout(navigationSnapshot, workspaceId)
+  const getPaneIdsForSnapshot = useCallback(
+    (snapshot: PersistenceSnapshot, workspaceId: string | null) => {
+      const layout = resolveWorkspaceLayout(snapshot, workspaceId)
 
       return collectWorkspaceLayoutPaneIds(layout)
     },
-    [navigationSnapshot],
+    [],
+  )
+  const getPaneIdsForWorkspace = useCallback(
+    (workspaceId: string | null) =>
+      getPaneIdsForSnapshot(navigationSnapshot, workspaceId),
+    [getPaneIdsForSnapshot, navigationSnapshot],
   )
   const currentNavigationState = useMemo(
     () => ({
@@ -412,6 +423,145 @@ export default function App() {
     ],
   )
 
+  const resolveSelectionForSnapshot = useCallback(
+    (
+      snapshot: PersistenceSnapshot,
+      workspaceId: string,
+      nextActivePaneId: string | null,
+    ) =>
+      resolveSpatialNavigationState(
+        snapshot,
+        {
+          ...resolvedNavigationState,
+          activePaneId: nextActivePaneId,
+          rememberedPaneIdsByWorkspace: {
+            ...resolvedNavigationState.rememberedPaneIdsByWorkspace,
+            [workspaceId]: nextActivePaneId,
+          },
+        },
+        (targetWorkspaceId) =>
+          getPaneIdsForSnapshot(snapshot, targetWorkspaceId),
+      ),
+    [getPaneIdsForSnapshot, resolvedNavigationState],
+  )
+
+  const applyWorkspaceLayoutChange = useCallback(
+    async (
+      mutateLayout: (
+        layout: WorkspaceLayoutRecord,
+      ) => ReturnType<typeof splitWorkspacePane>,
+    ) => {
+      const workspaceId = resolvedNavigationState.activeWorkspaceId
+
+      if (!workspaceId) {
+        return
+      }
+
+      const currentLayout = resolveWorkspaceLayout(
+        navigationSnapshot,
+        workspaceId,
+      )
+
+      if (!currentLayout) {
+        return
+      }
+
+      const result = mutateLayout(currentLayout)
+
+      if (result.blockedReason === 'last-pane') {
+        setShellError(
+          'Last-pane protection is active. A workspace must keep at least one pane.',
+        )
+        return
+      }
+
+      if (!result.didChange) {
+        return
+      }
+
+      try {
+        if (isDemoMode) {
+          const snapshot: PersistenceSnapshot = {
+            ...navigationSnapshot,
+            workspaceLayouts: {
+              ...navigationSnapshot.workspaceLayouts,
+              [workspaceId]: result.layout,
+            },
+          }
+
+          setStorageSnapshot(snapshot)
+          setSelection(
+            resolveSelectionForSnapshot(
+              snapshot,
+              workspaceId,
+              result.nextActivePaneId,
+            ),
+          )
+          setShellError(null)
+          return
+        }
+
+        const api = getAideApi()
+
+        if (!api) {
+          setShellError('Desktop bridge did not load. Reload the app window.')
+          return
+        }
+
+        const snapshot = await api.saveWorkspaceLayout(workspaceId, {
+          nodes: result.layout.nodes,
+          rootNodeId: result.layout.rootNodeId,
+        })
+
+        setStorageSnapshot(snapshot)
+        setSelection(
+          resolveSelectionForSnapshot(
+            snapshot,
+            workspaceId,
+            result.nextActivePaneId,
+          ),
+        )
+        setShellError(null)
+      } catch (error) {
+        setShellError(getErrorMessage(error))
+      }
+    },
+    [
+      isDemoMode,
+      navigationSnapshot,
+      resolveSelectionForSnapshot,
+      resolvedNavigationState.activeWorkspaceId,
+      setSelection,
+    ],
+  )
+
+  const handleSplitPane = useCallback(
+    (paneId: string, splitType: 'split-horizontal' | 'split-vertical') => {
+      void applyWorkspaceLayoutChange((layout) =>
+        splitWorkspacePane(layout, paneId, splitType),
+      )
+    },
+    [applyWorkspaceLayoutChange],
+  )
+
+  const handleClosePane = useCallback(
+    (paneId: string) => {
+      void applyWorkspaceLayoutChange((layout) =>
+        closeWorkspacePane(layout, paneId),
+      )
+    },
+    [applyWorkspaceLayoutChange],
+  )
+
+  const handleResizePane = useCallback(
+    (paneId: string, delta: number) => {
+      void applyWorkspaceLayoutChange((layout) =>
+        resizeWorkspacePane(layout, paneId, delta),
+      )
+    },
+    [applyWorkspaceLayoutChange],
+  )
+
   const handleAppShortcut = useCallback(
     (shortcut: {
       projectIndex?: number
@@ -622,6 +772,9 @@ export default function App() {
         (workspace) => workspace.projectId === activeProject.id,
       )
     : []
+  const activeWorkspacePaneIds = getPaneIdsForWorkspace(
+    resolvedNavigationState.activeWorkspaceId,
+  )
   const workspaceSummaries = useMemo(
     () =>
       buildWorkspaceSummaryMap(
@@ -638,6 +791,7 @@ export default function App() {
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       isDemoMode={isDemoMode}
+      paneIds={activeWorkspacePaneIds}
       showProjectHints={showProjectHints}
       onSelectPane={(paneId: string) =>
         setSelection(
@@ -684,6 +838,19 @@ export default function App() {
           activeWorkspace={activeWorkspace}
           onCreateProject={createProject}
           onCreateWorkspace={createWorkspace}
+          onClosePane={handleClosePane}
+          onResizePane={handleResizePane}
+          onSelectPane={(paneId: string) =>
+            setSelection(
+              applyPaneSelection(
+                navigationSnapshot,
+                resolvedNavigationState,
+                paneId,
+                getPaneIdsForWorkspace,
+              ),
+            )
+          }
+          onSplitPane={handleSplitPane}
           projectWorkspaces={projectWorkspaces}
           shellError={isDemoMode ? null : shellError}
           activePaneId={activePaneId}

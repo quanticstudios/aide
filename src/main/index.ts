@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '../shared/ipc'
 import type {
   CreateProjectInput,
   CreateWorkspaceInput,
+  SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import type { RuntimeSnapshot } from '../shared/runtime'
@@ -165,6 +166,13 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.setActiveSelection,
     (_event, input: SetActiveSelectionInput) => {
       database.setActiveSelection(input)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.saveWorkspaceLayout,
+    (_event, workspaceId: string, input: SaveWorkspaceLayoutInput) => {
+      database.saveWorkspaceLayout(workspaceId, input)
+      return database.getSnapshot()
     },
   )
   ipcMain.handle(

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import type { PersistenceSnapshot } from '../../../shared/persistence'
 import {
   NAVIGATION_POC_SNAPSHOT,
+  getWorkspacePaneTemplateId,
   getWorkspaceScene,
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
+  resolveWorkspacePane,
   resolveWorkspacePaneId,
   selectRelativePane,
 } from './navigation-poc'
@@ -80,6 +82,17 @@ describe('navigation POC helpers', () => {
 
   it('repairs an invalid active pane to the first pane in the scene', () => {
     expect(resolveWorkspacePaneId('demo-workspace-aide-nav', null)).toBe('chat')
+  })
+
+  it('resolves duplicated pane ids back to their scene template', () => {
+    expect(getWorkspacePaneTemplateId('git::copy-2')).toBe('git')
+    expect(
+      resolveWorkspacePane('demo-workspace-aide-nav', 'git::copy-2'),
+    ).toMatchObject({
+      id: 'git::copy-2',
+      label: 'Git review copy 2',
+      type: 'Git',
+    })
   })
 
   it('moves left and right across panes with wraparound', () => {

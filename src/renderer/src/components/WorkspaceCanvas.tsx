@@ -1,18 +1,21 @@
 import { Button } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
-import { getWorkspaceScene } from '@/lib/navigation-poc'
+import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
+import { cn } from '@/lib/utils'
 import {
   getWorkspaceSlideHeight,
   getWorkspaceTrackStyle,
 } from '@/lib/workspace-camera'
 import {
+  collectWorkspaceLayoutPaneIds,
   resolveWorkspaceLayout,
   resolveWorkspaceLayoutRoot,
 } from '@/lib/workspace-layout'
 import type {
   PersistedLayoutNode,
+  PersistedSplitLayoutNode,
   ProjectRecord,
   WorkspaceLayoutRecord,
   WorkspaceRecord,
@@ -27,7 +30,14 @@ interface WorkspaceCanvasProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly onClosePane: (paneId: string) => void
   readonly projectWorkspaces: readonly WorkspaceRecord[]
+  readonly onResizePane: (paneId: string, delta: number) => void
+  readonly onSelectPane: (paneId: string) => void
+  readonly onSplitPane: (
+    paneId: string,
+    splitType: PersistedSplitLayoutNode['type'],
+  ) => void
   readonly shellError: string | null
   readonly workspaceLayouts: Record<string, WorkspaceLayoutRecord>
 }
@@ -72,9 +82,7 @@ function resolvePaneContent(args: {
   workspace: WorkspaceRecord
 }) {
   const scene = getWorkspaceScene(args.workspace.id)
-  const pane = scene.panes.find(
-    (candidate) => candidate.id === args.paneId,
-  ) ?? {
+  const pane = resolveWorkspacePane(args.workspace.id, args.paneId) ?? {
     accent: 'blue' as const,
     description: 'Placeholder pane metadata is missing for this layout node.',
     id: args.paneId,
@@ -108,26 +116,112 @@ function resolvePaneContent(args: {
   )
 }
 
+function PaneActionBar({
+  canClosePane,
+  onClosePane,
+  onResizePane,
+  onSplitPane,
+  paneId,
+}: {
+  readonly canClosePane: boolean
+  readonly onClosePane: (paneId: string) => void
+  readonly onResizePane: (paneId: string, delta: number) => void
+  readonly onSplitPane: (
+    paneId: string,
+    splitType: PersistedSplitLayoutNode['type'],
+  ) => void
+  readonly paneId: string
+}) {
+  return (
+    <div
+      className="absolute right-3 top-3 z-10 flex flex-wrap gap-2 rounded-xl border border-border/70 bg-background/90 p-2 shadow-sm backdrop-blur"
+      onMouseDown={(event) => event.stopPropagation()}
+      role="presentation"
+    >
+      <Button
+        onPress={() => onSplitPane(paneId, 'split-horizontal')}
+        size="sm"
+        variant="ghost"
+      >
+        Split H
+      </Button>
+      <Button
+        onPress={() => onSplitPane(paneId, 'split-vertical')}
+        size="sm"
+        variant="ghost"
+      >
+        Split V
+      </Button>
+      <Button
+        onPress={() => onResizePane(paneId, 0.25)}
+        size="sm"
+        variant="ghost"
+      >
+        Grow
+      </Button>
+      <Button
+        onPress={() => onResizePane(paneId, -0.25)}
+        size="sm"
+        variant="ghost"
+      >
+        Shrink
+      </Button>
+      <Button
+        isDisabled={!canClosePane}
+        onPress={() => onClosePane(paneId)}
+        size="sm"
+        variant="ghost"
+      >
+        Close
+      </Button>
+    </div>
+  )
+}
+
 function renderLayoutNode(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
+  canClosePane: boolean
+  isInteractive: boolean
   node: PersistedLayoutNode
   nodeLookup: Map<string, PersistedLayoutNode>
+  onClosePane: (paneId: string) => void
+  onResizePane: (paneId: string, delta: number) => void
+  onSelectPane: (paneId: string) => void
+  onSplitPane: (
+    paneId: string,
+    splitType: PersistedSplitLayoutNode['type'],
+  ) => void
   workspace: WorkspaceRecord
 }) {
   if (args.node.type === 'pane') {
+    const paneId = args.node.paneId
     const isActive = args.node.paneId === args.activePaneId
 
     return (
       <article
-        className={getPaneFrameClassName(isActive)}
-        data-pane-id={args.node.paneId}
+        className={`${getPaneFrameClassName(isActive)} relative cursor-pointer`}
+        data-pane-id={paneId}
         key={args.node.id}
+        onMouseDown={() => {
+          if (args.isInteractive) {
+            args.onSelectPane(paneId)
+          }
+        }}
       >
+        {isActive && args.isInteractive ? (
+          <PaneActionBar
+            canClosePane={args.canClosePane}
+            onClosePane={args.onClosePane}
+            onResizePane={args.onResizePane}
+            onSplitPane={args.onSplitPane}
+            paneId={paneId}
+          />
+        ) : null}
         {resolvePaneContent({
           activePaneId: args.activePaneId,
           activeProject: args.activeProject,
-          paneId: args.node.paneId,
+          paneId,
           workspace: args.workspace,
         })}
       </article>
@@ -162,8 +256,14 @@ function renderLayoutNode(args: {
             {renderLayoutNode({
               activePaneId: args.activePaneId,
               activeProject: args.activeProject,
+              canClosePane: args.canClosePane,
+              isInteractive: args.isInteractive,
               node: childNode,
               nodeLookup: args.nodeLookup,
+              onClosePane: args.onClosePane,
+              onResizePane: args.onResizePane,
+              onSelectPane: args.onSelectPane,
+              onSplitPane: args.onSplitPane,
               workspace: args.workspace,
             })}
           </div>
@@ -179,6 +279,10 @@ export default function WorkspaceCanvas({
   activeWorkspace,
   onCreateProject,
   onCreateWorkspace,
+  onClosePane,
+  onResizePane,
+  onSelectPane,
+  onSplitPane,
   projectWorkspaces,
   shellError,
   workspaceLayouts,
@@ -197,8 +301,7 @@ export default function WorkspaceCanvas({
   const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
   const activeWorkspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
   const activePaneLabel =
-    activeWorkspaceScene.panes.find((pane) => pane.id === activePaneId)
-      ?.label ??
+    resolveWorkspacePane(activeWorkspace?.id ?? null, activePaneId)?.label ??
     activeWorkspaceScene.panes[0]?.label ??
     ''
 
@@ -270,6 +373,7 @@ export default function WorkspaceCanvas({
               workspace.id,
             )
             const rootNode = resolveWorkspaceLayoutRoot(layout)
+            const paneCount = collectWorkspaceLayoutPaneIds(layout).length
             const nodeLookup = new Map(
               layout?.nodes.map((node) => [node.id, node]),
             )
@@ -285,8 +389,14 @@ export default function WorkspaceCanvas({
                     renderLayoutNode({
                       activePaneId: isActiveWorkspace ? activePaneId : null,
                       activeProject,
+                      canClosePane: paneCount > 1,
+                      isInteractive: isActiveWorkspace,
                       node: rootNode,
                       nodeLookup,
+                      onClosePane,
+                      onResizePane,
+                      onSelectPane,
+                      onSplitPane,
                       workspace,
                     })
                   ) : (

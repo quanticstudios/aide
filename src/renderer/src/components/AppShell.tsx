@@ -16,6 +16,7 @@ interface AppShellProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
+  readonly paneIds: readonly string[]
   readonly showProjectHints: boolean
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -33,6 +34,7 @@ export default function AppShell({
   activeProject,
   activeWorkspace,
   isDemoMode,
+  paneIds,
   showProjectHints,
   onSelectPane,
   onSelectProject,
@@ -69,6 +71,7 @@ export default function AppShell({
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
           isDemoMode={isDemoMode}
+          paneIds={paneIds}
           onSelectPane={onSelectPane}
           onCreateWorkspace={onCreateWorkspace}
         />

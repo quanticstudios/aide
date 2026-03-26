@@ -1,7 +1,7 @@
 import { Button, Chip, Kbd, Toolbar } from '@heroui/react'
 import { GitBranch, Plus } from 'lucide-react'
 
-import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
+import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { cn } from '@/lib/utils'
 import type {
   ProjectRecord,
@@ -13,6 +13,7 @@ interface TopBarProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
+  readonly paneIds: readonly string[]
   readonly onSelectPane: (paneId: string) => void
   readonly onCreateWorkspace: () => void
 }
@@ -22,14 +23,13 @@ export default function TopBar({
   activeProject,
   activeWorkspace,
   isDemoMode,
+  paneIds,
   onSelectPane,
   onCreateWorkspace,
 }: TopBarProps) {
   const workspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
-  const resolvedPaneId = resolveWorkspacePaneId(
-    activeWorkspace?.id ?? null,
-    activePaneId,
-  )
+  const visiblePaneIds =
+    paneIds.length > 0 ? paneIds : workspaceScene.panes.map((pane) => pane.id)
 
   return (
     <header className="border-b border-border bg-background/95 px-3 py-2 backdrop-blur">
@@ -54,8 +54,16 @@ export default function TopBar({
             className="workspace-strip inline-flex min-w-max rounded-xl border border-border/80 bg-surface/80 p-1"
             isAttached
           >
-            {workspaceScene.panes.map((pane, index) => {
-              const isActive = pane.id === resolvedPaneId
+            {visiblePaneIds.map((paneId, index) => {
+              const pane = resolveWorkspacePane(
+                activeWorkspace?.id ?? null,
+                paneId,
+              )
+              const isActive = paneId === activePaneId
+
+              if (!pane) {
+                return null
+              }
 
               return (
                 <Button
@@ -66,8 +74,8 @@ export default function TopBar({
                       ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
                       : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
                   )}
-                  key={pane.id}
-                  onPress={() => onSelectPane(pane.id)}
+                  key={paneId}
+                  onPress={() => onSelectPane(paneId)}
                   variant={isActive ? 'secondary' : 'ghost'}
                 >
                   <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">

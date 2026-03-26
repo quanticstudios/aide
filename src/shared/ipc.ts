@@ -8,6 +8,7 @@ import type {
   CreateProjectInput,
   CreateWorkspaceInput,
   PersistenceSnapshot,
+  SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
 } from './persistence'
 import type { RuntimeSnapshot } from './runtime'
@@ -26,6 +27,7 @@ export const IPC_CHANNELS = {
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
+  saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
@@ -48,6 +50,10 @@ export interface AideApi {
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
+  saveWorkspaceLayout: (
+    workspaceId: string,
+    input: SaveWorkspaceLayoutInput,
+  ) => Promise<PersistenceSnapshot>
   createTerminalSession: (
     input: TerminalSessionConfig,
   ) => Promise<TerminalSessionSnapshot>

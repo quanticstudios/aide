@@ -20,6 +20,8 @@ export interface WorkspaceScene {
   panes: PlaceholderPane[]
 }
 
+const PANE_COPY_MARKER = '::copy-'
+
 function createProject(
   id: string,
   name: string,
@@ -416,13 +418,59 @@ export function getWorkspaceScene(workspaceId: string | null): WorkspaceScene {
   return workspaceScenes[workspaceId] ?? defaultWorkspaceScene
 }
 
+export function getWorkspacePaneTemplateId(paneId: string): string {
+  const markerIndex = paneId.indexOf(PANE_COPY_MARKER)
+
+  return markerIndex === -1 ? paneId : paneId.slice(0, markerIndex)
+}
+
+export function resolveWorkspacePane(
+  workspaceId: string | null,
+  paneId: string | null,
+): PlaceholderPane | null {
+  const scene = getWorkspaceScene(workspaceId)
+
+  if (scene.panes.length === 0) {
+    return null
+  }
+
+  if (!paneId) {
+    return scene.panes[0] ?? null
+  }
+
+  const templateId = getWorkspacePaneTemplateId(paneId)
+  const template =
+    scene.panes.find((pane) => pane.id === templateId) ?? scene.panes[0]
+
+  if (!template) {
+    return null
+  }
+
+  const isCopy = paneId !== templateId
+  const copyNumber = isCopy
+    ? Number.parseInt(
+        paneId.slice(paneId.lastIndexOf(PANE_COPY_MARKER) + 7),
+        10,
+      )
+    : null
+
+  return {
+    ...template,
+    id: paneId,
+    label:
+      isCopy && Number.isFinite(copyNumber)
+        ? `${template.label} copy ${copyNumber}`
+        : template.label,
+  }
+}
+
 export function resolveWorkspacePaneId(
   workspaceId: string | null,
   activePaneId: string | null,
 ): string | null {
   const scene = getWorkspaceScene(workspaceId)
 
-  if (scene.panes.some((pane) => pane.id === activePaneId)) {
+  if (activePaneId && resolveWorkspacePane(workspaceId, activePaneId)) {
     return activePaneId
   }
 
