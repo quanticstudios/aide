@@ -59,6 +59,37 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
+  test('moves panes horizontally with Alt+h and Alt+l', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+
+    const { page } = launched
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Chat task thread',
+    )
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('l')
+    await page.keyboard.up('Alt')
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('l')
+    await page.keyboard.up('Alt')
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Preview target',
+    )
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('h')
+    await page.keyboard.up('Alt')
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+  })
+
   test('moves workspaces vertically with Alt+j and Alt+k', async () => {
     const launched = await launchAideApp()
     app = launched.app

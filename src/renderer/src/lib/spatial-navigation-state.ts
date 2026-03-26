@@ -12,6 +12,11 @@ export interface SpatialNavigationState {
 }
 
 type PaneResolver = (workspaceId: string | null) => string[]
+type PaneNeighborResolver = (
+  workspaceId: string | null,
+  activePaneId: string | null,
+  direction: -1 | 1,
+) => string | null
 
 function getProjectWorkspaces(
   snapshot: PersistenceSnapshot,
@@ -278,6 +283,7 @@ export function moveRelativePane(
   state: SpatialNavigationState,
   direction: -1 | 1,
   getPaneIdsForWorkspace: PaneResolver,
+  resolvePaneNeighbor?: PaneNeighborResolver,
 ): SpatialNavigationState {
   const paneIds = getPaneIdsForWorkspace(state.activeWorkspaceId)
 
@@ -298,8 +304,15 @@ export function moveRelativePane(
     return state
   }
 
-  const nextIndex = (currentIndex + direction + paneIds.length) % paneIds.length
-  const nextPaneId = paneIds[nextIndex]
+  const resolvedNeighborPaneId = resolvePaneNeighbor?.(
+    state.activeWorkspaceId,
+    currentPaneId,
+    direction,
+  )
+  const nextPaneId =
+    resolvedNeighborPaneId && paneIds.includes(resolvedNeighborPaneId)
+      ? resolvedNeighborPaneId
+      : paneIds[(currentIndex + direction + paneIds.length) % paneIds.length]
 
   return nextPaneId
     ? applyPaneSelection(snapshot, state, nextPaneId, getPaneIdsForWorkspace)

@@ -34,6 +34,7 @@ import {
   resizeWorkspacePane,
   splitWorkspacePane,
 } from './lib/workspace-layout-mutations'
+import { resolveHorizontalPaneNeighbor } from './lib/workspace-layout-navigation'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
@@ -88,8 +89,13 @@ export default function App() {
     useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
-  const lastShortcutRef = useRef<{ signature: string; time: number }>({
+  const lastShortcutRef = useRef<{
+    signature: string
+    source: 'main' | 'renderer'
+    time: number
+  }>({
     signature: '',
+    source: 'renderer',
     time: 0,
   })
   const lastResolvedNavigationRef = useRef('')
@@ -412,6 +418,16 @@ export default function App() {
           resolvedNavigationState,
           direction,
           getPaneIdsForWorkspace,
+          (workspaceId, paneId, paneDirection) => {
+            const layout = resolveWorkspaceLayout(
+              navigationSnapshot,
+              workspaceId,
+            )
+
+            return layout
+              ? resolveHorizontalPaneNeighbor(layout, paneId, paneDirection)
+              : null
+          },
         ),
       )
     },
@@ -614,6 +630,7 @@ export default function App() {
   const dispatchShortcut = useCallback(
     (shortcut: {
       projectIndex?: number
+      source: 'main' | 'renderer'
       type:
         | 'pane-next'
         | 'pane-previous'
@@ -626,12 +643,17 @@ export default function App() {
 
       if (
         lastShortcutRef.current.signature === signature &&
+        lastShortcutRef.current.source !== shortcut.source &&
         now - lastShortcutRef.current.time < 80
       ) {
         return
       }
 
-      lastShortcutRef.current = { signature, time: now }
+      lastShortcutRef.current = {
+        signature,
+        source: shortcut.source,
+        time: now,
+      }
       handleAppShortcut(shortcut)
     },
     [handleAppShortcut],
@@ -676,7 +698,13 @@ export default function App() {
 
   useEffect(() => {
     const aideApi = getAideApi()
-    const unsubscribeShortcut = aideApi?.onAppShortcut(dispatchShortcut)
+    const shouldUseRendererShortcutHandling = !aideApi
+    const unsubscribeShortcut = aideApi?.onAppShortcut((shortcut) =>
+      dispatchShortcut({
+        ...shortcut,
+        source: 'main',
+      }),
+    )
 
     const handleKeyDown = (event: KeyboardEvent) => {
       const normalizedKey = event.key.toLowerCase()
@@ -685,6 +713,10 @@ export default function App() {
       const isCtrlChord = event.ctrlKey && !event.metaKey && !event.altKey
 
       if (event.defaultPrevented) {
+        return
+      }
+
+      if (!shouldUseRendererShortcutHandling) {
         return
       }
 
@@ -706,6 +738,7 @@ export default function App() {
           projectIndex: navigationSnapshot.projects.findIndex(
             (project) => project.id === shortcutProject.id,
           ),
+          source: 'renderer',
           type: 'project-jump',
         })
         return
@@ -713,22 +746,22 @@ export default function App() {
 
       if (isAltChord && event.key === 'ArrowUp') {
         event.preventDefault()
-        dispatchShortcut({ type: 'workspace-previous' })
+        dispatchShortcut({ source: 'renderer', type: 'workspace-previous' })
       }
 
       if (isAltChord && normalizedKey === 'k') {
         event.preventDefault()
-        dispatchShortcut({ type: 'workspace-previous' })
+        dispatchShortcut({ source: 'renderer', type: 'workspace-previous' })
       }
 
       if (isAltChord && event.key === 'ArrowDown') {
         event.preventDefault()
-        dispatchShortcut({ type: 'workspace-next' })
+        dispatchShortcut({ source: 'renderer', type: 'workspace-next' })
       }
 
       if (isAltChord && normalizedKey === 'j') {
         event.preventDefault()
-        dispatchShortcut({ type: 'workspace-next' })
+        dispatchShortcut({ source: 'renderer', type: 'workspace-next' })
       }
 
       if (
@@ -737,7 +770,7 @@ export default function App() {
         (normalizedCode === 'keyh' && isAltChord)
       ) {
         event.preventDefault()
-        dispatchShortcut({ type: 'pane-previous' })
+        dispatchShortcut({ source: 'renderer', type: 'pane-previous' })
       }
 
       if (
@@ -746,7 +779,7 @@ export default function App() {
         (normalizedCode === 'keyl' && isAltChord)
       ) {
         event.preventDefault()
-        dispatchShortcut({ type: 'pane-next' })
+        dispatchShortcut({ source: 'renderer', type: 'pane-next' })
       }
     }
 

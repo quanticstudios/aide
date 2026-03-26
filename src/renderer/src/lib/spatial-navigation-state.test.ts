@@ -204,6 +204,26 @@ describe('spatial navigation transitions', () => {
     ).toBe('workspace-b1')
   })
 
+  it('uses an explicit pane neighbor resolver when one is provided', () => {
+    const snapshot = createSnapshot()
+    const baseState = resolveSpatialNavigationState(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      getPaneIdsForWorkspace,
+    )
+
+    expect(
+      moveRelativePane(
+        snapshot,
+        baseState,
+        1,
+        getPaneIdsForWorkspace,
+        (_workspaceId, activePaneId) =>
+          activePaneId === 'terminal' ? 'preview' : null,
+      ).activePaneId,
+    ).toBe('preview')
+  })
+
   it('uses durable snapshot memory when in-memory memory is empty', () => {
     const snapshot = {
       ...createSnapshot(),
