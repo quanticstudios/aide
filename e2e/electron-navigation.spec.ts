@@ -59,7 +59,7 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
-  test('moves panes horizontally with Alt+h and Alt+l', async () => {
+  test('moves panes horizontally with Alt+Left and Alt+Right', async () => {
     const launched = await launchAideApp()
     app = launched.app
 
@@ -70,13 +70,13 @@ test.describe('electron spatial navigation', () => {
     )
 
     await page.keyboard.down('Alt')
-    await page.keyboard.press('l')
+    await page.keyboard.press('ArrowRight')
     await page.keyboard.up('Alt')
 
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
 
     await page.keyboard.down('Alt')
-    await page.keyboard.press('l')
+    await page.keyboard.press('ArrowRight')
     await page.keyboard.up('Alt')
 
     await expect(page.getByTestId('active-pane-name')).toHaveText(
@@ -84,7 +84,7 @@ test.describe('electron spatial navigation', () => {
     )
 
     await page.keyboard.down('Alt')
-    await page.keyboard.press('h')
+    await page.keyboard.press('ArrowLeft')
     await page.keyboard.up('Alt')
 
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
@@ -115,5 +115,42 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-workspace-name')).toHaveText(
       'navigation-poc',
     )
+  })
+
+  test('supports sidebar hover, focus, and pinned-open persistence', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+
+    const { page } = launched
+
+    await page.evaluate(() => {
+      window.localStorage.removeItem('aide.sidebar.pinned')
+    })
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+
+    const sidebarShell = page.getByTestId('sidebar-shell')
+    const workspaceTree = page.getByTestId('workspace-tree-panel')
+
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
+
+    await sidebarShell.hover()
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+
+    await page.mouse.move(1400, 120)
+    await page.waitForTimeout(180)
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
+
+    await page.getByLabel('aide').focus()
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+
+    await page.getByRole('button', { name: /pin sidebar open/i }).click()
+    await page.mouse.move(1400, 120)
+    await page.waitForTimeout(180)
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 })

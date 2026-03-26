@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import type { FocusEvent, ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
@@ -8,6 +9,9 @@ import type {
 import AppSidebar from './AppSidebar'
 import ProjectWorkspaceTree from './ProjectWorkspaceTree'
 import TopBar from './TopBar'
+
+const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
+const SIDEBAR_COLLAPSE_DELAY_MS = 140
 
 interface AppShellProps {
   readonly activePaneId: string | null
@@ -44,28 +48,135 @@ export default function AppShell({
   workspaceSummaries,
   children,
 }: AppShellProps) {
+  const sidebarShellRef = useRef<HTMLDivElement | null>(null)
+  const collapseTimerRef = useRef<number | null>(null)
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false)
+  const [isSidebarFocusWithin, setIsSidebarFocusWithin] = useState(false)
+  const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return window.localStorage.getItem(SIDEBAR_PIN_STORAGE_KEY) === 'true'
+  })
+
+  const isSidebarExpanded =
+    isSidebarPinnedOpen || isSidebarHovered || isSidebarFocusWithin
+
+  function clearPendingCollapse(): void {
+    if (collapseTimerRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(collapseTimerRef.current)
+    collapseTimerRef.current = null
+  }
+
+  function scheduleSidebarCollapse(): void {
+    clearPendingCollapse()
+    collapseTimerRef.current = window.setTimeout(() => {
+      setIsSidebarHovered(false)
+    }, SIDEBAR_COLLAPSE_DELAY_MS)
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.localStorage.setItem(
+      SIDEBAR_PIN_STORAGE_KEY,
+      isSidebarPinnedOpen ? 'true' : 'false',
+    )
+  }, [isSidebarPinnedOpen])
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current === null) {
+        return
+      }
+
+      window.clearTimeout(collapseTimerRef.current)
+      collapseTimerRef.current = null
+    },
+    [],
+  )
+
+  function handleSidebarFocus(): void {
+    clearPendingCollapse()
+    setIsSidebarFocusWithin(true)
+  }
+
+  function handleSidebarBlur(event: FocusEvent<HTMLDivElement>): void {
+    const nextTarget = event.relatedTarget
+
+    if (
+      nextTarget instanceof Node &&
+      sidebarShellRef.current?.contains(nextTarget)
+    ) {
+      return
+    }
+
+    setIsSidebarFocusWithin(false)
+
+    if (!isSidebarPinnedOpen) {
+      scheduleSidebarCollapse()
+    }
+  }
+
+  function handleSidebarMouseEnter(): void {
+    clearPendingCollapse()
+    setIsSidebarHovered(true)
+  }
+
+  function handleSidebarMouseLeave(): void {
+    if (isSidebarPinnedOpen || isSidebarFocusWithin) {
+      return
+    }
+
+    scheduleSidebarCollapse()
+  }
+
   return (
-    <div className="grid h-full w-full grid-cols-[4.5rem_18rem_minmax(0,1fr)] bg-background text-foreground">
-      <AppSidebar
-        activeProjectId={activeProject?.id ?? null}
-        isDemoMode={isDemoMode}
-        onCreateProject={onCreateProject}
-        onSelectProject={onSelectProject}
-        projects={projects}
-        showProjectHints={showProjectHints}
-      />
+    <div className="flex h-full w-full bg-background text-foreground">
+      <div
+        className="flex h-full"
+        data-expanded={isSidebarExpanded ? 'true' : 'false'}
+        data-testid="sidebar-shell"
+        onBlurCapture={handleSidebarBlur}
+        onFocusCapture={handleSidebarFocus}
+        onMouseEnter={handleSidebarMouseEnter}
+        onMouseLeave={handleSidebarMouseLeave}
+        ref={sidebarShellRef}
+      >
+        <AppSidebar
+          activeProjectId={activeProject?.id ?? null}
+          isDemoMode={isDemoMode}
+          onCreateProject={onCreateProject}
+          onSelectProject={onSelectProject}
+          projects={projects}
+          showProjectHints={showProjectHints}
+        />
 
-      <ProjectWorkspaceTree
-        activeProjectId={activeProject?.id ?? null}
-        activeWorkspaceId={activeWorkspace?.id ?? null}
-        onSelectProject={onSelectProject}
-        onSelectWorkspace={onSelectWorkspace}
-        projects={projects}
-        summaries={workspaceSummaries}
-        workspaces={workspaces}
-      />
+        <ProjectWorkspaceTree
+          activeProjectId={
+            activeWorkspace?.projectId ?? activeProject?.id ?? null
+          }
+          activeWorkspaceId={activeWorkspace?.id ?? null}
+          isExpanded={isSidebarExpanded}
+          isPinnedOpen={isSidebarPinnedOpen}
+          onSelectProject={onSelectProject}
+          onTogglePinnedOpen={() =>
+            setIsSidebarPinnedOpen((current) => !current)
+          }
+          onSelectWorkspace={onSelectWorkspace}
+          projects={projects}
+          summaries={workspaceSummaries}
+          workspaces={workspaces}
+        />
+      </div>
 
-      <div className="flex min-w-0 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar
           activePaneId={activePaneId}
           activeProject={activeProject}

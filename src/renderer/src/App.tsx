@@ -89,15 +89,6 @@ export default function App() {
     useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
-  const lastShortcutRef = useRef<{
-    signature: string
-    source: 'main' | 'renderer'
-    time: number
-  }>({
-    signature: '',
-    source: 'renderer',
-    time: 0,
-  })
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -630,7 +621,6 @@ export default function App() {
   const dispatchShortcut = useCallback(
     (shortcut: {
       projectIndex?: number
-      source: 'main' | 'renderer'
       type:
         | 'pane-next'
         | 'pane-previous'
@@ -638,22 +628,6 @@ export default function App() {
         | 'workspace-next'
         | 'workspace-previous'
     }) => {
-      const signature = `${shortcut.type}:${shortcut.projectIndex ?? ''}`
-      const now = performance.now()
-
-      if (
-        lastShortcutRef.current.signature === signature &&
-        lastShortcutRef.current.source !== shortcut.source &&
-        now - lastShortcutRef.current.time < 80
-      ) {
-        return
-      }
-
-      lastShortcutRef.current = {
-        signature,
-        source: shortcut.source,
-        time: now,
-      }
       handleAppShortcut(shortcut)
     },
     [handleAppShortcut],
@@ -697,15 +671,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const aideApi = getAideApi()
-    const shouldUseRendererShortcutHandling = !aideApi
-    const unsubscribeShortcut = aideApi?.onAppShortcut((shortcut) =>
-      dispatchShortcut({
-        ...shortcut,
-        source: 'main',
-      }),
-    )
-
     const handleKeyDown = (event: KeyboardEvent) => {
       const normalizedKey = event.key.toLowerCase()
       const normalizedCode = event.code.toLowerCase()
@@ -713,10 +678,6 @@ export default function App() {
       const isCtrlChord = event.ctrlKey && !event.metaKey && !event.altKey
 
       if (event.defaultPrevented) {
-        return
-      }
-
-      if (!shouldUseRendererShortcutHandling) {
         return
       }
 
@@ -738,7 +699,6 @@ export default function App() {
           projectIndex: navigationSnapshot.projects.findIndex(
             (project) => project.id === shortcutProject.id,
           ),
-          source: 'renderer',
           type: 'project-jump',
         })
         return
@@ -746,22 +706,22 @@ export default function App() {
 
       if (isAltChord && event.key === 'ArrowUp') {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'workspace-previous' })
+        dispatchShortcut({ type: 'workspace-previous' })
       }
 
       if (isAltChord && normalizedKey === 'k') {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'workspace-previous' })
+        dispatchShortcut({ type: 'workspace-previous' })
       }
 
       if (isAltChord && event.key === 'ArrowDown') {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'workspace-next' })
+        dispatchShortcut({ type: 'workspace-next' })
       }
 
       if (isAltChord && normalizedKey === 'j') {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'workspace-next' })
+        dispatchShortcut({ type: 'workspace-next' })
       }
 
       if (
@@ -770,7 +730,7 @@ export default function App() {
         (normalizedCode === 'keyh' && isAltChord)
       ) {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'pane-previous' })
+        dispatchShortcut({ type: 'pane-previous' })
       }
 
       if (
@@ -779,7 +739,7 @@ export default function App() {
         (normalizedCode === 'keyl' && isAltChord)
       ) {
         event.preventDefault()
-        dispatchShortcut({ source: 'renderer', type: 'pane-next' })
+        dispatchShortcut({ type: 'pane-next' })
       }
     }
 
@@ -787,7 +747,6 @@ export default function App() {
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
-      unsubscribeShortcut?.()
     }
   }, [dispatchShortcut, navigationSnapshot.projects])
 
