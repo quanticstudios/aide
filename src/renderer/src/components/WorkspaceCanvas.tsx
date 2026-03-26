@@ -1,14 +1,20 @@
 import { Button } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
-import { getWorkspaceScene, resolveWorkspacePaneId } from '@/lib/navigation-poc'
-import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
+import { getWorkspaceScene } from '@/lib/navigation-poc'
+import { cn } from '@/lib/utils'
 import {
   getWorkspaceSlideHeight,
   getWorkspaceTrackStyle,
 } from '@/lib/workspace-camera'
+import {
+  resolveWorkspaceLayout,
+  resolveWorkspaceLayoutRoot,
+} from '@/lib/workspace-layout'
 import type {
+  PersistedLayoutNode,
   ProjectRecord,
+  WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import PlaceholderWorkspaceView from './PlaceholderWorkspaceView'
@@ -23,6 +29,7 @@ interface WorkspaceCanvasProps {
   readonly onCreateWorkspace: () => void
   readonly projectWorkspaces: readonly WorkspaceRecord[]
   readonly shellError: string | null
+  readonly workspaceLayouts: Record<string, WorkspaceLayoutRecord>
 }
 
 function EmptyState({
@@ -58,6 +65,119 @@ function EmptyState({
   )
 }
 
+function resolvePaneContent(args: {
+  activePaneId: string | null
+  activeProject: ProjectRecord
+  paneId: string
+  workspace: WorkspaceRecord
+}) {
+  const scene = getWorkspaceScene(args.workspace.id)
+  const pane = scene.panes.find(
+    (candidate) => candidate.id === args.paneId,
+  ) ?? {
+    accent: 'blue' as const,
+    description: 'Placeholder pane metadata is missing for this layout node.',
+    id: args.paneId,
+    label: args.paneId,
+    layoutClassName: '',
+    type: 'Chat',
+  }
+  const isActive = pane.id === args.activePaneId
+
+  if (pane.type === 'Terminal') {
+    return isActive ? (
+      <TerminalPane paneId={pane.id} workspace={args.workspace} />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
+        Terminal session hidden until this pane is focused.
+      </div>
+    )
+  }
+
+  if (pane.type === 'Preview' && isActive) {
+    return <PreviewPane />
+  }
+
+  return (
+    <PlaceholderWorkspaceView
+      pane={pane}
+      project={args.activeProject}
+      scene={scene}
+      workspace={args.workspace}
+    />
+  )
+}
+
+function renderLayoutNode(args: {
+  activePaneId: string | null
+  activeProject: ProjectRecord
+  node: PersistedLayoutNode
+  nodeLookup: Map<string, PersistedLayoutNode>
+  workspace: WorkspaceRecord
+}) {
+  if (args.node.type === 'pane') {
+    const isActive = args.node.paneId === args.activePaneId
+
+    return (
+      <article
+        className={cn(
+          'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border p-4',
+          isActive
+            ? 'border-primary/45 bg-surface shadow-[var(--surface-shadow)]'
+            : 'border-border/70 bg-surface/70',
+        )}
+        data-pane-id={args.node.paneId}
+        key={args.node.id}
+      >
+        {resolvePaneContent({
+          activePaneId: args.activePaneId,
+          activeProject: args.activeProject,
+          paneId: args.node.paneId,
+          workspace: args.workspace,
+        })}
+      </article>
+    )
+  }
+
+  return (
+    <section
+      className={cn(
+        'flex min-h-0 min-w-0 flex-1 gap-4 overflow-hidden',
+        args.node.type === 'split-horizontal' ? 'flex-row' : 'flex-col',
+      )}
+      key={args.node.id}
+    >
+      {args.node.children.map((childId, index) => {
+        const childNode = args.nodeLookup.get(childId)
+
+        if (!childNode) {
+          return null
+        }
+
+        return (
+          <div
+            className="flex min-h-0 min-w-0"
+            key={childId}
+            style={{
+              flexBasis: 0,
+              flexGrow: args.node.sizeWeights[index] ?? 1,
+              flexShrink: 1,
+            }}
+          >
+            {renderLayoutNode({
+              activePaneId: args.activePaneId,
+              activeProject: args.activeProject,
+              node: childNode,
+              nodeLookup: args.nodeLookup,
+              workspace: args.workspace,
+            })}
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
 export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
@@ -66,6 +186,7 @@ export default function WorkspaceCanvas({
   onCreateWorkspace,
   projectWorkspaces,
   shellError,
+  workspaceLayouts,
 }: WorkspaceCanvasProps) {
   const workspaceCount = Math.max(projectWorkspaces.length, 1)
   const activeWorkspaceIndex = Math.max(
@@ -136,21 +257,27 @@ export default function WorkspaceCanvas({
           style={workspaceTrackStyle}
         >
           {projectWorkspaces.map((workspace) => {
-            const workspaceScene = getWorkspaceScene(workspace.id)
             const isActiveWorkspace = workspace.id === activeWorkspace.id
-            const resolvedPaneId = resolveWorkspacePaneId(
+            const workspaceSnapshot = {
+              databasePath: '',
+              lastActivePaneIdsByWorkspace: {},
+              lastActiveProjectId: null,
+              lastActiveWorkspaceIdsByProject: {},
+              lastActiveWorkspaceId: null,
+              migrationStrategy: '',
+              schemaVersion: 0,
+              projects: [],
+              workspaceLayouts,
+              workspaces: [],
+            }
+            const layout = resolveWorkspaceLayout(
+              workspaceSnapshot,
               workspace.id,
-              isActiveWorkspace ? activePaneId : null,
             )
-            const paneCount = Math.max(workspaceScene.panes.length, 1)
-            const activePaneIndex = Math.max(
-              workspaceScene.panes.findIndex(
-                (pane) => pane.id === resolvedPaneId,
-              ),
-              0,
+            const rootNode = resolveWorkspaceLayoutRoot(layout)
+            const nodeLookup = new Map(
+              layout?.nodes.map((node) => [node.id, node]),
             )
-            const paneTrackStyle = getPaneTrackStyle(paneCount, activePaneIndex)
-            const paneSlideWidth = getPaneSlideWidth(paneCount)
 
             return (
               <section
@@ -158,58 +285,20 @@ export default function WorkspaceCanvas({
                 key={workspace.id}
                 style={{ height: workspaceSlideHeight }}
               >
-                <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
-                  <div
-                    className="pane-slider-track flex min-h-0 shrink-0 items-stretch transition-transform duration-200 ease-out"
-                    style={paneTrackStyle}
-                  >
-                    {workspaceScene.panes.map((pane) => {
-                      const isActive = pane.id === resolvedPaneId
-
-                      if (pane.type === 'Terminal') {
-                        return (
-                          <article
-                            className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
-                            key={pane.id}
-                            style={{ width: paneSlideWidth }}
-                          >
-                            {isActiveWorkspace && isActive ? (
-                              <TerminalPane
-                                paneId={pane.id}
-                                workspace={workspace}
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
-                                Terminal session hidden until this pane is
-                                focused.
-                              </div>
-                            )}
-                          </article>
-                        )
-                      }
-
-                      return (
-                        <article
-                          className="pane-slide flex h-full min-h-0 shrink-0 self-stretch p-4"
-                          key={pane.id}
-                          style={{ width: paneSlideWidth }}
-                        >
-                          {pane.type === 'Preview' &&
-                          isActive &&
-                          isActiveWorkspace ? (
-                            <PreviewPane />
-                          ) : (
-                            <PlaceholderWorkspaceView
-                              pane={pane}
-                              project={activeProject}
-                              scene={workspaceScene}
-                              workspace={workspace}
-                            />
-                          )}
-                        </article>
-                      )
-                    })}
-                  </div>
+                <div className="flex min-h-0 flex-1 overflow-hidden p-4">
+                  {activeProject && rootNode ? (
+                    renderLayoutNode({
+                      activePaneId: isActiveWorkspace ? activePaneId : null,
+                      activeProject,
+                      node: rootNode,
+                      nodeLookup,
+                      workspace,
+                    })
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
+                      Workspace layout is missing a valid root node.
+                    </div>
+                  )}
                 </div>
               </section>
             )

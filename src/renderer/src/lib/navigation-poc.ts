@@ -1,6 +1,7 @@
 import type {
   PersistenceSnapshot,
   ProjectRecord,
+  WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
 
@@ -313,6 +314,87 @@ const defaultWorkspaceScene: WorkspaceScene = {
   ],
 }
 
+const demoWorkspaceLayouts: Record<string, WorkspaceLayoutRecord> = {
+  'demo-workspace-aide-nav': {
+    nodes: [
+      {
+        children: ['nav-primary-column', 'nav-review-column', 'nav-preview'],
+        id: 'nav-root',
+        paneId: null,
+        parentId: null,
+        sizeWeights: [1.1, 1, 1.1],
+        type: 'split-horizontal',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: ['nav-chat', 'nav-terminal'],
+        id: 'nav-primary-column',
+        paneId: null,
+        parentId: 'nav-root',
+        sizeWeights: [1, 1.1],
+        type: 'split-vertical',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'nav-chat',
+        paneId: 'chat',
+        parentId: 'nav-primary-column',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'nav-terminal',
+        paneId: 'terminal',
+        parentId: 'nav-primary-column',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: ['nav-git', 'nav-editor'],
+        id: 'nav-review-column',
+        paneId: null,
+        parentId: 'nav-root',
+        sizeWeights: [1.2, 1],
+        type: 'split-vertical',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'nav-git',
+        paneId: 'git',
+        parentId: 'nav-review-column',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'nav-editor',
+        paneId: 'editor',
+        parentId: 'nav-review-column',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'nav-preview',
+        paneId: 'preview',
+        parentId: 'nav-root',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+    ],
+    rootNodeId: 'nav-root',
+    workspaceId: 'demo-workspace-aide-nav',
+  },
+}
+
 export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   databasePath: 'demo://navigation-poc',
   lastActivePaneIdsByWorkspace: {},
@@ -322,7 +404,7 @@ export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   migrationStrategy: 'Navigation-first POC fallback snapshot',
   schemaVersion: 0,
   projects: demoProjects,
-  workspaceLayouts: {},
+  workspaceLayouts: demoWorkspaceLayouts,
   workspaces: demoWorkspaces,
 }
 

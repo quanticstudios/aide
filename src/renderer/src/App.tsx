@@ -11,7 +11,6 @@ import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import {
-  getWorkspaceScene,
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
 } from './lib/navigation-poc'
@@ -25,6 +24,10 @@ import {
   moveRelativeWorkspace,
   resolveSpatialNavigationState,
 } from './lib/spatial-navigation-state'
+import {
+  collectWorkspaceLayoutPaneIds,
+  resolveWorkspaceLayout,
+} from './lib/workspace-layout'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
@@ -100,9 +103,14 @@ export default function App() {
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = resolveNavigationSnapshot(storageSnapshot)
   const isDemoMode = isNavigationPocSnapshot(navigationSnapshot)
-  const getPaneIdsForWorkspace = useCallback((workspaceId: string | null) => {
-    return getWorkspaceScene(workspaceId).panes.map((pane) => pane.id)
-  }, [])
+  const getPaneIdsForWorkspace = useCallback(
+    (workspaceId: string | null) => {
+      const layout = resolveWorkspaceLayout(navigationSnapshot, workspaceId)
+
+      return collectWorkspaceLayoutPaneIds(layout)
+    },
+    [navigationSnapshot],
+  )
   const currentNavigationState = useMemo(
     () => ({
       activePaneId,
@@ -679,6 +687,7 @@ export default function App() {
           projectWorkspaces={projectWorkspaces}
           shellError={isDemoMode ? null : shellError}
           activePaneId={activePaneId}
+          workspaceLayouts={navigationSnapshot.workspaceLayouts}
         />
       </>
     </AppShell>
