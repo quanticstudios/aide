@@ -19,6 +19,7 @@ import {
   probeExecutable,
   validateExecutablePath,
 } from './executable-resolution'
+import { focusHyprlandStartupWorkspace } from './hyprland'
 import { readProjectFile } from './project-files'
 import { TerminalSessionManager } from './terminal-session-manager'
 
@@ -64,7 +65,7 @@ function createMainWindow(): BrowserWindow {
     height: 920,
     minWidth: 1100,
     minHeight: 720,
-    show: true,
+    show: false,
     backgroundColor: '#18181b',
     title: 'aide',
     webPreferences: {
@@ -74,17 +75,41 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  window.on('ready-to-show', () => {
-    window.show()
-    window.focus()
-  })
+  let didRevealWindow = false
 
-  window.webContents.on('did-finish-load', () => {
-    if (!window.isVisible()) {
-      window.show()
+  const revealWindow = () => {
+    if (didRevealWindow || window.isDestroyed()) {
+      return
     }
 
-    window.focus()
+    didRevealWindow = true
+
+    void (async () => {
+      try {
+        await focusHyprlandStartupWorkspace()
+      } catch (error) {
+        console.warn(
+          'Unable to switch to the configured Hyprland workspace.',
+          error,
+        )
+      }
+
+      if (window.isDestroyed()) {
+        return
+      }
+
+      if (!window.isVisible()) {
+        window.show()
+      }
+
+      window.focus()
+    })()
+  }
+
+  window.once('ready-to-show', revealWindow)
+
+  window.webContents.on('did-finish-load', () => {
+    revealWindow()
   })
 
   window.webContents.on(
@@ -99,10 +124,7 @@ function createMainWindow(): BrowserWindow {
   )
 
   setTimeout(() => {
-    if (!window.isDestroyed() && !window.isVisible()) {
-      window.show()
-      window.focus()
-    }
+    revealWindow()
   }, 1500)
 
   if (process.env.ELECTRON_RENDERER_URL) {
