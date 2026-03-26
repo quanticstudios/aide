@@ -2,7 +2,7 @@ import { Button } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
 
 import { getWorkspaceScene } from '@/lib/navigation-poc'
-import { cn } from '@/lib/utils'
+import { getPaneFrameClassName } from '@/lib/pane-frame'
 import {
   getWorkspaceSlideHeight,
   getWorkspaceTrackStyle,
@@ -120,12 +120,7 @@ function renderLayoutNode(args: {
 
     return (
       <article
-        className={cn(
-          'flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border p-4',
-          isActive
-            ? 'border-primary/45 bg-surface shadow-[var(--surface-shadow)]'
-            : 'border-border/70 bg-surface/70',
-        )}
+        className={getPaneFrameClassName(isActive)}
         data-pane-id={args.node.paneId}
         key={args.node.id}
       >

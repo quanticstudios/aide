@@ -5,6 +5,12 @@ export interface PlaceholderAction {
   title: string
 }
 
+export function getPlaceholderBadgesForPane(
+  pane: Pick<PlaceholderPane, 'type'>,
+): string[] {
+  return ['Placeholder view', pane.type]
+}
+
 export function getPlaceholderActionsForPane(
   pane: Pick<PlaceholderPane, 'type'>,
 ): PlaceholderAction[] {

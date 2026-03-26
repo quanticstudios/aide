@@ -2,7 +2,10 @@ import { Chip, Surface } from '@heroui/react'
 import { ArrowRight, FolderTree, GitBranch, Sparkles } from 'lucide-react'
 
 import type { PlaceholderPane, WorkspaceScene } from '@/lib/navigation-poc'
-import { getPlaceholderActionsForPane } from '@/lib/workspace-placeholder'
+import {
+  getPlaceholderActionsForPane,
+  getPlaceholderBadgesForPane,
+} from '@/lib/workspace-placeholder'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -22,17 +25,17 @@ export default function PlaceholderWorkspaceView({
   workspace,
 }: PlaceholderWorkspaceViewProps) {
   const actions = getPlaceholderActionsForPane(pane)
+  const badges = getPlaceholderBadgesForPane(pane)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div>
         <div className="flex items-center gap-2">
-          <Chip size="sm" variant="secondary">
-            Placeholder view
-          </Chip>
-          <Chip size="sm" variant="secondary">
-            {pane.type}
-          </Chip>
+          {badges.map((badge) => (
+            <Chip key={badge} size="sm" variant="secondary">
+              {badge}
+            </Chip>
+          ))}
         </div>
 
         <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">

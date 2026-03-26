@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
-import { getPlaceholderActionsForPane } from './workspace-placeholder'
+import {
+  getPlaceholderActionsForPane,
+  getPlaceholderBadgesForPane,
+} from './workspace-placeholder'
+
+describe('getPlaceholderBadgesForPane', () => {
+  it('adds a generic placeholder badge plus the pane type', () => {
+    expect(getPlaceholderBadgesForPane({ type: 'Git' })).toEqual([
+      'Placeholder view',
+      'Git',
+    ])
+  })
+
+  it('can render unknown pane types without special casing', () => {
+    expect(getPlaceholderBadgesForPane({ type: 'Unknown' })).toEqual([
+      'Placeholder view',
+      'Unknown',
+    ])
+  })
+})
 
 describe('getPlaceholderActionsForPane', () => {
   it('returns pane-specific placeholder actions', () => {
