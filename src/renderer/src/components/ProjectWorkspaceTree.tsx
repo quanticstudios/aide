@@ -13,6 +13,7 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import WorkspaceStateBadges from './WorkspaceStateBadges'
 
 interface ProjectWorkspaceTreeProps {
   readonly activeProjectId: string | null
@@ -195,11 +196,12 @@ export default function ProjectWorkspaceTree({
                               </div>
                             </div>
 
-                            <Chip size="sm" variant="secondary">
-                              {summary
-                                ? `${summary.status} · ${summary.jobCount}`
-                                : 'idle · 0'}
-                            </Chip>
+                            {summary ? (
+                              <WorkspaceStateBadges
+                                isCurrent={isActiveWorkspace}
+                                summary={summary}
+                              />
+                            ) : null}
                           </Button>
                         )
                       })}

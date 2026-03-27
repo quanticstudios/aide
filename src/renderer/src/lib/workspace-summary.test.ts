@@ -40,21 +40,22 @@ describe('buildWorkspaceSummaryMap', () => {
     const summaries = buildWorkspaceSummaryMap(
       [createProject('project-a', 'aide')],
       [
-        createWorkspace('workspace-1', 'project-a', 'nav'),
-        createWorkspace('workspace-2', 'project-a', 'review'),
+        createWorkspace('demo-workspace-aide-nav', 'project-a', 'nav'),
+        createWorkspace('demo-workspace-aide-review', 'project-a', 'review'),
       ],
-      'workspace-2',
+      'demo-workspace-aide-review',
     )
 
-    expect(summaries['workspace-1']).toMatchObject({
+    expect(summaries['demo-workspace-aide-nav']).toMatchObject({
       branchName: 'nav-branch',
-      jobCount: 0,
+      jobCount: 2,
       projectName: 'aide',
       status: 'idle',
       workspaceName: 'nav',
     })
-    expect(summaries['workspace-2']).toMatchObject({
-      status: 'active',
+    expect(summaries['demo-workspace-aide-review']).toMatchObject({
+      jobCount: 1,
+      status: 'error',
     })
   })
 })

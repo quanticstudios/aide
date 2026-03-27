@@ -5,6 +5,7 @@ import type { Key } from 'react'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import WorkspaceStateBadges from './WorkspaceStateBadges'
 
 interface WorkspaceSwitcherOverlayProps {
   readonly activeWorkspaceId: string | null
@@ -166,11 +167,6 @@ export default function WorkspaceSwitcherOverlay({
                         <Label className="truncate text-sm font-medium">
                           {summary?.workspaceName ?? workspace.name}
                         </Label>
-                        {isCurrent ? (
-                          <Chip size="sm" variant="secondary">
-                            Current
-                          </Chip>
-                        ) : null}
                       </div>
                       <Description className="truncate font-mono text-[11px] text-muted-foreground">
                         {summary?.branchName ?? workspace.branchName}
@@ -184,16 +180,21 @@ export default function WorkspaceSwitcherOverlay({
                       ) : null}
                     </div>
 
-                    <Chip
-                      className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
-                      color="default"
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {summary
-                        ? `${summary.status} · ${summary.jobCount}`
-                        : index + 1}
-                    </Chip>
+                    {summary ? (
+                      <WorkspaceStateBadges
+                        isCurrent={isCurrent}
+                        summary={summary}
+                      />
+                    ) : (
+                      <Chip
+                        className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+                        color="default"
+                        size="sm"
+                        variant="secondary"
+                      >
+                        {index + 1}
+                      </Chip>
+                    )}
                   </div>
                 )
               })()}
