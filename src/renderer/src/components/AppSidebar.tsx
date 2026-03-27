@@ -47,6 +47,7 @@ export default function AppSidebar({
               <Tooltip.Trigger>
                 <Button
                   aria-label={project.name}
+                  data-testid={`project-rail-button-${project.id}`}
                   className={cn(
                     'group relative flex size-12 items-center justify-center rounded-2xl border text-sm font-semibold tracking-[0.12em] transition-all',
                     isActive
@@ -58,16 +59,18 @@ export default function AppSidebar({
                 >
                   <span>{getProjectGlyph(project.name)}</span>
                   <span
+                    data-testid={`project-rail-hint-shell-${project.id}`}
                     className={cn(
                       'absolute -right-1.5 -top-1.5 transition-all duration-120 ease-out',
                       showProjectHints
-                        ? 'scale-100 opacity-100'
-                        : 'scale-75 opacity-0',
+                        ? 'visible scale-100 opacity-100'
+                        : 'invisible scale-75 opacity-0',
                     )}
                   >
                     <Chip
                       className="h-4 min-w-4 border border-border bg-background px-0 text-[9px] font-medium text-muted-foreground"
                       color="default"
+                      data-testid={`project-rail-hint-${project.id}`}
                       size="sm"
                       variant="secondary"
                     >

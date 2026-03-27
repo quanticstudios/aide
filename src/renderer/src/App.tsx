@@ -87,6 +87,7 @@ export default function App() {
     useState<ReturnType<typeof createProjectDraftValues> | null>(null)
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
+  const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
   const lastResolvedNavigationRef = useRef('')
@@ -373,6 +374,7 @@ export default function App() {
         ),
       )
       setIsWorkspaceSwitcherVisible(false)
+      setIsOverviewVisible(false)
     },
     [
       getPaneIdsForWorkspace,
@@ -656,6 +658,7 @@ export default function App() {
 
     const handleWindowBlur = () => {
       setIsWorkspaceSwitcherVisible(false)
+      setIsOverviewVisible(false)
       setShowProjectHints(false)
     }
 
@@ -671,11 +674,21 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    return window.aide.onAppShortcut((event) => {
+      if (event.type === 'overview-open') {
+        setIsOverviewVisible(true)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const normalizedKey = event.key.toLowerCase()
       const normalizedCode = event.code.toLowerCase()
       const isAltChord = event.altKey && !event.metaKey && !event.ctrlKey
       const isCtrlChord = event.ctrlKey && !event.metaKey && !event.altKey
+      const isOverviewChord =
+        event.key === 'Tab' && (event.ctrlKey || event.metaKey)
 
       if (event.defaultPrevented) {
         return
@@ -684,8 +697,21 @@ export default function App() {
       if (
         shouldIgnoreGlobalNavigation(event.target) &&
         !isAltChord &&
-        !isCtrlChord
+        !isCtrlChord &&
+        !isOverviewChord
       ) {
+        return
+      }
+
+      if (isOverviewChord) {
+        event.preventDefault()
+        setIsOverviewVisible(true)
+        return
+      }
+
+      if (isOverviewVisible && event.key === 'Escape') {
+        event.preventDefault()
+        setIsOverviewVisible(false)
         return
       }
 
@@ -748,7 +774,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [dispatchShortcut, navigationSnapshot.projects])
+  }, [dispatchShortcut, isOverviewVisible, navigationSnapshot.projects])
 
   const projects = navigationSnapshot.projects
   const allWorkspaces = navigationSnapshot.workspaces
@@ -819,11 +845,22 @@ export default function App() {
         />
         <WorkspaceSwitcherOverlay
           activeWorkspaceId={activeWorkspace?.id ?? null}
+          mode="workspace-switcher"
           onSelectWorkspace={handleWorkspaceSelection}
           projectName={activeProject?.name ?? null}
           summaries={workspaceSummaries}
           visible={isWorkspaceSwitcherVisible}
           workspaces={projectWorkspaces}
+        />
+        <WorkspaceSwitcherOverlay
+          activeWorkspaceId={activeWorkspace?.id ?? null}
+          mode="overview"
+          onRequestClose={() => setIsOverviewVisible(false)}
+          onSelectWorkspace={handleWorkspaceSelection}
+          projectName={activeProject?.name ?? null}
+          summaries={workspaceSummaries}
+          visible={isOverviewVisible}
+          workspaces={allWorkspaces}
         />
         <WorkspaceCanvas
           activeProject={activeProject}

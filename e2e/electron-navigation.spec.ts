@@ -117,6 +117,40 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
+  test('opens overview with Ctrl+Tab and jumps to another workspace', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+
+    const { page } = launched
+    const overview = page.locator(
+      '[data-testid="workspace-switcher-overlay"][data-mode="overview"]',
+    )
+
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'navigation-poc',
+    )
+
+    await page.keyboard.down('Control')
+    await page.keyboard.press('Tab')
+    await page.keyboard.up('Control')
+
+    await expect(overview).toBeVisible()
+    await expect(overview.getByText('Overview')).toBeVisible()
+    await expect(overview.getByText('Current')).toBeVisible()
+    const checkoutWorkspace = overview.getByRole('option', {
+      name: /checkout-redesign/i,
+    })
+    await expect(checkoutWorkspace).toBeVisible()
+    await expect(checkoutWorkspace.getByText('storefront')).toBeVisible()
+
+    await checkoutWorkspace.click()
+
+    await expect(overview).not.toBeVisible()
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'checkout-redesign',
+    )
+  })
+
   test('supports sidebar hover, focus, and pinned-open persistence', async () => {
     const launched = await launchAideApp()
     app = launched.app

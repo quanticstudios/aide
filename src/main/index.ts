@@ -15,6 +15,7 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
+import { mapInputToShortcutEvent } from './app-shortcuts'
 import { createAideDatabase } from './database'
 import {
   probeExecutable,
@@ -111,6 +112,17 @@ function createMainWindow(): BrowserWindow {
 
   window.webContents.on('did-finish-load', () => {
     revealWindow()
+  })
+
+  window.webContents.on('before-input-event', (event, input) => {
+    const shortcut = mapInputToShortcutEvent(input)
+
+    if (shortcut?.type !== 'overview-open') {
+      return
+    }
+
+    event.preventDefault()
+    window.webContents.send(IPC_CHANNELS.appShortcut, shortcut)
   })
 
   window.webContents.on(

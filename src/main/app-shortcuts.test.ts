@@ -3,6 +3,18 @@ import { describe, expect, it } from 'vitest'
 import { mapInputToShortcutEvent } from './app-shortcuts'
 
 describe('mapInputToShortcutEvent', () => {
+  it('maps Ctrl+Tab to the overview shell', () => {
+    expect(
+      mapInputToShortcutEvent({
+        alt: false,
+        code: 'Tab',
+        control: true,
+        key: 'Tab',
+        meta: false,
+      }),
+    ).toEqual({ type: 'overview-open' })
+  })
+
   it('maps Alt+h/l and Alt+arrow keys to pane navigation', () => {
     expect(
       mapInputToShortcutEvent({

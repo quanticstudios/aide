@@ -9,6 +9,12 @@ export function mapInputToShortcutEvent(
   const normalizedCode = input.code?.toLowerCase() ?? ''
   const isAltOnly = input.alt && !input.control && !input.meta
   const isCtrlOnly = input.control && !input.alt && !input.meta
+  const isOverviewChord =
+    normalizedKey === 'tab' && !input.alt && (input.control || input.meta)
+
+  if (isOverviewChord) {
+    return { type: 'overview-open' }
+  }
 
   if (
     isAltOnly &&
