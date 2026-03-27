@@ -1,6 +1,7 @@
 import type { FocusEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
+import type { WorkspaceLayoutPresetId } from '@/lib/workspace-layout-presets'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   ProjectRecord,
@@ -20,6 +21,7 @@ interface AppShellProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
+  readonly onApplyLayoutPreset: (presetId: WorkspaceLayoutPresetId) => void
   readonly paneIds: readonly string[]
   readonly showProjectHints: boolean
   readonly onSelectPane: (paneId: string) => void
@@ -38,6 +40,7 @@ export default function AppShell({
   activeProject,
   activeWorkspace,
   isDemoMode,
+  onApplyLayoutPreset,
   paneIds,
   showProjectHints,
   onSelectPane,
@@ -182,6 +185,7 @@ export default function AppShell({
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
           isDemoMode={isDemoMode}
+          onApplyLayoutPreset={onApplyLayoutPreset}
           paneIds={paneIds}
           onSelectPane={onSelectPane}
           onCreateWorkspace={onCreateWorkspace}

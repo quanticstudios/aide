@@ -35,6 +35,7 @@ import {
   splitWorkspacePane,
 } from './lib/workspace-layout-mutations'
 import { resolveHorizontalPaneNeighbor } from './lib/workspace-layout-navigation'
+import { createWorkspaceLayoutPreset } from './lib/workspace-layout-presets'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
@@ -571,6 +572,27 @@ export default function App() {
     [applyWorkspaceLayoutChange],
   )
 
+  const handleApplyLayoutPreset = useCallback(
+    (presetId: 'columns' | 'focus' | 'stack') => {
+      void applyWorkspaceLayoutChange((layout) => {
+        const paneIds = collectWorkspaceLayoutPaneIds(layout)
+        const nextLayout = createWorkspaceLayoutPreset(
+          layout.workspaceId,
+          paneIds,
+          presetId,
+        )
+
+        return {
+          blockedReason: null,
+          didChange: true,
+          layout: nextLayout,
+          nextActivePaneId: paneIds[0] ?? null,
+        }
+      })
+    },
+    [applyWorkspaceLayoutChange],
+  )
+
   const handleAppShortcut = useCallback(
     (shortcut: {
       projectIndex?: number
@@ -809,6 +831,7 @@ export default function App() {
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       isDemoMode={isDemoMode}
+      onApplyLayoutPreset={handleApplyLayoutPreset}
       paneIds={activeWorkspacePaneIds}
       showProjectHints={showProjectHints}
       onSelectPane={(paneId: string) =>
