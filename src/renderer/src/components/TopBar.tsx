@@ -3,7 +3,6 @@ import { GitBranch, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { cn } from '@/lib/utils'
-import type { WorkspaceLayoutPresetId } from '@/lib/workspace-layout-presets'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -16,7 +15,6 @@ interface TopBarProps {
   readonly isDemoMode: boolean
   readonly onCreatePane: () => void
   readonly paneIds: readonly string[]
-  readonly onApplyLayoutPreset: (presetId: WorkspaceLayoutPresetId) => void
   readonly onSelectPane: (paneId: string) => void
 }
 
@@ -27,7 +25,6 @@ export default function TopBar({
   isDemoMode,
   onCreatePane,
   paneIds,
-  onApplyLayoutPreset,
   onSelectPane,
 }: TopBarProps) {
   const workspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
@@ -109,30 +106,6 @@ export default function TopBar({
         </div>
 
         <div className="hidden shrink-0 items-center gap-2 lg:flex">
-          <div className="flex items-center gap-1">
-            <Button
-              onPress={() => onApplyLayoutPreset('columns')}
-              size="sm"
-              variant="ghost"
-            >
-              Columns
-            </Button>
-            <Button
-              onPress={() => onApplyLayoutPreset('focus')}
-              size="sm"
-              variant="ghost"
-            >
-              Focus
-            </Button>
-            <Button
-              onPress={() => onApplyLayoutPreset('stack')}
-              size="sm"
-              variant="ghost"
-            >
-              Stack
-            </Button>
-          </div>
-
           {isDemoMode ? (
             <Chip
               className="text-[10px] uppercase tracking-[0.18em]"

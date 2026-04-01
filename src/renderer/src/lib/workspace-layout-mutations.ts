@@ -6,6 +6,8 @@ import type {
 import { getWorkspacePaneTemplateId } from './navigation-poc'
 
 const MIN_WEIGHT = 0.2
+const NEW_PANE_PRIMARY_WEIGHT = 24
+const NEW_PANE_SECONDARY_WEIGHT = 1
 
 export interface WorkspaceLayoutMutationResult {
   blockedReason: 'last-pane' | null
@@ -313,7 +315,7 @@ export function addWorkspacePane(
     id: splitNodeId,
     paneId: null,
     parentId: parentNode?.id ?? null,
-    sizeWeights: [1, 1],
+    sizeWeights: [NEW_PANE_SECONDARY_WEIGHT, NEW_PANE_PRIMARY_WEIGHT],
     type: splitType,
     workspaceId,
   }

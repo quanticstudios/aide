@@ -142,7 +142,7 @@ describe('addWorkspacePane', () => {
       id: 'workspace-1:split-node:1',
       paneId: null,
       parentId: null,
-      sizeWeights: [1, 1],
+      sizeWeights: [1, 24],
       type: 'split-horizontal',
       workspaceId: 'workspace-1',
     })
