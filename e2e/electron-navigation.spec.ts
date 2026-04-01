@@ -306,4 +306,35 @@ test.describe('electron spatial navigation', () => {
       page.getByText('Selected folder is not inside a Git repository.'),
     ).toBeVisible()
   })
+
+  test('refocuses the terminal when returning to its pane', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    const terminalPaneButton = page.getByRole('button', {
+      name: /workspace terminal/i,
+    })
+    const gitPaneButton = page.getByRole('button', { name: /git review/i })
+
+    await terminalPaneButton.click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+    await expect(
+      page.locator('.terminal-pane .xterm-helper-textarea'),
+    ).toBeFocused()
+
+    await gitPaneButton.click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await terminalPaneButton.click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+    await expect(
+      page.locator('.terminal-pane .xterm-helper-textarea'),
+    ).toBeFocused()
+  })
 })

@@ -79,6 +79,9 @@ export default function TopBar({
                       : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
                   )}
                   key={paneId}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                  }}
                   onPress={() => onSelectPane(paneId)}
                   variant={isActive ? 'secondary' : 'ghost'}
                 >

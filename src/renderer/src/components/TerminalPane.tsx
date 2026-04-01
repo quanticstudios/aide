@@ -4,6 +4,7 @@ import { Terminal } from 'xterm'
 
 import type { AideApi } from '../../../shared/ipc'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import { shouldBlockTerminalShortcutInput } from '../../../shared/shortcuts'
 import type { TerminalEvent } from '../../../shared/terminal'
 
 interface TerminalPaneProps {
@@ -33,6 +34,38 @@ function safeFit(fitAddon: FitAddon): void {
   } catch {
     // Ignore xterm fit errors until the terminal has valid render dimensions.
   }
+}
+
+function scheduleTerminalFocus(
+  terminal: Terminal,
+  container: HTMLDivElement,
+): void {
+  const focusTerminal = () => {
+    if (!container.isConnected) {
+      return
+    }
+
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+
+    const textarea = container.querySelector<HTMLTextAreaElement>(
+      '.xterm-helper-textarea',
+    )
+
+    if (textarea) {
+      textarea.focus()
+      return
+    }
+
+    terminal.focus()
+  }
+
+  requestAnimationFrame(() => {
+    for (const delay of [0, 50, 150, 300, 600]) {
+      window.setTimeout(focusTerminal, delay)
+    }
+  })
 }
 
 export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
@@ -106,45 +139,18 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     fitAddonRef.current = fitAddon
 
     terminal.attachCustomKeyEventHandler((event) => {
-      const normalizedKey = event.key.toLowerCase()
-      const normalizedCode = event.code.toLowerCase()
-      const isAltOnly = event.altKey && !event.ctrlKey && !event.metaKey
-      const isCtrlProjectJump =
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.metaKey &&
-        /^[1-9]$/.test(event.key)
-
-      if (isCtrlProjectJump) {
-        return false
-      }
-
-      if (!isAltOnly) {
-        return true
-      }
-
-      if (
-        event.key === 'ArrowLeft' ||
-        event.key === 'ArrowRight' ||
-        event.key === 'ArrowUp' ||
-        event.key === 'ArrowDown' ||
-        normalizedKey === 'h' ||
-        normalizedKey === 'j' ||
-        normalizedKey === 'k' ||
-        normalizedKey === 'l' ||
-        normalizedCode === 'keyh' ||
-        normalizedCode === 'keyj' ||
-        normalizedCode === 'keyk' ||
-        normalizedCode === 'keyl'
-      ) {
-        return false
-      }
-
-      return true
+      return !shouldBlockTerminalShortcutInput({
+        alt: event.altKey,
+        code: event.code,
+        control: event.ctrlKey,
+        key: event.key,
+        meta: event.metaKey,
+      })
     })
 
     terminal.loadAddon(fitAddon)
     terminal.open(container)
+    scheduleTerminalFocus(terminal, container)
 
     const aideApi = getAideApi()
 
@@ -197,9 +203,13 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
 
     resizeObserver.observe(container)
 
-    void startSession().catch((startError) => {
-      setError(getErrorMessage(startError))
-    })
+    void startSession()
+      .then(() => {
+        scheduleTerminalFocus(terminal, container)
+      })
+      .catch((startError) => {
+        setError(getErrorMessage(startError))
+      })
 
     return () => {
       resizeObserver.disconnect()

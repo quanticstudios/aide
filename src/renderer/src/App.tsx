@@ -14,6 +14,7 @@ import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import {
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
+  resolveWorkspacePane,
 } from './lib/navigation-poc'
 import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
@@ -869,6 +870,40 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
   }, [dispatchShortcut, isOverviewVisible, navigationSnapshot.projects])
+
+  useEffect(() => {
+    const activePane = resolveWorkspacePane(
+      resolvedNavigationState.activeWorkspaceId,
+      resolvedNavigationState.activePaneId,
+    )
+
+    if (activePane?.type !== 'Terminal') {
+      return
+    }
+
+    const focusTerminal = () => {
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        '.terminal-pane .xterm-helper-textarea',
+      )
+
+      if (!textarea) {
+        return
+      }
+
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+
+      textarea.focus()
+    }
+
+    for (const delay of [0, 50, 150, 300, 600]) {
+      window.setTimeout(focusTerminal, delay)
+    }
+  }, [
+    resolvedNavigationState.activePaneId,
+    resolvedNavigationState.activeWorkspaceId,
+  ])
 
   const projects = navigationSnapshot.projects
   const allWorkspaces = navigationSnapshot.workspaces
