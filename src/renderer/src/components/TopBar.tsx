@@ -14,10 +14,10 @@ interface TopBarProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
+  readonly onCreatePane: () => void
   readonly paneIds: readonly string[]
   readonly onApplyLayoutPreset: (presetId: WorkspaceLayoutPresetId) => void
   readonly onSelectPane: (paneId: string) => void
-  readonly onCreateWorkspace: () => void
 }
 
 export default function TopBar({
@@ -25,10 +25,10 @@ export default function TopBar({
   activeProject,
   activeWorkspace,
   isDemoMode,
+  onCreatePane,
   paneIds,
   onApplyLayoutPreset,
   onSelectPane,
-  onCreateWorkspace,
 }: TopBarProps) {
   const workspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
   const visiblePaneIds =
@@ -93,11 +93,12 @@ export default function TopBar({
               )
             })}
 
-            {activeProject && !isDemoMode ? (
+            {activeWorkspace && !isDemoMode ? (
               <Button
+                aria-label="Add pane"
                 className="size-8 shrink-0 rounded-lg"
                 isIconOnly
-                onPress={onCreateWorkspace}
+                onPress={onCreatePane}
                 size="sm"
                 variant="ghost"
               >

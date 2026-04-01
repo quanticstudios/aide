@@ -4,6 +4,7 @@ import {
   GitBranch,
   LayoutGrid,
   PanelLeftClose,
+  Plus,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -20,6 +21,7 @@ interface ProjectWorkspaceTreeProps {
   readonly activeWorkspaceId: string | null
   readonly isExpanded: boolean
   readonly isPinnedOpen: boolean
+  readonly onCreateWorkspace: () => void
   readonly onSelectProject: (projectId: string) => void
   readonly onTogglePinnedOpen: () => void
   readonly onSelectWorkspace: (workspaceId: string) => void
@@ -33,6 +35,7 @@ export default function ProjectWorkspaceTree({
   activeWorkspaceId,
   isExpanded,
   isPinnedOpen,
+  onCreateWorkspace,
   onSelectProject,
   onTogglePinnedOpen,
   onSelectWorkspace,
@@ -76,19 +79,35 @@ export default function ProjectWorkspaceTree({
               </p>
             </div>
 
-            <Button
-              aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
-              className={cn(
-                'size-8 shrink-0 rounded-xl',
-                isPinnedOpen && 'border-primary/50 bg-primary/10 text-primary',
-              )}
-              isIconOnly
-              onPress={onTogglePinnedOpen}
-              size="sm"
-              variant="ghost"
-            >
-              <PanelLeftClose className="size-4" />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              {activeProjectId ? (
+                <Button
+                  aria-label="Create workspace"
+                  className="size-8 rounded-xl"
+                  isIconOnly
+                  onPress={onCreateWorkspace}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              ) : null}
+
+              <Button
+                aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
+                className={cn(
+                  'size-8 shrink-0 rounded-xl',
+                  isPinnedOpen &&
+                    'border-primary/50 bg-primary/10 text-primary',
+                )}
+                isIconOnly
+                onPress={onTogglePinnedOpen}
+                size="sm"
+                variant="ghost"
+              >
+                <PanelLeftClose className="size-4" />
+              </Button>
+            </div>
           </div>
 
           <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>

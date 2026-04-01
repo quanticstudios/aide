@@ -21,6 +21,7 @@ interface AppShellProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isDemoMode: boolean
+  readonly onCreatePane: () => void
   readonly onApplyLayoutPreset: (presetId: WorkspaceLayoutPresetId) => void
   readonly paneIds: readonly string[]
   readonly showProjectHints: boolean
@@ -40,6 +41,7 @@ export default function AppShell({
   activeProject,
   activeWorkspace,
   isDemoMode,
+  onCreatePane,
   onApplyLayoutPreset,
   paneIds,
   showProjectHints,
@@ -167,6 +169,7 @@ export default function AppShell({
           activeWorkspaceId={activeWorkspace?.id ?? null}
           isExpanded={isSidebarExpanded}
           isPinnedOpen={isSidebarPinnedOpen}
+          onCreateWorkspace={onCreateWorkspace}
           onSelectProject={onSelectProject}
           onTogglePinnedOpen={() =>
             setIsSidebarPinnedOpen((current) => !current)
@@ -184,10 +187,10 @@ export default function AppShell({
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
           isDemoMode={isDemoMode}
+          onCreatePane={onCreatePane}
           onApplyLayoutPreset={onApplyLayoutPreset}
           paneIds={paneIds}
           onSelectPane={onSelectPane}
-          onCreateWorkspace={onCreateWorkspace}
         />
 
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

@@ -313,6 +313,22 @@ const defaultWorkspaceScene: WorkspaceScene = {
       layoutClassName: 'lg:col-span-4 lg:row-span-2',
       type: 'Git',
     },
+    {
+      accent: 'violet',
+      description: 'File inspection and edit validation surface.',
+      id: 'editor',
+      label: 'Editor inspect',
+      layoutClassName: 'lg:col-span-4 lg:row-span-2',
+      type: 'Editor',
+    },
+    {
+      accent: 'rose',
+      description: 'Preview surface for the running app or docs.',
+      id: 'preview',
+      label: 'Preview target',
+      layoutClassName: 'lg:col-span-4 lg:row-span-2',
+      type: 'Preview',
+    },
   ],
 }
 

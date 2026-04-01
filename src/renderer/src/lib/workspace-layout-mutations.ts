@@ -96,6 +96,42 @@ function createSplitPaneId(
   }
 }
 
+function createPaneIdForTemplate(
+  layout: WorkspaceLayoutRecord,
+  templatePaneId: string,
+): string {
+  const existingPaneIds = new Set(
+    layout.nodes.flatMap((node) => (node.type === 'pane' ? [node.paneId] : [])),
+  )
+
+  if (!existingPaneIds.has(templatePaneId)) {
+    return templatePaneId
+  }
+
+  return createSplitPaneId(layout, templatePaneId)
+}
+
+function createSinglePaneLayout(
+  workspaceId: string,
+  paneId: string,
+): WorkspaceLayoutRecord {
+  return {
+    nodes: [
+      {
+        children: [],
+        id: `${workspaceId}:pane-node:1`,
+        paneId,
+        parentId: null,
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId,
+      },
+    ],
+    rootNodeId: `${workspaceId}:pane-node:1`,
+    workspaceId,
+  }
+}
+
 function findPaneNode(
   nodeMap: Map<string, PersistedLayoutNode>,
   paneId: string,
@@ -206,6 +242,105 @@ export function splitWorkspacePane(
           : nextLayout.rootNodeId,
     },
     nextActivePaneId: paneId,
+  }
+}
+
+export function addWorkspacePane(
+  layout: WorkspaceLayoutRecord | null,
+  workspaceId: string,
+  templatePaneId: string,
+  activePaneId: string | null,
+  splitType: PersistedSplitLayoutNode['type'] = 'split-horizontal',
+): WorkspaceLayoutMutationResult {
+  if (!layout) {
+    return {
+      blockedReason: null,
+      didChange: true,
+      layout: createSinglePaneLayout(workspaceId, templatePaneId),
+      nextActivePaneId: templatePaneId,
+    }
+  }
+
+  const targetPaneId =
+    activePaneId ??
+    layout.nodes.find((node) => node.type === 'pane')?.paneId ??
+    null
+
+  if (!targetPaneId) {
+    const nextPaneId = createPaneIdForTemplate(layout, templatePaneId)
+
+    return {
+      blockedReason: null,
+      didChange: true,
+      layout: createSinglePaneLayout(workspaceId, nextPaneId),
+      nextActivePaneId: nextPaneId,
+    }
+  }
+
+  const nextLayout = cloneLayout(layout)
+  const nodeMap = createNodeMap(nextLayout)
+  const paneNode = findPaneNode(nodeMap, targetPaneId)
+
+  if (!paneNode || paneNode.type !== 'pane') {
+    return {
+      blockedReason: null,
+      didChange: false,
+      layout,
+      nextActivePaneId: activePaneId,
+    }
+  }
+
+  const splitNodeId = createNodeId(nextLayout, 'split-node')
+  const newPaneNodeId = createNodeId(nextLayout, 'pane-node')
+  const newPaneId = createPaneIdForTemplate(nextLayout, templatePaneId)
+  const parentNode =
+    paneNode.parentId !== null ? (nodeMap.get(paneNode.parentId) ?? null) : null
+  const updatedPaneNode = {
+    ...paneNode,
+    parentId: splitNodeId,
+  }
+  const newPaneNode: PersistedLayoutNode = {
+    children: [] as [],
+    id: newPaneNodeId,
+    paneId: newPaneId,
+    parentId: splitNodeId,
+    sizeWeights: [] as [],
+    type: 'pane',
+    workspaceId,
+  }
+  const splitNode: PersistedSplitLayoutNode = {
+    children: [updatedPaneNode.id, newPaneNode.id],
+    id: splitNodeId,
+    paneId: null,
+    parentId: parentNode?.id ?? null,
+    sizeWeights: [1, 1],
+    type: splitType,
+    workspaceId,
+  }
+
+  nodeMap.set(updatedPaneNode.id, updatedPaneNode)
+
+  if (parentNode && parentNode.type !== 'pane') {
+    nodeMap.set(parentNode.id, {
+      ...parentNode,
+      children: parentNode.children.map((childId) =>
+        childId === paneNode.id ? splitNodeId : childId,
+      ),
+    })
+  }
+
+  return {
+    blockedReason: null,
+    didChange: true,
+    layout: {
+      ...nextLayout,
+      nodes: serializeNodes(nextLayout, nodeMap, [splitNode, newPaneNode]),
+      rootNodeId:
+        nextLayout.rootNodeId === paneNode.id
+          ? splitNodeId
+          : nextLayout.rootNodeId,
+    },
+    nextActivePaneId: newPaneId,
   }
 }
 

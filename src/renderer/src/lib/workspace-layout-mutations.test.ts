@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { WorkspaceLayoutRecord } from '../../../shared/persistence'
 import {
+  addWorkspacePane,
   closeWorkspacePane,
   resizeWorkspacePane,
   splitWorkspacePane,
@@ -86,6 +87,69 @@ describe('splitWorkspacePane', () => {
       children: [],
       id: 'workspace-1:pane-node:1',
       paneId: 'chat::copy-1',
+      parentId: 'workspace-1:split-node:1',
+      sizeWeights: [],
+      type: 'pane',
+      workspaceId: 'workspace-1',
+    })
+  })
+})
+
+describe('addWorkspacePane', () => {
+  it('seeds the first pane into an empty workspace layout', () => {
+    const result = addWorkspacePane(
+      null,
+      'workspace-1',
+      'terminal',
+      null,
+      'split-horizontal',
+    )
+
+    expect(result.didChange).toBe(true)
+    expect(result.blockedReason).toBeNull()
+    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.layout).toEqual({
+      nodes: [
+        {
+          children: [],
+          id: 'workspace-1:pane-node:1',
+          paneId: 'terminal',
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          workspaceId: 'workspace-1',
+        },
+      ],
+      rootNodeId: 'workspace-1:pane-node:1',
+      workspaceId: 'workspace-1',
+    })
+  })
+
+  it('adds the selected pane type beside the active pane', () => {
+    const result = addWorkspacePane(
+      createSinglePaneLayout(),
+      'workspace-1',
+      'terminal',
+      'chat',
+      'split-horizontal',
+    )
+
+    expect(result.didChange).toBe(true)
+    expect(result.blockedReason).toBeNull()
+    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.layout.nodes).toContainEqual({
+      children: ['root-pane', 'workspace-1:pane-node:1'],
+      id: 'workspace-1:split-node:1',
+      paneId: null,
+      parentId: null,
+      sizeWeights: [1, 1],
+      type: 'split-horizontal',
+      workspaceId: 'workspace-1',
+    })
+    expect(result.layout.nodes).toContainEqual({
+      children: [],
+      id: 'workspace-1:pane-node:1',
+      paneId: 'terminal',
       parentId: 'workspace-1:split-node:1',
       sizeWeights: [],
       type: 'pane',

@@ -7,6 +7,7 @@ import type {
   WorkspaceLayoutRecord,
 } from '../../shared/persistence'
 import AppShell from './components/AppShell'
+import PaneCreationModal from './components/PaneCreationModal'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
@@ -28,6 +29,7 @@ import {
   resolveWorkspaceLayout,
 } from './lib/workspace-layout'
 import {
+  addWorkspacePane,
   closeWorkspacePane,
   resizeWorkspacePane,
   splitWorkspacePane,
@@ -109,6 +111,7 @@ export default function App() {
   const [useNavigationPoc, setUseNavigationPoc] = useState(false)
   const [shellError, setShellError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [isPaneCreationOpen, setIsPaneCreationOpen] = useState(false)
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
@@ -245,6 +248,14 @@ export default function App() {
 
     setIsWorkspaceCreationOpen(true)
   }, [activeProjectId])
+
+  const createPane = useCallback(() => {
+    if (!resolvedNavigationState.activeWorkspaceId) {
+      return
+    }
+
+    setIsPaneCreationOpen(true)
+  }, [resolvedNavigationState.activeWorkspaceId])
 
   const submitWorkspaceCreation = useCallback(
     async (input: Omit<CreateWorkspaceRequest, 'windowId'>) => {
@@ -491,6 +502,50 @@ export default function App() {
     [getPaneIdsForSnapshot, resolvedNavigationState],
   )
 
+  const persistWorkspaceLayoutChange = useCallback(
+    async (
+      workspaceId: string,
+      layout: WorkspaceLayoutRecord,
+      nextActivePaneId: string | null,
+    ) => {
+      if (isDemoMode) {
+        const snapshot: PersistenceSnapshot = {
+          ...navigationSnapshot,
+          workspaceLayouts: {
+            ...navigationSnapshot.workspaceLayouts,
+            [workspaceId]: layout,
+          },
+        }
+
+        setStorageSnapshot(snapshot)
+        setSelection(
+          resolveSelectionForSnapshot(snapshot, workspaceId, nextActivePaneId),
+        )
+        setShellError(null)
+        return
+      }
+
+      const api = getAideApi()
+
+      if (!api) {
+        setShellError('Desktop bridge did not load. Reload the app window.')
+        return
+      }
+
+      const snapshot = await api.saveWorkspaceLayout(workspaceId, {
+        nodes: layout.nodes,
+        rootNodeId: layout.rootNodeId,
+      })
+
+      setStorageSnapshot(snapshot)
+      setSelection(
+        resolveSelectionForSnapshot(snapshot, workspaceId, nextActivePaneId),
+      )
+      setShellError(null)
+    },
+    [isDemoMode, navigationSnapshot, resolveSelectionForSnapshot, setSelection],
+  )
+
   const applyWorkspaceLayoutChange = useCallback(
     async (
       mutateLayout: (
@@ -526,58 +581,61 @@ export default function App() {
       }
 
       try {
-        if (isDemoMode) {
-          const snapshot: PersistenceSnapshot = {
-            ...navigationSnapshot,
-            workspaceLayouts: {
-              ...navigationSnapshot.workspaceLayouts,
-              [workspaceId]: result.layout,
-            },
-          }
-
-          setStorageSnapshot(snapshot)
-          setSelection(
-            resolveSelectionForSnapshot(
-              snapshot,
-              workspaceId,
-              result.nextActivePaneId,
-            ),
-          )
-          setShellError(null)
-          return
-        }
-
-        const api = getAideApi()
-
-        if (!api) {
-          setShellError('Desktop bridge did not load. Reload the app window.')
-          return
-        }
-
-        const snapshot = await api.saveWorkspaceLayout(workspaceId, {
-          nodes: result.layout.nodes,
-          rootNodeId: result.layout.rootNodeId,
-        })
-
-        setStorageSnapshot(snapshot)
-        setSelection(
-          resolveSelectionForSnapshot(
-            snapshot,
-            workspaceId,
-            result.nextActivePaneId,
-          ),
+        await persistWorkspaceLayoutChange(
+          workspaceId,
+          result.layout,
+          result.nextActivePaneId,
         )
-        setShellError(null)
       } catch (error) {
         setShellError(getErrorMessage(error))
       }
     },
     [
-      isDemoMode,
       navigationSnapshot,
-      resolveSelectionForSnapshot,
+      persistWorkspaceLayoutChange,
       resolvedNavigationState.activeWorkspaceId,
-      setSelection,
+    ],
+  )
+
+  const handleCreatePane = useCallback(
+    async (templatePaneId: string) => {
+      const workspaceId = resolvedNavigationState.activeWorkspaceId
+
+      if (!workspaceId) {
+        return
+      }
+
+      try {
+        const currentLayout = resolveWorkspaceLayout(
+          navigationSnapshot,
+          workspaceId,
+        )
+        const result = addWorkspacePane(
+          currentLayout,
+          workspaceId,
+          templatePaneId,
+          resolvedNavigationState.activePaneId,
+        )
+
+        if (!result.didChange) {
+          return
+        }
+
+        await persistWorkspaceLayoutChange(
+          workspaceId,
+          result.layout,
+          result.nextActivePaneId,
+        )
+        setIsPaneCreationOpen(false)
+      } catch (error) {
+        setShellError(getErrorMessage(error))
+      }
+    },
+    [
+      navigationSnapshot,
+      persistWorkspaceLayoutChange,
+      resolvedNavigationState.activePaneId,
+      resolvedNavigationState.activeWorkspaceId,
     ],
   )
 
@@ -881,6 +939,7 @@ export default function App() {
         )
       }
       onCreateProject={openProject}
+      onCreatePane={createPane}
       onCreateWorkspace={createWorkspace}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
@@ -889,6 +948,11 @@ export default function App() {
       workspaceSummaries={workspaceSummaries}
     >
       <>
+        <PaneCreationModal
+          isOpen={isPaneCreationOpen}
+          onCreatePane={(paneId) => void handleCreatePane(paneId)}
+          onOpenChange={setIsPaneCreationOpen}
+        />
         <WorkspaceCreationModal
           isOpen={isWorkspaceCreationOpen}
           loadProjectRefs={listProjectRefs}

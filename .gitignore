@@ -3,3 +3,5 @@ out/
 dist/
 coverage/
 .aide.sqlite3
+.worktrees/
+test-results/
