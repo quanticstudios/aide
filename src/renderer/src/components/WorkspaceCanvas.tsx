@@ -371,7 +371,7 @@ export default function WorkspaceCanvas({
       </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div
-          className="workspace-slider flex min-h-0 shrink-0 flex-col items-stretch transition-transform duration-200 ease-out"
+          className="workspace-slider flex min-h-0 min-w-0 flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
           style={workspaceTrackStyle}
         >
           {projectWorkspaces.map((workspace) => {
@@ -400,7 +400,7 @@ export default function WorkspaceCanvas({
 
             return (
               <section
-                className="workspace-slide flex min-h-0 shrink-0 flex-col overflow-hidden"
+                className="workspace-slide flex min-h-0 min-w-0 w-full shrink-0 flex-col overflow-hidden"
                 key={workspace.id}
                 style={{ height: workspaceSlideHeight }}
               >
