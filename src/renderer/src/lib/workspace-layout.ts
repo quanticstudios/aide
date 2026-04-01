@@ -4,7 +4,7 @@ import type {
   WorkspaceLayoutRecord,
 } from '../../../shared/persistence'
 import type { PlaceholderPane } from './navigation-poc'
-import { getWorkspaceScene } from './navigation-poc'
+import { getWorkspaceScene, isDemoWorkspaceId } from './navigation-poc'
 
 export function collectWorkspaceLayoutPaneIds(
   layout: WorkspaceLayoutRecord | null,
@@ -20,7 +20,11 @@ export function collectWorkspaceLayoutPaneIds(
 
 export function createFallbackWorkspaceLayout(
   workspaceId: string,
-): WorkspaceLayoutRecord {
+): WorkspaceLayoutRecord | null {
+  if (!isDemoWorkspaceId(workspaceId)) {
+    return null
+  }
+
   const scene = getWorkspaceScene(workspaceId)
   const paneNodes = scene.panes.map((pane) =>
     createPaneLayoutNode(workspaceId, pane),

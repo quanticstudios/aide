@@ -418,6 +418,10 @@ export function getWorkspaceScene(workspaceId: string | null): WorkspaceScene {
   return workspaceScenes[workspaceId] ?? defaultWorkspaceScene
 }
 
+export function isDemoWorkspaceId(workspaceId: string | null): boolean {
+  return Boolean(workspaceId && workspaceId in workspaceScenes)
+}
+
 export function getWorkspacePaneTemplateId(paneId: string): string {
   const markerIndex = paneId.indexOf(PANE_COPY_MARKER)
 

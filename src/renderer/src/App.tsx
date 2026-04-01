@@ -920,6 +920,7 @@ export default function App() {
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
           actionError={actionError}
+          isDemoMode={isDemoMode}
           onCreateProject={openProject}
           onCreateWorkspace={createWorkspace}
           onClosePane={handleClosePane}

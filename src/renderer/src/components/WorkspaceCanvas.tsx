@@ -29,6 +29,7 @@ interface WorkspaceCanvasProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly actionError: string | null
+  readonly isDemoMode: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
@@ -286,6 +287,7 @@ export default function WorkspaceCanvas({
   activeProject,
   activeWorkspace,
   actionError,
+  isDemoMode,
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
@@ -311,7 +313,7 @@ export default function WorkspaceCanvas({
   const activeWorkspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
   const activePaneLabel =
     resolveWorkspacePane(activeWorkspace?.id ?? null, activePaneId)?.label ??
-    activeWorkspaceScene.panes[0]?.label ??
+    (isDemoMode ? activeWorkspaceScene.panes[0]?.label : null) ??
     ''
 
   if (shellError) {
@@ -403,7 +405,7 @@ export default function WorkspaceCanvas({
                 style={{ height: workspaceSlideHeight }}
               >
                 <div className="flex min-h-0 flex-1 overflow-hidden p-4">
-                  {activeProject && rootNode ? (
+                  {activeProject && rootNode && paneCount > 0 ? (
                     renderLayoutNode({
                       activePaneId: isActiveWorkspace ? activePaneId : null,
                       activeProject,
@@ -417,6 +419,22 @@ export default function WorkspaceCanvas({
                       onSplitPane,
                       workspace,
                     })
+                  ) : activeProject && !isDemoMode ? (
+                    <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">
+                      <div className="max-w-md space-y-3">
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                          Empty workspace
+                        </p>
+                        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                          {workspace.name} starts blank
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                          This workspace does not open placeholder panes
+                          anymore. Pane creation should start from explicit user
+                          choice.
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
                       Workspace layout is missing a valid root node.

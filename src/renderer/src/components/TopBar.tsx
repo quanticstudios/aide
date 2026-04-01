@@ -32,7 +32,11 @@ export default function TopBar({
 }: TopBarProps) {
   const workspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
   const visiblePaneIds =
-    paneIds.length > 0 ? paneIds : workspaceScene.panes.map((pane) => pane.id)
+    paneIds.length > 0
+      ? paneIds
+      : isDemoMode
+        ? workspaceScene.panes.map((pane) => pane.id)
+        : []
 
   return (
     <header className="border-b border-border bg-background/95 px-3 py-2 backdrop-blur">

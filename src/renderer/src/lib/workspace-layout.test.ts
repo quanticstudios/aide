@@ -89,7 +89,7 @@ describe('workspace layout helpers', () => {
     expect(resolveWorkspaceLayoutRoot(layout)?.id).toBe('root')
   })
 
-  it('falls back to a flat layout when a workspace has no persisted tree yet', () => {
+  it('falls back to a flat demo layout when a demo workspace has no persisted tree yet', () => {
     const layout = resolveWorkspaceLayout(
       createSnapshot({}),
       'demo-workspace-aide-nav',
@@ -104,6 +104,12 @@ describe('workspace layout helpers', () => {
       'editor',
       'preview',
     ])
+  })
+
+  it('keeps a real workspace empty when it has no persisted tree yet', () => {
+    expect(resolveWorkspaceLayout(createSnapshot({}), 'workspace-real-1')).toBe(
+      null,
+    )
   })
 
   it('prefers the persisted layout when it exists', () => {
@@ -243,5 +249,30 @@ describe('workspace layout helpers', () => {
       'editor',
       'preview',
     ])
+  })
+
+  it('keeps a real workspace empty when the persisted layout is unusable', () => {
+    const persistedLayout: WorkspaceLayoutRecord = {
+      nodes: [
+        {
+          children: [],
+          id: 'pane-1',
+          paneId: 'terminal',
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          workspaceId: 'workspace-real-1',
+        },
+      ],
+      rootNodeId: 'missing-root',
+      workspaceId: 'workspace-real-1',
+    }
+
+    expect(
+      resolveWorkspaceLayout(
+        createSnapshot({ 'workspace-real-1': persistedLayout }),
+        'workspace-real-1',
+      ),
+    ).toBeNull()
   })
 })
