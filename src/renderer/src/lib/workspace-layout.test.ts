@@ -130,4 +130,118 @@ describe('workspace layout helpers', () => {
       ),
     ).toEqual(persistedLayout)
   })
+
+  it('repairs partial layout data into a valid split tree', () => {
+    const persistedLayout = {
+      nodes: [
+        {
+          children: ['chat-node', 'missing-node', 'preview-node'],
+          id: 'root',
+          paneId: null,
+          parentId: 'broken-parent',
+          sizeWeights: [0],
+          type: 'split-horizontal',
+          workspaceId: 'demo-workspace-aide-nav',
+        },
+        {
+          children: ['should-be-empty'],
+          id: 'chat-node',
+          paneId: 'chat',
+          parentId: 'elsewhere',
+          sizeWeights: [1],
+          type: 'pane',
+          workspaceId: 'wrong-workspace',
+        },
+        {
+          children: [],
+          id: 'preview-node',
+          paneId: 'preview',
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          workspaceId: 'wrong-workspace',
+        },
+        {
+          children: [],
+          id: 'orphan-node',
+          paneId: 'git',
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          workspaceId: 'demo-workspace-aide-nav',
+        },
+      ],
+      rootNodeId: 'root',
+      workspaceId: 'demo-workspace-aide-nav',
+    } as WorkspaceLayoutRecord
+
+    const layout = resolveWorkspaceLayout(
+      createSnapshot({ 'demo-workspace-aide-nav': persistedLayout }),
+      'demo-workspace-aide-nav',
+    )
+
+    expect(layout).not.toBeNull()
+    expect(layout?.rootNodeId).toBe('root')
+    expect(layout?.nodes).toEqual([
+      {
+        children: ['chat-node', 'preview-node'],
+        id: 'root',
+        paneId: null,
+        parentId: null,
+        sizeWeights: [1, 1],
+        type: 'split-horizontal',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'chat-node',
+        paneId: 'chat',
+        parentId: 'root',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+      {
+        children: [],
+        id: 'preview-node',
+        paneId: 'preview',
+        parentId: 'root',
+        sizeWeights: [],
+        type: 'pane',
+        workspaceId: 'demo-workspace-aide-nav',
+      },
+    ])
+  })
+
+  it('falls back when the persisted layout root is unusable', () => {
+    const persistedLayout: WorkspaceLayoutRecord = {
+      nodes: [
+        {
+          children: [],
+          id: 'pane-1',
+          paneId: 'terminal',
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          workspaceId: 'demo-workspace-aide-nav',
+        },
+      ],
+      rootNodeId: 'missing-root',
+      workspaceId: 'demo-workspace-aide-nav',
+    }
+
+    const layout = resolveWorkspaceLayout(
+      createSnapshot({ 'demo-workspace-aide-nav': persistedLayout }),
+      'demo-workspace-aide-nav',
+    )
+
+    expect(layout?.rootNodeId).toBe('demo-workspace-aide-nav:fallback-root')
+    expect(collectWorkspaceLayoutPaneIds(layout ?? null)).toEqual([
+      'chat',
+      'terminal',
+      'git',
+      'editor',
+      'preview',
+    ])
+  })
 })
