@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, Menu, app, ipcMain } from 'electron'
+import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../shared/ipc'
 import type {
@@ -23,11 +23,14 @@ import {
 } from './executable-resolution'
 import { focusHyprlandStartupWorkspace } from './hyprland'
 import { readProjectFile } from './project-files'
+import { pickProjectRoot } from './project-picker'
 import { TerminalSessionManager } from './terminal-session-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const database = createAideDatabase(path.join(process.cwd(), '.aide.sqlite3'))
+const database = createAideDatabase(
+  process.env.AIDE_DATABASE_PATH ?? path.join(process.cwd(), '.aide.sqlite3'),
+)
 const terminalSessionManager = new TerminalSessionManager({
   onEvent: (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -152,6 +155,18 @@ function createMainWindow(): BrowserWindow {
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
+  ipcMain.handle(
+    IPC_CHANNELS.pickProjectRoot,
+    async (event, defaultPath: string | null) => {
+      const browserWindow = BrowserWindow.fromWebContents(event.sender)
+
+      if (!browserWindow) {
+        return null
+      }
+
+      return pickProjectRoot(browserWindow, dialog, defaultPath)
+    },
+  )
   ipcMain.handle(
     IPC_CHANNELS.createProject,
     (_event, input: CreateProjectInput) => {

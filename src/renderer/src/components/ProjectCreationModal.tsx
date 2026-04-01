@@ -11,12 +11,19 @@ import {
 import { useEffect, useState } from 'react'
 
 import type { CreateProjectInput } from '../../../shared/persistence'
-import type { ProjectDraftValues } from '../lib/project-draft'
+import {
+  type ProjectDraftValues,
+  getPathLeaf,
+  shouldReplaceProjectName,
+} from '../lib/project-draft'
 
 interface ProjectCreationModalProps {
   readonly defaults: ProjectDraftValues | null
   readonly isOpen: boolean
   readonly onOpenChange: (isOpen: boolean) => void
+  readonly onPickRepoRoot: (
+    defaultPath?: string | null,
+  ) => Promise<string | null>
   readonly onSubmit: (input: CreateProjectInput) => Promise<string | null>
 }
 
@@ -24,6 +31,7 @@ export default function ProjectCreationModal({
   defaults,
   isOpen,
   onOpenChange,
+  onPickRepoRoot,
   onSubmit,
 }: ProjectCreationModalProps) {
   const [name, setName] = useState(defaults?.name ?? '')
@@ -33,6 +41,7 @@ export default function ProjectCreationModal({
   )
   const [remoteUrl, setRemoteUrl] = useState(defaults?.remoteUrl ?? '')
   const [error, setError] = useState<string | null>(null)
+  const [isPickingRepoRoot, setIsPickingRepoRoot] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -76,6 +85,27 @@ export default function ProjectCreationModal({
     onOpenChange(false)
   }
 
+  async function handlePickRepoRoot(): Promise<void> {
+    setIsPickingRepoRoot(true)
+
+    const selectedRepoRoot = await onPickRepoRoot(repoRoot)
+
+    setIsPickingRepoRoot(false)
+
+    if (!selectedRepoRoot) {
+      return
+    }
+
+    const previousRepoRoot = repoRoot
+
+    setRepoRoot(selectedRepoRoot)
+    setError(null)
+
+    if (shouldReplaceProjectName(name, previousRepoRoot)) {
+      setName(getPathLeaf(selectedRepoRoot))
+    }
+  }
+
   return (
     <Modal>
       <Modal.Backdrop
@@ -117,11 +147,21 @@ export default function ProjectCreationModal({
 
                 <TextField isInvalid={isRepoRootInvalid}>
                   <Label>Repo root</Label>
-                  <Input
-                    onChange={(event) => setRepoRoot(event.target.value)}
-                    value={repoRoot}
-                    variant="secondary"
-                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      className="flex-1"
+                      onChange={(event) => setRepoRoot(event.target.value)}
+                      value={repoRoot}
+                      variant="secondary"
+                    />
+                    <Button
+                      isDisabled={isPickingRepoRoot || isSubmitting}
+                      onPress={() => void handlePickRepoRoot()}
+                      variant="secondary"
+                    >
+                      Browse
+                    </Button>
+                  </div>
                   <Description>
                     Workspace creation uses this root when deriving worktree
                     paths.

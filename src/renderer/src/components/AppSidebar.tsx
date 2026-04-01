@@ -88,17 +88,16 @@ export default function AppSidebar({
       </div>
 
       <div className="flex flex-col items-center gap-2">
-        {!isDemoMode ? (
-          <Button
-            className="size-10 rounded-2xl"
-            isIconOnly
-            onPress={onCreateProject}
-            size="md"
-            variant="ghost"
-          >
-            <Plus className="size-4" />
-          </Button>
-        ) : null}
+        <Button
+          aria-label={isDemoMode ? 'Open project' : 'Create project'}
+          className="size-10 rounded-2xl"
+          isIconOnly
+          onPress={onCreateProject}
+          size="md"
+          variant="ghost"
+        >
+          <Plus className="size-4" />
+        </Button>
 
         <Chip
           className="rounded-2xl border border-border bg-background px-2 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"

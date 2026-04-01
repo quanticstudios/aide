@@ -183,6 +183,22 @@ export default function App() {
     }
   }, [])
 
+  const pickProjectRoot = useCallback(async (defaultPath?: string | null) => {
+    const api = getAideApi()
+
+    if (!api) {
+      setShellError('Desktop bridge did not load. Reload the app window.')
+      return null
+    }
+
+    try {
+      return await api.pickProjectRoot(defaultPath)
+    } catch (error) {
+      setShellError(getErrorMessage(error))
+      return null
+    }
+  }, [])
+
   const submitProjectCreation = useCallback(
     async (input: CreateProjectInput) => {
       const api = getAideApi()
@@ -857,6 +873,7 @@ export default function App() {
           defaults={projectCreationDefaults}
           isOpen={isProjectCreationOpen}
           onOpenChange={setIsProjectCreationOpen}
+          onPickRepoRoot={pickProjectRoot}
           onSubmit={submitProjectCreation}
         />
         <WorkspaceCreationModal

@@ -17,3 +17,14 @@ export function createProjectDraftValues(repoRoot: string): ProjectDraftValues {
     repoRoot,
   }
 }
+
+export function shouldReplaceProjectName(
+  currentName: string,
+  previousRepoRoot: string,
+): boolean {
+  const trimmedName = currentName.trim()
+
+  return (
+    trimmedName.length === 0 || trimmedName === getPathLeaf(previousRepoRoot)
+  )
+}

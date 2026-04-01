@@ -18,6 +18,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  pickProjectRoot: (defaultPath?: string | null) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => {

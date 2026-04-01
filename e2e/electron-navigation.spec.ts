@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import {
@@ -10,10 +12,14 @@ import {
 
 const workspaceDir = '/home/pho7on/Work/aide'
 
-async function launchAideApp(): Promise<{
+async function launchAideApp(
+  envOverrides: Record<string, string> = {},
+): Promise<{
   app: ElectronApplication
   page: Page
+  tempDirectory: string
 }> {
+  const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-electron-'))
   const app = await electron.launch({
     args: [workspaceDir],
     executablePath: path.join(
@@ -22,6 +28,8 @@ async function launchAideApp(): Promise<{
     ),
     env: {
       ...process.env,
+      AIDE_DATABASE_PATH: path.join(tempDirectory, 'aide.sqlite3'),
+      ...envOverrides,
       LIBGL_ALWAYS_SOFTWARE: '1',
       MESA_LOADER_DRIVER_OVERRIDE: 'llvmpipe',
     },
@@ -31,20 +39,26 @@ async function launchAideApp(): Promise<{
   await page.waitForLoadState('domcontentloaded')
   await expect(page.getByTestId('active-pane-name')).toBeVisible()
 
-  return { app, page }
+  return { app, page, tempDirectory }
 }
 
 test.describe('electron spatial navigation', () => {
   let app: ElectronApplication | null = null
+  let tempDirectory: string | null = null
 
   test.afterEach(async () => {
     await app?.close().catch(() => {})
+    if (tempDirectory) {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
     app = null
+    tempDirectory = null
   })
 
   test('can reach pane 4 and 5 in Electron', async () => {
     const launched = await launchAideApp()
     app = launched.app
+    tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
@@ -62,6 +76,7 @@ test.describe('electron spatial navigation', () => {
   test('moves panes horizontally with Alt+Left and Alt+Right', async () => {
     const launched = await launchAideApp()
     app = launched.app
+    tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
@@ -93,6 +108,7 @@ test.describe('electron spatial navigation', () => {
   test('moves workspaces vertically with Alt+j and Alt+k', async () => {
     const launched = await launchAideApp()
     app = launched.app
+    tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
@@ -120,6 +136,7 @@ test.describe('electron spatial navigation', () => {
   test('opens overview with Ctrl+Tab and jumps to another workspace', async () => {
     const launched = await launchAideApp()
     app = launched.app
+    tempDirectory = launched.tempDirectory
 
     const { page } = launched
     const overview = page.locator(
@@ -154,6 +171,7 @@ test.describe('electron spatial navigation', () => {
   test('supports sidebar hover, focus, and pinned-open persistence', async () => {
     const launched = await launchAideApp()
     app = launched.app
+    tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
@@ -186,5 +204,30 @@ test.describe('electron spatial navigation', () => {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+  })
+
+  test('can browse for a project root from the project modal', async () => {
+    const chosenProjectRoot = '/tmp/aide-picked-project'
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await page.getByRole('button', { name: /open project/i }).click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(
+      dialog.getByRole('heading', { name: 'Create project' }),
+    ).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Browse' }).click()
+
+    await expect(dialog.getByLabel('Repo root')).toHaveValue(chosenProjectRoot)
+    await expect(dialog.getByLabel('Project name')).toHaveValue(
+      'aide-picked-project',
+    )
   })
 })

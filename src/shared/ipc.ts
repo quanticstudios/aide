@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
+  pickProjectRoot: 'app:pick-project-root',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -41,6 +42,7 @@ export const IPC_CHANNELS = {
 export interface AideApi {
   createProject: (input: CreateProjectInput) => Promise<PersistenceSnapshot>
   createWorkspace: (input: CreateWorkspaceInput) => Promise<PersistenceSnapshot>
+  pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (
     input: ExecutableProbeInput,
