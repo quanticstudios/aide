@@ -511,10 +511,32 @@ export function isNavigationPocSnapshot(
 
 export function resolveNavigationSnapshot(
   snapshot: PersistenceSnapshot | null,
+  useNavigationPoc = false,
 ): PersistenceSnapshot {
-  if (snapshot && snapshot.projects.length > 0) {
+  if (snapshot) {
+    if (snapshot.projects.length > 0 || !useNavigationPoc) {
+      return snapshot
+    }
+  }
+
+  if (useNavigationPoc) {
+    return NAVIGATION_POC_SNAPSHOT
+  }
+
+  if (snapshot) {
     return snapshot
   }
 
-  return NAVIGATION_POC_SNAPSHOT
+  return {
+    databasePath: '.aide.sqlite3',
+    lastActivePaneIdsByWorkspace: {},
+    lastActiveProjectId: null,
+    lastActiveWorkspaceIdsByProject: {},
+    lastActiveWorkspaceId: null,
+    migrationStrategy: 'Pending runtime snapshot',
+    schemaVersion: 0,
+    projects: [],
+    workspaceLayouts: {},
+    workspaces: [],
+  }
 }

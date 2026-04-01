@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import type { CreateWorkspaceRequest, ProjectRefRecord } from '../../shared/git'
 import type { AideApi } from '../../shared/ipc'
 import type {
-  CreateProjectInput,
   PersistenceSnapshot,
   WorkspaceLayoutRecord,
 } from '../../shared/persistence'
 import AppShell from './components/AppShell'
-import ProjectCreationModal from './components/ProjectCreationModal'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
@@ -15,7 +14,6 @@ import {
   isNavigationPocSnapshot,
   resolveNavigationSnapshot,
 } from './lib/navigation-poc'
-import { createProjectDraftValues } from './lib/project-draft'
 import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
   applyPaneSelection,
@@ -79,13 +77,38 @@ function recordsEqual(
   return leftKeys.every((key) => left[key] === right[key])
 }
 
+function prioritizeProjectRefs(
+  refs: readonly ProjectRefRecord[],
+  defaultBranch: string | null,
+): ProjectRefRecord[] {
+  const preferredNames = new Set(
+    [defaultBranch, defaultBranch ? `origin/${defaultBranch}` : null].filter(
+      (candidate): candidate is string => Boolean(candidate),
+    ),
+  )
+
+  return [...refs].sort((left, right) => {
+    const leftPreferred = preferredNames.has(left.name)
+    const rightPreferred = preferredNames.has(right.name)
+
+    if (leftPreferred !== rightPreferred) {
+      return leftPreferred ? -1 : 1
+    }
+
+    if (left.source !== right.source) {
+      return left.source === 'local' ? -1 : 1
+    }
+
+    return left.displayName.localeCompare(right.displayName)
+  })
+}
+
 export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
+  const [useNavigationPoc, setUseNavigationPoc] = useState(false)
   const [shellError, setShellError] = useState<string | null>(null)
-  const [isProjectCreationOpen, setIsProjectCreationOpen] = useState(false)
-  const [projectCreationDefaults, setProjectCreationDefaults] =
-    useState<ReturnType<typeof createProjectDraftValues> | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
@@ -106,7 +129,10 @@ export default function App() {
     (state) => state.rememberedWorkspaceIdsByProject,
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
-  const navigationSnapshot = resolveNavigationSnapshot(storageSnapshot)
+  const navigationSnapshot = resolveNavigationSnapshot(
+    storageSnapshot,
+    useNavigationPoc,
+  )
   const isDemoMode = isNavigationPocSnapshot(navigationSnapshot)
   const getPaneIdsForSnapshot = useCallback(
     (snapshot: PersistenceSnapshot, workspaceId: string | null) => {
@@ -156,15 +182,19 @@ export default function App() {
     }
 
     try {
-      const snapshot = await api.getStorageSnapshot()
+      const [snapshot, runtimeSnapshot] = await Promise.all([
+        api.getStorageSnapshot(),
+        api.getRuntimeSnapshot(),
+      ])
       setStorageSnapshot(snapshot)
+      setUseNavigationPoc(runtimeSnapshot.useNavigationPoc)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
     }
   }, [])
 
-  const createProject = useCallback(async () => {
+  const openProject = useCallback(async () => {
     const api = getAideApi()
 
     if (!api) {
@@ -173,66 +203,40 @@ export default function App() {
     }
 
     try {
+      const selectedProject =
+        navigationSnapshot.projects.find(
+          (project) => project.id === activeProjectId,
+        ) ?? null
       const runtimeSnapshot = await api.getRuntimeSnapshot()
-      setProjectCreationDefaults(
-        createProjectDraftValues(runtimeSnapshot.workingDirectory),
+      const selectedRepoRoot = await api.pickProjectRoot(
+        selectedProject?.repoRoot ?? runtimeSnapshot.workingDirectory,
       )
-      setIsProjectCreationOpen(true)
-    } catch (error) {
-      setShellError(getErrorMessage(error))
-    }
-  }, [])
-
-  const pickProjectRoot = useCallback(async (defaultPath?: string | null) => {
-    const api = getAideApi()
-
-    if (!api) {
-      setShellError('Desktop bridge did not load. Reload the app window.')
-      return null
-    }
-
-    try {
-      return await api.pickProjectRoot(defaultPath)
-    } catch (error) {
-      setShellError(getErrorMessage(error))
-      return null
-    }
-  }, [])
-
-  const submitProjectCreation = useCallback(
-    async (input: CreateProjectInput) => {
-      const api = getAideApi()
-
-      if (!api) {
-        return 'Desktop bridge did not load. Reload the app window.'
+      if (!selectedRepoRoot) {
+        return
       }
 
-      try {
-        const snapshot = await api.createProject(input)
-        const latestProjectId = snapshot.projects.at(-1)?.id ?? null
+      const result = await api.importProject(selectedRepoRoot)
+      const nextState = applyWorkspaceSelection(
+        result.snapshot,
+        resolvedNavigationState,
+        result.workspaceId,
+        (workspaceId) => getPaneIdsForSnapshot(result.snapshot, workspaceId),
+      )
 
-        if (!latestProjectId) {
-          return 'Project was created but no project record was returned.'
-        }
-
-        const nextState = applyProjectSelection(
-          snapshot,
-          resolvedNavigationState,
-          latestProjectId,
-          getPaneIdsForWorkspace,
-        )
-
-        setStorageSnapshot(snapshot)
-        setSelection(nextState)
-        setShellError(null)
-        setIsProjectCreationOpen(false)
-        return null
-      } catch (error) {
-        return getErrorMessage(error)
-      }
-    },
-    [getPaneIdsForWorkspace, resolvedNavigationState, setSelection],
-  )
+      setStorageSnapshot(result.snapshot)
+      setSelection(nextState)
+      setActionError(null)
+      setShellError(null)
+    } catch (error) {
+      setActionError(getErrorMessage(error))
+    }
+  }, [
+    activeProjectId,
+    getPaneIdsForSnapshot,
+    navigationSnapshot.projects,
+    resolvedNavigationState,
+    setSelection,
+  ])
 
   const createWorkspace = useCallback(() => {
     if (!activeProjectId) {
@@ -243,12 +247,7 @@ export default function App() {
   }, [activeProjectId])
 
   const submitWorkspaceCreation = useCallback(
-    async (input: {
-      branchName: string
-      name: string
-      projectId: string
-      worktreePath: string
-    }) => {
+    async (input: Omit<CreateWorkspaceRequest, 'windowId'>) => {
       const api = getAideApi()
 
       if (!api) {
@@ -263,6 +262,7 @@ export default function App() {
         }
 
         const snapshot = await api.createWorkspace({
+          baseBranch: input.baseBranch,
           branchName: input.branchName,
           name: input.name,
           projectId: input.projectId,
@@ -284,6 +284,7 @@ export default function App() {
 
         setStorageSnapshot(snapshot)
         setSelection(nextState)
+        setActionError(null)
         setShellError(null)
         setIsWorkspaceCreationOpen(false)
         return null
@@ -292,6 +293,25 @@ export default function App() {
       }
     },
     [getPaneIdsForWorkspace, resolvedNavigationState, setSelection],
+  )
+
+  const listProjectRefs = useCallback(
+    async (projectId: string) => {
+      const api = getAideApi()
+
+      if (!api) {
+        throw new Error('Desktop bridge did not load. Reload the app window.')
+      }
+
+      const refs = await api.listProjectRefs(projectId)
+      const selectedProject =
+        navigationSnapshot.projects.find(
+          (project) => project.id === projectId,
+        ) ?? null
+
+      return prioritizeProjectRefs(refs, selectedProject?.defaultBranch ?? null)
+    },
+    [navigationSnapshot.projects],
   )
 
   useEffect(() => {
@@ -860,7 +880,7 @@ export default function App() {
           ),
         )
       }
-      onCreateProject={createProject}
+      onCreateProject={openProject}
       onCreateWorkspace={createWorkspace}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
@@ -869,15 +889,9 @@ export default function App() {
       workspaceSummaries={workspaceSummaries}
     >
       <>
-        <ProjectCreationModal
-          defaults={projectCreationDefaults}
-          isOpen={isProjectCreationOpen}
-          onOpenChange={setIsProjectCreationOpen}
-          onPickRepoRoot={pickProjectRoot}
-          onSubmit={submitProjectCreation}
-        />
         <WorkspaceCreationModal
           isOpen={isWorkspaceCreationOpen}
+          loadProjectRefs={listProjectRefs}
           onOpenChange={setIsWorkspaceCreationOpen}
           onSubmit={submitWorkspaceCreation}
           project={activeProject}
@@ -905,7 +919,8 @@ export default function App() {
         <WorkspaceCanvas
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
-          onCreateProject={createProject}
+          actionError={actionError}
+          onCreateProject={openProject}
           onCreateWorkspace={createWorkspace}
           onClosePane={handleClosePane}
           onResizePane={handleResizePane}

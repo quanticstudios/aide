@@ -5,8 +5,11 @@ import type {
   ExecutableValidationResult,
 } from './executable'
 import type {
-  CreateProjectInput,
-  CreateWorkspaceInput,
+  CreateWorkspaceRequest,
+  ImportProjectResult,
+  ProjectRefRecord,
+} from './git'
+import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
@@ -21,13 +24,14 @@ import type {
 } from './terminal'
 
 export const IPC_CHANNELS = {
-  createProject: 'storage:create-project',
   createWorkspace: 'storage:create-workspace',
   executableProbe: 'executables:probe',
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
   pickProjectRoot: 'app:pick-project-root',
+  importProject: 'app:import-project',
+  listProjectRefs: 'app:list-project-refs',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -40,8 +44,11 @@ export const IPC_CHANNELS = {
 } as const
 
 export interface AideApi {
-  createProject: (input: CreateProjectInput) => Promise<PersistenceSnapshot>
-  createWorkspace: (input: CreateWorkspaceInput) => Promise<PersistenceSnapshot>
+  createWorkspace: (
+    input: CreateWorkspaceRequest,
+  ) => Promise<PersistenceSnapshot>
+  importProject: (repoPath: string) => Promise<ImportProjectResult>
+  listProjectRefs: (projectId: string) => Promise<ProjectRefRecord[]>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (

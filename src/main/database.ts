@@ -210,6 +210,21 @@ export class AideDatabase {
     return rows.map((row) => this.mapProjectRow(row))
   }
 
+  public findProjectByRepoRoot(repoRoot: string): ProjectRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          FROM projects
+          WHERE repo_root = ?
+          LIMIT 1
+        `,
+      )
+      .get(repoRoot) as SqlProjectRow | undefined
+
+    return row ? this.mapProjectRow(row) : null
+  }
+
   public updateProject(
     projectId: string,
     input: UpdateProjectInput,
@@ -325,6 +340,39 @@ export class AideDatabase {
       .all() as unknown as SqlWorkspaceRow[]
 
     return rows.map((row) => this.mapWorkspaceRow(row))
+  }
+
+  public listProjectWorkspaces(projectId: string): WorkspaceRecord[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          FROM workspaces
+          WHERE project_id = ?
+          ORDER BY created_at ASC
+        `,
+      )
+      .all(projectId) as unknown as SqlWorkspaceRow[]
+
+    return rows.map((row) => this.mapWorkspaceRow(row))
+  }
+
+  public findWorkspaceByWorktreePath(
+    projectId: string,
+    worktreePath: string,
+  ): WorkspaceRecord | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          FROM workspaces
+          WHERE project_id = ? AND worktree_path = ?
+          LIMIT 1
+        `,
+      )
+      .get(projectId, worktreePath) as SqlWorkspaceRow | undefined
+
+    return row ? this.mapWorkspaceRow(row) : null
   }
 
   public updateWorkspace(

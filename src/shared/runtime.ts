@@ -6,6 +6,7 @@ export interface RuntimeSnapshot {
   nodeVersion: string
   platform: NodeJS.Platform
   arch: NodeJS.Architecture
+  useNavigationPoc: boolean
   workingDirectory: string
 }
 

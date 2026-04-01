@@ -3,10 +3,9 @@ import { fileURLToPath } from 'node:url'
 
 import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
 
+import type { CreateWorkspaceRequest } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
 import type {
-  CreateProjectInput,
-  CreateWorkspaceInput,
   SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
@@ -21,6 +20,7 @@ import {
   probeExecutable,
   validateExecutablePath,
 } from './executable-resolution'
+import { GitWorkspaceService } from './git-service'
 import { focusHyprlandStartupWorkspace } from './hyprland'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
@@ -31,6 +31,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const database = createAideDatabase(
   process.env.AIDE_DATABASE_PATH ?? path.join(process.cwd(), '.aide.sqlite3'),
 )
+const gitWorkspaceService = new GitWorkspaceService(database)
 const terminalSessionManager = new TerminalSessionManager({
   onEvent: (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -59,6 +60,7 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
     nodeVersion: process.versions.node,
     platform: process.platform,
     arch: process.arch,
+    useNavigationPoc: process.env.AIDE_USE_NAVIGATION_POC === '1',
     workingDirectory: process.cwd(),
   }
 }
@@ -168,18 +170,15 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
-    IPC_CHANNELS.createProject,
-    (_event, input: CreateProjectInput) => {
-      database.createProject(input)
-      return database.getSnapshot()
-    },
-  )
-  ipcMain.handle(
     IPC_CHANNELS.createWorkspace,
-    (_event, input: CreateWorkspaceInput) => {
-      database.createWorkspace(input)
-      return database.getSnapshot()
-    },
+    (_event, input: CreateWorkspaceRequest) =>
+      gitWorkspaceService.createWorkspace(input),
+  )
+  ipcMain.handle(IPC_CHANNELS.importProject, (_event, repoPath: string) =>
+    gitWorkspaceService.importProject(repoPath),
+  )
+  ipcMain.handle(IPC_CHANNELS.listProjectRefs, (_event, projectId: string) =>
+    gitWorkspaceService.listProjectRefs(projectId),
   )
   ipcMain.handle(IPC_CHANNELS.executableValidate, (_event, command: string) =>
     validateExecutablePath(command),

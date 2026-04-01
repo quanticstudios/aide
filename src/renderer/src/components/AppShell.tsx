@@ -154,7 +154,6 @@ export default function AppShell({
       >
         <AppSidebar
           activeProjectId={activeProject?.id ?? null}
-          isDemoMode={isDemoMode}
           onCreateProject={onCreateProject}
           onSelectProject={onSelectProject}
           projects={projects}

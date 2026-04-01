@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,9 +12,48 @@ import {
 } from '@playwright/test'
 
 const workspaceDir = '/home/pho7on/Work/aide'
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_EMAIL: 'aide@example.com',
+  GIT_AUTHOR_NAME: 'Aide Electron Test',
+  GIT_COMMITTER_EMAIL: 'aide@example.com',
+  GIT_COMMITTER_NAME: 'Aide Electron Test',
+}
+
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    env: GIT_ENV,
+  }).trim()
+}
+
+function createGitRepository(): string {
+  const repoRoot = mkdtempSync(path.join(tmpdir(), 'aide-electron-repo-'))
+
+  runGit(repoRoot, ['init', '-b', 'main'])
+  runGit(repoRoot, ['commit', '--allow-empty', '-m', 'Initial commit'])
+  runGit(repoRoot, [
+    'remote',
+    'add',
+    'origin',
+    'https://github.com/example/aide.git',
+  ])
+  runGit(repoRoot, ['update-ref', 'refs/remotes/origin/main', 'HEAD'])
+  runGit(repoRoot, [
+    'symbolic-ref',
+    'refs/remotes/origin/HEAD',
+    'refs/remotes/origin/main',
+  ])
+
+  return repoRoot
+}
 
 async function launchAideApp(
   envOverrides: Record<string, string> = {},
+  options: {
+    expectActivePane?: boolean
+  } = {},
 ): Promise<{
   app: ElectronApplication
   page: Page
@@ -29,6 +69,7 @@ async function launchAideApp(
     env: {
       ...process.env,
       AIDE_DATABASE_PATH: path.join(tempDirectory, 'aide.sqlite3'),
+      AIDE_USE_NAVIGATION_POC: '1',
       ...envOverrides,
       LIBGL_ALWAYS_SOFTWARE: '1',
       MESA_LOADER_DRIVER_OVERRIDE: 'llvmpipe',
@@ -37,21 +78,29 @@ async function launchAideApp(
 
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
-  await expect(page.getByTestId('active-pane-name')).toBeVisible()
+
+  if (options.expectActivePane !== false) {
+    await expect(page.getByTestId('active-pane-name')).toBeVisible()
+  }
 
   return { app, page, tempDirectory }
 }
 
 test.describe('electron spatial navigation', () => {
   let app: ElectronApplication | null = null
+  let importedRepoRoot: string | null = null
   let tempDirectory: string | null = null
 
   test.afterEach(async () => {
     await app?.close().catch(() => {})
+    if (importedRepoRoot) {
+      rmSync(importedRepoRoot, { force: true, recursive: true })
+    }
     if (tempDirectory) {
       rmSync(tempDirectory, { force: true, recursive: true })
     }
     app = null
+    importedRepoRoot = null
     tempDirectory = null
   })
 
@@ -206,28 +255,55 @@ test.describe('electron spatial navigation', () => {
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 
-  test('can browse for a project root from the project modal', async () => {
-    const chosenProjectRoot = '/tmp/aide-picked-project'
-    const launched = await launchAideApp({
-      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
-    })
+  test('can open a git project from the empty state', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp(
+      {
+        AIDE_USE_NAVIGATION_POC: '0',
+        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+      },
+      { expectActivePane: false },
+    )
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
-    await page.getByRole('button', { name: /open project/i }).click()
+    await expect(page.getByText('No project selected')).toBeVisible()
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
 
-    const dialog = page.getByRole('dialog')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
     await expect(
-      dialog.getByRole('heading', { name: 'Create project' }),
-    ).toBeVisible()
+      page.locator('[data-testid^="project-rail-button-"]'),
+    ).toHaveCount(1)
+  })
 
-    await dialog.getByRole('button', { name: 'Browse' }).click()
-
-    await expect(dialog.getByLabel('Repo root')).toHaveValue(chosenProjectRoot)
-    await expect(dialog.getByLabel('Project name')).toHaveValue(
-      'aide-picked-project',
+  test('shows an inline error when the chosen folder is not a git repo', async () => {
+    const chosenProjectRoot = mkdtempSync(path.join(tmpdir(), 'aide-non-git-'))
+    const launched = await launchAideApp(
+      {
+        AIDE_USE_NAVIGATION_POC: '0',
+        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+      },
+      { expectActivePane: false },
     )
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+
+    await expect(
+      page.getByText('Selected folder is not inside a Git repository.'),
+    ).toBeVisible()
   })
 })

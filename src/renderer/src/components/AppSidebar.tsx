@@ -7,7 +7,6 @@ import type { ProjectRecord } from '../../../shared/persistence'
 interface AppSidebarProps {
   readonly projects: readonly ProjectRecord[]
   readonly activeProjectId: string | null
-  readonly isDemoMode: boolean
   readonly onSelectProject: (projectId: string) => void
   readonly onCreateProject: () => void
   readonly showProjectHints: boolean
@@ -27,7 +26,6 @@ function getProjectGlyph(projectName: string): string {
 export default function AppSidebar({
   projects,
   activeProjectId,
-  isDemoMode,
   onSelectProject,
   onCreateProject,
   showProjectHints,
@@ -89,7 +87,7 @@ export default function AppSidebar({
 
       <div className="flex flex-col items-center gap-2">
         <Button
-          aria-label={isDemoMode ? 'Open project' : 'Create project'}
+          aria-label="Open project"
           className="size-10 rounded-2xl"
           isIconOnly
           onPress={onCreateProject}

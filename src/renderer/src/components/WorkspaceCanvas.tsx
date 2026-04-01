@@ -28,6 +28,7 @@ interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly actionError: string | null
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
@@ -44,11 +45,13 @@ interface WorkspaceCanvasProps {
 
 function EmptyState({
   actionLabel,
+  error,
   description,
   onAction,
   title,
 }: {
   readonly actionLabel: string
+  readonly error: string | null
   readonly description: string
   readonly onAction: () => void
   readonly title: string
@@ -66,6 +69,11 @@ function EmptyState({
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
+        {error ? (
+          <div className="w-full rounded-2xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
         <Button onPress={onAction} size="sm" variant="primary">
           <Plus className="size-4" />
           {actionLabel}
@@ -277,6 +285,7 @@ export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
   activeWorkspace,
+  actionError,
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
@@ -324,8 +333,9 @@ export default function WorkspaceCanvas({
   if (!activeProject) {
     return (
       <EmptyState
-        actionLabel="Create project"
-        description="Start by creating a project. Projects group the workspaces you will switch between."
+        actionLabel="Open project"
+        description="Open a Git repository to track it here and create a root workspace for its main worktree."
+        error={actionError}
         onAction={onCreateProject}
         title="No project selected"
       />
@@ -337,6 +347,7 @@ export default function WorkspaceCanvas({
       <EmptyState
         actionLabel="Create workspace"
         description="This project is tracked, but it does not have a workspace yet. Create one to make the main region yours."
+        error={actionError}
         onAction={onCreateWorkspace}
         title={`No workspace in ${activeProject.name}`}
       />
@@ -345,6 +356,13 @@ export default function WorkspaceCanvas({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      {actionError ? (
+        <div className="px-4 pt-4">
+          <div className="rounded-2xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive">
+            {actionError}
+          </div>
+        </div>
+      ) : null}
       <div className="sr-only">
         <span data-testid="active-workspace-name">{activeWorkspace.name}</span>
         <span data-testid="active-pane-name">{activePaneLabel}</span>

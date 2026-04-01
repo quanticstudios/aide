@@ -13,7 +13,7 @@ import {
 } from './navigation-poc'
 
 describe('resolveNavigationSnapshot', () => {
-  it('falls back to the navigation POC snapshot when storage is empty', () => {
+  it('keeps the real empty snapshot by default when storage is empty', () => {
     const emptySnapshot: PersistenceSnapshot = {
       databasePath: '.aide.sqlite3',
       lastActivePaneIdsByWorkspace: {},
@@ -27,7 +27,24 @@ describe('resolveNavigationSnapshot', () => {
       workspaces: [],
     }
 
-    expect(resolveNavigationSnapshot(emptySnapshot)).toBe(
+    expect(resolveNavigationSnapshot(emptySnapshot)).toBe(emptySnapshot)
+  })
+
+  it('falls back to the navigation POC snapshot only when explicitly enabled', () => {
+    const emptySnapshot: PersistenceSnapshot = {
+      databasePath: '.aide.sqlite3',
+      lastActivePaneIdsByWorkspace: {},
+      lastActiveProjectId: null,
+      lastActiveWorkspaceIdsByProject: {},
+      lastActiveWorkspaceId: null,
+      migrationStrategy: 'test',
+      schemaVersion: 3,
+      projects: [],
+      workspaceLayouts: {},
+      workspaces: [],
+    }
+
+    expect(resolveNavigationSnapshot(emptySnapshot, true)).toBe(
       NAVIGATION_POC_SNAPSHOT,
     )
   })

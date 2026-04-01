@@ -12,12 +12,14 @@ import type {
 const aideApi: AideApi = {
   createTerminalSession: (input: TerminalSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
-  createProject: (input) =>
-    ipcRenderer.invoke(IPC_CHANNELS.createProject, input),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  importProject: (repoPath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.importProject, repoPath),
+  listProjectRefs: (projectId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.listProjectRefs, projectId),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
   killTerminalSession: (sessionId: string) =>
