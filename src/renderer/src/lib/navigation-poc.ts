@@ -4,6 +4,7 @@ import type {
   WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import { createDefaultPaneMetadata } from './pane-catalog'
 
 export interface PlaceholderPane {
   accent: 'amber' | 'blue' | 'emerald' | 'rose' | 'violet'
@@ -288,48 +289,13 @@ const defaultWorkspaceScene: WorkspaceScene = {
   headline: 'Workspace navigation proof',
   description:
     'Every workspace should feel like its own focused destination, even before the real pane implementations land.',
-  panes: [
-    {
-      accent: 'blue',
-      description: 'Task and coordination surface.',
-      id: 'chat',
-      label: 'Chat task thread',
+  panes: (['chat', 'terminal', 'git', 'editor', 'preview'] as const).map(
+    (paneType) => ({
+      ...createDefaultPaneMetadata(paneType),
+      id: paneType,
       layoutClassName: 'lg:col-span-4 lg:row-span-2',
-      type: 'Chat',
-    },
-    {
-      accent: 'emerald',
-      description: 'Execution and verification surface.',
-      id: 'terminal',
-      label: 'Workspace terminal',
-      layoutClassName: 'lg:col-span-4 lg:row-span-2',
-      type: 'Terminal',
-    },
-    {
-      accent: 'amber',
-      description: 'Inspection and trust surface.',
-      id: 'git',
-      label: 'Git review',
-      layoutClassName: 'lg:col-span-4 lg:row-span-2',
-      type: 'Git',
-    },
-    {
-      accent: 'violet',
-      description: 'File inspection and edit validation surface.',
-      id: 'editor',
-      label: 'Editor inspect',
-      layoutClassName: 'lg:col-span-4 lg:row-span-2',
-      type: 'Editor',
-    },
-    {
-      accent: 'rose',
-      description: 'Preview surface for the running app or docs.',
-      id: 'preview',
-      label: 'Preview target',
-      layoutClassName: 'lg:col-span-4 lg:row-span-2',
-      type: 'Preview',
-    },
-  ],
+    }),
+  ),
 }
 
 const demoWorkspaceLayouts: Record<string, WorkspaceLayoutRecord> = {

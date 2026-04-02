@@ -16,6 +16,7 @@ import {
   resolveNavigationSnapshot,
   resolveWorkspacePane,
 } from './lib/navigation-poc'
+import { resolvePaneType } from './lib/pane-catalog'
 import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
   applyPaneSelection,
@@ -877,7 +878,7 @@ export default function App() {
       resolvedNavigationState.activePaneId,
     )
 
-    if (activePane?.type !== 'Terminal') {
+    if (resolvePaneType(activePane?.type ?? null) !== 'terminal') {
       return
     }
 

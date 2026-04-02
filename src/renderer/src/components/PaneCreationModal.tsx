@@ -1,44 +1,6 @@
 import { Button, Modal, Surface } from '@heroui/react'
-import {
-  Eye,
-  GitBranch,
-  MessageSquareText,
-  SquarePen,
-  SquareTerminal,
-} from 'lucide-react'
 
-const paneOptions = [
-  {
-    description: 'Task steering, notes, and AI coordination.',
-    icon: MessageSquareText,
-    id: 'chat',
-    label: 'Chat',
-  },
-  {
-    description: 'CLI execution and verification loops.',
-    icon: SquareTerminal,
-    id: 'terminal',
-    label: 'Terminal',
-  },
-  {
-    description: 'Branch state, diffs, and trust checks.',
-    icon: GitBranch,
-    id: 'git',
-    label: 'Git',
-  },
-  {
-    description: 'File inspection and edit validation.',
-    icon: SquarePen,
-    id: 'editor',
-    label: 'Editor',
-  },
-  {
-    description: 'Preview the running app or docs surface.',
-    icon: Eye,
-    id: 'preview',
-    label: 'Preview',
-  },
-] as const
+import { listPaneCatalogEntries } from '@/lib/pane-catalog'
 
 interface PaneCreationModalProps {
   readonly isOpen: boolean
@@ -51,6 +13,8 @@ export default function PaneCreationModal({
   onCreatePane,
   onOpenChange,
 }: PaneCreationModalProps) {
+  const paneOptions = listPaneCatalogEntries()
+
   return (
     <Modal>
       <Modal.Backdrop
@@ -73,9 +37,9 @@ export default function PaneCreationModal({
                   return (
                     <button
                       className="text-left"
-                      key={pane.id}
+                      key={pane.type}
                       onClick={() => {
-                        onCreatePane(pane.id)
+                        onCreatePane(pane.type)
                         onOpenChange(false)
                       }}
                       type="button"
@@ -87,10 +51,10 @@ export default function PaneCreationModal({
                           </div>
                           <div className="space-y-1">
                             <p className="text-sm font-medium text-foreground">
-                              {pane.label}
+                              {pane.defaultMetadata.type}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              {pane.description}
+                              {pane.createDescription}
                             </p>
                           </div>
                         </div>

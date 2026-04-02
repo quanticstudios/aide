@@ -3,6 +3,7 @@ import { FolderOpen, Plus } from 'lucide-react'
 
 import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
+import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
 import { cn } from '@/lib/utils'
 import {
   getWorkspaceSlideHeight,
@@ -20,10 +21,6 @@ import type {
   WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
-import PlaceholderWorkspaceView from './PlaceholderWorkspaceView'
-import PreviewPane from './PreviewPane'
-import TerminalPane from './TerminalPane'
-
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
@@ -91,38 +88,17 @@ function resolvePaneContent(args: {
   workspace: WorkspaceRecord
 }) {
   const scene = getWorkspaceScene(args.workspace.id)
-  const pane = resolveWorkspacePane(args.workspace.id, args.paneId) ?? {
-    accent: 'blue' as const,
-    description: 'Placeholder pane metadata is missing for this layout node.',
-    id: args.paneId,
-    label: args.paneId,
-    layoutClassName: '',
-    type: 'Chat',
-  }
-  const isActive = pane.id === args.activePaneId
+  const pane =
+    resolveWorkspacePane(args.workspace.id, args.paneId) ??
+    createFallbackPane(args.paneId)
 
-  if (pane.type === 'Terminal') {
-    return isActive ? (
-      <TerminalPane paneId={pane.id} workspace={args.workspace} />
-    ) : (
-      <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
-        Terminal session hidden until this pane is focused.
-      </div>
-    )
-  }
-
-  if (pane.type === 'Preview' && isActive) {
-    return <PreviewPane />
-  }
-
-  return (
-    <PlaceholderWorkspaceView
-      pane={pane}
-      project={args.activeProject}
-      scene={scene}
-      workspace={args.workspace}
-    />
-  )
+  return renderPaneFromRegistry({
+    activePaneId: args.activePaneId,
+    pane,
+    project: args.activeProject,
+    scene,
+    workspace: args.workspace,
+  })
 }
 
 function PaneActionBar({
