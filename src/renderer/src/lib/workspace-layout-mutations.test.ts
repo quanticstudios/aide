@@ -142,7 +142,7 @@ describe('addWorkspacePane', () => {
       id: 'workspace-1:split-node:1',
       paneId: null,
       parentId: null,
-      sizeWeights: [1, 24],
+      sizeWeights: [1, 1],
       type: 'split-horizontal',
       workspaceId: 'workspace-1',
     })
@@ -151,6 +151,39 @@ describe('addWorkspacePane', () => {
       id: 'workspace-1:pane-node:1',
       paneId: 'terminal',
       parentId: 'workspace-1:split-node:1',
+      sizeWeights: [],
+      type: 'pane',
+      workspaceId: 'workspace-1',
+    })
+  })
+
+  it('appends a new pane to the top-level horizontal pane track', () => {
+    const result = addWorkspacePane(
+      createTwoPaneLayout(),
+      'workspace-1',
+      'terminal',
+      'git',
+      'split-horizontal',
+    )
+
+    expect(result.didChange).toBe(true)
+    expect(result.blockedReason).toBeNull()
+    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.layout.rootNodeId).toBe('root-split')
+    expect(result.layout.nodes).toContainEqual({
+      children: ['left-pane', 'right-pane', 'workspace-1:pane-node:1'],
+      id: 'root-split',
+      paneId: null,
+      parentId: null,
+      sizeWeights: [1, 1, 1],
+      type: 'split-horizontal',
+      workspaceId: 'workspace-1',
+    })
+    expect(result.layout.nodes).toContainEqual({
+      children: [],
+      id: 'workspace-1:pane-node:1',
+      paneId: 'terminal',
+      parentId: 'root-split',
       sizeWeights: [],
       type: 'pane',
       workspaceId: 'workspace-1',

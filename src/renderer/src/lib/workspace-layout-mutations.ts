@@ -6,8 +6,6 @@ import type {
 import { getWorkspacePaneTemplateId } from './navigation-poc'
 
 const MIN_WEIGHT = 0.2
-const NEW_PANE_PRIMARY_WEIGHT = 24
-const NEW_PANE_SECONDARY_WEIGHT = 1
 
 export interface WorkspaceLayoutMutationResult {
   blockedReason: 'last-pane' | null
@@ -251,8 +249,8 @@ export function addWorkspacePane(
   layout: WorkspaceLayoutRecord | null,
   workspaceId: string,
   templatePaneId: string,
-  activePaneId: string | null,
-  splitType: PersistedSplitLayoutNode['type'] = 'split-horizontal',
+  _activePaneId: string | null,
+  _splitType: PersistedSplitLayoutNode['type'] = 'split-horizontal',
 ): WorkspaceLayoutMutationResult {
   if (!layout) {
     return {
@@ -263,84 +261,78 @@ export function addWorkspacePane(
     }
   }
 
-  const targetPaneId =
-    activePaneId ??
-    layout.nodes.find((node) => node.type === 'pane')?.paneId ??
-    null
-
-  if (!targetPaneId) {
-    const nextPaneId = createPaneIdForTemplate(layout, templatePaneId)
-
-    return {
-      blockedReason: null,
-      didChange: true,
-      layout: createSinglePaneLayout(workspaceId, nextPaneId),
-      nextActivePaneId: nextPaneId,
-    }
-  }
-
   const nextLayout = cloneLayout(layout)
   const nodeMap = createNodeMap(nextLayout)
-  const paneNode = findPaneNode(nodeMap, targetPaneId)
-
-  if (!paneNode || paneNode.type !== 'pane') {
-    return {
-      blockedReason: null,
-      didChange: false,
-      layout,
-      nextActivePaneId: activePaneId,
-    }
-  }
-
-  const splitNodeId = createNodeId(nextLayout, 'split-node')
   const newPaneNodeId = createNodeId(nextLayout, 'pane-node')
   const newPaneId = createPaneIdForTemplate(nextLayout, templatePaneId)
-  const parentNode =
-    paneNode.parentId !== null ? (nodeMap.get(paneNode.parentId) ?? null) : null
-  const updatedPaneNode = {
-    ...paneNode,
-    parentId: splitNodeId,
-  }
   const newPaneNode: PersistedLayoutNode = {
     children: [] as [],
     id: newPaneNodeId,
     paneId: newPaneId,
-    parentId: splitNodeId,
+    parentId: null,
     sizeWeights: [] as [],
     type: 'pane',
     workspaceId,
   }
-  const splitNode: PersistedSplitLayoutNode = {
-    children: [updatedPaneNode.id, newPaneNode.id],
-    id: splitNodeId,
-    paneId: null,
-    parentId: parentNode?.id ?? null,
-    sizeWeights: [NEW_PANE_SECONDARY_WEIGHT, NEW_PANE_PRIMARY_WEIGHT],
-    type: splitType,
-    workspaceId,
+  const rootNode = nodeMap.get(nextLayout.rootNodeId) ?? null
+
+  if (!rootNode) {
+    return {
+      blockedReason: null,
+      didChange: true,
+      layout: createSinglePaneLayout(workspaceId, newPaneId),
+      nextActivePaneId: newPaneId,
+    }
   }
 
-  nodeMap.set(updatedPaneNode.id, updatedPaneNode)
-
-  if (parentNode && parentNode.type !== 'pane') {
-    nodeMap.set(parentNode.id, {
-      ...parentNode,
-      children: parentNode.children.map((childId) =>
-        childId === paneNode.id ? splitNodeId : childId,
-      ),
+  if (rootNode.type === 'split-horizontal' && rootNode.parentId === null) {
+    newPaneNode.parentId = rootNode.id
+    nodeMap.set(rootNode.id, {
+      ...rootNode,
+      children: [...rootNode.children, newPaneNode.id],
+      sizeWeights: [...rootNode.sizeWeights, 1],
     })
+  } else {
+    const splitNodeId = createNodeId(nextLayout, 'split-node')
+
+    nodeMap.set(rootNode.id, {
+      ...rootNode,
+      parentId: splitNodeId,
+    })
+
+    const splitNode: PersistedSplitLayoutNode = {
+      children: [rootNode.id, newPaneNode.id],
+      id: splitNodeId,
+      paneId: null,
+      parentId: null,
+      sizeWeights: [1, 1],
+      type: 'split-horizontal',
+      workspaceId,
+    }
+
+    newPaneNode.parentId = splitNodeId
+    nodeMap.set(splitNode.id, splitNode)
+    nextLayout.rootNodeId = splitNodeId
+
+    return {
+      blockedReason: null,
+      didChange: true,
+      layout: {
+        ...nextLayout,
+        nodes: serializeNodes(nextLayout, nodeMap, [splitNode, newPaneNode]),
+      },
+      nextActivePaneId: newPaneId,
+    }
   }
+
+  nodeMap.set(newPaneNode.id, newPaneNode)
 
   return {
     blockedReason: null,
     didChange: true,
     layout: {
       ...nextLayout,
-      nodes: serializeNodes(nextLayout, nodeMap, [splitNode, newPaneNode]),
-      rootNodeId:
-        nextLayout.rootNodeId === paneNode.id
-          ? splitNodeId
-          : nextLayout.rootNodeId,
+      nodes: serializeNodes(nextLayout, nodeMap, [newPaneNode]),
     },
     nextActivePaneId: newPaneId,
   }

@@ -182,6 +182,26 @@ function PaneActionBar({
   )
 }
 
+function nodeContainsPane(
+  nodeLookup: Map<string, PersistedLayoutNode>,
+  node: PersistedLayoutNode,
+  paneId: string | null,
+): boolean {
+  if (!paneId) {
+    return false
+  }
+
+  if (node.type === 'pane') {
+    return node.paneId === paneId
+  }
+
+  return node.children.some((childId) => {
+    const childNode = nodeLookup.get(childId)
+
+    return childNode ? nodeContainsPane(nodeLookup, childNode, paneId) : false
+  })
+}
+
 function renderLayoutNode(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
@@ -286,6 +306,73 @@ function renderLayoutNode(args: {
         )
       })}
     </section>
+  )
+}
+
+function renderPaneTrack(args: {
+  activePaneId: string | null
+  activeProject: ProjectRecord
+  activePreviewTarget: PreviewTarget | null
+  canClosePane: boolean
+  node: PersistedSplitLayoutNode
+  nodeLookup: Map<string, PersistedLayoutNode>
+  onClosePane: (paneId: string) => void
+  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
+  onResizePane: (paneId: string, delta: number) => void
+  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
+  onSelectPane: (paneId: string) => void
+  onSplitPane: (
+    paneId: string,
+    splitType: PersistedSplitLayoutNode['type'],
+  ) => void
+  previewTargets: readonly PreviewTarget[]
+  workspace: WorkspaceRecord
+}) {
+  const childNodes = args.node.children
+    .map((childId) => args.nodeLookup.get(childId) ?? null)
+    .filter((childNode): childNode is PersistedLayoutNode => childNode !== null)
+  const activeIndex = Math.max(
+    childNodes.findIndex((childNode) =>
+      nodeContainsPane(args.nodeLookup, childNode, args.activePaneId),
+    ),
+    0,
+  )
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        className="flex min-h-0 min-w-0 flex-1 transition-transform duration-200 ease-out"
+        style={{
+          transform: `translateX(-${activeIndex * 100}%)`,
+          width: `${Math.max(childNodes.length, 1) * 100}%`,
+        }}
+      >
+        {childNodes.map((childNode) => (
+          <div
+            className="flex min-h-0 min-w-0 w-full shrink-0"
+            key={childNode.id}
+          >
+            {renderLayoutNode({
+              activePaneId: args.activePaneId,
+              activeProject: args.activeProject,
+              activePreviewTarget: args.activePreviewTarget,
+              canClosePane: args.canClosePane,
+              isInteractive: true,
+              node: childNode,
+              nodeLookup: args.nodeLookup,
+              onClosePane: args.onClosePane,
+              onLoadPreviewTarget: args.onLoadPreviewTarget,
+              onResizePane: args.onResizePane,
+              onSelectPreviewTarget: args.onSelectPreviewTarget,
+              onSelectPane: args.onSelectPane,
+              onSplitPane: args.onSplitPane,
+              previewTargets: args.previewTargets,
+              workspace: args.workspace,
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -417,25 +504,45 @@ export default function WorkspaceCanvas({
               >
                 <div className="flex min-h-0 flex-1 overflow-hidden p-4">
                   {activeProject && rootNode && paneCount > 0 ? (
-                    renderLayoutNode({
-                      activePaneId: isActiveWorkspace ? activePaneId : null,
-                      activeProject,
-                      activePreviewTarget: isActiveWorkspace
-                        ? activePreviewTarget
-                        : null,
-                      canClosePane: paneCount > 1,
-                      isInteractive: isActiveWorkspace,
-                      node: rootNode,
-                      nodeLookup,
-                      onClosePane,
-                      onLoadPreviewTarget,
-                      onResizePane,
-                      onSelectPreviewTarget,
-                      onSelectPane,
-                      onSplitPane,
-                      previewTargets: isActiveWorkspace ? previewTargets : [],
-                      workspace,
-                    })
+                    rootNode.type === 'split-horizontal' &&
+                    isActiveWorkspace ? (
+                      renderPaneTrack({
+                        activePaneId,
+                        activeProject,
+                        activePreviewTarget,
+                        canClosePane: paneCount > 1,
+                        node: rootNode,
+                        nodeLookup,
+                        onClosePane,
+                        onLoadPreviewTarget,
+                        onResizePane,
+                        onSelectPreviewTarget,
+                        onSelectPane,
+                        onSplitPane,
+                        previewTargets,
+                        workspace,
+                      })
+                    ) : (
+                      renderLayoutNode({
+                        activePaneId: isActiveWorkspace ? activePaneId : null,
+                        activeProject,
+                        activePreviewTarget: isActiveWorkspace
+                          ? activePreviewTarget
+                          : null,
+                        canClosePane: paneCount > 1,
+                        isInteractive: isActiveWorkspace,
+                        node: rootNode,
+                        nodeLookup,
+                        onClosePane,
+                        onLoadPreviewTarget,
+                        onResizePane,
+                        onSelectPreviewTarget,
+                        onSelectPane,
+                        onSplitPane,
+                        previewTargets: isActiveWorkspace ? previewTargets : [],
+                        workspace,
+                      })
+                    )
                   ) : activeProject && !isDemoMode ? (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">
                       <div className="max-w-md space-y-3">

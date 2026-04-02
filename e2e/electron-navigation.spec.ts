@@ -313,6 +313,7 @@ test.describe('electron spatial navigation', () => {
     await page.getByRole('button', { name: /add pane/i }).click()
     await page.getByRole('button', { name: /git/i }).click()
 
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await expect(page.getByTestId('git-pane')).toBeVisible()
     await expect(page.getByTestId('git-pane-file-list')).toContainText(
       'README.md',
