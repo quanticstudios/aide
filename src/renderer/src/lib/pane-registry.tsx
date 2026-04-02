@@ -4,6 +4,7 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import GitPane from '../components/GitPane'
 import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
 import PreviewPane from '../components/PreviewPane'
 import TerminalPane from '../components/TerminalPane'
@@ -53,13 +54,22 @@ const previewRenderer = (args: PaneRenderArgs): ReactNode =>
     placeholderRenderer(args)
   )
 
+const gitRenderer = (args: PaneRenderArgs): ReactNode => (
+  <GitPane
+    isActive={args.pane.id === args.activePaneId}
+    workspace={args.workspace}
+  />
+)
+
 const paneRegistryEntries = listPaneCatalogEntries().map((entry) => ({
   render:
     entry.type === 'terminal'
       ? terminalRenderer
-      : entry.type === 'preview'
-        ? previewRenderer
-        : placeholderRenderer,
+      : entry.type === 'git'
+        ? gitRenderer
+        : entry.type === 'preview'
+          ? previewRenderer
+          : placeholderRenderer,
   type: entry.type,
 })) satisfies readonly PaneRegistryEntry[]
 

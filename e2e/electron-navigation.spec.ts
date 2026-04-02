@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -32,7 +32,9 @@ function createGitRepository(): string {
   const repoRoot = mkdtempSync(path.join(tmpdir(), 'aide-electron-repo-'))
 
   runGit(repoRoot, ['init', '-b', 'main'])
-  runGit(repoRoot, ['commit', '--allow-empty', '-m', 'Initial commit'])
+  writeFileSync(path.join(repoRoot, 'README.md'), '# aide\n')
+  runGit(repoRoot, ['add', 'README.md'])
+  runGit(repoRoot, ['commit', '-m', 'Initial commit'])
   runGit(repoRoot, [
     'remote',
     'add',
@@ -280,6 +282,62 @@ test.describe('electron spatial navigation', () => {
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
     ).toHaveCount(1)
+  })
+
+  test('renders a real git pane and updates the review surface on file selection', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const readmePath = path.join(chosenProjectRoot, 'README.md')
+    writeFileSync(readmePath, `${readFileSync(readmePath, 'utf8')}staged\n`)
+    runGit(chosenProjectRoot, ['add', 'README.md'])
+    writeFileSync(readmePath, `${readFileSync(readmePath, 'utf8')}unstaged\n`)
+    writeFileSync(path.join(chosenProjectRoot, 'notes.txt'), 'local notes\n')
+
+    const launched = await launchAideApp(
+      {
+        AIDE_USE_NAVIGATION_POC: '0',
+        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+      },
+      { expectActivePane: false },
+    )
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /git/i }).click()
+
+    await expect(page.getByTestId('git-pane')).toBeVisible()
+    await expect(page.getByTestId('git-pane-file-list')).toContainText(
+      'README.md',
+    )
+    await expect(page.getByTestId('git-pane-file-list')).toContainText(
+      'notes.txt',
+    )
+    await expect(page.getByTestId('git-pane-file-list')).toContainText(
+      'Staged: Modified',
+    )
+    await expect(page.getByTestId('git-pane-file-list')).toContainText(
+      'Unstaged: Untracked',
+    )
+
+    await page.getByTestId('git-pane-file-README.md').click()
+    await expect(page.getByTestId('git-pane-selected-file')).toHaveText(
+      'README.md',
+    )
+    await page.getByTestId('git-pane-file-notes.txt').click()
+    await expect(page.getByTestId('git-pane-selected-file')).toHaveText(
+      'notes.txt',
+    )
+    await expect(
+      page.getByText('Diff rendering lands in the next bead.'),
+    ).toBeVisible()
   })
 
   test('shows an inline error when the chosen folder is not a git repo', async () => {
