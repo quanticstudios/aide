@@ -2,7 +2,10 @@ import { Button, Chip, Surface } from '@heroui/react'
 import { GitBranch, RefreshCcw, TriangleAlert } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { WorkspaceGitStatusSnapshot } from '../../../shared/git'
+import type {
+  WorkspaceGitDiffSnapshot,
+  WorkspaceGitStatusSnapshot,
+} from '../../../shared/git'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
   formatGitChangeKind,
@@ -33,8 +36,11 @@ interface GitPaneProps {
 
 export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [isDiffLoading, setIsDiffLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [diffError, setDiffError] = useState<string | null>(null)
   const [status, setStatus] = useState<WorkspaceGitStatusSnapshot | null>(null)
+  const [diff, setDiff] = useState<WorkspaceGitDiffSnapshot | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   const refreshStatus = useCallback(async () => {
@@ -94,6 +100,61 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
     return status.files.find((file) => file.path === nextSelectedPath) ?? null
   }, [selectedPath, status])
+
+  useEffect(() => {
+    const api = getAideApi()
+
+    if (!selectedFile) {
+      setDiff(null)
+      setDiffError(null)
+      return
+    }
+
+    if (!api) {
+      setDiff(null)
+      setDiffError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+
+    let cancelled = false
+
+    void (async () => {
+      setIsDiffLoading(true)
+
+      try {
+        const result = await api.getWorkspaceGitDiff(
+          workspace.id,
+          selectedFile.path,
+        )
+
+        if (cancelled) {
+          return
+        }
+
+        if (!result.ok) {
+          setDiff(null)
+          setDiffError(result.error)
+          return
+        }
+
+        setDiff(result.diff)
+        setDiffError(null)
+      } catch (loadError) {
+        if (!cancelled) {
+          setDiff(null)
+          setDiffError(getErrorMessage(loadError))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsDiffLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedFile, workspace.id])
 
   if (error) {
     return (
@@ -305,19 +366,60 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                     </p>
                   </Surface>
                 ) : null}
-                <Surface
-                  className="mt-4 rounded-2xl border border-border/60 p-4"
-                  variant="tertiary"
+                <div
+                  className="mt-4 flex min-h-0 flex-1 flex-col gap-3"
+                  data-testid="git-pane-diff-surface"
                 >
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                    Next slice
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    Diff rendering lands in the next bead. This pane now owns
-                    changed-file visibility, staged versus unstaged trust
-                    signals, and file selection routing.
-                  </p>
-                </Surface>
+                  {diffError ? (
+                    <Surface
+                      className="rounded-2xl border border-destructive/35 p-4"
+                      variant="tertiary"
+                    >
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-destructive">
+                        Diff unavailable
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        {diffError}
+                      </p>
+                    </Surface>
+                  ) : null}
+
+                  {isDiffLoading && !diff ? (
+                    <Surface
+                      className="rounded-2xl border border-border/60 p-4"
+                      variant="tertiary"
+                    >
+                      <p className="text-sm text-muted-foreground">
+                        Loading file diff…
+                      </p>
+                    </Surface>
+                  ) : null}
+
+                  {diff?.sections.map((section) => (
+                    <Surface
+                      className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/60 p-4"
+                      key={`${diff.path}:${section.kind}`}
+                      variant="tertiary"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                          {section.title}
+                        </p>
+                        {section.isTruncated ? (
+                          <Chip color="warning" size="sm" variant="secondary">
+                            Truncated
+                          </Chip>
+                        ) : null}
+                      </div>
+                      <pre
+                        className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-border/50 bg-background/80 p-4 font-mono text-[11px] leading-5 text-foreground"
+                        data-testid={`git-pane-diff-${section.kind}`}
+                      >
+                        {section.patch}
+                      </pre>
+                    </Surface>
+                  ))}
+                </div>
               </>
             ) : null}
           </Surface>

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -8,7 +9,10 @@ import type {
   GitChangeKind,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitDiffResult,
+  WorkspaceGitDiffSection,
   WorkspaceGitFileStatus,
+  WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
 } from '../shared/git'
 import type {
@@ -23,6 +27,7 @@ import type {
 import { resolveExecutablePath } from './executable-resolution'
 
 const execFileAsync = promisify(execFile)
+const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
 
 interface RepositoryMetadata {
   currentBranchLabel: string
@@ -186,7 +191,7 @@ function parseWorkspaceGitFiles(output: string): WorkspaceGitFileStatus[] {
 
 function classifyWorkspaceGitStatusError(
   error: unknown,
-): WorkspaceGitStatusResult {
+): WorkspaceGitStatusFailure {
   const message = formatGitError(
     error,
     'Unable to inspect workspace Git status.',
@@ -217,6 +222,42 @@ function classifyWorkspaceGitStatusError(
     error: message,
     ok: false,
   }
+}
+
+function truncateDiffOutput(patch: string): {
+  isTruncated: boolean
+  patch: string
+} {
+  if (patch.length <= MAX_DIFF_OUTPUT_CHARACTERS) {
+    return {
+      isTruncated: false,
+      patch,
+    }
+  }
+
+  return {
+    isTruncated: true,
+    patch: `${patch.slice(0, MAX_DIFF_OUTPUT_CHARACTERS)}\n\n...diff truncated...`,
+  }
+}
+
+function buildUntrackedPatch(filePath: string, content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
+  const normalizedLines =
+    lines.at(-1) === '' ? lines.slice(0, Math.max(lines.length - 1, 0)) : lines
+  const body = normalizedLines.map((line) => `+${line}`).join('\n')
+  const lineCount = normalizedLines.length
+
+  return [
+    `diff --git a/${filePath} b/${filePath}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${filePath}`,
+    `@@ -0,0 +1,${lineCount} @@`,
+    body,
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 export class GitWorkspaceService {
@@ -260,6 +301,66 @@ export class GitWorkspaceService {
       }
     } catch (error) {
       return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async getWorkspaceFileDiff(
+    workspaceId: string,
+    filePath: string,
+  ): Promise<WorkspaceGitDiffResult> {
+    const workspace = this.store.getWorkspace(workspaceId)
+
+    if (!workspace) {
+      return {
+        code: 'workspace-not-found',
+        error: 'Workspace does not exist.',
+        ok: false,
+      }
+    }
+
+    const statusResult = await this.getWorkspaceStatus(workspaceId)
+
+    if (!statusResult.ok) {
+      return {
+        code: statusResult.code,
+        error: statusResult.error,
+        ok: false,
+      }
+    }
+
+    const file = statusResult.status.files.find(
+      (candidate) => candidate.path === filePath,
+    )
+
+    if (!file) {
+      return {
+        code: 'file-not-found',
+        error: 'Changed file does not exist in workspace Git status.',
+        ok: false,
+      }
+    }
+
+    try {
+      const sections = await this.buildDiffSections(workspace, file)
+
+      return {
+        diff: {
+          branchName: statusResult.status.branchName,
+          path: file.path,
+          sections,
+          workspaceId: workspace.id,
+          worktreePath: workspace.worktreePath,
+        },
+        ok: true,
+      }
+    } catch (error) {
+      const classifiedError = classifyWorkspaceGitStatusError(error)
+
+      return {
+        code: classifiedError.code,
+        error: classifiedError.error,
+        ok: false,
+      }
     }
   }
 
@@ -457,6 +558,62 @@ export class GitWorkspaceService {
       remoteUrl,
       repoRoot,
     }
+  }
+
+  private async buildDiffSections(
+    workspace: WorkspaceRecord,
+    file: WorkspaceGitFileStatus,
+  ): Promise<WorkspaceGitDiffSection[]> {
+    const sections: WorkspaceGitDiffSection[] = []
+
+    if (file.isStaged) {
+      const patch = await this.runGit(
+        ['diff', '--no-ext-diff', '--cached', '--unified=3', '--', file.path],
+        workspace.worktreePath,
+      )
+      const truncated = truncateDiffOutput(patch)
+
+      sections.push({
+        isTruncated: truncated.isTruncated,
+        kind: 'staged',
+        patch: truncated.patch,
+        title: 'Staged diff',
+      })
+    }
+
+    if (file.isUnstaged) {
+      if (file.unstaged === 'untracked') {
+        const content = await readFile(
+          path.join(workspace.worktreePath, file.path),
+          'utf8',
+        )
+        const truncated = truncateDiffOutput(
+          buildUntrackedPatch(file.path, content),
+        )
+
+        sections.push({
+          isTruncated: truncated.isTruncated,
+          kind: 'untracked',
+          patch: truncated.patch,
+          title: 'Untracked file',
+        })
+      } else {
+        const patch = await this.runGit(
+          ['diff', '--no-ext-diff', '--unified=3', '--', file.path],
+          workspace.worktreePath,
+        )
+        const truncated = truncateDiffOutput(patch)
+
+        sections.push({
+          isTruncated: truncated.isTruncated,
+          kind: 'unstaged',
+          patch: truncated.patch,
+          title: 'Working tree diff',
+        })
+      }
+    }
+
+    return sections
   }
 
   private async resolveRepoRoot(repoPath: string): Promise<string> {

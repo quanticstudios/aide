@@ -407,6 +407,96 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('returns staged, unstaged, and untracked diff sections for changed files', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nstaged\n')
+    runGit(repoRoot, ['add', 'README.md'])
+    writeFileSync(
+      path.join(repoRoot, 'README.md'),
+      '# aide\nstaged\nunstaged\n',
+    )
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'local notes\n')
+
+    await expect(
+      service.getWorkspaceFileDiff(imported.workspaceId, 'README.md'),
+    ).resolves.toEqual({
+      diff: expect.objectContaining({
+        branchName: 'main',
+        path: 'README.md',
+        sections: [
+          expect.objectContaining({
+            isTruncated: false,
+            kind: 'staged',
+            patch: expect.stringContaining('+++ b/README.md'),
+            title: 'Staged diff',
+          }),
+          expect.objectContaining({
+            isTruncated: false,
+            kind: 'unstaged',
+            patch: expect.stringContaining('+++ b/README.md'),
+            title: 'Working tree diff',
+          }),
+        ],
+        workspaceId: imported.workspaceId,
+        worktreePath: repoRoot,
+      }),
+      ok: true,
+    })
+
+    await expect(
+      service.getWorkspaceFileDiff(imported.workspaceId, 'notes.txt'),
+    ).resolves.toEqual({
+      diff: expect.objectContaining({
+        path: 'notes.txt',
+        sections: [
+          expect.objectContaining({
+            isTruncated: false,
+            kind: 'untracked',
+            patch: expect.stringContaining('+++ b/notes.txt'),
+            title: 'Untracked file',
+          }),
+        ],
+      }),
+      ok: true,
+    })
+
+    database.close()
+  })
+
+  it('truncates large diffs so the review surface stays bounded', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(
+      path.join(repoRoot, 'README.md'),
+      `# aide\n${'large diff line\n'.repeat(4000)}`,
+    )
+
+    await expect(
+      service.getWorkspaceFileDiff(imported.workspaceId, 'README.md'),
+    ).resolves.toEqual({
+      diff: expect.objectContaining({
+        path: 'README.md',
+        sections: [
+          expect.objectContaining({
+            isTruncated: true,
+            kind: 'unstaged',
+            patch: expect.stringContaining('...diff truncated...'),
+          }),
+        ],
+      }),
+      ok: true,
+    })
+
+    database.close()
+  })
+
   it('returns a parseable error when the workspace is missing', async () => {
     const database = createAideDatabase(':memory:')
     const service = new GitWorkspaceService(database)
@@ -442,6 +532,23 @@ describe('GitWorkspaceService', () => {
     await expect(service.getWorkspaceStatus(workspace.id)).resolves.toEqual({
       code: 'not-a-git-worktree',
       error: 'Workspace worktree is not a valid Git repository.',
+      ok: false,
+    })
+
+    database.close()
+  })
+
+  it('returns a parseable error when the requested changed file does not exist', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.getWorkspaceFileDiff(imported.workspaceId, 'missing.txt'),
+    ).resolves.toEqual({
+      code: 'file-not-found',
+      error: 'Changed file does not exist in workspace Git status.',
       ok: false,
     })
 

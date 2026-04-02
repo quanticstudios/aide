@@ -331,13 +331,20 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('git-pane-selected-file')).toHaveText(
       'README.md',
     )
+    await expect(page.getByTestId('git-pane-diff-staged')).toContainText(
+      '+++ b/README.md',
+    )
+    await expect(page.getByTestId('git-pane-diff-unstaged')).toContainText(
+      '+++ b/README.md',
+    )
+
     await page.getByTestId('git-pane-file-notes.txt').click()
     await expect(page.getByTestId('git-pane-selected-file')).toHaveText(
       'notes.txt',
     )
-    await expect(
-      page.getByText('Diff rendering lands in the next bead.'),
-    ).toBeVisible()
+    await expect(page.getByTestId('git-pane-diff-untracked')).toContainText(
+      '+++ b/notes.txt',
+    )
   })
 
   test('shows an inline error when the chosen folder is not a git repo', async () => {

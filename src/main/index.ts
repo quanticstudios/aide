@@ -185,6 +185,11 @@ function registerIpcHandlers(): void {
     (_event, workspaceId: string) =>
       gitWorkspaceService.getWorkspaceStatus(workspaceId),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspaceGitDiff,
+    (_event, workspaceId: string, filePath: string) =>
+      gitWorkspaceService.getWorkspaceFileDiff(workspaceId, filePath),
+  )
   ipcMain.handle(IPC_CHANNELS.executableValidate, (_event, command: string) =>
     validateExecutablePath(command),
   )

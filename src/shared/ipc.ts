@@ -8,6 +8,7 @@ import type {
   CreateWorkspaceRequest,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitDiffResult,
   WorkspaceGitStatusResult,
 } from './git'
 import type {
@@ -34,6 +35,7 @@ export const IPC_CHANNELS = {
   importProject: 'app:import-project',
   listProjectRefs: 'app:list-project-refs',
   getWorkspaceGitStatus: 'app:get-workspace-git-status',
+  getWorkspaceGitDiff: 'app:get-workspace-git-diff',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -54,6 +56,10 @@ export interface AideApi {
   getWorkspaceGitStatus: (
     workspaceId: string,
   ) => Promise<WorkspaceGitStatusResult>
+  getWorkspaceGitDiff: (
+    workspaceId: string,
+    filePath: string,
+  ) => Promise<WorkspaceGitDiffResult>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (

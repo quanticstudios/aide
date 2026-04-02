@@ -54,8 +54,29 @@ export interface WorkspaceGitStatusSuccess {
   status: WorkspaceGitStatusSnapshot
 }
 
+export interface WorkspaceGitDiffSection {
+  isTruncated: boolean
+  kind: 'staged' | 'unstaged' | 'untracked'
+  patch: string
+  title: string
+}
+
+export interface WorkspaceGitDiffSnapshot {
+  branchName: string
+  path: string
+  sections: WorkspaceGitDiffSection[]
+  workspaceId: string
+  worktreePath: string
+}
+
+export interface WorkspaceGitDiffSuccess {
+  diff: WorkspaceGitDiffSnapshot
+  ok: true
+}
+
 export interface WorkspaceGitStatusFailure {
   code:
+    | 'file-not-found'
     | 'git-command-failed'
     | 'git-unavailable'
     | 'not-a-git-worktree'
@@ -67,3 +88,7 @@ export interface WorkspaceGitStatusFailure {
 export type WorkspaceGitStatusResult =
   | WorkspaceGitStatusFailure
   | WorkspaceGitStatusSuccess
+
+export type WorkspaceGitDiffResult =
+  | WorkspaceGitDiffSuccess
+  | WorkspaceGitStatusFailure
