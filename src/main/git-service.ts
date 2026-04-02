@@ -5,8 +5,11 @@ import { promisify } from 'node:util'
 
 import type {
   CreateWorkspaceRequest,
+  GitChangeKind,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitFileStatus,
+  WorkspaceGitStatusResult,
 } from '../shared/git'
 import type {
   CreateProjectInput,
@@ -39,6 +42,7 @@ export interface GitWorkspaceStore {
     worktreePath: string,
   ): WorkspaceRecord | null
   getProject(projectId: string): ProjectRecord | null
+  getWorkspace(workspaceId: string): WorkspaceRecord | null
   getSnapshot(): PersistenceSnapshot
   updateProject(
     projectId: string,
@@ -64,10 +68,200 @@ function formatGitError(error: unknown, fallback: string): Error {
   return new Error(cause || error.message || fallback)
 }
 
+function normalizeGitChangeKind(code: string): GitChangeKind {
+  if (code === '.' || code === ' ') {
+    return 'unmodified'
+  }
+
+  if (code === 'M') {
+    return 'modified'
+  }
+
+  if (code === 'A') {
+    return 'added'
+  }
+
+  if (code === 'D') {
+    return 'deleted'
+  }
+
+  if (code === 'R') {
+    return 'renamed'
+  }
+
+  if (code === 'C') {
+    return 'copied'
+  }
+
+  if (code === 'U') {
+    return 'unmerged'
+  }
+
+  if (code === '?') {
+    return 'untracked'
+  }
+
+  return 'modified'
+}
+
+function parseBranchHead(output: string): string | null {
+  for (const line of output.split('\n')) {
+    if (!line.startsWith('# branch.head ')) {
+      continue
+    }
+
+    const branchHead = line.slice('# branch.head '.length).trim()
+
+    if (!branchHead || branchHead === '(detached)') {
+      return null
+    }
+
+    return branchHead
+  }
+
+  return null
+}
+
+function parseWorkspaceGitFiles(output: string): WorkspaceGitFileStatus[] {
+  const files: WorkspaceGitFileStatus[] = []
+
+  for (const line of output.split('\n')) {
+    if (!line || line.startsWith('# ')) {
+      continue
+    }
+
+    if (line.startsWith('? ')) {
+      const path = line.slice(2).trim()
+
+      if (!path) {
+        continue
+      }
+
+      files.push({
+        isStaged: false,
+        isUnstaged: true,
+        originalPath: null,
+        path,
+        staged: 'unmodified',
+        unstaged: 'untracked',
+      })
+      continue
+    }
+
+    if (
+      line.startsWith('1 ') ||
+      line.startsWith('2 ') ||
+      line.startsWith('u ')
+    ) {
+      const [meta, originalPath] = line.split('\t')
+      const fields = meta.split(' ')
+      const xy = fields[1] ?? '..'
+      const pathStartIndex = line.startsWith('1 ')
+        ? 8
+        : line.startsWith('2 ')
+          ? 9
+          : 10
+      const path = fields.slice(pathStartIndex).join(' ').trim()
+
+      if (!path) {
+        continue
+      }
+
+      const staged = normalizeGitChangeKind(xy[0] ?? '.')
+      const unstaged = normalizeGitChangeKind(xy[1] ?? '.')
+
+      files.push({
+        isStaged: staged !== 'unmodified',
+        isUnstaged: unstaged !== 'unmodified',
+        originalPath: originalPath?.trim() || null,
+        path,
+        staged,
+        unstaged,
+      })
+    }
+  }
+
+  return files.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function classifyWorkspaceGitStatusError(
+  error: unknown,
+): WorkspaceGitStatusResult {
+  const message = formatGitError(
+    error,
+    'Unable to inspect workspace Git status.',
+  ).message
+
+  if (message.includes('Configured executable "git"')) {
+    return {
+      code: 'git-unavailable',
+      error: message,
+      ok: false,
+    }
+  }
+
+  if (
+    message.includes('not a git repository') ||
+    message.includes('cannot change to') ||
+    message.includes('no such file or directory')
+  ) {
+    return {
+      code: 'not-a-git-worktree',
+      error: 'Workspace worktree is not a valid Git repository.',
+      ok: false,
+    }
+  }
+
+  return {
+    code: 'git-command-failed',
+    error: message,
+    ok: false,
+  }
+}
+
 export class GitWorkspaceService {
   private gitPathPromise: Promise<string> | null = null
 
   public constructor(private readonly store: GitWorkspaceStore) {}
+
+  public async getWorkspaceStatus(
+    workspaceId: string,
+  ): Promise<WorkspaceGitStatusResult> {
+    const workspace = this.store.getWorkspace(workspaceId)
+
+    if (!workspace) {
+      return {
+        code: 'workspace-not-found',
+        error: 'Workspace does not exist.',
+        ok: false,
+      }
+    }
+
+    try {
+      const output = await this.runGit(
+        ['status', '--porcelain=v2', '--branch'],
+        workspace.worktreePath,
+      )
+      const files = parseWorkspaceGitFiles(output)
+      const branchName =
+        parseBranchHead(output) ||
+        (await this.resolveCurrentBranchLabel(workspace.worktreePath))
+
+      return {
+        ok: true,
+        status: {
+          branchName,
+          files,
+          hasStagedChanges: files.some((file) => file.isStaged),
+          hasUnstagedChanges: files.some((file) => file.isUnstaged),
+          workspaceId: workspace.id,
+          worktreePath: workspace.worktreePath,
+        },
+      }
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
 
   public async importProject(repoPath: string): Promise<ImportProjectResult> {
     const metadata = await this.inspectRepository(repoPath)

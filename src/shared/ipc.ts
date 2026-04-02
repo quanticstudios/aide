@@ -8,6 +8,7 @@ import type {
   CreateWorkspaceRequest,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitStatusResult,
 } from './git'
 import type {
   PersistenceSnapshot,
@@ -32,6 +33,7 @@ export const IPC_CHANNELS = {
   pickProjectRoot: 'app:pick-project-root',
   importProject: 'app:import-project',
   listProjectRefs: 'app:list-project-refs',
+  getWorkspaceGitStatus: 'app:get-workspace-git-status',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -49,6 +51,9 @@ export interface AideApi {
   ) => Promise<PersistenceSnapshot>
   importProject: (repoPath: string) => Promise<ImportProjectResult>
   listProjectRefs: (projectId: string) => Promise<ProjectRefRecord[]>
+  getWorkspaceGitStatus: (
+    workspaceId: string,
+  ) => Promise<WorkspaceGitStatusResult>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (

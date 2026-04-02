@@ -20,3 +20,50 @@ export interface CreateWorkspaceRequest {
   windowId: string | null
   worktreePath: string
 }
+
+export type GitChangeKind =
+  | 'added'
+  | 'copied'
+  | 'deleted'
+  | 'modified'
+  | 'unmerged'
+  | 'unmodified'
+  | 'untracked'
+  | 'renamed'
+
+export interface WorkspaceGitFileStatus {
+  isStaged: boolean
+  isUnstaged: boolean
+  originalPath: string | null
+  path: string
+  staged: GitChangeKind
+  unstaged: GitChangeKind
+}
+
+export interface WorkspaceGitStatusSnapshot {
+  branchName: string
+  files: WorkspaceGitFileStatus[]
+  hasStagedChanges: boolean
+  hasUnstagedChanges: boolean
+  workspaceId: string
+  worktreePath: string
+}
+
+export interface WorkspaceGitStatusSuccess {
+  ok: true
+  status: WorkspaceGitStatusSnapshot
+}
+
+export interface WorkspaceGitStatusFailure {
+  code:
+    | 'git-command-failed'
+    | 'git-unavailable'
+    | 'not-a-git-worktree'
+    | 'workspace-not-found'
+  error: string
+  ok: false
+}
+
+export type WorkspaceGitStatusResult =
+  | WorkspaceGitStatusFailure
+  | WorkspaceGitStatusSuccess

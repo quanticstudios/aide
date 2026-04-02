@@ -180,6 +180,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.listProjectRefs, (_event, projectId: string) =>
     gitWorkspaceService.listProjectRefs(projectId),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspaceGitStatus,
+    (_event, workspaceId: string) =>
+      gitWorkspaceService.getWorkspaceStatus(workspaceId),
+  )
   ipcMain.handle(IPC_CHANNELS.executableValidate, (_event, command: string) =>
     validateExecutablePath(command),
   )

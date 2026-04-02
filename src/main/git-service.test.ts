@@ -5,7 +5,10 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import type { CreateWorkspaceInput } from '../shared/persistence'
+import type {
+  CreateWorkspaceInput,
+  WorkspaceRecord,
+} from '../shared/persistence'
 import { createAideDatabase } from './database'
 import { GitWorkspaceService, type GitWorkspaceStore } from './git-service'
 
@@ -315,6 +318,7 @@ describe('GitWorkspaceService', () => {
       findWorkspaceByWorktreePath:
         database.findWorkspaceByWorktreePath.bind(database),
       getProject: database.getProject.bind(database),
+      getWorkspace: database.getWorkspace.bind(database),
       getSnapshot: database.getSnapshot.bind(database),
       updateProject: database.updateProject.bind(database),
       updateWorkspace: database.updateWorkspace.bind(database),
@@ -351,6 +355,95 @@ describe('GitWorkspaceService', () => {
 
     expect(database.getSnapshot().projects).toEqual([])
     expect(database.getSnapshot().workspaces).toEqual([])
+
+    database.close()
+  })
+
+  it('returns workspace-scoped branch and file status data', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nstaged\n')
+    runGit(repoRoot, ['add', 'README.md'])
+    writeFileSync(
+      path.join(repoRoot, 'README.md'),
+      '# aide\nstaged\nunstaged\n',
+    )
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'local notes\n')
+
+    const result = await service.getWorkspaceStatus(imported.workspaceId)
+
+    expect(result).toEqual({
+      ok: true,
+      status: {
+        branchName: 'main',
+        files: [
+          {
+            isStaged: false,
+            isUnstaged: true,
+            originalPath: null,
+            path: 'notes.txt',
+            staged: 'unmodified',
+            unstaged: 'untracked',
+          },
+          {
+            isStaged: true,
+            isUnstaged: true,
+            originalPath: null,
+            path: 'README.md',
+            staged: 'modified',
+            unstaged: 'modified',
+          },
+        ],
+        hasStagedChanges: true,
+        hasUnstagedChanges: true,
+        workspaceId: imported.workspaceId,
+        worktreePath: repoRoot,
+      },
+    })
+
+    database.close()
+  })
+
+  it('returns a parseable error when the workspace is missing', async () => {
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+
+    await expect(service.getWorkspaceStatus('missing')).resolves.toEqual({
+      code: 'workspace-not-found',
+      error: 'Workspace does not exist.',
+      ok: false,
+    })
+
+    database.close()
+  })
+
+  it('returns a parseable error when the workspace path is not a git worktree', async () => {
+    const repoRoot = createGitRepository()
+    const invalidPath = createTempDirectory('aide-invalid-worktree-')
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: path.basename(repoRoot),
+      remoteUrl: null,
+      repoRoot,
+    })
+    const workspace: WorkspaceRecord = database.createWorkspace({
+      branchName: 'main',
+      name: 'broken',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: invalidPath,
+    })
+    const service = new GitWorkspaceService(database)
+
+    await expect(service.getWorkspaceStatus(workspace.id)).resolves.toEqual({
+      code: 'not-a-git-worktree',
+      error: 'Workspace worktree is not a valid Git repository.',
+      ok: false,
+    })
 
     database.close()
   })
