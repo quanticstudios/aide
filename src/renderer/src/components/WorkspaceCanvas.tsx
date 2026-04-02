@@ -1,5 +1,14 @@
-import { Button } from '@heroui/react'
-import { FolderOpen, Plus } from 'lucide-react'
+import { Button, Tooltip } from '@heroui/react'
+import {
+  Columns2,
+  Expand,
+  FolderOpen,
+  type LucideIcon,
+  Plus,
+  Rows2,
+  Shrink,
+  X,
+} from 'lucide-react'
 import type { PreviewTarget } from '../../../shared/domain'
 
 import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
@@ -136,48 +145,73 @@ function PaneActionBar({
   ) => void
   readonly paneId: string
 }) {
+  const actions: ReadonlyArray<{
+    readonly disabled?: boolean
+    readonly icon: LucideIcon
+    readonly label: string
+    readonly onPress: () => void
+  }> = [
+    {
+      icon: Columns2,
+      label: 'Split horizontally',
+      onPress: () => onSplitPane(paneId, 'split-horizontal'),
+    },
+    {
+      icon: Rows2,
+      label: 'Split vertically',
+      onPress: () => onSplitPane(paneId, 'split-vertical'),
+    },
+    {
+      icon: Expand,
+      label: 'Grow pane',
+      onPress: () => onResizePane(paneId, 0.25),
+    },
+    {
+      icon: Shrink,
+      label: 'Shrink pane',
+      onPress: () => onResizePane(paneId, -0.25),
+    },
+    {
+      disabled: !canClosePane,
+      icon: X,
+      label: 'Close pane',
+      onPress: () => onClosePane(paneId),
+    },
+  ]
+
   return (
     <div
-      className="absolute right-3 top-3 z-10 flex flex-wrap gap-2 rounded-xl border border-border/70 bg-background/90 p-2 shadow-sm backdrop-blur"
+      className="absolute right-0 top-1/2 z-10 flex -translate-y-1/2 translate-x-1/2 flex-col rounded-full border border-border/80 bg-background/94 p-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur"
       onMouseDown={(event) => event.stopPropagation()}
       role="presentation"
     >
-      <Button
-        onPress={() => onSplitPane(paneId, 'split-horizontal')}
-        size="sm"
-        variant="ghost"
-      >
-        Split H
-      </Button>
-      <Button
-        onPress={() => onSplitPane(paneId, 'split-vertical')}
-        size="sm"
-        variant="ghost"
-      >
-        Split V
-      </Button>
-      <Button
-        onPress={() => onResizePane(paneId, 0.25)}
-        size="sm"
-        variant="ghost"
-      >
-        Grow
-      </Button>
-      <Button
-        onPress={() => onResizePane(paneId, -0.25)}
-        size="sm"
-        variant="ghost"
-      >
-        Shrink
-      </Button>
-      <Button
-        isDisabled={!canClosePane}
-        onPress={() => onClosePane(paneId)}
-        size="sm"
-        variant="ghost"
-      >
-        Close
-      </Button>
+      {actions.map((action) => {
+        const Icon = action.icon
+
+        return (
+          <Tooltip delay={550} key={action.label}>
+            <Tooltip.Trigger>
+              <Button
+                aria-label={action.label}
+                className="size-8 rounded-full border border-transparent bg-transparent text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-foreground data-[disabled=true]:border-transparent data-[disabled=true]:bg-transparent data-[disabled=true]:text-muted-foreground/45"
+                isDisabled={action.disabled ?? false}
+                isIconOnly
+                onPress={action.onPress}
+                size="sm"
+                variant="ghost"
+              >
+                <Icon className="size-3.5" />
+              </Button>
+            </Tooltip.Trigger>
+            <Tooltip.Content
+              className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
+              placement="right"
+            >
+              {action.label}
+            </Tooltip.Content>
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }
@@ -246,16 +280,18 @@ function renderLayoutNode(args: {
             paneId={paneId}
           />
         ) : null}
-        {resolvePaneContent({
-          activePaneId: args.activePaneId,
-          activeProject: args.activeProject,
-          activePreviewTarget: args.activePreviewTarget,
-          onLoadPreviewTarget: args.onLoadPreviewTarget,
-          onSelectPreviewTarget: args.onSelectPreviewTarget,
-          paneId,
-          previewTargets: args.previewTargets,
-          workspace: args.workspace,
-        })}
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.2xl)-1px)]">
+          {resolvePaneContent({
+            activePaneId: args.activePaneId,
+            activeProject: args.activeProject,
+            activePreviewTarget: args.activePreviewTarget,
+            onLoadPreviewTarget: args.onLoadPreviewTarget,
+            onSelectPreviewTarget: args.onSelectPreviewTarget,
+            paneId,
+            previewTargets: args.previewTargets,
+            workspace: args.workspace,
+          })}
+        </div>
       </article>
     )
   }
