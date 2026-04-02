@@ -1,5 +1,6 @@
 import { Button } from '@heroui/react'
 import { FolderOpen, Plus } from 'lucide-react'
+import type { PreviewTarget } from '../../../shared/domain'
 
 import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
@@ -24,19 +25,29 @@ import type {
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
+  readonly activePreviewTarget: PreviewTarget | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly actionError: string | null
   readonly isDemoMode: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
+  readonly onLoadPreviewTarget: (
+    workspace: WorkspaceRecord,
+    url: string,
+  ) => void
   readonly projectWorkspaces: readonly WorkspaceRecord[]
   readonly onResizePane: (paneId: string, delta: number) => void
+  readonly onSelectPreviewTarget: (
+    workspace: WorkspaceRecord,
+    targetId: string,
+  ) => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSplitPane: (
     paneId: string,
     splitType: PersistedSplitLayoutNode['type'],
   ) => void
+  readonly previewTargets: readonly PreviewTarget[]
   readonly shellError: string | null
   readonly workspaceLayouts: Record<string, WorkspaceLayoutRecord>
 }
@@ -84,7 +95,11 @@ function EmptyState({
 function resolvePaneContent(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
+  activePreviewTarget: PreviewTarget | null
+  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
+  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   paneId: string
+  previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }) {
   const scene = getWorkspaceScene(args.workspace.id)
@@ -94,8 +109,12 @@ function resolvePaneContent(args: {
 
   return renderPaneFromRegistry({
     activePaneId: args.activePaneId,
+    activePreviewTarget: args.activePreviewTarget,
+    onLoadPreviewTarget: args.onLoadPreviewTarget,
+    onSelectPreviewTarget: args.onSelectPreviewTarget,
     pane,
     project: args.activeProject,
+    previewTargets: args.previewTargets,
     scene,
     workspace: args.workspace,
   })
@@ -166,17 +185,21 @@ function PaneActionBar({
 function renderLayoutNode(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
+  activePreviewTarget: PreviewTarget | null
   canClosePane: boolean
   isInteractive: boolean
   node: PersistedLayoutNode
   nodeLookup: Map<string, PersistedLayoutNode>
   onClosePane: (paneId: string) => void
+  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
   onResizePane: (paneId: string, delta: number) => void
+  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   onSelectPane: (paneId: string) => void
   onSplitPane: (
     paneId: string,
     splitType: PersistedSplitLayoutNode['type'],
   ) => void
+  previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }) {
   if (args.node.type === 'pane') {
@@ -206,7 +229,11 @@ function renderLayoutNode(args: {
         {resolvePaneContent({
           activePaneId: args.activePaneId,
           activeProject: args.activeProject,
+          activePreviewTarget: args.activePreviewTarget,
+          onLoadPreviewTarget: args.onLoadPreviewTarget,
+          onSelectPreviewTarget: args.onSelectPreviewTarget,
           paneId,
+          previewTargets: args.previewTargets,
           workspace: args.workspace,
         })}
       </article>
@@ -241,14 +268,18 @@ function renderLayoutNode(args: {
             {renderLayoutNode({
               activePaneId: args.activePaneId,
               activeProject: args.activeProject,
+              activePreviewTarget: args.activePreviewTarget,
               canClosePane: args.canClosePane,
               isInteractive: args.isInteractive,
               node: childNode,
               nodeLookup: args.nodeLookup,
               onClosePane: args.onClosePane,
+              onLoadPreviewTarget: args.onLoadPreviewTarget,
               onResizePane: args.onResizePane,
+              onSelectPreviewTarget: args.onSelectPreviewTarget,
               onSelectPane: args.onSelectPane,
               onSplitPane: args.onSplitPane,
+              previewTargets: args.previewTargets,
               workspace: args.workspace,
             })}
           </div>
@@ -261,15 +292,19 @@ function renderLayoutNode(args: {
 export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
+  activePreviewTarget,
   activeWorkspace,
   actionError,
   isDemoMode,
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
+  onLoadPreviewTarget,
   onResizePane,
+  onSelectPreviewTarget,
   onSelectPane,
   onSplitPane,
+  previewTargets,
   projectWorkspaces,
   shellError,
   workspaceLayouts,
@@ -385,14 +420,20 @@ export default function WorkspaceCanvas({
                     renderLayoutNode({
                       activePaneId: isActiveWorkspace ? activePaneId : null,
                       activeProject,
+                      activePreviewTarget: isActiveWorkspace
+                        ? activePreviewTarget
+                        : null,
                       canClosePane: paneCount > 1,
                       isInteractive: isActiveWorkspace,
                       node: rootNode,
                       nodeLookup,
                       onClosePane,
+                      onLoadPreviewTarget,
                       onResizePane,
+                      onSelectPreviewTarget,
                       onSelectPane,
                       onSplitPane,
+                      previewTargets: isActiveWorkspace ? previewTargets : [],
                       workspace,
                     })
                   ) : activeProject && !isDemoMode ? (

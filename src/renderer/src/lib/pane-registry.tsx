@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import type { PreviewTarget } from '../../../shared/domain'
 import type {
   ProjectRecord,
   WorkspaceRecord,
@@ -18,9 +19,13 @@ import {
 
 interface PaneRenderArgs {
   activePaneId: string | null
+  activePreviewTarget: PreviewTarget | null
+  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
+  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   pane: PlaceholderPane
   project: ProjectRecord
   scene: WorkspaceScene
+  previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }
 
@@ -49,7 +54,14 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
 
 const previewRenderer = (args: PaneRenderArgs): ReactNode =>
   args.pane.id === args.activePaneId ? (
-    <PreviewPane />
+    <PreviewPane
+      activeTarget={args.activePreviewTarget}
+      onLoadTarget={(url) => args.onLoadPreviewTarget(args.workspace, url)}
+      onSelectTarget={(targetId) =>
+        args.onSelectPreviewTarget(args.workspace, targetId)
+      }
+      targets={args.previewTargets}
+    />
   ) : (
     placeholderRenderer(args)
   )

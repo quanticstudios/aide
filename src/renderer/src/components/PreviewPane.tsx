@@ -1,19 +1,29 @@
 import { Button, Chip, Input } from '@heroui/react'
 import { RefreshCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { isAllowedPreviewUrl, normalizePreviewUrl } from '@/lib/preview-target'
+import type { PreviewTarget } from '../../../shared/domain'
 
 interface PreviewPaneProps {
-  readonly initialTarget?: string
+  readonly activeTarget: PreviewTarget | null
+  readonly onLoadTarget: (url: string) => void
+  readonly onSelectTarget: (targetId: string) => void
+  readonly targets: readonly PreviewTarget[]
 }
 
 export default function PreviewPane({
-  initialTarget = 'http://127.0.0.1:4173',
+  activeTarget,
+  onLoadTarget,
+  onSelectTarget,
+  targets,
 }: PreviewPaneProps) {
-  const [draftTarget, setDraftTarget] = useState(initialTarget)
-  const [activeTarget, setActiveTarget] = useState(initialTarget)
+  const [draftTarget, setDraftTarget] = useState(activeTarget?.url ?? '')
   const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    setDraftTarget(activeTarget?.url ?? '')
+  }, [activeTarget?.url])
 
   const normalizedDraftTarget = useMemo(
     () => normalizePreviewUrl(draftTarget),
@@ -26,7 +36,7 @@ export default function PreviewPane({
       return
     }
 
-    setActiveTarget(normalizedDraftTarget)
+    onLoadTarget(normalizedDraftTarget)
   }
 
   return (
@@ -77,16 +87,33 @@ export default function PreviewPane({
         </Button>
       </div>
 
-      <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-        {activeTarget}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {targets.map((target) => (
+          <Button
+            data-testid={`preview-target-${target.id}`}
+            key={target.id}
+            onPress={() => onSelectTarget(target.id)}
+            size="sm"
+            variant={target.isActive ? 'secondary' : 'ghost'}
+          >
+            {target.label}
+          </Button>
+        ))}
+      </div>
+
+      <div
+        className="mb-3 text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
+        data-testid="preview-active-target"
+      >
+        {activeTarget?.url ?? 'No active preview target'}
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60 bg-background">
         <iframe
           className="h-full w-full bg-white"
-          key={`${activeTarget}:${reloadKey}`}
+          key={`${activeTarget?.url ?? 'empty'}:${reloadKey}`}
           sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-          src={activeTarget}
+          src={activeTarget?.url ?? 'about:blank'}
           title="Local preview"
         />
       </div>

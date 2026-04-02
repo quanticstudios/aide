@@ -5,6 +5,7 @@ import type { AideApi } from '../../shared/ipc'
 import type {
   PersistenceSnapshot,
   WorkspaceLayoutRecord,
+  WorkspaceRecord,
 } from '../../shared/persistence'
 import AppShell from './components/AppShell'
 import PaneCreationModal from './components/PaneCreationModal'
@@ -37,6 +38,12 @@ import {
   splitWorkspacePane,
 } from './lib/workspace-layout-mutations'
 import { resolveHorizontalPaneNeighbor } from './lib/workspace-layout-navigation'
+import {
+  type WorkspaceRuntimeState,
+  getWorkspacePreviewState,
+  selectWorkspacePreviewTarget,
+  upsertWorkspacePreviewTarget,
+} from './lib/workspace-runtime'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 
@@ -118,6 +125,8 @@ export default function App() {
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
+  const [workspaceRuntimeState, setWorkspaceRuntimeState] =
+    useState<WorkspaceRuntimeState>({})
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -915,6 +924,14 @@ export default function App() {
     allWorkspaces.find(
       (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
     ) ?? null
+  const activePreviewState = getWorkspacePreviewState(
+    workspaceRuntimeState,
+    activeWorkspace,
+  )
+  const activePreviewTarget =
+    activePreviewState.targets.find(
+      (target) => target.id === activePreviewState.activeTargetId,
+    ) ?? null
   const projectWorkspaces = activeProject
     ? allWorkspaces.filter(
         (workspace) => workspace.projectId === activeProject.id,
@@ -931,6 +948,30 @@ export default function App() {
         resolvedNavigationState.activeWorkspaceId,
       ),
     [allWorkspaces, projects, resolvedNavigationState.activeWorkspaceId],
+  )
+  const handleLoadPreviewTarget = useCallback(
+    (workspace: WorkspaceRecord, url: string) => {
+      setWorkspaceRuntimeState((current) =>
+        upsertWorkspacePreviewTarget({
+          runtimeState: current,
+          url,
+          workspace,
+        }),
+      )
+    },
+    [],
+  )
+  const handleSelectPreviewTarget = useCallback(
+    (workspace: WorkspaceRecord, targetId: string) => {
+      setWorkspaceRuntimeState((current) =>
+        selectWorkspacePreviewTarget({
+          runtimeState: current,
+          targetId,
+          workspace,
+        }),
+      )
+    },
+    [],
   )
 
   return (
@@ -995,13 +1036,16 @@ export default function App() {
         />
         <WorkspaceCanvas
           activeProject={activeProject}
+          activePreviewTarget={activePreviewTarget}
           activeWorkspace={activeWorkspace}
           actionError={actionError}
           isDemoMode={isDemoMode}
           onCreateProject={openProject}
           onCreateWorkspace={createWorkspace}
           onClosePane={handleClosePane}
+          onLoadPreviewTarget={handleLoadPreviewTarget}
           onResizePane={handleResizePane}
+          onSelectPreviewTarget={handleSelectPreviewTarget}
           onSelectPane={(paneId: string) =>
             setSelection(
               applyPaneSelection(
@@ -1013,6 +1057,7 @@ export default function App() {
             )
           }
           onSplitPane={handleSplitPane}
+          previewTargets={activePreviewState.targets}
           projectWorkspaces={projectWorkspaces}
           shellError={isDemoMode ? null : shellError}
           activePaneId={activePaneId}

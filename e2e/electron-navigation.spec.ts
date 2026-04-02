@@ -347,6 +347,55 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
+  test('stores multiple preview targets per workspace and switches the active target', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp(
+      {
+        AIDE_USE_NAVIGATION_POC: '0',
+        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+      },
+      { expectActivePane: false },
+    )
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /preview/i }).click()
+
+    await expect(page.getByTestId('preview-active-target')).toHaveText(
+      'http://127.0.0.1:4173',
+    )
+
+    const targetInput = page.getByRole('textbox', { name: 'Preview target' })
+    await targetInput.fill('localhost:3000')
+    await page.getByRole('button', { name: /load preview/i }).click()
+
+    await expect(page.getByTestId('preview-active-target')).toHaveText(
+      'http://localhost:3000',
+    )
+    await expect(
+      page.getByTestId('preview-target-preview:http://127.0.0.1:4173'),
+    ).toBeVisible()
+    await expect(
+      page.getByTestId('preview-target-preview:http://localhost:3000'),
+    ).toBeVisible()
+
+    await page
+      .getByTestId('preview-target-preview:http://127.0.0.1:4173')
+      .click()
+    await expect(page.getByTestId('preview-active-target')).toHaveText(
+      'http://127.0.0.1:4173',
+    )
+  })
+
   test('shows an inline error when the chosen folder is not a git repo', async () => {
     const chosenProjectRoot = mkdtempSync(path.join(tmpdir(), 'aide-non-git-'))
     const launched = await launchAideApp(
