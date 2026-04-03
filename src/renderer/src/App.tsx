@@ -650,9 +650,13 @@ export default function App() {
   )
 
   const handleSplitPane = useCallback(
-    (paneId: string, splitType: 'split-horizontal' | 'split-vertical') => {
+    (
+      paneId: string,
+      splitType: 'split-horizontal' | 'split-vertical',
+      targetPaneType?: string,
+    ) => {
       void applyWorkspaceLayoutChange((layout) =>
-        splitWorkspacePane(layout, paneId, splitType),
+        splitWorkspacePane(layout, paneId, splitType, targetPaneType),
       )
     },
     [applyWorkspaceLayoutChange],

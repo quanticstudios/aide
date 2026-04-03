@@ -24,6 +24,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitStatus, workspaceId),
   getWorkspaceGitDiff: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitDiff, workspaceId, filePath),
+  getWorktreeBranchStats: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorktreeBranchStats, workspaceId),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
   killTerminalSession: (sessionId: string) =>

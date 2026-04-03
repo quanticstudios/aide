@@ -201,6 +201,23 @@ body {
   background: rgba(255, 255, 255, 0.22);
   background-clip: padding-box;
 }
+/* ── Sidebar tree indent guide ───────────── */
+
+.sidebar-tree-indent {
+  position: relative;
+}
+
+.sidebar-tree-indent::before {
+  content: '';
+  position: absolute;
+  left: 1.125rem;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.4;
+}
+
 .pane-strip {
   scroll-padding-inline: 1.25rem;
 }

@@ -234,6 +234,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
     readProjectFile(process.cwd(), relativePath),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorktreeBranchStats,
+    (_event, workspaceId: string) =>
+      gitWorkspaceService.getWorktreeBranchStats(workspaceId),
+  )
 }
 
 app.whenReady().then(() => {

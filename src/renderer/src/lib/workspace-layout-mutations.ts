@@ -174,6 +174,7 @@ export function splitWorkspacePane(
   layout: WorkspaceLayoutRecord,
   paneId: string,
   splitType: PersistedSplitLayoutNode['type'],
+  targetTemplatePaneId?: string,
 ): WorkspaceLayoutMutationResult {
   const nextLayout = cloneLayout(layout)
   const nodeMap = createNodeMap(nextLayout)
@@ -190,7 +191,9 @@ export function splitWorkspacePane(
 
   const splitNodeId = createNodeId(nextLayout, 'split-node')
   const duplicatePaneNodeId = createNodeId(nextLayout, 'pane-node')
-  const duplicatePaneId = createSplitPaneId(nextLayout, paneId)
+  const duplicatePaneId = targetTemplatePaneId
+    ? createPaneIdForTemplate(nextLayout, targetTemplatePaneId)
+    : createSplitPaneId(nextLayout, paneId)
   const parentNode =
     paneNode.parentId !== null ? (nodeMap.get(paneNode.parentId) ?? null) : null
   const updatedPaneNode = {

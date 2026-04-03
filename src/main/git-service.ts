@@ -14,6 +14,8 @@ import type {
   WorkspaceGitFileStatus,
   WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
+  WorktreeBranchStats,
+  WorktreeBranchStatsResult,
 } from '../shared/git'
 import type {
   CreateProjectInput,
@@ -364,6 +366,76 @@ export class GitWorkspaceService {
     }
   }
 
+  public async getWorktreeBranchStats(
+    workspaceId: string,
+  ): Promise<WorktreeBranchStatsResult> {
+    const workspace = this.store.getWorkspace(workspaceId)
+
+    if (!workspace) {
+      return {
+        code: 'workspace-not-found',
+        error: 'Workspace does not exist.',
+        ok: false,
+      }
+    }
+
+    const project = this.store.getProject(workspace.projectId)
+
+    if (!project) {
+      return {
+        code: 'workspace-not-found',
+        error: 'Parent project does not exist.',
+        ok: false,
+      }
+    }
+
+    try {
+      const baseRef = await this.resolveComparisonBase(
+        workspace.worktreePath,
+        project.defaultBranch,
+      )
+
+      if (!baseRef) {
+        return {
+          ok: true,
+          stats: {
+            additions: 0,
+            aheadCount: 0,
+            behindCount: 0,
+            deletions: 0,
+            mergeStatus: 'unknown',
+          },
+          workspaceId,
+        }
+      }
+
+      const [diffStats, aheadBehind, mergeStatus] = await Promise.all([
+        this.getDiffStats(workspace.worktreePath, baseRef),
+        this.getAheadBehind(workspace.worktreePath, baseRef),
+        this.detectMergeStatus(workspace.worktreePath, baseRef),
+      ])
+
+      const resolvedMergeStatus =
+        aheadBehind.ahead === 0 && aheadBehind.behind === 0
+          ? 'up-to-date'
+          : mergeStatus
+
+      return {
+        ok: true,
+        stats: {
+          additions: diffStats.additions,
+          aheadCount: aheadBehind.ahead,
+          behindCount: aheadBehind.behind,
+          deletions: diffStats.deletions,
+          mergeStatus: resolvedMergeStatus,
+        },
+        workspaceId,
+      }
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
   public async importProject(repoPath: string): Promise<ImportProjectResult> {
     const metadata = await this.inspectRepository(repoPath)
     const existingProject = this.store.findProjectByRepoRoot(metadata.repoRoot)
@@ -614,6 +686,116 @@ export class GitWorkspaceService {
     }
 
     return sections
+  }
+
+  private async resolveComparisonBase(
+    worktreePath: string,
+    defaultBranch: string,
+  ): Promise<string | null> {
+    const remoteRef = `refs/remotes/origin/${defaultBranch}`
+
+    try {
+      await this.runGit(
+        ['show-ref', '--verify', '--quiet', remoteRef],
+        worktreePath,
+      )
+
+      return `origin/${defaultBranch}`
+    } catch {
+      // Remote ref not available, try local
+    }
+
+    const localRef = `refs/heads/${defaultBranch}`
+
+    try {
+      await this.runGit(
+        ['show-ref', '--verify', '--quiet', localRef],
+        worktreePath,
+      )
+
+      return defaultBranch
+    } catch {
+      return null
+    }
+  }
+
+  private async getDiffStats(
+    worktreePath: string,
+    baseRef: string,
+  ): Promise<{ additions: number; deletions: number }> {
+    try {
+      const output = await this.runGit(
+        ['diff', '--shortstat', `${baseRef}...HEAD`],
+        worktreePath,
+      )
+
+      if (!output.trim()) {
+        return { additions: 0, deletions: 0 }
+      }
+
+      const insertionsMatch = output.match(/(\d+) insertion/)
+      const deletionsMatch = output.match(/(\d+) deletion/)
+
+      return {
+        additions: insertionsMatch ? Number.parseInt(insertionsMatch[1], 10) : 0,
+        deletions: deletionsMatch ? Number.parseInt(deletionsMatch[1], 10) : 0,
+      }
+    } catch {
+      return { additions: 0, deletions: 0 }
+    }
+  }
+
+  private async getAheadBehind(
+    worktreePath: string,
+    baseRef: string,
+  ): Promise<{ ahead: number; behind: number }> {
+    try {
+      const output = await this.runGit(
+        ['rev-list', '--left-right', '--count', `${baseRef}...HEAD`],
+        worktreePath,
+      )
+      const [behind = '0', ahead = '0'] = output.trim().split(/\s+/)
+
+      return {
+        ahead: Number.parseInt(ahead, 10),
+        behind: Number.parseInt(behind, 10),
+      }
+    } catch {
+      return { ahead: 0, behind: 0 }
+    }
+  }
+
+  private async detectMergeStatus(
+    worktreePath: string,
+    baseRef: string,
+  ): Promise<WorktreeBranchStats['mergeStatus']> {
+    try {
+      const mergeBase = await this.runGit(
+        ['merge-base', baseRef, 'HEAD'],
+        worktreePath,
+      )
+
+      if (!mergeBase.trim()) {
+        return 'unknown'
+      }
+
+      try {
+        const output = await this.runGit(
+          ['merge-tree', mergeBase.trim(), baseRef, 'HEAD'],
+          worktreePath,
+        )
+
+        if (output.includes('<<<<<<<') || output.includes('=======')) {
+          return 'conflicts'
+        }
+
+        return 'clean'
+      } catch {
+        return 'unknown'
+      }
+    } catch {
+      return 'unknown'
+    }
   }
 
   private async resolveRepoRoot(repoPath: string): Promise<string> {

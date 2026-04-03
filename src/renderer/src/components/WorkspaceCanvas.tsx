@@ -9,7 +9,10 @@ import {
   Shrink,
   X,
 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+
 import type { PreviewTarget } from '../../../shared/domain'
+import { listPaneCatalogEntries } from '@/lib/pane-catalog'
 
 import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
@@ -55,6 +58,7 @@ interface WorkspaceCanvasProps {
   readonly onSplitPane: (
     paneId: string,
     splitType: PersistedSplitLayoutNode['type'],
+    targetPaneType?: string,
   ) => void
   readonly previewTargets: readonly PreviewTarget[]
   readonly shellError: string | null
@@ -142,9 +146,33 @@ function PaneActionBar({
   readonly onSplitPane: (
     paneId: string,
     splitType: PersistedSplitLayoutNode['type'],
+    targetPaneType?: string,
   ) => void
   readonly paneId: string
 }) {
+  const [pendingSplitType, setPendingSplitType] = useState<
+    PersistedSplitLayoutNode['type'] | null
+  >(null)
+  const pickerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!pendingSplitType) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setPendingSplitType(null)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [pendingSplitType])
+
+  const paneOptions = listPaneCatalogEntries()
+
   const actions: ReadonlyArray<{
     readonly disabled?: boolean
     readonly icon: LucideIcon
@@ -154,12 +182,12 @@ function PaneActionBar({
     {
       icon: Columns2,
       label: 'Split horizontally',
-      onPress: () => onSplitPane(paneId, 'split-horizontal'),
+      onPress: () => setPendingSplitType('split-horizontal'),
     },
     {
       icon: Rows2,
       label: 'Split vertically',
-      onPress: () => onSplitPane(paneId, 'split-vertical'),
+      onPress: () => setPendingSplitType('split-vertical'),
     },
     {
       icon: Expand,
@@ -181,37 +209,72 @@ function PaneActionBar({
 
   return (
     <div
-      className="absolute right-0 top-1/2 z-10 flex -translate-y-1/2 translate-x-1/2 flex-col rounded-full border border-border/80 bg-background/94 p-1 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur"
+      className="absolute right-3 top-3 z-10"
       onMouseDown={(event) => event.stopPropagation()}
       role="presentation"
+      ref={pickerRef}
     >
-      {actions.map((action) => {
-        const Icon = action.icon
+      <div className="flex flex-row rounded-full border border-border/80 bg-background/94 p-0.5 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur">
+        {actions.map((action) => {
+          const Icon = action.icon
 
-        return (
-          <Tooltip delay={550} key={action.label}>
-            <Tooltip.Trigger>
-              <Button
-                aria-label={action.label}
-                className="size-8 rounded-full border border-transparent bg-transparent text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-foreground data-[disabled=true]:border-transparent data-[disabled=true]:bg-transparent data-[disabled=true]:text-muted-foreground/45"
-                isDisabled={action.disabled ?? false}
-                isIconOnly
-                onPress={action.onPress}
-                size="sm"
-                variant="ghost"
+          return (
+            <Tooltip delay={550} key={action.label}>
+              <Tooltip.Trigger>
+                <Button
+                  aria-label={action.label}
+                  className="size-6 rounded-full border border-transparent bg-transparent text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-foreground data-[disabled=true]:border-transparent data-[disabled=true]:bg-transparent data-[disabled=true]:text-muted-foreground/45"
+                  isDisabled={action.disabled ?? false}
+                  isIconOnly
+                  onPress={action.onPress}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Icon className="size-3.5" />
+                </Button>
+              </Tooltip.Trigger>
+              <Tooltip.Content
+                className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
+                placement="bottom"
               >
-                <Icon className="size-3.5" />
-              </Button>
-            </Tooltip.Trigger>
-            <Tooltip.Content
-              className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
-              placement="right"
-            >
-              {action.label}
-            </Tooltip.Content>
-          </Tooltip>
-        )
-      })}
+                {action.label}
+              </Tooltip.Content>
+            </Tooltip>
+          )
+        })}
+      </div>
+
+      {pendingSplitType ? (
+        <>
+          <div
+            className="fixed inset-0 z-10"
+            onClick={() => setPendingSplitType(null)}
+          />
+          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-xl border border-border bg-background/95 p-1 shadow-[0_20px_60px_rgba(0,0,0,0.34)] backdrop-blur">
+            <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+              Split with
+            </p>
+            {paneOptions.map((pane) => {
+              const Icon = pane.icon
+
+              return (
+                <button
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 transition-colors hover:bg-surface-secondary hover:text-foreground"
+                  key={pane.type}
+                  onClick={() => {
+                    onSplitPane(paneId, pendingSplitType, pane.type)
+                    setPendingSplitType(null)
+                  }}
+                  type="button"
+                >
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span>{pane.defaultMetadata.type}</span>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

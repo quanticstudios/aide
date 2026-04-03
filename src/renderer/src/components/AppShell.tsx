@@ -6,8 +6,7 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
-import AppSidebar from './AppSidebar'
-import ProjectWorkspaceTree from './ProjectWorkspaceTree'
+import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
 const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
@@ -151,28 +150,22 @@ export default function AppShell({
         onMouseLeave={handleSidebarMouseLeave}
         ref={sidebarShellRef}
       >
-        <AppSidebar
-          activeProjectId={activeProject?.id ?? null}
-          onCreateProject={onCreateProject}
-          onSelectProject={onSelectProject}
-          projects={projects}
-          showProjectHints={showProjectHints}
-        />
-
-        <ProjectWorkspaceTree
+        <SidebarTree
           activeProjectId={
             activeWorkspace?.projectId ?? activeProject?.id ?? null
           }
           activeWorkspaceId={activeWorkspace?.id ?? null}
           isExpanded={isSidebarExpanded}
           isPinnedOpen={isSidebarPinnedOpen}
+          onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
           onSelectProject={onSelectProject}
+          onSelectWorkspace={onSelectWorkspace}
           onTogglePinnedOpen={() =>
             setIsSidebarPinnedOpen((current) => !current)
           }
-          onSelectWorkspace={onSelectWorkspace}
           projects={projects}
+          showProjectHints={showProjectHints}
           summaries={workspaceSummaries}
           workspaces={workspaces}
         />

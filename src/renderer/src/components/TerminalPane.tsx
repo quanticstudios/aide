@@ -128,9 +128,27 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
         'JetBrainsMono Nerd Font, MesloLGS NF, Symbols Nerd Font Mono, IBM Plex Mono, monospace',
       fontSize: 13,
       theme: {
-        background: '#0f131b',
+        background: '#111114',
+        black: '#16161a',
+        blue: '#7aa2f7',
+        brightBlack: '#2a2a31',
+        brightBlue: '#7aa2f7',
+        brightCyan: '#7dcfff',
+        brightGreen: '#5cb89a',
+        brightMagenta: '#bb9af7',
+        brightRed: '#f87171',
+        brightWhite: '#f4f4f5',
+        brightYellow: '#e0af68',
         cursor: '#5cb89a',
+        cursorAccent: '#111114',
+        cyan: '#7dcfff',
         foreground: '#f4f4f5',
+        green: '#5cb89a',
+        magenta: '#bb9af7',
+        red: '#f87171',
+        selectionBackground: '#5cb89a33',
+        white: '#a1a1aa',
+        yellow: '#e0af68',
       },
     })
     const fitAddon = new FitAddon()
@@ -223,7 +241,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
   }, [sessionId, startSession])
 
   return (
-    <div className="terminal-pane relative flex h-full min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-[#0f131b]">
+    <div className="terminal-pane relative flex h-full min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-background">
       {error ? (
         <div className="absolute left-3 right-3 top-3 z-10 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}

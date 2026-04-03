@@ -10,6 +10,7 @@ import type {
   ProjectRefRecord,
   WorkspaceGitDiffResult,
   WorkspaceGitStatusResult,
+  WorktreeBranchStatsResult,
 } from './git'
 import type {
   PersistenceSnapshot,
@@ -36,6 +37,7 @@ export const IPC_CHANNELS = {
   listProjectRefs: 'app:list-project-refs',
   getWorkspaceGitStatus: 'app:get-workspace-git-status',
   getWorkspaceGitDiff: 'app:get-workspace-git-diff',
+  getWorktreeBranchStats: 'app:get-worktree-branch-stats',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -60,6 +62,9 @@ export interface AideApi {
     workspaceId: string,
     filePath: string,
   ) => Promise<WorkspaceGitDiffResult>
+  getWorktreeBranchStats: (
+    workspaceId: string,
+  ) => Promise<WorktreeBranchStatsResult>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   probeExecutableCommand: (

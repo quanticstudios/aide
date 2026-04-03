@@ -92,3 +92,21 @@ export type WorkspaceGitStatusResult =
 export type WorkspaceGitDiffResult =
   | WorkspaceGitDiffSuccess
   | WorkspaceGitStatusFailure
+
+export interface WorktreeBranchStats {
+  additions: number
+  aheadCount: number
+  behindCount: number
+  deletions: number
+  mergeStatus: 'clean' | 'conflicts' | 'unknown' | 'up-to-date'
+}
+
+export interface WorktreeBranchStatsSuccess {
+  ok: true
+  stats: WorktreeBranchStats
+  workspaceId: string
+}
+
+export type WorktreeBranchStatsResult =
+  | WorktreeBranchStatsSuccess
+  | WorkspaceGitStatusFailure
