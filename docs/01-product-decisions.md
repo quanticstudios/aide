@@ -196,6 +196,18 @@ Default rule:
 
 > Everything meaningful is a pane except modals.
 
+The locked shell hierarchy is:
+
+```text
+Project -> Workspace -> Pane -> View
+```
+
+Where:
+
+- `Pane` is the top-level navigable destination in a workspace
+- `View` is content inside a pane
+- split layout operates on views, not on top-level panes
+
 Likely pane types:
 
 - Chat
@@ -214,7 +226,7 @@ Use a layout tree:
 
 - horizontal split
 - vertical split
-- pane leaf
+- view leaf
 
 Users must be able to:
 
@@ -227,6 +239,8 @@ Users must be able to:
 - duplicate common pane combinations
 
 Pane-local tab stacks are useful but should not replace the structural model.
+
+The shell should behave like a camera over static pane destinations, not by letting split children leak into top-level pane navigation.
 
 ## 14. Navigation rules
 

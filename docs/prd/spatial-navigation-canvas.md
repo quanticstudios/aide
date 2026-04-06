@@ -49,14 +49,19 @@ This PRD does not require a full split-tree implementation immediately. It defin
 
 - `Project` groups workspaces and remembers `lastActiveWorkspaceId`.
 - `Workspace` is the top-level runtime object and remembers `lastActivePaneId`.
-- `Pane` is the visible tool surface within a workspace.
+- `Pane` is the top-level horizontal destination within a workspace and owns the visible main region when selected.
+- `View` is content rendered inside a pane. Split layout acts on views inside the active pane rather than creating more top-level panes.
 - The shell camera resolves a full path: `project -> workspace -> pane`.
+
+This PRD follows the locked terminology in `docs/decisions/0004-spatial-shell-hierarchy-and-camera-model.md`.
 
 ### Spatial axes
 
 - Pane movement is horizontal.
 - Workspace movement is vertical.
 - Project movement is a context switch that restores the project's remembered workspace and pane rather than resetting to the first workspace or first pane.
+- Pane destinations stay structurally static while the camera moves to them.
+- This is a camera over static tracks, not a freeform 2D canvas and not a tab strip that swaps content in place.
 
 ### First-render rule
 
@@ -105,6 +110,8 @@ This avoids the current reset-then-snap behavior.
 - Separate boot-time resolution from runtime interaction updates.
 - Keep renderer shortcut handling as the canonical fallback path; Electron-specific hooks must not change semantics.
 - Introduce a camera-style workspace track separate from the pane track so horizontal and vertical motion are independent.
+- Keep the top-level pane track independent from any split-tree leaf structure.
+- Treat split layout as pane-internal view layout rather than as top-level pane navigation.
 - Persist `lastActiveWorkspaceId` per project and `lastActivePaneId` per workspace in durable storage.
 - Treat PTY sessions as workspace/pane-owned runtime services that live independently of renderer visibility.
 - Reattach terminal views to existing PTY sessions when revisiting a workspace or pane instead of respawning them.
