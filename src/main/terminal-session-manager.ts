@@ -39,6 +39,7 @@ export class TerminalSessionManager {
     const launchConfig = resolveTerminalLaunchConfig(
       process.platform,
       process.env,
+      config.mode,
     )
     const sessionState: TerminalSessionState = {
       buffer: '',

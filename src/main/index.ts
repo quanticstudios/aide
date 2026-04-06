@@ -230,7 +230,13 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.terminalCreate,
     (_event, input: TerminalSessionConfig) => {
       workspaceActivityService.trackSession(input)
-      return terminalSessionManager.createSession(input)
+
+      try {
+        return terminalSessionManager.createSession(input)
+      } catch (error) {
+        workspaceActivityService.handleSessionLaunchFailure(input, error)
+        throw error
+      }
     },
   )
   ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {

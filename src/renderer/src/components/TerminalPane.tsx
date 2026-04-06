@@ -6,6 +6,7 @@ import type { AideApi } from '../../../shared/ipc'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import { shouldBlockTerminalShortcutInput } from '../../../shared/shortcuts'
 import type { TerminalEvent } from '../../../shared/terminal'
+import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 
 interface TerminalPaneProps {
   readonly paneId: string
@@ -73,6 +74,10 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     () => `${workspace.id}:${paneId}`,
     [paneId, workspace.id],
   )
+  const terminalMode = useMemo(
+    () => resolveTerminalLaunchModeForPaneId(paneId),
+    [paneId],
+  )
   const containerRef = useRef<HTMLDivElement | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -98,6 +103,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
       cols: terminal.cols,
       cwd: workspace.worktreePath || '~',
       paneId,
+      mode: terminalMode,
       rows: terminal.rows,
       sessionId,
       workspaceId: workspace.id,
@@ -113,7 +119,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
         `[terminal exited${snapshot.exitCode !== null ? `: ${snapshot.exitCode}` : ''}]`,
       )
     }
-  }, [paneId, sessionId, workspace.id, workspace.worktreePath])
+  }, [paneId, sessionId, terminalMode, workspace.id, workspace.worktreePath])
 
   useEffect(() => {
     const container = containerRef.current

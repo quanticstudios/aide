@@ -12,41 +12,57 @@ import {
 
 function createActivity(
   state: WorkspaceActivitySnapshot['state'],
-  updatedAt = '2026-04-06T12:00:00Z',
+  overrides?: Partial<WorkspaceActivitySnapshot>,
 ): WorkspaceActivitySnapshot {
   return {
     detail: null,
     provider: 'claude',
+    source: 'managed',
     state,
-    updatedAt,
+    updatedAt: '2026-04-06T12:00:00Z',
     workspaceId: 'workspace-1',
+    ...overrides,
   }
 }
 
 describe('workspace activity helpers', () => {
-  it('formats a compact provider-aware label', () => {
+  it('formats provider-aware labels for managed and shell sessions', () => {
     expect(formatWorkspaceActivityLabel(createActivity('working'))).toBe(
-      'Claude working',
+      'Claude Working',
     )
+    expect(
+      formatWorkspaceActivityLabel(
+        createActivity('terminal-running', {
+          provider: 'terminal',
+          source: 'fallback',
+        }),
+      ),
+    ).toBe('Terminal Running')
   })
 
-  it('prioritizes attention above other live states', () => {
+  it('prioritizes errors and approvals above background work', () => {
     expect(
       compareWorkspaceActivityPriority(
         createActivity('working'),
-        createActivity('attention'),
+        createActivity('pending-approval'),
+      ),
+    ).toBeGreaterThan(0)
+    expect(
+      compareWorkspaceActivityPriority(
+        createActivity('completed'),
+        createActivity('error'),
       ),
     ).toBeGreaterThan(0)
   })
 
-  it('resolves aggregate activity by state priority', () => {
+  it('resolves aggregate activity by status priority', () => {
     expect(
       resolveAggregateWorkspaceActivity([
-        createActivity('ready'),
+        createActivity('completed'),
         createActivity('working'),
-        createActivity('attention'),
+        createActivity('pending-approval'),
       ]),
-    ).toMatchObject({ state: 'attention' })
+    ).toMatchObject({ state: 'pending-approval' })
   })
 
   it('returns null when no workspace activity exists', () => {
@@ -55,15 +71,22 @@ describe('workspace activity helpers', () => {
 
   it('maps activity states to accent styling', () => {
     expect(
-      resolveWorkspaceActivityAccentClassName(createActivity('working')),
-    ).toBe('text-sky-400')
-    expect(resolveWorkspaceActivityDotClassName(createActivity('error'))).toBe(
-      'bg-red-400',
-    )
+      resolveWorkspaceActivityAccentClassName(
+        createActivity('pending-approval'),
+      ),
+    ).toBe('text-amber-400')
+    expect(
+      resolveWorkspaceActivityDotClassName(createActivity('connecting')),
+    ).toBe('bg-sky-300')
   })
 
-  it('only pulses for active work', () => {
+  it('only pulses for live connecting and working states', () => {
     expect(shouldPulseWorkspaceActivity(createActivity('working'))).toBe(true)
-    expect(shouldPulseWorkspaceActivity(createActivity('ready'))).toBe(false)
+    expect(shouldPulseWorkspaceActivity(createActivity('connecting'))).toBe(
+      true,
+    )
+    expect(shouldPulseWorkspaceActivity(createActivity('completed'))).toBe(
+      false,
+    )
   })
 })

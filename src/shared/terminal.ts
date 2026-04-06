@@ -1,6 +1,9 @@
+export type TerminalLaunchMode = 'shell' | 'claude' | 'codex'
+
 export interface TerminalSessionConfig {
   cols: number
   cwd: string
+  mode: TerminalLaunchMode
   paneId: string
   rows: number
   sessionId: string

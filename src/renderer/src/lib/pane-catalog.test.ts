@@ -6,13 +6,16 @@ import {
   createFallbackPaneMetadata,
   listPaneCatalogEntries,
   resolvePaneType,
+  resolveTerminalLaunchModeForPaneId,
 } from './pane-catalog'
 
 describe('pane catalog', () => {
-  it('lists pane types in the expected creation order', () => {
-    expect(listPaneCatalogEntries().map((entry) => entry.type)).toEqual([
+  it('lists pane templates in the expected creation order', () => {
+    expect(listPaneCatalogEntries().map((entry) => entry.id)).toEqual([
       'chat',
       'terminal',
+      'terminal-claude',
+      'terminal-codex',
       'git',
       'editor',
       'preview',
@@ -35,6 +38,8 @@ describe('pane catalog', () => {
   it('resolves pane types from display labels', () => {
     expect(resolvePaneType('Git')).toBe('git')
     expect(resolvePaneType('Preview')).toBe('preview')
+    expect(resolvePaneType('Claude')).toBe('terminal')
+    expect(resolvePaneType('Codex')).toBe('terminal')
     expect(resolvePaneType('Unknown')).toBeNull()
   })
 
@@ -48,6 +53,15 @@ describe('pane catalog', () => {
       },
       resolvedType: 'terminal',
     })
+    expect(createFallbackPaneMetadata('terminal-claude::copy-2')).toEqual({
+      metadata: {
+        accent: 'emerald',
+        description: 'Managed Claude Code terminal session.',
+        label: 'Claude terminal',
+        type: 'Claude',
+      },
+      resolvedType: 'terminal',
+    })
 
     expect(createFallbackPaneMetadata('mystery-pane')).toEqual({
       metadata: {
@@ -58,5 +72,13 @@ describe('pane catalog', () => {
       },
       resolvedType: null,
     })
+  })
+
+  it('resolves terminal launch mode from pane ids', () => {
+    expect(resolveTerminalLaunchModeForPaneId('terminal')).toBe('shell')
+    expect(resolveTerminalLaunchModeForPaneId('terminal-claude::copy-2')).toBe(
+      'claude',
+    )
+    expect(resolveTerminalLaunchModeForPaneId('terminal-codex')).toBe('codex')
   })
 })

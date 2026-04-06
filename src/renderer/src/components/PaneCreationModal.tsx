@@ -37,9 +37,9 @@ export default function PaneCreationModal({
                   return (
                     <button
                       className="text-left"
-                      key={pane.type}
+                      key={pane.id}
                       onClick={() => {
-                        onCreatePane(pane.type)
+                        onCreatePane(pane.id)
                         onOpenChange(false)
                       }}
                       type="button"

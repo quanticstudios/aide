@@ -8,7 +8,7 @@ import {
 describe('resolveTerminalLaunchConfig', () => {
   it('prefers SHELL on unix-like platforms', () => {
     expect(
-      resolveTerminalLaunchConfig('linux', { SHELL: '/usr/bin/fish' }),
+      resolveTerminalLaunchConfig('linux', { SHELL: '/usr/bin/fish' }, 'shell'),
     ).toEqual({
       args: [],
       command: '/usr/bin/fish',
@@ -16,7 +16,7 @@ describe('resolveTerminalLaunchConfig', () => {
   })
 
   it('falls back to bash on unix-like platforms', () => {
-    expect(resolveTerminalLaunchConfig('linux', {})).toEqual({
+    expect(resolveTerminalLaunchConfig('linux', {}, 'shell')).toEqual({
       args: [],
       command: '/bin/bash',
     })
@@ -24,13 +24,34 @@ describe('resolveTerminalLaunchConfig', () => {
 
   it('prefers ComSpec on Windows', () => {
     expect(
-      resolveTerminalLaunchConfig('win32', {
-        ComSpec:
-          'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-      }),
+      resolveTerminalLaunchConfig(
+        'win32',
+        {
+          ComSpec:
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+        },
+        'shell',
+      ),
     ).toEqual({
       args: [],
       command: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    })
+  })
+
+  it('resolves managed provider launch commands explicitly', () => {
+    expect(resolveTerminalLaunchConfig('linux', {}, 'claude')).toEqual({
+      args: [],
+      command: 'claude',
+    })
+    expect(
+      resolveTerminalLaunchConfig(
+        'linux',
+        { AIDE_CODEX_COMMAND: '/custom/codex' },
+        'codex',
+      ),
+    ).toEqual({
+      args: [],
+      command: '/custom/codex',
     })
   })
 

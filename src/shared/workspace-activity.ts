@@ -1,19 +1,20 @@
-export type WorkspaceActivityProvider =
-  | 'claude'
-  | 'codex'
-  | 'terminal'
-  | 'unknown'
+export type WorkspaceActivityProvider = 'claude' | 'codex' | 'terminal'
+
+export type WorkspaceActivitySource = 'managed' | 'fallback'
 
 export type WorkspaceActivityState =
-  | 'attention'
+  | 'pending-approval'
   | 'awaiting-input'
-  | 'error'
-  | 'ready'
   | 'working'
+  | 'connecting'
+  | 'completed'
+  | 'error'
+  | 'terminal-running'
 
 export interface WorkspaceActivitySnapshot {
   detail: string | null
   provider: WorkspaceActivityProvider
+  source: WorkspaceActivitySource
   state: WorkspaceActivityState
   updatedAt: string
   workspaceId: string
@@ -25,26 +26,29 @@ export interface WorkspaceActivityEvent {
 }
 
 const STATE_PRIORITY: Record<WorkspaceActivityState, number> = {
-  attention: 5,
-  error: 4,
-  working: 3,
-  'awaiting-input': 2,
-  ready: 1,
+  error: 7,
+  'pending-approval': 6,
+  'awaiting-input': 5,
+  working: 4,
+  connecting: 3,
+  completed: 2,
+  'terminal-running': 1,
 }
 
 const PROVIDER_LABELS: Record<WorkspaceActivityProvider, string> = {
   claude: 'Claude',
   codex: 'Codex',
   terminal: 'Terminal',
-  unknown: 'Workspace',
 }
 
 const STATE_LABELS: Record<WorkspaceActivityState, string> = {
-  attention: 'needs attention',
-  'awaiting-input': 'awaiting input',
-  error: 'errored',
-  ready: 'ready',
-  working: 'working',
+  'awaiting-input': 'Awaiting Input',
+  completed: 'Completed',
+  connecting: 'Connecting',
+  error: 'Error',
+  'pending-approval': 'Pending Approval',
+  'terminal-running': 'Running',
+  working: 'Working',
 }
 
 export function compareWorkspaceActivityPriority(
@@ -63,6 +67,10 @@ export function compareWorkspaceActivityPriority(
 export function formatWorkspaceActivityLabel(
   activity: WorkspaceActivitySnapshot,
 ): string {
+  if (activity.provider === 'terminal') {
+    return `Terminal ${STATE_LABELS[activity.state]}`
+  }
+
   return `${PROVIDER_LABELS[activity.provider]} ${STATE_LABELS[activity.state]}`
 }
 
@@ -73,7 +81,7 @@ export function resolveWorkspaceActivityAccentClassName(
     return 'text-muted-foreground/70'
   }
 
-  if (activity.state === 'attention') {
+  if (activity.state === 'pending-approval') {
     return 'text-amber-400'
   }
 
@@ -83,6 +91,10 @@ export function resolveWorkspaceActivityAccentClassName(
 
   if (activity.state === 'working') {
     return 'text-sky-400'
+  }
+
+  if (activity.state === 'connecting') {
+    return 'text-sky-300'
   }
 
   if (activity.state === 'awaiting-input') {
@@ -99,7 +111,7 @@ export function resolveWorkspaceActivityDotClassName(
     return 'bg-muted-foreground/35'
   }
 
-  if (activity.state === 'attention') {
+  if (activity.state === 'pending-approval') {
     return 'bg-amber-400'
   }
 
@@ -109,6 +121,10 @@ export function resolveWorkspaceActivityDotClassName(
 
   if (activity.state === 'working') {
     return 'bg-sky-400'
+  }
+
+  if (activity.state === 'connecting') {
+    return 'bg-sky-300'
   }
 
   if (activity.state === 'awaiting-input') {
@@ -121,7 +137,7 @@ export function resolveWorkspaceActivityDotClassName(
 export function shouldPulseWorkspaceActivity(
   activity: WorkspaceActivitySnapshot | null | undefined,
 ): boolean {
-  return activity?.state === 'working'
+  return activity?.state === 'working' || activity?.state === 'connecting'
 }
 
 export function resolveAggregateWorkspaceActivity(

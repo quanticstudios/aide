@@ -46,6 +46,7 @@ function createActivity(
   return {
     detail: null,
     provider: 'claude',
+    source: 'managed',
     state,
     updatedAt: '2026-04-06T12:00:00Z',
     workspaceId,
@@ -89,7 +90,7 @@ describe('buildWorkspaceSummaryMap', () => {
 
     expect(summaries['demo-workspace-aide-review']?.activity).toMatchObject({
       provider: 'claude',
-      state: 'attention',
+      state: 'pending-approval',
     })
   })
 })
@@ -105,14 +106,14 @@ describe('resolveProjectSummaryActivity', () => {
       workspaces,
       {
         'workspace-a': createActivity('workspace-a', 'working'),
-        'workspace-b': createActivity('workspace-b', 'attention'),
+        'workspace-b': createActivity('workspace-b', 'pending-approval'),
       },
     )
 
     expect(
       resolveProjectSummaryActivity(summaries, workspaces, 'project-a'),
     ).toMatchObject({
-      state: 'attention',
+      state: 'pending-approval',
       workspaceId: 'workspace-b',
     })
   })

@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs'
 
+import type { TerminalLaunchMode } from '../shared/terminal'
+
 export interface TerminalLaunchConfig {
   args: string[]
   command: string
@@ -8,7 +10,22 @@ export interface TerminalLaunchConfig {
 export function resolveTerminalLaunchConfig(
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
+  mode: TerminalLaunchMode,
 ): TerminalLaunchConfig {
+  if (mode === 'claude') {
+    return {
+      args: [],
+      command: env.AIDE_CLAUDE_COMMAND?.trim() || 'claude',
+    }
+  }
+
+  if (mode === 'codex') {
+    return {
+      args: [],
+      command: env.AIDE_CODEX_COMMAND?.trim() || 'codex',
+    }
+  }
+
   if (platform === 'win32') {
     return {
       args: [],
