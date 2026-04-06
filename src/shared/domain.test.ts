@@ -49,12 +49,14 @@ describe('domain model draft helpers', () => {
 
   it('creates a default pane-root layout node', () => {
     expect(createDefaultLayoutRoot('workspace-1', 'pane-1')).toEqual({
+      activeViewIndex: 0,
       children: [],
       id: 'workspace-1:layout-root',
       parentId: null,
       paneId: 'pane-1',
       sizeWeights: [],
       type: 'pane',
+      viewIds: ['pane-1'],
       workspaceId: 'workspace-1',
     })
   })

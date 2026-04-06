@@ -70,12 +70,14 @@ export interface SplitLayoutNode {
 }
 
 export interface PaneLayoutNode {
+  activeViewIndex: number
   children: []
   id: string
   parentId: string | null
   paneId: string
   sizeWeights: []
   type: 'pane'
+  viewIds: string[]
   workspaceId: string
 }
 
@@ -159,12 +161,14 @@ export function createDefaultLayoutRoot(
   paneId: string,
 ): PaneLayoutNode {
   return {
+    activeViewIndex: 0,
     children: [],
     id: `${workspaceId}:layout-root`,
     parentId: null,
     paneId,
     sizeWeights: [],
     type: 'pane',
+    viewIds: [paneId],
     workspaceId,
   }
 }

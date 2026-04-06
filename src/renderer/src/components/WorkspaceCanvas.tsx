@@ -11,10 +11,15 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
+import {
+  createFallbackPaneMetadata,
+  getPaneCatalogEntry,
+  listPaneCatalogEntries,
+  resolvePaneMetadata,
+} from '@/lib/pane-catalog'
 import type { PreviewTarget } from '../../../shared/domain'
-import { listPaneCatalogEntries } from '@/lib/pane-catalog'
 
-import { getWorkspaceScene, resolveWorkspacePane } from '@/lib/navigation-poc'
+import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
 import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
 import { cn } from '@/lib/utils'
@@ -24,23 +29,30 @@ import {
 } from '@/lib/workspace-camera'
 import {
   collectWorkspaceLayoutPaneIds,
-  resolveWorkspaceLayout,
   resolveWorkspaceLayoutRoot,
 } from '@/lib/workspace-layout'
+import {
+  resolveSurfaceLayout,
+  resolveWorkspaceSurfaces,
+} from '@/lib/workspace-surfaces'
 import type {
   PersistedLayoutNode,
   PersistedSplitLayoutNode,
+  PersistenceSnapshot,
   ProjectRecord,
+  SurfaceLayoutRecord,
   WorkspaceLayoutRecord,
   WorkspaceRecord,
+  WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activePreviewTarget: PreviewTarget | null
+  readonly activeSurfaceId: string | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly actionError: string | null
-  readonly isDemoMode: boolean
+  readonly onAddView: (paneId: string, templateViewId: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
@@ -49,6 +61,7 @@ interface WorkspaceCanvasProps {
     url: string,
   ) => void
   readonly projectWorkspaces: readonly WorkspaceRecord[]
+  readonly onRemoveView: (paneId: string, viewIndex: number) => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSelectPreviewTarget: (
     workspace: WorkspaceRecord,
@@ -60,9 +73,12 @@ interface WorkspaceCanvasProps {
     splitType: PersistedSplitLayoutNode['type'],
     targetPaneType?: string,
   ) => void
+  readonly onSwitchView: (paneId: string, viewIndex: number) => void
   readonly previewTargets: readonly PreviewTarget[]
   readonly shellError: string | null
+  readonly surfaceLayouts: Record<string, SurfaceLayoutRecord>
   readonly workspaceLayouts: Record<string, WorkspaceLayoutRecord>
+  readonly workspaceSurfaces: Record<string, WorkspaceSurfaceRecord[]>
 }
 
 function EmptyState({
@@ -109,38 +125,34 @@ function resolvePaneContent(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
   activePreviewTarget: PreviewTarget | null
+  onClosePane: (paneId: string) => void
   onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
   onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   paneId: string
   previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }) {
-  const scene = getWorkspaceScene(args.workspace.id)
-  const pane =
-    resolveWorkspacePane(args.workspace.id, args.paneId) ??
-    createFallbackPane(args.paneId)
+  const pane = createFallbackPane(args.paneId)
 
   return renderPaneFromRegistry({
     activePaneId: args.activePaneId,
     activePreviewTarget: args.activePreviewTarget,
+    onClosePane: args.onClosePane,
     onLoadPreviewTarget: args.onLoadPreviewTarget,
     onSelectPreviewTarget: args.onSelectPreviewTarget,
     pane,
     project: args.activeProject,
     previewTargets: args.previewTargets,
-    scene,
     workspace: args.workspace,
   })
 }
 
 function PaneActionBar({
-  canClosePane,
   onClosePane,
   onResizePane,
   onSplitPane,
   paneId,
 }: {
-  readonly canClosePane: boolean
   readonly onClosePane: (paneId: string) => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -150,31 +162,30 @@ function PaneActionBar({
   ) => void
   readonly paneId: string
 }) {
-  const [pendingSplitType, setPendingSplitType] = useState<
-    PersistedSplitLayoutNode['type'] | null
+  const [pickerMode, setPickerMode] = useState<
+    'split-horizontal' | 'split-vertical' | null
   >(null)
   const pickerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (!pendingSplitType) {
+    if (!pickerMode) {
       return
     }
 
     function handleKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
-        setPendingSplitType(null)
+        setPickerMode(null)
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
 
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [pendingSplitType])
+  }, [pickerMode])
 
-  const paneOptions = listPaneCatalogEntries()
+  const viewOptions = listPaneCatalogEntries()
 
   const actions: ReadonlyArray<{
-    readonly disabled?: boolean
     readonly icon: LucideIcon
     readonly label: string
     readonly onPress: () => void
@@ -182,12 +193,12 @@ function PaneActionBar({
     {
       icon: Columns2,
       label: 'Split horizontally',
-      onPress: () => setPendingSplitType('split-horizontal'),
+      onPress: () => setPickerMode('split-horizontal'),
     },
     {
       icon: Rows2,
       label: 'Split vertically',
-      onPress: () => setPendingSplitType('split-vertical'),
+      onPress: () => setPickerMode('split-vertical'),
     },
     {
       icon: Expand,
@@ -200,21 +211,25 @@ function PaneActionBar({
       onPress: () => onResizePane(paneId, -0.25),
     },
     {
-      disabled: !canClosePane,
       icon: X,
       label: 'Close pane',
       onPress: () => onClosePane(paneId),
     },
   ]
 
+  const pickerLabel =
+    pickerMode === 'split-horizontal'
+      ? 'Split horizontal with'
+      : 'Split vertical with'
+
   return (
     <div
-      className="absolute right-3 top-3 z-10"
+      className="absolute right-6 top-4 z-10 -translate-y-1/2 opacity-0 transition-opacity group-hover/pane:opacity-100"
       onMouseDown={(event) => event.stopPropagation()}
       role="presentation"
       ref={pickerRef}
     >
-      <div className="flex flex-row rounded-full border border-border/80 bg-background/94 p-0.5 shadow-[0_18px_44px_rgba(0,0,0,0.42)] backdrop-blur">
+      <div className="flex flex-row items-center rounded-full border border-[#3a3a44] bg-[#28282f] px-0.5 shadow-[0_18px_44px_rgba(0,0,0,0.42)]">
         {actions.map((action) => {
           const Icon = action.icon
 
@@ -223,8 +238,7 @@ function PaneActionBar({
               <Tooltip.Trigger>
                 <Button
                   aria-label={action.label}
-                  className="size-6 rounded-full border border-transparent bg-transparent text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-foreground data-[disabled=true]:border-transparent data-[disabled=true]:bg-transparent data-[disabled=true]:text-muted-foreground/45"
-                  isDisabled={action.disabled ?? false}
+                  className="size-6 rounded-full border border-transparent bg-transparent text-[#b0b0bc] transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-white"
                   isIconOnly
                   onPress={action.onPress}
                   size="sm"
@@ -234,7 +248,7 @@ function PaneActionBar({
                 </Button>
               </Tooltip.Trigger>
               <Tooltip.Content
-                className="rounded-xl border border-border bg-overlay/98 px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
+                className="rounded-xl border border-[#3a3a44] bg-[#28282f] px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
                 placement="bottom"
               >
                 {action.label}
@@ -244,31 +258,33 @@ function PaneActionBar({
         })}
       </div>
 
-      {pendingSplitType ? (
+      {pickerMode ? (
         <>
-          <div
+          <button
+            aria-label="Close pane picker"
             className="fixed inset-0 z-10"
-            onClick={() => setPendingSplitType(null)}
+            onClick={() => setPickerMode(null)}
+            type="button"
           />
-          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-xl border border-border bg-background/95 p-1 shadow-[0_20px_60px_rgba(0,0,0,0.34)] backdrop-blur">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              Split with
+          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-xl border border-[#3a3a44] bg-[#28282f] p-1 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+            <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#8a8a96]">
+              {pickerLabel}
             </p>
-            {paneOptions.map((pane) => {
-              const Icon = pane.icon
+            {viewOptions.map((view) => {
+              const Icon = view.icon
 
               return (
                 <button
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-foreground/80 transition-colors hover:bg-surface-secondary hover:text-foreground"
-                  key={pane.type}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[#e4e4e8] transition-colors hover:bg-primary/12 hover:text-white"
+                  key={view.type}
                   onClick={() => {
-                    onSplitPane(paneId, pendingSplitType, pane.type)
-                    setPendingSplitType(null)
+                    onSplitPane(paneId, pickerMode, view.type)
+                    setPickerMode(null)
                   }}
                   type="button"
                 >
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span>{pane.defaultMetadata.type}</span>
+                  <Icon className="size-3.5 text-[#b0b0bc]" />
+                  <span>{view.defaultMetadata.type}</span>
                 </button>
               )
             })}
@@ -279,53 +295,92 @@ function PaneActionBar({
   )
 }
 
-function nodeContainsPane(
-  nodeLookup: Map<string, PersistedLayoutNode>,
-  node: PersistedLayoutNode,
-  paneId: string | null,
-): boolean {
-  if (!paneId) {
-    return false
-  }
+function PaneTabBar({
+  activeViewIndex,
+  onRemoveView,
+  onSwitchView,
+  viewIds,
+}: {
+  readonly activeViewIndex: number
+  readonly onRemoveView: (viewIndex: number) => void
+  readonly onSwitchView: (viewIndex: number) => void
+  readonly viewIds: readonly string[]
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-1 pb-1">
+      {viewIds.map((viewId, index) => {
+        const { metadata, resolvedType } = createFallbackPaneMetadata(viewId)
+        const entry = resolvedType ? getPaneCatalogEntry(resolvedType) : null
+        const isActive = index === activeViewIndex
+        const Icon = entry?.icon
 
-  if (node.type === 'pane') {
-    return node.paneId === paneId
-  }
-
-  return node.children.some((childId) => {
-    const childNode = nodeLookup.get(childId)
-
-    return childNode ? nodeContainsPane(nodeLookup, childNode, paneId) : false
-  })
+        return (
+          <button
+            className={cn(
+              'group/tab flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
+              isActive
+                ? 'bg-primary/10 text-foreground'
+                : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
+            )}
+            key={viewId}
+            onClick={() => onSwitchView(index)}
+            type="button"
+          >
+            {Icon ? <Icon className="size-3" /> : null}
+            <span className="truncate">{metadata.type}</span>
+            <button
+              aria-label={`Close ${metadata.type} view`}
+              className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/tab:opacity-100"
+              onClick={(event) => {
+                event.stopPropagation()
+                onRemoveView(index)
+              }}
+              type="button"
+            >
+              <X className="size-2.5" />
+            </button>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function renderLayoutNode(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
   activePreviewTarget: PreviewTarget | null
-  canClosePane: boolean
+
   isInteractive: boolean
   node: PersistedLayoutNode
   nodeLookup: Map<string, PersistedLayoutNode>
+  onAddView: (paneId: string, templateViewId: string) => void
   onClosePane: (paneId: string) => void
   onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
+  onRemoveView: (paneId: string, viewIndex: number) => void
   onResizePane: (paneId: string, delta: number) => void
   onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   onSelectPane: (paneId: string) => void
   onSplitPane: (
     paneId: string,
     splitType: PersistedSplitLayoutNode['type'],
+    targetPaneType?: string,
   ) => void
+  onSwitchView: (paneId: string, viewIndex: number) => void
   previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }) {
   if (args.node.type === 'pane') {
     const paneId = args.node.paneId
     const isActive = args.node.paneId === args.activePaneId
+    const viewIds = args.node.viewIds
+    const activeViewIndex = args.node.activeViewIndex
+    const activeViewId = viewIds[activeViewIndex] ?? viewIds[0] ?? paneId
 
     return (
       <article
-        className={`${getPaneFrameClassName(isActive)} relative cursor-pointer`}
+        className={`${getPaneFrameClassName(isActive)} group/pane relative cursor-pointer`}
+        data-active-pane={isActive ? 'true' : 'false'}
         data-pane-id={paneId}
         key={args.node.id}
         onMouseDown={() => {
@@ -334,13 +389,20 @@ function renderLayoutNode(args: {
           }
         }}
       >
-        {isActive && args.isInteractive ? (
+        {args.isInteractive ? (
           <PaneActionBar
-            canClosePane={args.canClosePane}
             onClosePane={args.onClosePane}
             onResizePane={args.onResizePane}
             onSplitPane={args.onSplitPane}
             paneId={paneId}
+          />
+        ) : null}
+        {viewIds.length > 1 ? (
+          <PaneTabBar
+            activeViewIndex={activeViewIndex}
+            onRemoveView={(viewIndex) => args.onRemoveView(paneId, viewIndex)}
+            onSwitchView={(viewIndex) => args.onSwitchView(paneId, viewIndex)}
+            viewIds={viewIds}
           />
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.2xl)-1px)]">
@@ -348,9 +410,10 @@ function renderLayoutNode(args: {
             activePaneId: args.activePaneId,
             activeProject: args.activeProject,
             activePreviewTarget: args.activePreviewTarget,
+            onClosePane: args.onClosePane,
             onLoadPreviewTarget: args.onLoadPreviewTarget,
             onSelectPreviewTarget: args.onSelectPreviewTarget,
-            paneId,
+            paneId: activeViewId,
             previewTargets: args.previewTargets,
             workspace: args.workspace,
           })}
@@ -362,7 +425,7 @@ function renderLayoutNode(args: {
   return (
     <section
       className={cn(
-        'flex min-h-0 min-w-0 flex-1 gap-4 overflow-hidden',
+        'flex min-h-0 min-w-0 flex-1 gap-4',
         args.node.type === 'split-horizontal' ? 'flex-row' : 'flex-col',
       )}
       key={args.node.id}
@@ -385,21 +448,8 @@ function renderLayoutNode(args: {
             }}
           >
             {renderLayoutNode({
-              activePaneId: args.activePaneId,
-              activeProject: args.activeProject,
-              activePreviewTarget: args.activePreviewTarget,
-              canClosePane: args.canClosePane,
-              isInteractive: args.isInteractive,
+              ...args,
               node: childNode,
-              nodeLookup: args.nodeLookup,
-              onClosePane: args.onClosePane,
-              onLoadPreviewTarget: args.onLoadPreviewTarget,
-              onResizePane: args.onResizePane,
-              onSelectPreviewTarget: args.onSelectPreviewTarget,
-              onSelectPane: args.onSelectPane,
-              onSplitPane: args.onSplitPane,
-              previewTargets: args.previewTargets,
-              workspace: args.workspace,
             })}
           </div>
         )
@@ -408,93 +458,30 @@ function renderLayoutNode(args: {
   )
 }
 
-function renderPaneTrack(args: {
-  activePaneId: string | null
-  activeProject: ProjectRecord
-  activePreviewTarget: PreviewTarget | null
-  canClosePane: boolean
-  node: PersistedSplitLayoutNode
-  nodeLookup: Map<string, PersistedLayoutNode>
-  onClosePane: (paneId: string) => void
-  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
-  onResizePane: (paneId: string, delta: number) => void
-  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
-  onSelectPane: (paneId: string) => void
-  onSplitPane: (
-    paneId: string,
-    splitType: PersistedSplitLayoutNode['type'],
-  ) => void
-  previewTargets: readonly PreviewTarget[]
-  workspace: WorkspaceRecord
-}) {
-  const childNodes = args.node.children
-    .map((childId) => args.nodeLookup.get(childId) ?? null)
-    .filter((childNode): childNode is PersistedLayoutNode => childNode !== null)
-  const activeIndex = Math.max(
-    childNodes.findIndex((childNode) =>
-      nodeContainsPane(args.nodeLookup, childNode, args.activePaneId),
-    ),
-    0,
-  )
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-      <div
-        className="flex min-h-0 min-w-0 flex-1 transition-transform duration-200 ease-out"
-        style={{
-          transform: `translateX(-${activeIndex * 100}%)`,
-          width: `${Math.max(childNodes.length, 1) * 100}%`,
-        }}
-      >
-        {childNodes.map((childNode) => (
-          <div
-            className="flex min-h-0 min-w-0 w-full shrink-0"
-            key={childNode.id}
-          >
-            {renderLayoutNode({
-              activePaneId: args.activePaneId,
-              activeProject: args.activeProject,
-              activePreviewTarget: args.activePreviewTarget,
-              canClosePane: args.canClosePane,
-              isInteractive: true,
-              node: childNode,
-              nodeLookup: args.nodeLookup,
-              onClosePane: args.onClosePane,
-              onLoadPreviewTarget: args.onLoadPreviewTarget,
-              onResizePane: args.onResizePane,
-              onSelectPreviewTarget: args.onSelectPreviewTarget,
-              onSelectPane: args.onSelectPane,
-              onSplitPane: args.onSplitPane,
-              previewTargets: args.previewTargets,
-              workspace: args.workspace,
-            })}
-          </div>
-        data-active-pane={isActive ? 'true' : 'false'}
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
   activePreviewTarget,
+  activeSurfaceId,
   activeWorkspace,
   actionError,
-  isDemoMode,
+  onAddView,
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
   onLoadPreviewTarget,
+  onRemoveView,
   onResizePane,
   onSelectPreviewTarget,
   onSelectPane,
   onSplitPane,
+  onSwitchView,
   previewTargets,
   projectWorkspaces,
   shellError,
+  surfaceLayouts,
   workspaceLayouts,
+  workspaceSurfaces,
 }: WorkspaceCanvasProps) {
   const workspaceCount = Math.max(projectWorkspaces.length, 1)
   const activeWorkspaceIndex = Math.max(
@@ -508,10 +495,29 @@ export default function WorkspaceCanvas({
     activeWorkspaceIndex,
   )
   const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
-  const activeWorkspaceScene = getWorkspaceScene(activeWorkspace?.id ?? null)
+  const surfaceSnapshot: PersistenceSnapshot = {
+    databasePath: '',
+    lastActivePaneIdsBySurface: {},
+    lastActivePaneIdsByWorkspace: {},
+    lastActiveProjectId: null,
+    lastActiveSurfaceIdsByWorkspace: {},
+    lastActiveWorkspaceIdsByProject: {},
+    lastActiveWorkspaceId: null,
+    migrationStrategy: '',
+    projects: [],
+    schemaVersion: 0,
+    surfaceLayouts,
+    workspaceLayouts,
+    workspaceSurfaces,
+    workspaces: [],
+  }
   const activePaneLabel =
-    resolveWorkspacePane(activeWorkspace?.id ?? null, activePaneId)?.label ??
-    (isDemoMode ? activeWorkspaceScene.panes[0]?.label : null) ??
+    (activeWorkspace && activeSurfaceId
+      ? resolveWorkspaceSurfaces(surfaceSnapshot, activeWorkspace.id).find(
+          (surface) => surface.id === activeSurfaceId,
+        )?.title
+      : null) ??
+    (activePaneId ? resolvePaneMetadata(activePaneId).label : null) ??
     ''
 
   if (shellError) {
@@ -567,83 +573,116 @@ export default function WorkspaceCanvas({
         <span data-testid="active-workspace-name">{activeWorkspace.name}</span>
         <span data-testid="active-pane-name">{activePaneLabel}</span>
       </div>
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        className="flex min-h-0 flex-1 overflow-hidden p-4"
+        data-testid="workspace-viewport"
+      >
         <div
           className="workspace-slider flex min-h-0 min-w-0 flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
           style={workspaceTrackStyle}
         >
           {projectWorkspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspace.id
-            const workspaceSnapshot = {
-              databasePath: '',
-              lastActivePaneIdsByWorkspace: {},
-              lastActiveProjectId: null,
-              lastActiveWorkspaceIdsByProject: {},
-              lastActiveWorkspaceId: null,
-              migrationStrategy: '',
-              schemaVersion: 0,
-              projects: [],
-              workspaceLayouts,
-              workspaces: [],
-            }
-            const layout = resolveWorkspaceLayout(
-              workspaceSnapshot,
+            const surfaces = resolveWorkspaceSurfaces(
+              surfaceSnapshot,
               workspace.id,
             )
-            const rootNode = resolveWorkspaceLayoutRoot(layout)
-            const paneCount = collectWorkspaceLayoutPaneIds(layout).length
-            const nodeLookup = new Map(
-              layout?.nodes.map((node) => [node.id, node]),
+            const visibleSurfaceId = isActiveWorkspace
+              ? activeSurfaceId
+              : (surfaces[0]?.id ?? null)
+            const activeSurfaceIndex = Math.max(
+              surfaces.findIndex((surface) => surface.id === visibleSurfaceId),
+              0,
             )
+            const surfaceTrackStyle = getPaneTrackStyle(
+              surfaces.length,
+              activeSurfaceIndex,
+            )
+            const surfaceSlideWidth = getPaneSlideWidth(surfaces.length)
 
             return (
               <section
                 className="workspace-slide flex min-h-0 min-w-0 w-full shrink-0 flex-col overflow-hidden"
+                data-active-workspace={isActiveWorkspace ? 'true' : 'false'}
                 key={workspace.id}
                 style={{ height: workspaceSlideHeight }}
               >
-                <div className="flex min-h-0 flex-1 overflow-hidden p-4">
-                  {activeProject && rootNode && paneCount > 0 ? (
-                    rootNode.type === 'split-horizontal' &&
-                    isActiveWorkspace ? (
-                      renderPaneTrack({
-                        activePaneId,
-                        activeProject,
-                        activePreviewTarget,
-                        canClosePane: paneCount > 1,
-                        node: rootNode,
-                        nodeLookup,
-                        onClosePane,
-                        onLoadPreviewTarget,
-                        onResizePane,
-                        onSelectPreviewTarget,
-                        onSelectPane,
-                        onSplitPane,
-                        previewTargets,
-                        workspace,
-                      })
-                    ) : (
-                      renderLayoutNode({
-                        activePaneId: isActiveWorkspace ? activePaneId : null,
-                        activeProject,
-                        activePreviewTarget: isActiveWorkspace
-                          ? activePreviewTarget
-                          : null,
-                        canClosePane: paneCount > 1,
-                        isInteractive: isActiveWorkspace,
-                        node: rootNode,
-                        nodeLookup,
-                        onClosePane,
-                        onLoadPreviewTarget,
-                        onResizePane,
-                        onSelectPreviewTarget,
-                        onSelectPane,
-                        onSplitPane,
-                        previewTargets: isActiveWorkspace ? previewTargets : [],
-                        workspace,
-                      })
-                    )
-                  ) : activeProject && !isDemoMode ? (
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                  {activeProject && surfaces.length > 0 ? (
+                    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                      <div
+                        className="flex min-h-0 min-w-0 shrink-0 transition-transform duration-200 ease-out"
+                        style={surfaceTrackStyle}
+                      >
+                        {surfaces.map((surface) => {
+                          const layout = resolveSurfaceLayout(
+                            surfaceSnapshot,
+                            workspace.id,
+                            surface.id,
+                          )
+                          const rootNode = resolveWorkspaceLayoutRoot(layout)
+                          const paneCount =
+                            collectWorkspaceLayoutPaneIds(layout).length
+                          const nodeLookup = new Map(
+                            layout?.nodes.map((node) => [node.id, node]),
+                          )
+
+                          return (
+                            <div
+                              className="flex min-h-0 min-w-0 w-full shrink-0"
+                              data-active-surface={
+                                surface.id === visibleSurfaceId
+                                  ? 'true'
+                                  : 'false'
+                              }
+                              key={surface.id}
+                              style={{ width: surfaceSlideWidth }}
+                            >
+                              {rootNode && paneCount > 0 ? (
+                                renderLayoutNode({
+                                  activePaneId:
+                                    isActiveWorkspace &&
+                                    surface.id === visibleSurfaceId
+                                      ? activePaneId
+                                      : null,
+                                  activeProject,
+                                  activePreviewTarget:
+                                    isActiveWorkspace &&
+                                    surface.id === visibleSurfaceId
+                                      ? activePreviewTarget
+                                      : null,
+                                  isInteractive:
+                                    isActiveWorkspace &&
+                                    surface.id === visibleSurfaceId,
+                                  node: rootNode,
+                                  nodeLookup,
+                                  onAddView,
+                                  onClosePane,
+                                  onLoadPreviewTarget,
+                                  onRemoveView,
+                                  onResizePane,
+                                  onSelectPreviewTarget,
+                                  onSelectPane,
+                                  onSplitPane,
+                                  onSwitchView,
+                                  previewTargets:
+                                    isActiveWorkspace &&
+                                    surface.id === visibleSurfaceId
+                                      ? previewTargets
+                                      : [],
+                                  workspace,
+                                })
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
+                                  Surface layout is missing a valid root node.
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : activeProject ? (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">
                       <div className="max-w-md space-y-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
@@ -653,9 +692,9 @@ export default function WorkspaceCanvas({
                           {workspace.name} starts blank
                         </h2>
                         <p className="text-sm text-muted-foreground">
-                          This workspace does not open placeholder panes
-                          anymore. Pane creation should start from explicit user
-                          choice.
+                          Add a pane to create the first full-size destination
+                          in this workspace. Split actions only apply inside an
+                          existing destination.
                         </p>
                       </div>
                     </div>
@@ -673,4 +712,3 @@ export default function WorkspaceCanvas({
     </section>
   )
 }
-                data-active-workspace={isActiveWorkspace ? 'true' : 'false'}

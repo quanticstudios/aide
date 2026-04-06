@@ -14,7 +14,6 @@ const snapshot: RuntimeSnapshot = {
   nodeVersion: '22.0.0',
   platform: 'darwin',
   arch: 'arm64',
-  useNavigationPoc: false,
   workingDirectory: '/workspace/aide',
 }
 

@@ -35,12 +35,14 @@ export interface PersistedSplitLayoutNode {
 }
 
 export interface PersistedPaneLayoutNode {
+  activeViewIndex: number
   children: []
   id: string
   paneId: string
   parentId: string | null
   sizeWeights: []
   type: 'pane'
+  viewIds: string[]
   workspaceId: string
 }
 
@@ -54,22 +56,40 @@ export interface WorkspaceLayoutRecord {
   workspaceId: string
 }
 
+export interface WorkspaceSurfaceRecord {
+  id: string
+  orderIndex: number
+  rootNodeId: string
+  title: string
+  workspaceId: string
+}
+
+export interface SurfaceLayoutRecord extends WorkspaceLayoutRecord {
+  surfaceId: string
+}
+
 export interface PersistenceSnapshot {
   databasePath: string
   lastActivePaneIdsByWorkspace: Record<string, string | null>
+  lastActivePaneIdsBySurface?: Record<string, string | null>
   lastActiveProjectId: string | null
+  lastActiveSurfaceIdsByWorkspace?: Record<string, string | null>
   lastActiveWorkspaceIdsByProject: Record<string, string | null>
   lastActiveWorkspaceId: string | null
   migrationStrategy: string
   schemaVersion: number
   projects: ProjectRecord[]
+  surfaceLayouts?: Record<string, SurfaceLayoutRecord>
   workspaceLayouts: Record<string, WorkspaceLayoutRecord>
+  workspaceSurfaces?: Record<string, WorkspaceSurfaceRecord[]>
   workspaces: WorkspaceRecord[]
 }
 
 export interface SetActiveSelectionInput {
+  paneIdsBySurface?: Record<string, string | null>
   paneIdsByWorkspace?: Record<string, string | null>
   projectId: string | null
+  surfaceIdsByWorkspace?: Record<string, string | null>
   workspaceIdsByProject?: Record<string, string | null>
   workspaceId: string | null
 }
@@ -107,4 +127,30 @@ export interface UpdateWorkspaceInput {
 export interface SaveWorkspaceLayoutInput {
   nodes: PersistedLayoutNode[]
   rootNodeId: string
+}
+
+export interface SaveWorkspaceSurfaceStateInput {
+  layouts: Record<string, SaveWorkspaceLayoutInput>
+  surfaces: WorkspaceSurfaceRecord[]
+}
+
+export function createEmptyPersistenceSnapshot(
+  databasePath = '.aide.sqlite3',
+): PersistenceSnapshot {
+  return {
+    databasePath,
+    lastActivePaneIdsBySurface: {},
+    lastActivePaneIdsByWorkspace: {},
+    lastActiveProjectId: null,
+    lastActiveSurfaceIdsByWorkspace: {},
+    lastActiveWorkspaceIdsByProject: {},
+    lastActiveWorkspaceId: null,
+    migrationStrategy: 'Pending runtime snapshot',
+    schemaVersion: 0,
+    projects: [],
+    surfaceLayouts: {},
+    workspaceLayouts: {},
+    workspaceSurfaces: {},
+    workspaces: [],
+  }
 }

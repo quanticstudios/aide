@@ -1,13 +1,16 @@
 import {
   Button,
+  ComboBox,
   Description,
   FieldError,
   Input,
   Label,
+  ListBox,
   Modal,
   Surface,
   TextField,
 } from '@heroui/react'
+import { ChevronsUpDown } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { ProjectRefRecord } from '../../../shared/git'
@@ -56,10 +59,6 @@ export default function WorkspaceCreationModal({
   const [isLoadingRefs, setIsLoadingRefs] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [worktreeDirty, setWorktreeDirty] = useState(false)
-  const baseBranchOptionsId = useMemo(
-    () => `workspace-base-branches-${project?.id ?? 'missing'}`,
-    [project?.id],
-  )
 
   useEffect(() => {
     if (!defaults || !isOpen) {
@@ -241,29 +240,50 @@ export default function WorkspaceCreationModal({
                   <FieldError>Branch name is required.</FieldError>
                 </TextField>
 
-                <TextField isInvalid={isBaseBranchInvalid}>
+                <ComboBox
+                  allowsCustomValue
+                  inputValue={baseBranch}
+                  isInvalid={isBaseBranchInvalid}
+                  onInputChange={setBaseBranch}
+                  onSelectionChange={(key) => {
+                    if (key !== null) {
+                      setBaseBranch(String(key))
+                    }
+                  }}
+                  variant="secondary"
+                >
                   <Label>Base branch</Label>
-                  <Input
-                    list={baseBranchOptionsId}
-                    onChange={(event) => setBaseBranch(event.target.value)}
-                    value={baseBranch}
-                    variant="secondary"
-                  />
-                  <datalist id={baseBranchOptionsId}>
-                    {refOptions.map((candidate) => (
-                      <option
-                        key={`${candidate.source}:${candidate.name}`}
-                        value={candidate.name}
-                      >
-                        {candidate.displayName}
-                      </option>
-                    ))}
-                  </datalist>
+                  <ComboBox.InputGroup>
+                    <Input placeholder="Search branches…" />
+                    <ComboBox.Trigger>
+                      <ChevronsUpDown className="size-3.5" />
+                    </ComboBox.Trigger>
+                  </ComboBox.InputGroup>
                   <Description>
                     Search or type a branch/ref to branch from.
                   </Description>
                   <FieldError>Base branch is required.</FieldError>
-                </TextField>
+                  <ComboBox.Popover>
+                    <ListBox className="max-h-48 overflow-y-auto">
+                      {refOptions.map((candidate) => (
+                        <ListBox.Item
+                          id={candidate.name}
+                          key={`${candidate.source}:${candidate.name}`}
+                          textValue={candidate.name}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm">
+                              {candidate.name}
+                            </span>
+                            <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
+                              {candidate.source}
+                            </span>
+                          </div>
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </ComboBox.Popover>
+                </ComboBox>
 
                 <TextField isInvalid={isWorktreeInvalid}>
                   <Label>Worktree path</Label>

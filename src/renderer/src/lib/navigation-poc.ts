@@ -1,8 +1,10 @@
 import type {
   PersistenceSnapshot,
   ProjectRecord,
+  SurfaceLayoutRecord,
   WorkspaceLayoutRecord,
   WorkspaceRecord,
+  WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import { createDefaultPaneMetadata } from './pane-catalog'
 
@@ -320,21 +322,25 @@ const demoWorkspaceLayouts: Record<string, WorkspaceLayoutRecord> = {
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'nav-chat',
         paneId: 'chat',
         parentId: 'nav-primary-column',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['chat'],
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'nav-terminal',
         paneId: 'terminal',
         parentId: 'nav-primary-column',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['terminal'],
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
@@ -347,30 +353,36 @@ const demoWorkspaceLayouts: Record<string, WorkspaceLayoutRecord> = {
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'nav-git',
         paneId: 'git',
         parentId: 'nav-review-column',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['git'],
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'nav-editor',
         paneId: 'editor',
         parentId: 'nav-review-column',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['editor'],
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'nav-preview',
         paneId: 'preview',
         parentId: 'nav-root',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['preview'],
         workspaceId: 'demo-workspace-aide-nav',
       },
     ],
@@ -379,16 +391,77 @@ const demoWorkspaceLayouts: Record<string, WorkspaceLayoutRecord> = {
   },
 }
 
+function createDemoSurface(
+  workspaceId: string,
+  paneId: string,
+  title: string,
+  orderIndex: number,
+): {
+  layout: SurfaceLayoutRecord
+  surface: WorkspaceSurfaceRecord
+} {
+  const surfaceId = `${workspaceId}:surface:${paneId}`
+  const rootNodeId = `${surfaceId}:pane`
+
+  return {
+    layout: {
+      nodes: [
+        {
+          activeViewIndex: 0,
+          children: [],
+          id: rootNodeId,
+          paneId,
+          parentId: null,
+          sizeWeights: [],
+          type: 'pane',
+          viewIds: [paneId],
+          workspaceId,
+        },
+      ],
+      rootNodeId,
+      surfaceId,
+      workspaceId,
+    },
+    surface: {
+      id: surfaceId,
+      orderIndex,
+      rootNodeId,
+      title,
+      workspaceId,
+    },
+  }
+}
+
+const demoWorkspaceSurfaces: Record<string, WorkspaceSurfaceRecord[]> = {}
+const demoSurfaceLayouts: Record<string, SurfaceLayoutRecord> = {}
+
+for (const [workspaceId, scene] of Object.entries(workspaceScenes)) {
+  demoWorkspaceSurfaces[workspaceId] = scene.panes.map((pane, index) => {
+    const { layout, surface } = createDemoSurface(
+      workspaceId,
+      pane.id,
+      pane.label,
+      index,
+    )
+    demoSurfaceLayouts[surface.id] = layout
+    return surface
+  })
+}
+
 export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   databasePath: 'demo://navigation-poc',
+  lastActivePaneIdsBySurface: {},
   lastActivePaneIdsByWorkspace: {},
   lastActiveProjectId: 'demo-project-aide',
+  lastActiveSurfaceIdsByWorkspace: {},
   lastActiveWorkspaceIdsByProject: {},
   lastActiveWorkspaceId: 'demo-workspace-aide-nav',
   migrationStrategy: 'Navigation-first POC fallback snapshot',
   schemaVersion: 0,
   projects: demoProjects,
+  surfaceLayouts: demoSurfaceLayouts,
   workspaceLayouts: demoWorkspaceLayouts,
+  workspaceSurfaces: demoWorkspaceSurfaces,
   workspaces: demoWorkspaces,
 }
 
@@ -515,14 +588,18 @@ export function resolveNavigationSnapshot(
 
   return {
     databasePath: '.aide.sqlite3',
+    lastActivePaneIdsBySurface: {},
     lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: null,
+    lastActiveSurfaceIdsByWorkspace: {},
     lastActiveWorkspaceIdsByProject: {},
     lastActiveWorkspaceId: null,
     migrationStrategy: 'Pending runtime snapshot',
     schemaVersion: 0,
     projects: [],
+    surfaceLayouts: {},
     workspaceLayouts: {},
+    workspaceSurfaces: {},
     workspaces: [],
   }
 }

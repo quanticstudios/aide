@@ -9,22 +9,23 @@ import GitPane from '../components/GitPane'
 import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
 import PreviewPane from '../components/PreviewPane'
 import TerminalPane from '../components/TerminalPane'
-import type { PlaceholderPane, WorkspaceScene } from './navigation-poc'
 import {
+  type ResolvedPaneMetadata,
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
   listPaneCatalogEntries,
+  resolvePaneMetadata,
   resolvePaneType,
 } from './pane-catalog'
 
 interface PaneRenderArgs {
   activePaneId: string | null
   activePreviewTarget: PreviewTarget | null
+  onClosePane: (paneId: string) => void
   onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
   onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
-  pane: PlaceholderPane
+  pane: ResolvedPaneMetadata
   project: ProjectRecord
-  scene: WorkspaceScene
   previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
 }
@@ -38,19 +39,17 @@ const placeholderRenderer = (args: PaneRenderArgs): ReactNode => (
   <PlaceholderWorkspaceView
     pane={args.pane}
     project={args.project}
-    scene={args.scene}
     workspace={args.workspace}
   />
 )
 
-const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
-  args.pane.id === args.activePaneId ? (
-    <TerminalPane paneId={args.pane.id} workspace={args.workspace} />
-  ) : (
-    <div className="flex h-full w-full items-center justify-center rounded-xl border border-border/50 bg-[#0f131b] text-sm text-muted-foreground">
-      Terminal session hidden until this pane is focused.
-    </div>
-  )
+const terminalRenderer = (args: PaneRenderArgs): ReactNode => (
+  <TerminalPane
+    onClose={() => args.onClosePane(args.pane.id)}
+    paneId={args.pane.id}
+    workspace={args.workspace}
+  />
+)
 
 const previewRenderer = (args: PaneRenderArgs): ReactNode =>
   args.pane.id === args.activePaneId ? (
@@ -95,19 +94,17 @@ export function getPaneRegistryEntry(
   return paneRegistry[paneType]
 }
 
-export function createFallbackPane(paneId: string): PlaceholderPane {
-  const { metadata, resolvedType } = createFallbackPaneMetadata(paneId)
+export function createFallbackPane(paneId: string): ResolvedPaneMetadata {
+  const { resolvedType } = createFallbackPaneMetadata(paneId)
   const registryEntry =
     resolvedType !== null ? getPaneCatalogEntry(resolvedType) : null
 
   return {
-    ...metadata,
+    ...resolvePaneMetadata(paneId),
     description:
       registryEntry?.defaultMetadata.description ??
       'Placeholder pane metadata is missing for this layout node.',
-    id: paneId,
-    label: registryEntry ? metadata.label : paneId,
-    layoutClassName: '',
+    label: registryEntry ? resolvePaneMetadata(paneId).label : paneId,
   }
 }
 

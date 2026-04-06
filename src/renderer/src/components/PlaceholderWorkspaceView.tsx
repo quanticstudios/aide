@@ -1,7 +1,7 @@
 import { Chip, Surface } from '@heroui/react'
 import { ArrowRight, FolderTree, GitBranch, Sparkles } from 'lucide-react'
 
-import type { PlaceholderPane, WorkspaceScene } from '@/lib/navigation-poc'
+import type { ResolvedPaneMetadata } from '@/lib/pane-catalog'
 import {
   getPlaceholderActionsForPane,
   getPlaceholderBadgesForPane,
@@ -12,16 +12,14 @@ import type {
 } from '../../../shared/persistence'
 
 interface PlaceholderWorkspaceViewProps {
-  readonly pane: PlaceholderPane
+  readonly pane: ResolvedPaneMetadata
   readonly project: ProjectRecord
-  readonly scene: WorkspaceScene
   readonly workspace: WorkspaceRecord
 }
 
 export default function PlaceholderWorkspaceView({
   pane,
   project,
-  scene,
   workspace,
 }: PlaceholderWorkspaceViewProps) {
   const actions = getPlaceholderActionsForPane(pane)
@@ -126,7 +124,7 @@ export default function PlaceholderWorkspaceView({
               {workspace.branchName}
             </p>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              {scene.headline}
+              {pane.description}
             </p>
           </Surface>
         </div>

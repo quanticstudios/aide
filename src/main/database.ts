@@ -8,11 +8,14 @@ import type {
   PersistenceSnapshot,
   ProjectRecord,
   SaveWorkspaceLayoutInput,
+  SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
+  SurfaceLayoutRecord,
   UpdateProjectInput,
   UpdateWorkspaceInput,
   WorkspaceLayoutRecord,
   WorkspaceRecord,
+  WorkspaceSurfaceRecord,
 } from '../shared/persistence'
 
 interface SqlProjectRow {
@@ -38,7 +41,9 @@ interface SqlWorkspaceRow {
 
 interface SqlAppStateRow {
   last_active_project_id: string | null
+  last_active_pane_ids_by_surface: string
   last_active_workspace_ids_by_project: string
+  last_active_surface_ids_by_workspace: string
   last_active_pane_ids_by_workspace: string
   last_active_workspace_id: string | null
 }
@@ -49,8 +54,16 @@ interface SqlWorkspaceLayoutRow {
   workspace_id: string
 }
 
+interface SqlWorkspaceSurfaceStateRow {
+  layouts_json: string
+  surfaces_json: string
+  workspace_id: string
+}
+
 const MIGRATION_STRATEGY =
   'Ordered SQL migrations tracked with PRAGMA user_version.'
+
+const LEGACY_SURFACE_SUFFIX = ':surface:legacy-root'
 
 const MIGRATIONS = [
   {
@@ -116,6 +129,21 @@ const MIGRATIONS = [
         updated_at TEXT NOT NULL,
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
       );
+    `,
+  },
+  {
+    version: 5,
+    sql: `
+      CREATE TABLE IF NOT EXISTS workspace_surface_states (
+        workspace_id TEXT PRIMARY KEY,
+        surfaces_json TEXT NOT NULL,
+        layouts_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+
+      ALTER TABLE app_state ADD COLUMN last_active_surface_ids_by_workspace TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE app_state ADD COLUMN last_active_pane_ids_by_surface TEXT NOT NULL DEFAULT '{}';
     `,
   },
 ]
@@ -421,24 +449,80 @@ export class AideDatabase {
 
   public getSnapshot(): PersistenceSnapshot {
     const activeSelection = this.getActiveSelection()
+    const workspaces = this.listWorkspaces()
+    const legacyWorkspaceLayouts = this.listWorkspaceLayouts().reduce<
+      Record<string, WorkspaceLayoutRecord>
+    >((layouts, layout) => {
+      layouts[layout.workspaceId] = layout
+      return layouts
+    }, {})
+    const persistedSurfaceStateByWorkspace = new Map(
+      this.listWorkspaceSurfaceStates().map((state) => [
+        state.workspaceId,
+        state,
+      ]),
+    )
+    const workspaceSurfaces: Record<string, WorkspaceSurfaceRecord[]> = {}
+    const surfaceLayouts: Record<string, SurfaceLayoutRecord> = {}
+
+    for (const workspace of workspaces) {
+      const surfaceState =
+        persistedSurfaceStateByWorkspace.get(workspace.id) ?? null
+
+      if (surfaceState) {
+        workspaceSurfaces[workspace.id] = surfaceState.surfaces
+
+        for (const layout of Object.values(surfaceState.layouts)) {
+          surfaceLayouts[layout.surfaceId] = layout
+        }
+
+        continue
+      }
+
+      const legacyLayout = legacyWorkspaceLayouts[workspace.id]
+
+      if (
+        !legacyLayout ||
+        !legacyLayout.rootNodeId ||
+        legacyLayout.nodes.length === 0
+      ) {
+        workspaceSurfaces[workspace.id] = []
+        continue
+      }
+
+      const legacySurfaceId = this.createLegacySurfaceId(workspace.id)
+      workspaceSurfaces[workspace.id] = [
+        {
+          id: legacySurfaceId,
+          orderIndex: 0,
+          rootNodeId: legacyLayout.rootNodeId,
+          title: workspace.name,
+          workspaceId: workspace.id,
+        },
+      ]
+      surfaceLayouts[legacySurfaceId] = {
+        ...legacyLayout,
+        surfaceId: legacySurfaceId,
+      }
+    }
 
     return {
       databasePath: this.databasePath,
+      lastActivePaneIdsBySurface: activeSelection.paneIdsBySurface ?? {},
       lastActivePaneIdsByWorkspace: activeSelection.paneIdsByWorkspace ?? {},
       lastActiveProjectId: activeSelection.projectId,
+      lastActiveSurfaceIdsByWorkspace:
+        activeSelection.surfaceIdsByWorkspace ?? {},
       lastActiveWorkspaceIdsByProject:
         activeSelection.workspaceIdsByProject ?? {},
       lastActiveWorkspaceId: activeSelection.workspaceId,
       migrationStrategy: MIGRATION_STRATEGY,
       schemaVersion: this.getSchemaVersion(),
       projects: this.listProjects(),
-      workspaceLayouts: this.listWorkspaceLayouts().reduce<
-        Record<string, WorkspaceLayoutRecord>
-      >((layouts, layout) => {
-        layouts[layout.workspaceId] = layout
-        return layouts
-      }, {}),
-      workspaces: this.listWorkspaces(),
+      surfaceLayouts,
+      workspaceLayouts: legacyWorkspaceLayouts,
+      workspaceSurfaces,
+      workspaces,
     }
   }
 
@@ -501,12 +585,73 @@ export class AideDatabase {
     return this.getWorkspaceLayout(workspaceId)
   }
 
+  public saveWorkspaceSurfaceState(
+    workspaceId: string,
+    input: SaveWorkspaceSurfaceStateInput,
+  ): {
+    layouts: Record<string, SurfaceLayoutRecord>
+    surfaces: WorkspaceSurfaceRecord[]
+    workspaceId: string
+  } | null {
+    if (!this.getWorkspace(workspaceId)) {
+      return null
+    }
+
+    const surfaces = [...input.surfaces]
+      .map((surface) => this.normalizeWorkspaceSurface(workspaceId, surface))
+      .sort((left, right) => left.orderIndex - right.orderIndex)
+    const layouts = surfaces.reduce<Record<string, SurfaceLayoutRecord>>(
+      (acc, surface) => {
+        const layoutInput = input.layouts[surface.id]
+
+        if (!layoutInput) {
+          throw new Error('Each workspace surface requires a layout.')
+        }
+
+        const layout = {
+          ...this.normalizeWorkspaceLayout(workspaceId, layoutInput),
+          surfaceId: surface.id,
+        }
+
+        if (layout.rootNodeId !== surface.rootNodeId) {
+          throw new Error(
+            'Workspace surface root node id must match its layout root node id.',
+          )
+        }
+
+        acc[surface.id] = layout
+        return acc
+      },
+      {},
+    )
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO workspace_surface_states (workspace_id, surfaces_json, layouts_json, updated_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET
+            surfaces_json = excluded.surfaces_json,
+            layouts_json = excluded.layouts_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        workspaceId,
+        JSON.stringify(surfaces),
+        JSON.stringify(layouts),
+        new Date().toISOString(),
+      )
+
+    return this.getWorkspaceSurfaceState(workspaceId)
+  }
+
   public setActiveSelection(input: SetActiveSelectionInput): void {
     this.database
       .prepare(
         `
           UPDATE app_state
-          SET last_active_project_id = ?, last_active_workspace_id = ?, last_active_workspace_ids_by_project = ?, last_active_pane_ids_by_workspace = ?, updated_at = ?
+          SET last_active_project_id = ?, last_active_workspace_id = ?, last_active_workspace_ids_by_project = ?, last_active_pane_ids_by_workspace = ?, last_active_surface_ids_by_workspace = ?, last_active_pane_ids_by_surface = ?, updated_at = ?
           WHERE id = 1
         `,
       )
@@ -515,6 +660,8 @@ export class AideDatabase {
         input.workspaceId,
         JSON.stringify(input.workspaceIdsByProject ?? {}),
         JSON.stringify(input.paneIdsByWorkspace ?? {}),
+        JSON.stringify(input.surfaceIdsByWorkspace ?? {}),
+        JSON.stringify(input.paneIdsBySurface ?? {}),
         new Date().toISOString(),
       )
   }
@@ -531,7 +678,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT last_active_project_id, last_active_workspace_id, last_active_workspace_ids_by_project, last_active_pane_ids_by_workspace
+          SELECT last_active_project_id, last_active_workspace_id, last_active_workspace_ids_by_project, last_active_pane_ids_by_workspace, last_active_surface_ids_by_workspace, last_active_pane_ids_by_surface
           FROM app_state
           WHERE id = 1
         `,
@@ -539,10 +686,16 @@ export class AideDatabase {
       .get() as SqlAppStateRow | undefined
 
     return {
+      paneIdsBySurface: row?.last_active_pane_ids_by_surface
+        ? JSON.parse(row.last_active_pane_ids_by_surface)
+        : {},
       paneIdsByWorkspace: row?.last_active_pane_ids_by_workspace
         ? JSON.parse(row.last_active_pane_ids_by_workspace)
         : {},
       projectId: row?.last_active_project_id ?? null,
+      surfaceIdsByWorkspace: row?.last_active_surface_ids_by_workspace
+        ? JSON.parse(row.last_active_surface_ids_by_workspace)
+        : {},
       workspaceIdsByProject: row?.last_active_workspace_ids_by_project
         ? JSON.parse(row.last_active_workspace_ids_by_project)
         : {},
@@ -586,6 +739,76 @@ export class AideDatabase {
     })
   }
 
+  private createLegacySurfaceId(workspaceId: string): string {
+    return `${workspaceId}${LEGACY_SURFACE_SUFFIX}`
+  }
+
+  private getWorkspaceSurfaceState(workspaceId: string): {
+    layouts: Record<string, SurfaceLayoutRecord>
+    surfaces: WorkspaceSurfaceRecord[]
+    workspaceId: string
+  } | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT workspace_id, surfaces_json, layouts_json
+          FROM workspace_surface_states
+          WHERE workspace_id = ?
+        `,
+      )
+      .get(workspaceId) as SqlWorkspaceSurfaceStateRow | undefined
+
+    return row ? this.mapWorkspaceSurfaceStateRow(row) : null
+  }
+
+  private listWorkspaceSurfaceStates(): Array<{
+    layouts: Record<string, SurfaceLayoutRecord>
+    surfaces: WorkspaceSurfaceRecord[]
+    workspaceId: string
+  }> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT workspace_id, surfaces_json, layouts_json
+          FROM workspace_surface_states
+          ORDER BY workspace_id ASC
+        `,
+      )
+      .all() as unknown as SqlWorkspaceSurfaceStateRow[]
+
+    return rows.map((row) => this.mapWorkspaceSurfaceStateRow(row))
+  }
+
+  private mapWorkspaceSurfaceStateRow(row: SqlWorkspaceSurfaceStateRow): {
+    layouts: Record<string, SurfaceLayoutRecord>
+    surfaces: WorkspaceSurfaceRecord[]
+    workspaceId: string
+  } {
+    const parsedSurfaces = JSON.parse(
+      row.surfaces_json,
+    ) as WorkspaceSurfaceRecord[]
+    const parsedLayouts = JSON.parse(row.layouts_json) as Record<
+      string,
+      SaveWorkspaceLayoutInput
+    >
+
+    return {
+      layouts: Object.entries(parsedLayouts).reduce<
+        Record<string, SurfaceLayoutRecord>
+      >((acc, [surfaceId, layout]) => {
+        acc[surfaceId] = {
+          ...this.normalizeWorkspaceLayout(row.workspace_id, layout),
+          surfaceId,
+        }
+        return acc
+      }, {}),
+      surfaces: parsedSurfaces.map((surface) =>
+        this.normalizeWorkspaceSurface(row.workspace_id, surface),
+      ),
+      workspaceId: row.workspace_id,
+    }
+  }
+
   private normalizeWorkspaceLayout(
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
@@ -613,6 +836,27 @@ export class AideDatabase {
     }
   }
 
+  private normalizeWorkspaceSurface(
+    workspaceId: string,
+    surface: WorkspaceSurfaceRecord,
+  ): WorkspaceSurfaceRecord {
+    if (surface.workspaceId !== workspaceId) {
+      throw new Error(
+        'Workspace surfaces must belong to the workspace being saved.',
+      )
+    }
+
+    if (!surface.id || !surface.rootNodeId) {
+      throw new Error('Workspace surfaces require ids and root node ids.')
+    }
+
+    return {
+      ...surface,
+      orderIndex: Math.max(0, Math.trunc(surface.orderIndex)),
+      title: surface.title.trim() || 'Pane',
+    }
+  }
+
   private normalizeLayoutNode(
     workspaceId: string,
     node: PersistedLayoutNode,
@@ -630,10 +874,21 @@ export class AideDatabase {
         throw new Error('Pane layout nodes require a pane id.')
       }
 
+      const viewIds =
+        Array.isArray(node.viewIds) && node.viewIds.length > 0
+          ? node.viewIds
+          : [node.paneId]
+      const activeViewIndex =
+        typeof node.activeViewIndex === 'number'
+          ? Math.min(Math.max(node.activeViewIndex, 0), viewIds.length - 1)
+          : 0
+
       return {
         ...node,
+        activeViewIndex,
         children: [],
         sizeWeights: [],
+        viewIds,
       }
     }
 

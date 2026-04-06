@@ -48,6 +48,22 @@ describe('mapShortcutInputToAppEvent', () => {
     ).toEqual({ type: 'overview-open' })
   })
 
+  it('maps Alt+Space to workspace-switcher-toggle', () => {
+    expect(
+      mapShortcutInputToAppEvent(
+        createInput({ alt: true, code: 'Space', key: ' ' }),
+      ),
+    ).toEqual({ type: 'workspace-switcher-toggle' })
+  })
+
+  it('maps Ctrl+K to command-palette-open', () => {
+    expect(
+      mapShortcutInputToAppEvent(
+        createInput({ control: true, code: 'KeyK', key: 'k' }),
+      ),
+    ).toEqual({ type: 'command-palette-open' })
+  })
+
   it('ignores unrelated keys', () => {
     expect(
       mapShortcutInputToAppEvent(createInput({ key: 'x', code: 'KeyX' })),

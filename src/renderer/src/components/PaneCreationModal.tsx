@@ -1,6 +1,9 @@
 import { Button, Modal, Surface } from '@heroui/react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { listPaneCatalogEntries } from '@/lib/pane-catalog'
+
+const COLUMNS = 2
 
 interface PaneCreationModalProps {
   readonly isOpen: boolean
@@ -14,6 +17,90 @@ export default function PaneCreationModal({
   onOpenChange,
 }: PaneCreationModalProps) {
   const paneOptions = listPaneCatalogEntries()
+  const [focusedIndex, setFocusedIndex] = useState(0)
+
+  useEffect(() => {
+    if (isOpen) {
+      setFocusedIndex(0)
+    }
+  }, [isOpen])
+
+  const handleSelect = useCallback(
+    (index: number) => {
+      const option = paneOptions[index]
+
+      if (option) {
+        onCreatePane(option.id)
+        onOpenChange(false)
+      }
+    },
+    [onCreatePane, onOpenChange, paneOptions],
+  )
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      const key = event.key
+      const code = event.code?.toLowerCase() ?? ''
+      const count = paneOptions.length
+      const row = Math.floor(focusedIndex / COLUMNS)
+      const col = focusedIndex % COLUMNS
+      const rows = Math.ceil(count / COLUMNS)
+
+      const isLeft = key === 'ArrowLeft' || key === 'h' || code === 'keyh'
+      const isRight = key === 'ArrowRight' || key === 'l' || code === 'keyl'
+      const isUp = key === 'ArrowUp' || key === 'k' || code === 'keyk'
+      const isDown = key === 'ArrowDown' || key === 'j' || code === 'keyj'
+
+      if (isLeft) {
+        event.preventDefault()
+        const nextCol = col > 0 ? col - 1 : COLUMNS - 1
+        const next = row * COLUMNS + nextCol
+
+        setFocusedIndex(next < count ? next : focusedIndex)
+        return
+      }
+
+      if (isRight) {
+        event.preventDefault()
+        const nextCol = (col + 1) % COLUMNS
+        const next = row * COLUMNS + nextCol
+
+        setFocusedIndex(next < count ? next : focusedIndex)
+        return
+      }
+
+      if (isUp) {
+        event.preventDefault()
+        const nextRow = row > 0 ? row - 1 : rows - 1
+        const next = nextRow * COLUMNS + col
+
+        setFocusedIndex(next < count ? next : focusedIndex)
+        return
+      }
+
+      if (isDown) {
+        event.preventDefault()
+        const nextRow = (row + 1) % rows
+        const next = nextRow * COLUMNS + col
+
+        setFocusedIndex(next < count ? next : focusedIndex)
+        return
+      }
+
+      if (key === 'Enter' || key === ' ') {
+        event.preventDefault()
+        handleSelect(focusedIndex)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, focusedIndex, paneOptions, handleSelect])
 
   return (
     <Modal>
@@ -31,20 +118,25 @@ export default function PaneCreationModal({
 
             <Modal.Body>
               <div className="grid gap-3 sm:grid-cols-2">
-                {paneOptions.map((pane) => {
+                {paneOptions.map((pane, index) => {
                   const Icon = pane.icon
+                  const isFocused = index === focusedIndex
 
                   return (
                     <button
                       className="text-left"
                       key={pane.id}
-                      onClick={() => {
-                        onCreatePane(pane.id)
-                        onOpenChange(false)
-                      }}
+                      onClick={() => handleSelect(index)}
+                      onMouseEnter={() => setFocusedIndex(index)}
                       type="button"
                     >
-                      <Surface className="rounded-2xl border border-border/70 p-4 transition-colors hover:border-primary/45 hover:bg-surface-secondary">
+                      <Surface
+                        className={`rounded-2xl border p-4 transition-colors ${
+                          isFocused
+                            ? 'border-primary/60 bg-surface-secondary'
+                            : 'border-border/70 hover:border-primary/45 hover:bg-surface-secondary'
+                        }`}
+                      >
                         <div className="flex items-start gap-3">
                           <div className="rounded-xl border border-border/70 bg-background/70 p-2 text-muted-foreground">
                             <Icon className="size-4" />

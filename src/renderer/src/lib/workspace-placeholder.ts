@@ -1,4 +1,4 @@
-import type { PlaceholderPane } from './navigation-poc'
+import type { ResolvedPaneMetadata } from './pane-catalog'
 
 export interface PlaceholderAction {
   description: string
@@ -6,13 +6,13 @@ export interface PlaceholderAction {
 }
 
 export function getPlaceholderBadgesForPane(
-  pane: Pick<PlaceholderPane, 'type'>,
+  pane: Pick<ResolvedPaneMetadata, 'type'>,
 ): string[] {
   return ['Placeholder view', pane.type]
 }
 
 export function getPlaceholderActionsForPane(
-  pane: Pick<PlaceholderPane, 'type'>,
+  pane: Pick<ResolvedPaneMetadata, 'type'>,
 ): PlaceholderAction[] {
   const actionsByPaneType: Record<string, PlaceholderAction[]> = {
     Chat: [

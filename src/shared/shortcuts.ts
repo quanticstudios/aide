@@ -1,9 +1,12 @@
 export type AppShortcutEvent =
+  | { type: 'command-palette-open' }
   | { type: 'overview-open' }
+  | { type: 'pane-create' }
   | { type: 'pane-next' }
   | { type: 'pane-previous' }
   | { type: 'workspace-next' }
   | { type: 'workspace-previous' }
+  | { type: 'workspace-switcher-toggle' }
   | { projectIndex: number; type: 'project-jump' }
 
 export interface ShortcutInput {
@@ -79,6 +82,18 @@ export function mapShortcutInputToAppEvent(
 
   if (isOverviewChord) {
     return { type: 'overview-open' }
+  }
+
+  if (isAltOnly && normalizedKey === ' ') {
+    return { type: 'workspace-switcher-toggle' }
+  }
+
+  if (isCtrlOnly && normalizedKey === 'k') {
+    return { type: 'command-palette-open' }
+  }
+
+  if (isAltOnly && normalizedKey === 'n') {
+    return { type: 'pane-create' }
   }
 
   if (isAltOnly && matchesDirectionalShortcut(input, 'left')) {

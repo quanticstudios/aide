@@ -737,7 +737,9 @@ export class GitWorkspaceService {
       const deletionsMatch = output.match(/(\d+) deletion/)
 
       return {
-        additions: insertionsMatch ? Number.parseInt(insertionsMatch[1], 10) : 0,
+        additions: insertionsMatch
+          ? Number.parseInt(insertionsMatch[1], 10)
+          : 0,
         deletions: deletionsMatch ? Number.parseInt(deletionsMatch[1], 10) : 0,
       }
     } catch {

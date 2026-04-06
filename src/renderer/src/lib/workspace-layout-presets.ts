@@ -12,12 +12,14 @@ function createPaneNode(
   parentId: string | null,
 ): PersistedLayoutNode {
   return {
+    activeViewIndex: 0,
     children: [],
     id: nodeId,
     paneId,
     parentId,
     sizeWeights: [],
     type: 'pane',
+    viewIds: [paneId],
     workspaceId,
   }
 }

@@ -41,12 +41,14 @@ describe('workspace layout helpers', () => {
           workspaceId: 'workspace-1',
         },
         {
+          activeViewIndex: 0,
           children: [],
           id: 'left-pane',
           paneId: 'chat',
           parentId: 'root',
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['chat'],
           workspaceId: 'workspace-1',
         },
         {
@@ -59,21 +61,25 @@ describe('workspace layout helpers', () => {
           workspaceId: 'workspace-1',
         },
         {
+          activeViewIndex: 0,
           children: [],
           id: 'top-pane',
           paneId: 'git',
           parentId: 'right-split',
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['git'],
           workspaceId: 'workspace-1',
         },
         {
+          activeViewIndex: 0,
           children: [],
           id: 'bottom-pane',
           paneId: 'preview',
           parentId: 'right-split',
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['preview'],
           workspaceId: 'workspace-1',
         },
       ],
@@ -89,39 +95,27 @@ describe('workspace layout helpers', () => {
     expect(resolveWorkspaceLayoutRoot(layout)?.id).toBe('root')
   })
 
-  it('falls back to a flat demo layout when a demo workspace has no persisted tree yet', () => {
-    const layout = resolveWorkspaceLayout(
-      createSnapshot({}),
-      'demo-workspace-aide-nav',
-    )
-
-    expect(layout?.workspaceId).toBe('demo-workspace-aide-nav')
-    expect(layout?.rootNodeId).toBe('demo-workspace-aide-nav:fallback-root')
-    expect(collectWorkspaceLayoutPaneIds(layout ?? null)).toEqual([
-      'chat',
-      'terminal',
-      'git',
-      'editor',
-      'preview',
-    ])
-  })
-
-  it('keeps a real workspace empty when it has no persisted tree yet', () => {
-    expect(resolveWorkspaceLayout(createSnapshot({}), 'workspace-real-1')).toBe(
-      null,
-    )
+  it('keeps a workspace empty when it has no persisted tree yet', () => {
+    expect(
+      resolveWorkspaceLayout(createSnapshot({}), 'workspace-real-1'),
+    ).toBeNull()
+    expect(
+      resolveWorkspaceLayout(createSnapshot({}), 'demo-workspace-aide-nav'),
+    ).toBeNull()
   })
 
   it('prefers the persisted layout when it exists', () => {
     const persistedLayout: WorkspaceLayoutRecord = {
       nodes: [
         {
+          activeViewIndex: 0,
           children: [],
           id: 'pane-1',
           paneId: 'terminal',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['terminal'],
           workspaceId: 'workspace-2',
         },
       ],
@@ -150,30 +144,36 @@ describe('workspace layout helpers', () => {
           workspaceId: 'demo-workspace-aide-nav',
         },
         {
+          activeViewIndex: 0,
           children: ['should-be-empty'],
           id: 'chat-node',
           paneId: 'chat',
           parentId: 'elsewhere',
           sizeWeights: [1],
           type: 'pane',
+          viewIds: ['chat'],
           workspaceId: 'wrong-workspace',
         },
         {
+          activeViewIndex: 0,
           children: [],
           id: 'preview-node',
           paneId: 'preview',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['preview'],
           workspaceId: 'wrong-workspace',
         },
         {
+          activeViewIndex: 0,
           children: [],
           id: 'orphan-node',
           paneId: 'git',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['git'],
           workspaceId: 'demo-workspace-aide-nav',
         },
       ],
@@ -199,21 +199,25 @@ describe('workspace layout helpers', () => {
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'chat-node',
         paneId: 'chat',
         parentId: 'root',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['chat'],
         workspaceId: 'demo-workspace-aide-nav',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'preview-node',
         paneId: 'preview',
         parentId: 'root',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['preview'],
         workspaceId: 'demo-workspace-aide-nav',
       },
     ])
@@ -223,12 +227,14 @@ describe('workspace layout helpers', () => {
     const persistedLayout: WorkspaceLayoutRecord = {
       nodes: [
         {
+          activeViewIndex: 0,
           children: [],
           id: 'pane-1',
           paneId: 'terminal',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['terminal'],
           workspaceId: 'demo-workspace-aide-nav',
         },
       ],
@@ -241,26 +247,21 @@ describe('workspace layout helpers', () => {
       'demo-workspace-aide-nav',
     )
 
-    expect(layout?.rootNodeId).toBe('demo-workspace-aide-nav:fallback-root')
-    expect(collectWorkspaceLayoutPaneIds(layout ?? null)).toEqual([
-      'chat',
-      'terminal',
-      'git',
-      'editor',
-      'preview',
-    ])
+    expect(layout).toBeNull()
   })
 
   it('keeps a real workspace empty when the persisted layout is unusable', () => {
     const persistedLayout: WorkspaceLayoutRecord = {
       nodes: [
         {
+          activeViewIndex: 0,
           children: [],
           id: 'pane-1',
           paneId: 'terminal',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['terminal'],
           workspaceId: 'workspace-real-1',
         },
       ],

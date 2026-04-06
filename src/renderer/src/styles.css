@@ -208,7 +208,7 @@ body {
 }
 
 .sidebar-tree-indent::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 1.125rem;
   top: 0;

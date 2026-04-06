@@ -5,6 +5,7 @@ import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   ProjectRecord,
   WorkspaceRecord,
+  WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
@@ -13,14 +14,13 @@ const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
 const SIDEBAR_COLLAPSE_DELAY_MS = 140
 
 interface AppShellProps {
-  readonly activePaneId: string | null
+  readonly activeSurfaceId: string | null
   readonly projects: readonly ProjectRecord[]
   readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
-  readonly isDemoMode: boolean
   readonly onCreatePane: () => void
-  readonly paneIds: readonly string[]
+  readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly showProjectHints: boolean
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -32,14 +32,13 @@ interface AppShellProps {
 }
 
 export default function AppShell({
-  activePaneId,
+  activeSurfaceId,
   projects,
   workspaces,
   activeProject,
   activeWorkspace,
-  isDemoMode,
   onCreatePane,
-  paneIds,
+  surfaces,
   showProjectHints,
   onSelectPane,
   onSelectProject,
@@ -181,7 +180,6 @@ export default function AppShell({
     blurSidebarActiveElement,
     isSidebarPinnedOpen,
     sidebarContainsActiveElement,
-    scheduleSidebarCollapse,
   ])
 
   function handleSidebarFocus(): void {
@@ -261,12 +259,11 @@ export default function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <TopBar
-          activePaneId={activePaneId}
+          activeSurfaceId={activeSurfaceId}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
-          isDemoMode={isDemoMode}
           onCreatePane={onCreatePane}
-          paneIds={paneIds}
+          surfaces={surfaces}
           onSelectPane={onSelectPane}
         />
 

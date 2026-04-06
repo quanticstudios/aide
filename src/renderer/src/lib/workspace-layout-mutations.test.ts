@@ -12,12 +12,14 @@ function createSinglePaneLayout(): WorkspaceLayoutRecord {
   return {
     nodes: [
       {
+        activeViewIndex: 0,
         children: [],
         id: 'root-pane',
         paneId: 'chat',
         parentId: null,
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['chat'],
         workspaceId: 'workspace-1',
       },
     ],
@@ -39,21 +41,25 @@ function createTwoPaneLayout(): WorkspaceLayoutRecord {
         workspaceId: 'workspace-1',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'left-pane',
         paneId: 'chat',
         parentId: 'root-split',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['chat'],
         workspaceId: 'workspace-1',
       },
       {
+        activeViewIndex: 0,
         children: [],
         id: 'right-pane',
         paneId: 'git',
         parentId: 'root-split',
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['git'],
         workspaceId: 'workspace-1',
       },
     ],
@@ -84,12 +90,14 @@ describe('splitWorkspacePane', () => {
       workspaceId: 'workspace-1',
     })
     expect(result.layout.nodes).toContainEqual({
+      activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
       paneId: 'chat::copy-1',
       parentId: 'workspace-1:split-node:1',
       sizeWeights: [],
       type: 'pane',
+      viewIds: ['chat::copy-1'],
       workspaceId: 'workspace-1',
     })
   })
@@ -111,12 +119,14 @@ describe('addWorkspacePane', () => {
     expect(result.layout).toEqual({
       nodes: [
         {
+          activeViewIndex: 0,
           children: [],
           id: 'workspace-1:pane-node:1',
           paneId: 'terminal',
           parentId: null,
           sizeWeights: [],
           type: 'pane',
+          viewIds: ['terminal'],
           workspaceId: 'workspace-1',
         },
       ],
@@ -147,12 +157,14 @@ describe('addWorkspacePane', () => {
       workspaceId: 'workspace-1',
     })
     expect(result.layout.nodes).toContainEqual({
+      activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
       paneId: 'terminal',
       parentId: 'workspace-1:split-node:1',
       sizeWeights: [],
       type: 'pane',
+      viewIds: ['terminal'],
       workspaceId: 'workspace-1',
     })
   })
@@ -180,24 +192,28 @@ describe('addWorkspacePane', () => {
       workspaceId: 'workspace-1',
     })
     expect(result.layout.nodes).toContainEqual({
+      activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
       paneId: 'terminal',
       parentId: 'root-split',
       sizeWeights: [],
       type: 'pane',
+      viewIds: ['terminal'],
       workspaceId: 'workspace-1',
     })
   })
 })
 
 describe('closeWorkspacePane', () => {
-  it('protects the last pane in a workspace', () => {
+  it('returns an empty layout when closing the last pane', () => {
     const result = closeWorkspacePane(createSinglePaneLayout(), 'chat')
 
-    expect(result.didChange).toBe(false)
-    expect(result.blockedReason).toBe('last-pane')
-    expect(result.layout).toEqual(createSinglePaneLayout())
+    expect(result.didChange).toBe(true)
+    expect(result.blockedReason).toBeNull()
+    expect(result.nextActivePaneId).toBeNull()
+    expect(result.layout.nodes).toEqual([])
+    expect(result.layout.rootNodeId).toBe('')
   })
 
   it('collapses the parent split and focuses the surviving sibling', () => {
@@ -209,12 +225,14 @@ describe('closeWorkspacePane', () => {
     expect(result.layout.rootNodeId).toBe('right-pane')
     expect(result.layout.nodes).toEqual([
       {
+        activeViewIndex: 0,
         children: [],
         id: 'right-pane',
         paneId: 'git',
         parentId: null,
         sizeWeights: [],
         type: 'pane',
+        viewIds: ['git'],
         workspaceId: 'workspace-1',
       },
     ])

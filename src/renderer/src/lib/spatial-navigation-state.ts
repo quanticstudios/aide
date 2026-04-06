@@ -6,17 +6,15 @@ import type {
 export interface SpatialNavigationState {
   activePaneId: string | null
   activeProjectId: string | null
+  activeSurfaceId: string | null
   activeWorkspaceId: string | null
-  rememberedPaneIdsByWorkspace: Record<string, string | null>
+  rememberedPaneIdsBySurface: Record<string, string | null>
+  rememberedSurfaceIdsByWorkspace: Record<string, string | null>
   rememberedWorkspaceIdsByProject: Record<string, string | null>
 }
 
-type PaneResolver = (workspaceId: string | null) => string[]
-type PaneNeighborResolver = (
-  workspaceId: string | null,
-  activePaneId: string | null,
-  direction: -1 | 1,
-) => string | null
+type SurfaceResolver = (workspaceId: string | null) => string[]
+type PaneResolver = (surfaceId: string | null) => string[]
 
 function getProjectWorkspaces(
   snapshot: PersistenceSnapshot,
@@ -80,14 +78,46 @@ function resolveWorkspaceId(
   return projectWorkspaces[0]?.id ?? null
 }
 
-function resolvePaneId(
+function resolveSurfaceId(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   workspaceId: string | null,
-  activePaneId: string | null,
-  getPaneIdsForWorkspace: PaneResolver,
+  activeSurfaceId: string | null,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
 ): string | null {
-  const paneIds = getPaneIdsForWorkspace(workspaceId)
+  const surfaceIds = getSurfaceIdsForWorkspace(workspaceId)
+
+  if (surfaceIds.length === 0) {
+    return null
+  }
+
+  const candidates = [
+    activeSurfaceId,
+    workspaceId
+      ? (state.rememberedSurfaceIdsByWorkspace[workspaceId] ?? null)
+      : null,
+    workspaceId
+      ? (snapshot.lastActiveSurfaceIdsByWorkspace?.[workspaceId] ?? null)
+      : null,
+  ]
+
+  for (const candidate of candidates) {
+    if (candidate && surfaceIds.includes(candidate)) {
+      return candidate
+    }
+  }
+
+  return surfaceIds[0] ?? null
+}
+
+function resolvePaneId(
+  snapshot: PersistenceSnapshot,
+  state: SpatialNavigationState,
+  surfaceId: string | null,
+  activePaneId: string | null,
+  getPaneIdsForSurface: PaneResolver,
+): string | null {
+  const paneIds = getPaneIdsForSurface(surfaceId)
 
   if (paneIds.length === 0) {
     return null
@@ -95,11 +125,9 @@ function resolvePaneId(
 
   const candidates = [
     activePaneId,
-    workspaceId
-      ? (state.rememberedPaneIdsByWorkspace[workspaceId] ?? null)
-      : null,
-    workspaceId
-      ? (snapshot.lastActivePaneIdsByWorkspace[workspaceId] ?? null)
+    surfaceId ? (state.rememberedPaneIdsBySurface[surfaceId] ?? null) : null,
+    surfaceId
+      ? (snapshot.lastActivePaneIdsBySurface?.[surfaceId] ?? null)
       : null,
   ]
 
@@ -116,8 +144,10 @@ export function createDefaultSpatialNavigationState(): SpatialNavigationState {
   return {
     activePaneId: null,
     activeProjectId: null,
+    activeSurfaceId: null,
     activeWorkspaceId: null,
-    rememberedPaneIdsByWorkspace: {},
+    rememberedPaneIdsBySurface: {},
+    rememberedSurfaceIdsByWorkspace: {},
     rememberedWorkspaceIdsByProject: {},
   }
 }
@@ -125,7 +155,8 @@ export function createDefaultSpatialNavigationState(): SpatialNavigationState {
 export function resolveSpatialNavigationState(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
-  getPaneIdsForWorkspace: PaneResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
   const activeProjectId = resolveProjectId(snapshot, state.activeProjectId)
   const activeWorkspaceId = resolveWorkspaceId(
@@ -134,24 +165,38 @@ export function resolveSpatialNavigationState(
     activeProjectId,
     state.activeWorkspaceId,
   )
-  const activePaneId = resolvePaneId(
+  const activeSurfaceId = resolveSurfaceId(
     snapshot,
     state,
     activeWorkspaceId,
+    state.activeSurfaceId,
+    getSurfaceIdsForWorkspace,
+  )
+  const activePaneId = resolvePaneId(
+    snapshot,
+    state,
+    activeSurfaceId,
     state.activePaneId,
-    getPaneIdsForWorkspace,
+    getPaneIdsForSurface,
   )
 
   return {
     activePaneId,
     activeProjectId,
+    activeSurfaceId,
     activeWorkspaceId,
-    rememberedPaneIdsByWorkspace: activeWorkspaceId
+    rememberedPaneIdsBySurface: activeSurfaceId
       ? {
-          ...state.rememberedPaneIdsByWorkspace,
-          [activeWorkspaceId]: activePaneId,
+          ...state.rememberedPaneIdsBySurface,
+          [activeSurfaceId]: activePaneId,
         }
-      : state.rememberedPaneIdsByWorkspace,
+      : state.rememberedPaneIdsBySurface,
+    rememberedSurfaceIdsByWorkspace: activeWorkspaceId
+      ? {
+          ...state.rememberedSurfaceIdsByWorkspace,
+          [activeWorkspaceId]: activeSurfaceId,
+        }
+      : state.rememberedSurfaceIdsByWorkspace,
     rememberedWorkspaceIdsByProject: activeProjectId
       ? {
           ...state.rememberedWorkspaceIdsByProject,
@@ -165,7 +210,8 @@ export function applyProjectSelection(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   projectId: string,
-  getPaneIdsForWorkspace: PaneResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
   return resolveSpatialNavigationState(
     snapshot,
@@ -173,9 +219,11 @@ export function applyProjectSelection(
       ...state,
       activePaneId: null,
       activeProjectId: projectId,
+      activeSurfaceId: null,
       activeWorkspaceId: null,
     },
-    getPaneIdsForWorkspace,
+    getSurfaceIdsForWorkspace,
+    getPaneIdsForSurface,
   )
 }
 
@@ -183,7 +231,8 @@ export function applyWorkspaceSelection(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   workspaceId: string,
-  getPaneIdsForWorkspace: PaneResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
   const workspace = snapshot.workspaces.find(
     (candidate) => candidate.id === workspaceId,
@@ -199,13 +248,44 @@ export function applyWorkspaceSelection(
       ...state,
       activePaneId: null,
       activeProjectId: workspace.projectId,
+      activeSurfaceId: null,
       activeWorkspaceId: workspace.id,
       rememberedWorkspaceIdsByProject: {
         ...state.rememberedWorkspaceIdsByProject,
         [workspace.projectId]: workspace.id,
       },
     },
-    getPaneIdsForWorkspace,
+    getSurfaceIdsForWorkspace,
+    getPaneIdsForSurface,
+  )
+}
+
+export function applySurfaceSelection(
+  snapshot: PersistenceSnapshot,
+  state: SpatialNavigationState,
+  surfaceId: string,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
+): SpatialNavigationState {
+  const surfaceIds = getSurfaceIdsForWorkspace(state.activeWorkspaceId)
+
+  if (!state.activeWorkspaceId || !surfaceIds.includes(surfaceId)) {
+    return state
+  }
+
+  return resolveSpatialNavigationState(
+    snapshot,
+    {
+      ...state,
+      activePaneId: null,
+      activeSurfaceId: surfaceId,
+      rememberedSurfaceIdsByWorkspace: {
+        ...state.rememberedSurfaceIdsByWorkspace,
+        [state.activeWorkspaceId]: surfaceId,
+      },
+    },
+    getSurfaceIdsForWorkspace,
+    getPaneIdsForSurface,
   )
 }
 
@@ -213,12 +293,12 @@ export function applyPaneSelection(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   paneId: string,
-  getPaneIdsForWorkspace: PaneResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
-  const workspaceId = state.activeWorkspaceId
-  const paneIds = getPaneIdsForWorkspace(workspaceId)
+  const paneIds = getPaneIdsForSurface(state.activeSurfaceId)
 
-  if (!workspaceId || !paneIds.includes(paneId)) {
+  if (!state.activeSurfaceId || !paneIds.includes(paneId)) {
     return state
   }
 
@@ -227,12 +307,13 @@ export function applyPaneSelection(
     {
       ...state,
       activePaneId: paneId,
-      rememberedPaneIdsByWorkspace: {
-        ...state.rememberedPaneIdsByWorkspace,
-        [workspaceId]: paneId,
+      rememberedPaneIdsBySurface: {
+        ...state.rememberedPaneIdsBySurface,
+        [state.activeSurfaceId]: paneId,
       },
     },
-    getPaneIdsForWorkspace,
+    getSurfaceIdsForWorkspace,
+    getPaneIdsForSurface,
   )
 }
 
@@ -240,7 +321,8 @@ export function moveRelativeWorkspace(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   direction: -1 | 1,
-  getPaneIdsForWorkspace: PaneResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
   if (!state.activeProjectId || !state.activeWorkspaceId) {
     return state
@@ -273,7 +355,8 @@ export function moveRelativeWorkspace(
         snapshot,
         state,
         nextWorkspace.id,
-        getPaneIdsForWorkspace,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForSurface,
       )
     : state
 }
@@ -282,39 +365,42 @@ export function moveRelativePane(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
   direction: -1 | 1,
-  getPaneIdsForWorkspace: PaneResolver,
-  resolvePaneNeighbor?: PaneNeighborResolver,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
 ): SpatialNavigationState {
-  const paneIds = getPaneIdsForWorkspace(state.activeWorkspaceId)
+  const surfaceIds = getSurfaceIdsForWorkspace(state.activeWorkspaceId)
 
-  if (!state.activeWorkspaceId || paneIds.length === 0) {
+  if (!state.activeWorkspaceId || surfaceIds.length === 0) {
     return state
   }
 
-  const currentPaneId = resolvePaneId(
+  const currentSurfaceId = resolveSurfaceId(
     snapshot,
     state,
     state.activeWorkspaceId,
-    state.activePaneId,
-    getPaneIdsForWorkspace,
+    state.activeSurfaceId,
+    getSurfaceIdsForWorkspace,
   )
-  const currentIndex = paneIds.findIndex((paneId) => paneId === currentPaneId)
+  const currentIndex = surfaceIds.findIndex(
+    (surfaceId) => surfaceId === currentSurfaceId,
+  )
 
   if (currentIndex === -1) {
     return state
   }
 
-  const resolvedNeighborPaneId = resolvePaneNeighbor?.(
-    state.activeWorkspaceId,
-    currentPaneId,
-    direction,
-  )
-  const nextPaneId =
-    resolvedNeighborPaneId && paneIds.includes(resolvedNeighborPaneId)
-      ? resolvedNeighborPaneId
-      : paneIds[(currentIndex + direction + paneIds.length) % paneIds.length]
+  const nextSurfaceId =
+    surfaceIds[
+      (currentIndex + direction + surfaceIds.length) % surfaceIds.length
+    ]
 
-  return nextPaneId
-    ? applyPaneSelection(snapshot, state, nextPaneId, getPaneIdsForWorkspace)
+  return nextSurfaceId
+    ? applySurfaceSelection(
+        snapshot,
+        state,
+        nextSurfaceId,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForSurface,
+      )
     : state
 }

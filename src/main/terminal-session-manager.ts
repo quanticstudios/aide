@@ -32,8 +32,12 @@ export class TerminalSessionManager {
   public createSession(config: TerminalSessionConfig): TerminalSessionSnapshot {
     const existingSession = this.sessions.get(config.sessionId)
 
-    if (existingSession) {
+    if (existingSession && existingSession.pty !== null) {
       return this.toSnapshot(existingSession)
+    }
+
+    if (existingSession) {
+      this.sessions.delete(config.sessionId)
     }
 
     const launchConfig = resolveTerminalLaunchConfig(

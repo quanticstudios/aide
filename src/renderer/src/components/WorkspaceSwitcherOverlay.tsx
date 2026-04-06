@@ -1,5 +1,4 @@
 import { Chip, Description, Kbd, Label, ListBox, Surface } from '@heroui/react'
-import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { Key } from 'react'
 
 import { cn } from '@/lib/utils'
@@ -106,22 +105,20 @@ export default function WorkspaceSwitcherOverlay({
           <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             {isOverviewMode ? (
               <>
-                <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
                   Ctrl
                 </Kbd>
-                <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
+                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
                   Tab
                 </Kbd>
               </>
             ) : (
               <>
-                <ArrowUp className="size-3" />
-                <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
-                  K
+                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
+                  Alt
                 </Kbd>
-                <ArrowDown className="ml-1 size-3" />
-                <Kbd className="border-border/80 bg-surface-secondary text-[10px]">
-                  J
+                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
+                  Space
                 </Kbd>
               </>
             )}
@@ -139,7 +136,7 @@ export default function WorkspaceSwitcherOverlay({
 
             const [workspaceId] = Array.from(keys)
 
-            if (!workspaceId || workspaceId === activeWorkspaceId) {
+            if (!workspaceId) {
               return
             }
 

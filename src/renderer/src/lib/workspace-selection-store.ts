@@ -3,20 +3,27 @@ import { createStore } from 'zustand/vanilla'
 
 export interface WorkspaceSelectionState {
   activePaneId: string | null
-  activePaneIdsByWorkspace: Record<string, string | null>
+  activePaneIdsBySurface: Record<string, string | null>
   activeProjectId: string | null
+  activeSurfaceId: string | null
+  activeSurfaceIdsByWorkspace: Record<string, string | null>
   activeWorkspaceId: string | null
   rememberedWorkspaceIdsByProject: Record<string, string | null>
 }
 
 export interface WorkspaceSelectionActions {
-  setActivePaneForWorkspace: (
-    workspaceId: string | null,
+  setActivePaneForSurface: (
+    surfaceId: string | null,
     paneId: string | null,
+  ) => void
+  setActiveSurfaceForWorkspace: (
+    workspaceId: string | null,
+    surfaceId: string | null,
   ) => void
   resetSelection: () => void
   setActivePaneId: (paneId: string | null) => void
   setActiveProjectId: (projectId: string | null) => void
+  setActiveSurfaceId: (surfaceId: string | null) => void
   setActiveWorkspaceId: (workspaceId: string | null) => void
   setSelection: (selection: Partial<WorkspaceSelectionState>) => void
 }
@@ -26,8 +33,10 @@ export type WorkspaceSelectionStore = WorkspaceSelectionState &
 
 const defaultSelectionState: WorkspaceSelectionState = {
   activePaneId: null,
-  activePaneIdsByWorkspace: {},
+  activePaneIdsBySurface: {},
   activeProjectId: null,
+  activeSurfaceId: null,
+  activeSurfaceIdsByWorkspace: {},
   activeWorkspaceId: null,
   rememberedWorkspaceIdsByProject: {},
 }
@@ -40,17 +49,28 @@ export function createWorkspaceSelectionStore(
     ...initialState,
     resetSelection: () => set(defaultSelectionState),
     setActivePaneId: (activePaneId) => set({ activePaneId }),
-    setActivePaneForWorkspace: (workspaceId, paneId) =>
+    setActivePaneForSurface: (surfaceId, paneId) =>
       set((state) => ({
         activePaneId: paneId,
-        activePaneIdsByWorkspace: workspaceId
+        activePaneIdsBySurface: surfaceId
           ? {
-              ...state.activePaneIdsByWorkspace,
-              [workspaceId]: paneId,
+              ...state.activePaneIdsBySurface,
+              [surfaceId]: paneId,
             }
-          : state.activePaneIdsByWorkspace,
+          : state.activePaneIdsBySurface,
       })),
     setActiveProjectId: (activeProjectId) => set({ activeProjectId }),
+    setActiveSurfaceForWorkspace: (workspaceId, surfaceId) =>
+      set((state) => ({
+        activeSurfaceId: surfaceId,
+        activeSurfaceIdsByWorkspace: workspaceId
+          ? {
+              ...state.activeSurfaceIdsByWorkspace,
+              [workspaceId]: surfaceId,
+            }
+          : state.activeSurfaceIdsByWorkspace,
+      })),
+    setActiveSurfaceId: (activeSurfaceId) => set({ activeSurfaceId }),
     setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),
     setSelection: (selection) => set((state) => ({ ...state, ...selection })),
   }))

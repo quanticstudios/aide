@@ -27,6 +27,10 @@ export interface PaneDefaultMetadata {
   type: string
 }
 
+export interface ResolvedPaneMetadata extends PaneDefaultMetadata {
+  id: string
+}
+
 export interface PaneCatalogEntry {
   createDescription: string
   defaultMetadata: PaneDefaultMetadata
@@ -187,9 +191,7 @@ export function createFallbackPaneMetadata(paneId: string): {
   metadata: PaneDefaultMetadata
   resolvedType: PaneType | null
 } {
-  const templateId = paneId.includes(PANE_COPY_MARKER)
-    ? paneId.slice(0, paneId.indexOf(PANE_COPY_MARKER))
-    : paneId
+  const templateId = getPaneTemplateId(paneId)
   const entry = getPaneCatalogEntryForTemplate(templateId)
   const resolvedType = entry?.type ?? null
   const metadata =
@@ -198,12 +200,39 @@ export function createFallbackPaneMetadata(paneId: string): {
   return { metadata, resolvedType }
 }
 
+export function getPaneTemplateId(paneId: string): string {
+  const markerIndex = paneId.indexOf(PANE_COPY_MARKER)
+
+  return markerIndex === -1 ? paneId : paneId.slice(0, markerIndex)
+}
+
+export function resolvePaneMetadata(paneId: string): ResolvedPaneMetadata {
+  const { metadata } = createFallbackPaneMetadata(paneId)
+  const templateId = getPaneTemplateId(paneId)
+  const isCopy = paneId !== templateId
+  const copyNumber = isCopy
+    ? Number.parseInt(
+        paneId.slice(
+          paneId.lastIndexOf(PANE_COPY_MARKER) + PANE_COPY_MARKER.length,
+        ),
+        10,
+      )
+    : null
+
+  return {
+    ...metadata,
+    id: paneId,
+    label:
+      isCopy && Number.isFinite(copyNumber)
+        ? `${metadata.label} copy ${copyNumber}`
+        : metadata.label,
+  }
+}
+
 export function resolveTerminalLaunchModeForPaneId(
   paneId: string,
 ): TerminalLaunchMode {
-  const templateId = paneId.includes(PANE_COPY_MARKER)
-    ? paneId.slice(0, paneId.indexOf(PANE_COPY_MARKER))
-    : paneId
+  const templateId = getPaneTemplateId(paneId)
 
   return getPaneCatalogEntryForTemplate(templateId)?.terminalMode ?? 'shell'
 }

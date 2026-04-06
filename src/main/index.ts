@@ -69,7 +69,6 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
     nodeVersion: process.versions.node,
     platform: process.platform,
     arch: process.arch,
-    useNavigationPoc: process.env.AIDE_USE_NAVIGATION_POC === '1',
     workingDirectory: process.cwd(),
   }
 }
@@ -131,7 +130,10 @@ function createMainWindow(): BrowserWindow {
   window.webContents.on('before-input-event', (event, input) => {
     const shortcut = mapInputToShortcutEvent(input)
 
-    if (shortcut?.type !== 'overview-open') {
+    if (
+      shortcut?.type !== 'overview-open' &&
+      shortcut?.type !== 'command-palette-open'
+    ) {
       return
     }
 
@@ -223,6 +225,13 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.saveWorkspaceLayout,
     (_event, workspaceId: string, input: SaveWorkspaceLayoutInput) => {
       database.saveWorkspaceLayout(workspaceId, input)
+      return database.getSnapshot()
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.saveWorkspaceSurfaceState,
+    (_event, workspaceId: string, input) => {
+      database.saveWorkspaceSurfaceState(workspaceId, input)
       return database.getSnapshot()
     },
   )

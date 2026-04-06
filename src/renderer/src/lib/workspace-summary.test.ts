@@ -80,18 +80,14 @@ describe('buildWorkspaceSummaryMap', () => {
     })
   })
 
-  it('keeps demo-mode activity overrides behind the explicit runtime flag', () => {
+  it('does not inject placeholder activity when no runtime state exists', () => {
     const summaries = buildWorkspaceSummaryMap(
       [createProject('project-a', 'aide')],
       [createWorkspace('demo-workspace-aide-review', 'project-a', 'review')],
       {},
-      { useDemoMode: true },
     )
 
-    expect(summaries['demo-workspace-aide-review']?.activity).toMatchObject({
-      provider: 'claude',
-      state: 'pending-approval',
-    })
+    expect(summaries['demo-workspace-aide-review']?.activity).toBeNull()
   })
 })
 

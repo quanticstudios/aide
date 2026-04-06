@@ -14,71 +14,20 @@ export interface WorkspaceSummary {
   workspaceName: string
 }
 
-const DEMO_ACTIVITY_OVERRIDES: Record<string, WorkspaceActivitySnapshot> = {
-  'demo-workspace-aide-nav': {
-    detail: null,
-    provider: 'claude',
-    source: 'managed',
-    state: 'completed',
-    updatedAt: '2026-03-24T00:00:00Z',
-    workspaceId: 'demo-workspace-aide-nav',
-  },
-  'demo-workspace-aide-review': {
-    detail: '1 MCP server failed',
-    provider: 'claude',
-    source: 'managed',
-    state: 'pending-approval',
-    updatedAt: '2026-03-24T00:00:00Z',
-    workspaceId: 'demo-workspace-aide-review',
-  },
-  'demo-workspace-storefront-checkout': {
-    detail: null,
-    provider: 'codex',
-    source: 'managed',
-    state: 'working',
-    updatedAt: '2026-03-24T00:00:00Z',
-    workspaceId: 'demo-workspace-storefront-checkout',
-  },
-  'demo-workspace-storefront-pricing': {
-    detail: null,
-    provider: 'claude',
-    source: 'managed',
-    state: 'completed',
-    updatedAt: '2026-03-24T00:00:00Z',
-    workspaceId: 'demo-workspace-storefront-pricing',
-  },
-  'demo-workspace-infra-deploy': {
-    detail: null,
-    provider: 'terminal',
-    source: 'fallback',
-    state: 'terminal-running',
-    updatedAt: '2026-03-24T00:00:00Z',
-    workspaceId: 'demo-workspace-infra-deploy',
-  },
-}
-
 export function buildWorkspaceSummaryMap(
   projects: readonly ProjectRecord[],
   workspaces: readonly WorkspaceRecord[],
   activitiesByWorkspace: Record<string, WorkspaceActivitySnapshot>,
-  options?: {
-    useDemoMode?: boolean
-  },
 ): Record<string, WorkspaceSummary> {
   const projectNameById = new Map(
     projects.map((project) => [project.id, project.name]),
   )
-  const useDemoMode = options?.useDemoMode ?? false
 
   return Object.fromEntries(
     workspaces.map((workspace) => [
       workspace.id,
       {
-        activity:
-          activitiesByWorkspace[workspace.id] ??
-          (useDemoMode
-            ? (DEMO_ACTIVITY_OVERRIDES[workspace.id] ?? null)
-            : null),
+        activity: activitiesByWorkspace[workspace.id] ?? null,
         branchName: workspace.branchName,
         projectId: workspace.projectId,
         projectName:

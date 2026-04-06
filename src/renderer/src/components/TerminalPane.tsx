@@ -9,6 +9,7 @@ import type { TerminalEvent } from '../../../shared/terminal'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 
 interface TerminalPaneProps {
+  readonly onClose: () => void
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -69,7 +70,11 @@ function scheduleTerminalFocus(
   })
 }
 
-export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
+export default function TerminalPane({
+  onClose,
+  paneId,
+  workspace,
+}: TerminalPaneProps) {
   const sessionId = useMemo(
     () => `${workspace.id}:${paneId}`,
     [paneId, workspace.id],
@@ -81,6 +86,8 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   const [error, setError] = useState<string | null>(null)
 
   const startSession = useCallback(async () => {
@@ -102,8 +109,8 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     const snapshot = await aideApi.createTerminalSession({
       cols: terminal.cols,
       cwd: workspace.worktreePath || '~',
-      paneId,
       mode: terminalMode,
+      paneId,
       rows: terminal.rows,
       sessionId,
       workspaceId: workspace.id,
@@ -114,10 +121,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     }
 
     if (!snapshot.running) {
-      terminal.writeln('')
-      terminal.writeln(
-        `[terminal exited${snapshot.exitCode !== null ? `: ${snapshot.exitCode}` : ''}]`,
-      )
+      terminal.writeln('\r\n[Shell exited]')
     }
   }, [paneId, sessionId, terminalMode, workspace.id, workspace.worktreePath])
 
@@ -204,10 +208,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
       }
 
       if (event.type === 'exit') {
-        terminal.writeln('')
-        terminal.writeln(
-          `[terminal exited${event.exitCode !== null ? `: ${event.exitCode}` : ''}]`,
-        )
+        onCloseRef.current()
       }
     })
 

@@ -8,8 +8,10 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: null,
-      activePaneIdsByWorkspace: {},
+      activePaneIdsBySurface: {},
       activeProjectId: null,
+      activeSurfaceId: null,
+      activeSurfaceIdsByWorkspace: {},
       activeWorkspaceId: null,
       rememberedWorkspaceIdsByProject: {},
     })
@@ -24,24 +26,26 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: 'pane-1',
-      activePaneIdsByWorkspace: {},
+      activePaneIdsBySurface: {},
       activeProjectId: 'project-1',
+      activeSurfaceId: null,
+      activeSurfaceIdsByWorkspace: {},
       activeWorkspaceId: 'workspace-1',
       rememberedWorkspaceIdsByProject: {},
     })
   })
 
-  it('remembers the last active pane per workspace', () => {
+  it('remembers the last active pane per surface', () => {
     const store = createWorkspaceSelectionStore()
 
-    store.getState().setActivePaneForWorkspace('workspace-1', 'pane-a')
-    store.getState().setActivePaneForWorkspace('workspace-2', 'pane-b')
+    store.getState().setActivePaneForSurface('surface-1', 'pane-a')
+    store.getState().setActivePaneForSurface('surface-2', 'pane-b')
 
     expect(store.getState()).toMatchObject({
       activePaneId: 'pane-b',
-      activePaneIdsByWorkspace: {
-        'workspace-1': 'pane-a',
-        'workspace-2': 'pane-b',
+      activePaneIdsBySurface: {
+        'surface-1': 'pane-a',
+        'surface-2': 'pane-b',
       },
       rememberedWorkspaceIdsByProject: {},
     })
@@ -68,8 +72,10 @@ describe('createWorkspaceSelectionStore', () => {
 
     expect(store.getState()).toMatchObject({
       activePaneId: null,
-      activePaneIdsByWorkspace: {},
+      activePaneIdsBySurface: {},
       activeProjectId: null,
+      activeSurfaceId: null,
+      activeSurfaceIdsByWorkspace: {},
       activeWorkspaceId: null,
       rememberedWorkspaceIdsByProject: {},
     })

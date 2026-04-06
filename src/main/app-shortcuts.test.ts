@@ -71,6 +71,30 @@ describe('mapInputToShortcutEvent', () => {
     ).toEqual({ projectIndex: 2, type: 'project-jump' })
   })
 
+  it('maps Alt+Space to workspace-switcher-toggle', () => {
+    expect(
+      mapInputToShortcutEvent({
+        alt: true,
+        code: 'Space',
+        control: false,
+        key: ' ',
+        meta: false,
+      }),
+    ).toEqual({ type: 'workspace-switcher-toggle' })
+  })
+
+  it('maps Ctrl+K to command-palette-open', () => {
+    expect(
+      mapInputToShortcutEvent({
+        alt: false,
+        code: 'KeyK',
+        control: true,
+        key: 'k',
+        meta: false,
+      }),
+    ).toEqual({ type: 'command-palette-open' })
+  })
+
   it('ignores unrelated keys', () => {
     expect(
       mapInputToShortcutEvent({

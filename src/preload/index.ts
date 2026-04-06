@@ -71,6 +71,12 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   saveWorkspaceLayout: (workspaceId, input) =>
     ipcRenderer.invoke(IPC_CHANNELS.saveWorkspaceLayout, workspaceId, input),
+  saveWorkspaceSurfaceState: (workspaceId, input) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.saveWorkspaceSurfaceState,
+      workspaceId,
+      input,
+    ),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
   validateExecutableCommand: (command: string) =>

@@ -3,8 +3,6 @@ import type {
   PersistenceSnapshot,
   WorkspaceLayoutRecord,
 } from '../../../shared/persistence'
-import type { PlaceholderPane } from './navigation-poc'
-import { getWorkspaceScene, isDemoWorkspaceId } from './navigation-poc'
 
 export function collectWorkspaceLayoutPaneIds(
   layout: WorkspaceLayoutRecord | null,
@@ -19,33 +17,9 @@ export function collectWorkspaceLayoutPaneIds(
 }
 
 export function createFallbackWorkspaceLayout(
-  workspaceId: string,
+  _workspaceId: string,
 ): WorkspaceLayoutRecord | null {
-  if (!isDemoWorkspaceId(workspaceId)) {
-    return null
-  }
-
-  const scene = getWorkspaceScene(workspaceId)
-  const paneNodes = scene.panes.map((pane) =>
-    createPaneLayoutNode(workspaceId, pane),
-  )
-
-  return {
-    nodes: [
-      {
-        children: paneNodes.map((pane) => pane.id),
-        id: `${workspaceId}:fallback-root`,
-        paneId: null,
-        parentId: null,
-        sizeWeights: paneNodes.map(() => 1),
-        type: 'split-horizontal',
-        workspaceId,
-      },
-      ...paneNodes,
-    ],
-    rootNodeId: `${workspaceId}:fallback-root`,
-    workspaceId,
-  }
+  return null
 }
 
 function normalizeWeights(weights: number[], childCount: number): number[] {
@@ -89,11 +63,22 @@ function normalizeWorkspaceLayout(
     visiting.add(nodeId)
 
     if (node.type === 'pane') {
+      const viewIds =
+        Array.isArray(node.viewIds) && node.viewIds.length > 0
+          ? node.viewIds
+          : [node.paneId]
+      const activeViewIndex =
+        typeof node.activeViewIndex === 'number'
+          ? Math.min(Math.max(node.activeViewIndex, 0), viewIds.length - 1)
+          : 0
+
       normalizedNodes.set(node.id, {
         ...node,
+        activeViewIndex,
         children: [],
         parentId,
         sizeWeights: [],
+        viewIds,
         workspaceId: layout.workspaceId,
       })
       visiting.delete(nodeId)
@@ -213,19 +198,4 @@ export function resolveWorkspaceLayoutRoot(
   }
 
   return layout.nodes.find((node) => node.id === layout.rootNodeId) ?? null
-}
-
-function createPaneLayoutNode(
-  workspaceId: string,
-  pane: PlaceholderPane,
-): PersistedLayoutNode {
-  return {
-    children: [],
-    id: `${workspaceId}:${pane.id}`,
-    paneId: pane.id,
-    parentId: `${workspaceId}:fallback-root`,
-    sizeWeights: [],
-    type: 'pane',
-    workspaceId,
-  }
 }

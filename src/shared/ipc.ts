@@ -15,6 +15,7 @@ import type {
 import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
+  SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from './persistence'
 import type { RuntimeSnapshot } from './runtime'
@@ -43,6 +44,7 @@ export const IPC_CHANNELS = {
   getWorkspaceGitDiff: 'app:get-workspace-git-diff',
   getWorktreeBranchStats: 'app:get-worktree-branch-stats',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
+  saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   readProjectFile: 'editor:read-project-file',
@@ -87,6 +89,10 @@ export interface AideApi {
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
+  ) => Promise<PersistenceSnapshot>
+  saveWorkspaceSurfaceState: (
+    workspaceId: string,
+    input: SaveWorkspaceSurfaceStateInput,
   ) => Promise<PersistenceSnapshot>
   createTerminalSession: (
     input: TerminalSessionConfig,

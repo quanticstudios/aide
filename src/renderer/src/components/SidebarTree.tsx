@@ -183,7 +183,17 @@ export default function SidebarTree({
     }
 
     const api =
-      typeof window !== 'undefined' ? (window as { aide?: { getWorktreeBranchStats?: (id: string) => Promise<{ ok: boolean; stats?: WorktreeBranchStats }> } }).aide : null
+      typeof window !== 'undefined'
+        ? ((
+            window as {
+              aide?: {
+                getWorktreeBranchStats?: (
+                  id: string,
+                ) => Promise<{ ok: boolean; stats?: WorktreeBranchStats }>
+              }
+            }
+          ).aide ?? null)
+        : null
 
     if (!api?.getWorktreeBranchStats) {
       return
@@ -201,9 +211,9 @@ export default function SidebarTree({
 
     const results = await Promise.allSettled(
       visibleWorkspaceIds.map(async (workspaceId) => {
-        const result = await api.getWorktreeBranchStats!(workspaceId)
+        const result = await api.getWorktreeBranchStats?.(workspaceId)
 
-        if (result.ok && result.stats) {
+        if (result?.ok && result.stats) {
           return { workspaceId, stats: result.stats }
         }
 
@@ -391,7 +401,7 @@ export default function SidebarTree({
 
             return (
               <div key={project.id}>
-                <div className="flex items-center gap-1 px-2 py-1">
+                <div className="group/project flex items-center gap-1 px-2 py-1">
                   <button
                     aria-expanded={isProjectExpanded}
                     aria-label={`Toggle ${project.name} workspaces`}
@@ -410,19 +420,31 @@ export default function SidebarTree({
                   <button
                     aria-current={isActiveProject ? 'true' : undefined}
                     className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors',
+                      'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary',
                       isActiveProject
                         ? 'text-foreground'
-                        : 'text-foreground/80 hover:bg-surface-secondary',
+                        : 'text-foreground/80',
                     )}
                     data-testid={`project-rail-button-${project.id}`}
-                    onClick={() => onSelectProject(project.id)}
+                    onClick={toggleProject}
                     type="button"
                   >
                     {renderActivityDot(projectActivity)}
                     <span className="truncate text-sm font-medium">
                       {project.name}
                     </span>
+                  </button>
+
+                  <button
+                    aria-label={`New workspace in ${project.name}`}
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:text-foreground group-hover/project:opacity-100"
+                    onClick={() => {
+                      onSelectProject(project.id)
+                      onCreateWorkspace()
+                    }}
+                    type="button"
+                  >
+                    <Plus className="size-3.5" />
                   </button>
 
                   {showProjectHints ? (

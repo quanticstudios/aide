@@ -8,6 +8,7 @@ import type {
 import {
   applyPaneSelection,
   applyProjectSelection,
+  applySurfaceSelection,
   applyWorkspaceSelection,
   createDefaultSpatialNavigationState,
   moveRelativePane,
@@ -47,17 +48,93 @@ function createWorkspace(
 function createSnapshot(): PersistenceSnapshot {
   return {
     databasePath: '.aide.sqlite3',
+    lastActivePaneIdsBySurface: {
+      'workspace-b2:surface:terminal': 'terminal',
+    },
     lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: 'project-b',
-    lastActiveWorkspaceIdsByProject: {},
+    lastActiveSurfaceIdsByWorkspace: {
+      'workspace-a2': 'workspace-a2:surface:preview',
+      'workspace-b2': 'workspace-b2:surface:terminal',
+    },
+    lastActiveWorkspaceIdsByProject: {
+      'project-a': 'workspace-a2',
+    },
     lastActiveWorkspaceId: 'workspace-b2',
     migrationStrategy: 'test',
-    schemaVersion: 3,
+    schemaVersion: 5,
     projects: [
       createProject('project-a', 'aide'),
       createProject('project-b', 'storefront'),
     ],
+    surfaceLayouts: {},
     workspaceLayouts: {},
+    workspaceSurfaces: {
+      'workspace-a1': [
+        {
+          id: 'workspace-a1:surface:chat',
+          orderIndex: 0,
+          rootNodeId: 'chat-root',
+          title: 'Chat',
+          workspaceId: 'workspace-a1',
+        },
+        {
+          id: 'workspace-a1:surface:git',
+          orderIndex: 1,
+          rootNodeId: 'git-root',
+          title: 'Git',
+          workspaceId: 'workspace-a1',
+        },
+      ],
+      'workspace-a2': [
+        {
+          id: 'workspace-a2:surface:chat',
+          orderIndex: 0,
+          rootNodeId: 'a2-chat-root',
+          title: 'Chat',
+          workspaceId: 'workspace-a2',
+        },
+        {
+          id: 'workspace-a2:surface:preview',
+          orderIndex: 1,
+          rootNodeId: 'a2-preview-root',
+          title: 'Preview',
+          workspaceId: 'workspace-a2',
+        },
+      ],
+      'workspace-b1': [
+        {
+          id: 'workspace-b1:surface:chat',
+          orderIndex: 0,
+          rootNodeId: 'b1-chat-root',
+          title: 'Chat',
+          workspaceId: 'workspace-b1',
+        },
+      ],
+      'workspace-b2': [
+        {
+          id: 'workspace-b2:surface:terminal',
+          orderIndex: 0,
+          rootNodeId: 'b2-terminal-root',
+          title: 'Terminal',
+          workspaceId: 'workspace-b2',
+        },
+        {
+          id: 'workspace-b2:surface:git',
+          orderIndex: 1,
+          rootNodeId: 'b2-git-root',
+          title: 'Git',
+          workspaceId: 'workspace-b2',
+        },
+        {
+          id: 'workspace-b2:surface:preview',
+          orderIndex: 2,
+          rootNodeId: 'b2-preview-root',
+          title: 'Preview',
+          workspaceId: 'workspace-b2',
+        },
+      ],
+    },
     workspaces: [
       createWorkspace('workspace-a1', 'project-a', 'nav'),
       createWorkspace('workspace-a2', 'project-a', 'review'),
@@ -67,15 +144,27 @@ function createSnapshot(): PersistenceSnapshot {
   }
 }
 
-function getPaneIdsForWorkspace(workspaceId: string | null): string[] {
+function getSurfaceIdsForWorkspace(workspaceId: string | null): string[] {
+  const surfaces = createSnapshot().workspaceSurfaces ?? {}
+
+  return workspaceId
+    ? (surfaces[workspaceId] ?? []).map((surface) => surface.id)
+    : []
+}
+
+function getPaneIdsForSurface(surfaceId: string | null): string[] {
   const panes: Record<string, string[]> = {
-    'workspace-a1': ['chat', 'terminal', 'git'],
-    'workspace-a2': ['chat', 'editor', 'preview'],
-    'workspace-b1': ['chat', 'preview'],
-    'workspace-b2': ['terminal', 'git', 'preview'],
+    'workspace-a1:surface:chat': ['chat'],
+    'workspace-a1:surface:git': ['git'],
+    'workspace-a2:surface:chat': ['chat'],
+    'workspace-a2:surface:preview': ['preview'],
+    'workspace-b1:surface:chat': ['chat'],
+    'workspace-b2:surface:terminal': ['terminal', 'logs'],
+    'workspace-b2:surface:git': ['git'],
+    'workspace-b2:surface:preview': ['preview'],
   }
 
-  return workspaceId ? (panes[workspaceId] ?? []) : []
+  return surfaceId ? (panes[surfaceId] ?? []) : []
 }
 
 describe('resolveSpatialNavigationState', () => {
@@ -83,133 +172,144 @@ describe('resolveSpatialNavigationState', () => {
     const state = resolveSpatialNavigationState(
       createSnapshot(),
       createDefaultSpatialNavigationState(),
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
 
     expect(state).toMatchObject({
       activePaneId: 'terminal',
       activeProjectId: 'project-b',
+      activeSurfaceId: 'workspace-b2:surface:terminal',
       activeWorkspaceId: 'workspace-b2',
     })
   })
 
-  it('repairs invalid active selections without resetting valid remembered state', () => {
+  it('repairs invalid active selections without dropping remembered surface state', () => {
     const state = resolveSpatialNavigationState(
       createSnapshot(),
       {
         activePaneId: 'missing-pane',
         activeProjectId: 'missing-project',
+        activeSurfaceId: 'missing-surface',
         activeWorkspaceId: 'missing-workspace',
-        rememberedPaneIdsByWorkspace: { 'workspace-a2': 'preview' },
+        rememberedPaneIdsBySurface: {
+          'workspace-a2:surface:preview': 'preview',
+        },
+        rememberedSurfaceIdsByWorkspace: {
+          'workspace-a2': 'workspace-a2:surface:preview',
+        },
         rememberedWorkspaceIdsByProject: { 'project-a': 'workspace-a2' },
       },
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
 
     expect(state).toMatchObject({
       activePaneId: 'terminal',
       activeProjectId: 'project-b',
+      activeSurfaceId: 'workspace-b2:surface:terminal',
       activeWorkspaceId: 'workspace-b2',
-      rememberedPaneIdsByWorkspace: {
-        'workspace-a2': 'preview',
-        'workspace-b2': 'terminal',
+      rememberedPaneIdsBySurface: {
+        'workspace-a2:surface:preview': 'preview',
+        'workspace-b2:surface:terminal': 'terminal',
       },
-      rememberedWorkspaceIdsByProject: {
-        'project-a': 'workspace-a2',
-        'project-b': 'workspace-b2',
+      rememberedSurfaceIdsByWorkspace: {
+        'workspace-a2': 'workspace-a2:surface:preview',
+        'workspace-b2': 'workspace-b2:surface:terminal',
       },
     })
   })
 })
 
 describe('spatial navigation transitions', () => {
-  it('restores the remembered workspace and pane for a project', () => {
+  it('restores the remembered workspace and surface for a project', () => {
+    const snapshot = createSnapshot()
     const baseState = resolveSpatialNavigationState(
-      createSnapshot(),
+      snapshot,
       createDefaultSpatialNavigationState(),
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
+
     const state = applyProjectSelection(
-      createSnapshot(),
-      {
-        ...baseState,
-        rememberedPaneIdsByWorkspace: {
-          ...baseState.rememberedPaneIdsByWorkspace,
-          'workspace-a2': 'preview',
-        },
-        rememberedWorkspaceIdsByProject: {
-          ...baseState.rememberedWorkspaceIdsByProject,
-          'project-a': 'workspace-a2',
-        },
-      },
+      snapshot,
+      baseState,
       'project-a',
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
 
     expect(state).toMatchObject({
       activePaneId: 'preview',
       activeProjectId: 'project-a',
+      activeSurfaceId: 'workspace-a2:surface:preview',
       activeWorkspaceId: 'workspace-a2',
     })
   })
 
-  it('remembers pane changes per workspace and restores them when switching back', () => {
+  it('remembers leaf pane selection inside the current surface', () => {
     const snapshot = createSnapshot()
     const baseState = resolveSpatialNavigationState(
       snapshot,
       createDefaultSpatialNavigationState(),
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
+
     const changedPane = applyPaneSelection(
       snapshot,
       baseState,
-      'git',
-      getPaneIdsForWorkspace,
+      'logs',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    expect(changedPane.rememberedPaneIdsBySurface).toMatchObject({
+      'workspace-b2:surface:terminal': 'logs',
+    })
+  })
+
+  it('remembers surfaces per workspace and restores them when switching back', () => {
+    const snapshot = createSnapshot()
+    const baseState = resolveSpatialNavigationState(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const changedSurface = applySurfaceSelection(
+      snapshot,
+      baseState,
+      'workspace-b2:surface:git',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
     const movedWorkspace = applyWorkspaceSelection(
       snapshot,
-      changedPane,
+      changedSurface,
       'workspace-b1',
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
     const backAgain = applyWorkspaceSelection(
       snapshot,
       movedWorkspace,
       'workspace-b2',
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
 
+    expect(backAgain.activeSurfaceId).toBe('workspace-b2:surface:git')
     expect(backAgain.activePaneId).toBe('git')
   })
 
-  it('wraps pane and workspace movement without resetting to zero first', () => {
+  it('wraps surface and workspace movement without resetting to zero first', () => {
     const snapshot = createSnapshot()
     const baseState = resolveSpatialNavigationState(
       snapshot,
       createDefaultSpatialNavigationState(),
-      getPaneIdsForWorkspace,
-    )
-
-    expect(
-      moveRelativePane(snapshot, baseState, 1, getPaneIdsForWorkspace)
-        .activePaneId,
-    ).toBe('git')
-    expect(
-      moveRelativeWorkspace(snapshot, baseState, 1, getPaneIdsForWorkspace)
-        .activeWorkspaceId,
-    ).toBe('workspace-b1')
-    expect(
-      moveRelativeWorkspace(snapshot, baseState, -1, getPaneIdsForWorkspace)
-        .activeWorkspaceId,
-    ).toBe('workspace-b1')
-  })
-
-  it('uses an explicit pane neighbor resolver when one is provided', () => {
-    const snapshot = createSnapshot()
-    const baseState = resolveSpatialNavigationState(
-      snapshot,
-      createDefaultSpatialNavigationState(),
-      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
     )
 
     expect(
@@ -217,35 +317,18 @@ describe('spatial navigation transitions', () => {
         snapshot,
         baseState,
         1,
-        getPaneIdsForWorkspace,
-        (_workspaceId, activePaneId) =>
-          activePaneId === 'terminal' ? 'preview' : null,
-      ).activePaneId,
-    ).toBe('preview')
-  })
-
-  it('uses durable snapshot memory when in-memory memory is empty', () => {
-    const snapshot = {
-      ...createSnapshot(),
-      lastActivePaneIdsByWorkspace: {
-        'workspace-a2': 'preview',
-      },
-      lastActiveWorkspaceIdsByProject: {
-        'project-a': 'workspace-a2',
-      },
-    }
-
-    const state = applyProjectSelection(
-      snapshot,
-      createDefaultSpatialNavigationState(),
-      'project-a',
-      getPaneIdsForWorkspace,
-    )
-
-    expect(state).toMatchObject({
-      activePaneId: 'preview',
-      activeProjectId: 'project-a',
-      activeWorkspaceId: 'workspace-a2',
-    })
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForSurface,
+      ).activeSurfaceId,
+    ).toBe('workspace-b2:surface:git')
+    expect(
+      moveRelativeWorkspace(
+        snapshot,
+        baseState,
+        1,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForSurface,
+      ).activeWorkspaceId,
+    ).toBe('workspace-b1')
   })
 })

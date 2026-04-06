@@ -3,12 +3,12 @@ import type {
   PersistedSplitLayoutNode,
   WorkspaceLayoutRecord,
 } from '../../../shared/persistence'
-import { getWorkspacePaneTemplateId } from './navigation-poc'
+import { getPaneTemplateId } from './pane-catalog'
 
 const MIN_WEIGHT = 0.2
 
 export interface WorkspaceLayoutMutationResult {
-  blockedReason: 'last-pane' | null
+  blockedReason: null
   didChange: boolean
   layout: WorkspaceLayoutRecord
   nextActivePaneId: string | null
@@ -75,20 +75,32 @@ function createNodeId(
   }
 }
 
+function collectAllViewIds(layout: WorkspaceLayoutRecord): Set<string> {
+  const ids = new Set<string>()
+
+  for (const node of layout.nodes) {
+    if (node.type === 'pane') {
+      for (const viewId of node.viewIds) {
+        ids.add(viewId)
+      }
+    }
+  }
+
+  return ids
+}
+
 function createSplitPaneId(
   layout: WorkspaceLayoutRecord,
   paneId: string,
 ): string {
-  const existingPaneIds = new Set(
-    layout.nodes.flatMap((node) => (node.type === 'pane' ? [node.paneId] : [])),
-  )
-  const templateId = getWorkspacePaneTemplateId(paneId)
+  const existingIds = collectAllViewIds(layout)
+  const templateId = getPaneTemplateId(paneId)
   let counter = 1
 
   while (true) {
     const candidate = `${templateId}::copy-${counter}`
 
-    if (!existingPaneIds.has(candidate)) {
+    if (!existingIds.has(candidate)) {
       return candidate
     }
 
@@ -100,11 +112,9 @@ function createPaneIdForTemplate(
   layout: WorkspaceLayoutRecord,
   templatePaneId: string,
 ): string {
-  const existingPaneIds = new Set(
-    layout.nodes.flatMap((node) => (node.type === 'pane' ? [node.paneId] : [])),
-  )
+  const existingIds = collectAllViewIds(layout)
 
-  if (!existingPaneIds.has(templatePaneId)) {
+  if (!existingIds.has(templatePaneId)) {
     return templatePaneId
   }
 
@@ -118,12 +128,14 @@ function createSinglePaneLayout(
   return {
     nodes: [
       {
+        activeViewIndex: 0,
         children: [],
         id: `${workspaceId}:pane-node:1`,
         paneId,
         parentId: null,
         sizeWeights: [],
         type: 'pane',
+        viewIds: [paneId],
         workspaceId,
       },
     ],
@@ -201,12 +213,14 @@ export function splitWorkspacePane(
     parentId: splitNodeId,
   }
   const duplicatePaneNode: PersistedLayoutNode = {
+    activeViewIndex: 0,
     children: [] as [],
     id: duplicatePaneNodeId,
     paneId: duplicatePaneId,
     parentId: splitNodeId,
     sizeWeights: [] as [],
     type: 'pane',
+    viewIds: [duplicatePaneId],
     workspaceId: layout.workspaceId,
   }
   const splitNode: PersistedSplitLayoutNode = {
@@ -269,12 +283,14 @@ export function addWorkspacePane(
   const newPaneNodeId = createNodeId(nextLayout, 'pane-node')
   const newPaneId = createPaneIdForTemplate(nextLayout, templatePaneId)
   const newPaneNode: PersistedLayoutNode = {
+    activeViewIndex: 0,
     children: [] as [],
     id: newPaneNodeId,
     paneId: newPaneId,
     parentId: null,
     sizeWeights: [] as [],
     type: 'pane',
+    viewIds: [newPaneId],
     workspaceId,
   }
   const rootNode = nodeMap.get(nextLayout.rootNodeId) ?? null
@@ -349,18 +365,31 @@ export function closeWorkspacePane(
   const nodeMap = createNodeMap(nextLayout)
   const paneNodes = nextLayout.nodes.filter((node) => node.type === 'pane')
 
-  if (paneNodes.length <= 1) {
+  const paneNode = findPaneNode(nodeMap, paneId)
+
+  if (!paneNode || paneNode.type !== 'pane') {
     return {
-      blockedReason: 'last-pane',
+      blockedReason: null,
       didChange: false,
       layout,
       nextActivePaneId: paneId,
     }
   }
 
-  const paneNode = findPaneNode(nodeMap, paneId)
+  if (paneNodes.length <= 1) {
+    return {
+      blockedReason: null,
+      didChange: true,
+      layout: {
+        ...nextLayout,
+        nodes: [],
+        rootNodeId: '',
+      },
+      nextActivePaneId: null,
+    }
+  }
 
-  if (!paneNode || paneNode.type !== 'pane' || !paneNode.parentId) {
+  if (!paneNode.parentId) {
     return {
       blockedReason: null,
       didChange: false,
@@ -576,6 +605,141 @@ export function resizeWorkspacePane(
   nodeMap.set(parentNode.id, {
     ...parentNode,
     sizeWeights: nextWeights,
+  })
+
+  return {
+    blockedReason: null,
+    didChange: true,
+    layout: {
+      ...nextLayout,
+      nodes: serializeNodes(nextLayout, nodeMap),
+    },
+    nextActivePaneId: paneId,
+  }
+}
+
+export function addPaneView(
+  layout: WorkspaceLayoutRecord,
+  paneId: string,
+  templateViewId: string,
+): WorkspaceLayoutMutationResult {
+  const nextLayout = cloneLayout(layout)
+  const nodeMap = createNodeMap(nextLayout)
+  const paneNode = findPaneNode(nodeMap, paneId)
+
+  if (!paneNode || paneNode.type !== 'pane') {
+    return {
+      blockedReason: null,
+      didChange: false,
+      layout,
+      nextActivePaneId: paneId,
+    }
+  }
+
+  const newViewId = createPaneIdForTemplate(nextLayout, templateViewId)
+
+  nodeMap.set(paneNode.id, {
+    ...paneNode,
+    activeViewIndex: paneNode.viewIds.length,
+    viewIds: [...paneNode.viewIds, newViewId],
+  })
+
+  return {
+    blockedReason: null,
+    didChange: true,
+    layout: {
+      ...nextLayout,
+      nodes: serializeNodes(nextLayout, nodeMap),
+    },
+    nextActivePaneId: paneId,
+  }
+}
+
+export function removePaneView(
+  layout: WorkspaceLayoutRecord,
+  paneId: string,
+  viewIndex: number,
+): WorkspaceLayoutMutationResult {
+  const nextLayout = cloneLayout(layout)
+  const nodeMap = createNodeMap(nextLayout)
+  const paneNode = findPaneNode(nodeMap, paneId)
+
+  if (!paneNode || paneNode.type !== 'pane') {
+    return {
+      blockedReason: null,
+      didChange: false,
+      layout,
+      nextActivePaneId: paneId,
+    }
+  }
+
+  if (
+    viewIndex < 0 ||
+    viewIndex >= paneNode.viewIds.length ||
+    paneNode.viewIds.length <= 1
+  ) {
+    if (paneNode.viewIds.length <= 1) {
+      return closeWorkspacePane(layout, paneId)
+    }
+
+    return {
+      blockedReason: null,
+      didChange: false,
+      layout,
+      nextActivePaneId: paneId,
+    }
+  }
+
+  const nextViewIds = paneNode.viewIds.filter((_, i) => i !== viewIndex)
+  const nextActiveViewIndex = Math.min(
+    paneNode.activeViewIndex,
+    nextViewIds.length - 1,
+  )
+
+  nodeMap.set(paneNode.id, {
+    ...paneNode,
+    activeViewIndex: nextActiveViewIndex,
+    viewIds: nextViewIds,
+  })
+
+  return {
+    blockedReason: null,
+    didChange: true,
+    layout: {
+      ...nextLayout,
+      nodes: serializeNodes(nextLayout, nodeMap),
+    },
+    nextActivePaneId: paneId,
+  }
+}
+
+export function switchPaneView(
+  layout: WorkspaceLayoutRecord,
+  paneId: string,
+  viewIndex: number,
+): WorkspaceLayoutMutationResult {
+  const nextLayout = cloneLayout(layout)
+  const nodeMap = createNodeMap(nextLayout)
+  const paneNode = findPaneNode(nodeMap, paneId)
+
+  if (
+    !paneNode ||
+    paneNode.type !== 'pane' ||
+    viewIndex < 0 ||
+    viewIndex >= paneNode.viewIds.length ||
+    viewIndex === paneNode.activeViewIndex
+  ) {
+    return {
+      blockedReason: null,
+      didChange: false,
+      layout,
+      nextActivePaneId: paneId,
+    }
+  }
+
+  nodeMap.set(paneNode.id, {
+    ...paneNode,
+    activeViewIndex: viewIndex,
   })
 
   return {

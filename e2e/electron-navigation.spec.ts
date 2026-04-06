@@ -71,8 +71,13 @@ async function launchAideApp(
     env: {
       ...process.env,
       AIDE_DATABASE_PATH: path.join(tempDirectory, 'aide.sqlite3'),
-      AIDE_USE_NAVIGATION_POC: '1',
       ...envOverrides,
+      WAYLAND_DISPLAY: '',
+      HYPRLAND_INSTANCE_SIGNATURE: '',
+      SWAYSOCK: '',
+      XDG_SESSION_TYPE: 'x11',
+      ELECTRON_OZONE_PLATFORM_HINT: 'x11',
+      OZONE_PLATFORM: 'x11',
       LIBGL_ALWAYS_SOFTWARE: '1',
       MESA_LOADER_DRIVER_OVERRIDE: 'llvmpipe',
     },
@@ -81,11 +86,90 @@ async function launchAideApp(
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
 
-  if (options.expectActivePane !== false) {
+  if (options.expectActivePane) {
     await expect(page.getByTestId('active-pane-name')).toBeVisible()
   }
 
   return { app, page, tempDirectory }
+}
+
+async function importProject(page: Page): Promise<void> {
+  await expect(page.getByText('No project selected')).toBeVisible()
+  await page
+    .getByRole('button', { name: /open project/i })
+    .last()
+    .click()
+  await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+}
+
+async function addPane(page: Page, paneName: RegExp): Promise<void> {
+  await page.getByRole('button', { name: /add pane/i }).click()
+  await page.getByRole('button', { name: paneName }).click()
+}
+
+async function expandSidebar(page: Page): Promise<void> {
+  await page.getByTestId('sidebar-shell').hover()
+  await expect(page.getByTestId('workspace-tree-panel')).toHaveAttribute(
+    'data-expanded',
+    'true',
+  )
+}
+
+async function createWorkspace(
+  page: Page,
+  input: {
+    branchName: string
+    name: string
+  },
+): Promise<void> {
+  await expandSidebar(page)
+  await page.getByRole('button', { name: /create workspace/i }).click()
+  await page.getByLabel('Workspace name').fill(input.name)
+  await page.getByLabel('Branch name').fill(input.branchName)
+  await page
+    .getByRole('button', { name: /create workspace/i })
+    .last()
+    .click()
+  await expect(page.getByTestId('active-workspace-name')).toHaveText(input.name)
+}
+
+async function expectRestingViewportClean(page: Page): Promise<void> {
+  const ownership = await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>(
+      '[data-testid="workspace-viewport"]',
+    )
+    const activeWorkspace = document.querySelector<HTMLElement>(
+      '.workspace-slide[data-active-workspace="true"]',
+    )
+    const activeSurface = document.querySelector<HTMLElement>(
+      '.workspace-slide[data-active-workspace="true"] [data-active-surface="true"]',
+    )
+
+    if (!viewport || !activeWorkspace || !activeSurface) {
+      return {
+        surfaceHeightRatio: 0,
+        surfaceWidthRatio: 0,
+        workspaceHeightRatio: 0,
+        workspaceWidthRatio: 0,
+      }
+    }
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const workspaceRect = activeWorkspace.getBoundingClientRect()
+    const surfaceRect = activeSurface.getBoundingClientRect()
+
+    return {
+      surfaceHeightRatio: surfaceRect.height / viewportRect.height,
+      surfaceWidthRatio: surfaceRect.width / viewportRect.width,
+      workspaceHeightRatio: workspaceRect.height / viewportRect.height,
+      workspaceWidthRatio: workspaceRect.width / viewportRect.width,
+    }
+  })
+
+  expect(ownership.workspaceWidthRatio).toBeGreaterThan(0.94)
+  expect(ownership.workspaceHeightRatio).toBeGreaterThan(0.94)
+  expect(ownership.surfaceWidthRatio).toBeGreaterThan(0.94)
+  expect(ownership.surfaceHeightRatio).toBeGreaterThan(0.94)
 }
 
 test.describe('electron spatial navigation', () => {
@@ -106,45 +190,80 @@ test.describe('electron spatial navigation', () => {
     tempDirectory = null
   })
 
-  test('can reach pane 4 and 5 in Electron', async () => {
-    const launched = await launchAideApp()
+  test('can open a git project from the empty state', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
-    await page.getByRole('button', { name: /editor inspect/i }).click()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Editor inspect',
-    )
+    await importProject(page)
 
-    await page.getByRole('button', { name: /preview target/i }).click()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Preview target',
-    )
+    await expect(
+      page.locator('[data-testid^="project-rail-button-"]'),
+    ).toHaveCount(1)
   })
 
-  test('moves panes horizontally with Alt+Left and Alt+Right', async () => {
-    const launched = await launchAideApp()
+  test('adds panes as full-size destinations and keeps siblings off-screen', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
+    await importProject(page)
+    await addPane(page, /terminal/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Chat task thread',
+      'Workspace terminal',
     )
-
-    await page.keyboard.down('Alt')
-    await page.keyboard.press('ArrowRight')
-    await page.keyboard.up('Alt')
-
+    await addPane(page, /git/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
 
+    await expect(
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(2)
+    await expectRestingViewportClean(page)
+  })
+
+  test('moves panes horizontally without counting split children', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await addPane(page, /git/i)
+    await addPane(page, /preview/i)
+    await expect(
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(3)
+
+    await page.getByRole('button', { name: /git review/i }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+    await page.getByLabel(/split vertically/i).click()
+    await page.getByRole('button', { name: /^Chat$/i }).click()
+
+    await expect(
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(3)
+
     await page.keyboard.down('Alt')
     await page.keyboard.press('ArrowRight')
     await page.keyboard.up('Alt')
-
     await expect(page.getByTestId('active-pane-name')).toHaveText(
       'Preview target',
     )
@@ -152,41 +271,60 @@ test.describe('electron spatial navigation', () => {
     await page.keyboard.down('Alt')
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.up('Alt')
-
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.up('Alt')
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+
+    await expectRestingViewportClean(page)
   })
 
-  test('moves workspaces vertically with Alt+j and Alt+k', async () => {
-    const launched = await launchAideApp()
+  test('moves workspaces vertically with no workspace bleed', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
-    await expect(page.getByTestId('active-workspace-name')).toHaveText(
-      'navigation-poc',
-    )
-
-    await page.keyboard.down('Alt')
-    await page.keyboard.press('j')
-    await page.keyboard.up('Alt')
-
-    await expect(page.getByTestId('active-workspace-name')).toHaveText(
-      'agent-review',
-    )
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await createWorkspace(page, {
+      branchName: 'workspace-2',
+      name: 'Workspace 2',
+    })
+    await addPane(page, /git/i)
+    await expectRestingViewportClean(page)
 
     await page.keyboard.down('Alt')
     await page.keyboard.press('k')
     await page.keyboard.up('Alt')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    await expectRestingViewportClean(page)
 
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('j')
+    await page.keyboard.up('Alt')
     await expect(page.getByTestId('active-workspace-name')).toHaveText(
-      'navigation-poc',
+      'Workspace 2',
     )
+    await expectRestingViewportClean(page)
   })
 
   test('opens overview with Ctrl+Tab and jumps to another workspace', async () => {
-    const launched = await launchAideApp()
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
@@ -194,28 +332,26 @@ test.describe('electron spatial navigation', () => {
       '[data-testid="workspace-switcher-overlay"][data-mode="overview"]',
     )
 
-    await expect(page.getByTestId('active-workspace-name')).toHaveText(
-      'navigation-poc',
-    )
+    await importProject(page)
+    await createWorkspace(page, {
+      branchName: 'review-space',
+      name: 'Review Space',
+    })
 
     await page.keyboard.down('Control')
     await page.keyboard.press('Tab')
     await page.keyboard.up('Control')
 
     await expect(overview).toBeVisible()
-    await expect(overview.getByText('Overview')).toBeVisible()
-    await expect(overview.getByText('Current')).toBeVisible()
-    const checkoutWorkspace = overview.getByRole('option', {
-      name: /checkout-redesign/i,
+    const reviewWorkspace = overview.getByRole('option', {
+      name: /review space/i,
     })
-    await expect(checkoutWorkspace).toBeVisible()
-    await expect(checkoutWorkspace.getByText('storefront')).toBeVisible()
-
-    await checkoutWorkspace.click()
+    await expect(reviewWorkspace).toBeVisible()
+    await reviewWorkspace.click()
 
     await expect(overview).not.toBeVisible()
     await expect(page.getByTestId('active-workspace-name')).toHaveText(
-      'checkout-redesign',
+      'Review Space',
     )
   })
 
@@ -257,33 +393,6 @@ test.describe('electron spatial navigation', () => {
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 
-  test('can open a git project from the empty state', async () => {
-    const chosenProjectRoot = createGitRepository()
-    const launched = await launchAideApp(
-      {
-        AIDE_USE_NAVIGATION_POC: '0',
-        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
-      },
-      { expectActivePane: false },
-    )
-    app = launched.app
-    importedRepoRoot = chosenProjectRoot
-    tempDirectory = launched.tempDirectory
-
-    const { page } = launched
-
-    await expect(page.getByText('No project selected')).toBeVisible()
-    await page
-      .getByRole('button', { name: /open project/i })
-      .last()
-      .click()
-
-    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
-    await expect(
-      page.locator('[data-testid^="project-rail-button-"]'),
-    ).toHaveCount(1)
-  })
-
   test('renders a real git pane and updates the review surface on file selection', async () => {
     const chosenProjectRoot = createGitRepository()
     const readmePath = path.join(chosenProjectRoot, 'README.md')
@@ -292,26 +401,17 @@ test.describe('electron spatial navigation', () => {
     writeFileSync(readmePath, `${readFileSync(readmePath, 'utf8')}unstaged\n`)
     writeFileSync(path.join(chosenProjectRoot, 'notes.txt'), 'local notes\n')
 
-    const launched = await launchAideApp(
-      {
-        AIDE_USE_NAVIGATION_POC: '0',
-        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
-      },
-      { expectActivePane: false },
-    )
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
     importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
-    await page
-      .getByRole('button', { name: /open project/i })
-      .last()
-      .click()
-
-    await page.getByRole('button', { name: /add pane/i }).click()
-    await page.getByRole('button', { name: /git/i }).click()
+    await importProject(page)
+    await addPane(page, /git/i)
 
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await expect(page.getByTestId('git-pane')).toBeVisible()
@@ -350,26 +450,17 @@ test.describe('electron spatial navigation', () => {
 
   test('stores multiple preview targets per workspace and switches the active target', async () => {
     const chosenProjectRoot = createGitRepository()
-    const launched = await launchAideApp(
-      {
-        AIDE_USE_NAVIGATION_POC: '0',
-        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
-      },
-      { expectActivePane: false },
-    )
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
     importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
 
-    await page
-      .getByRole('button', { name: /open project/i })
-      .last()
-      .click()
-
-    await page.getByRole('button', { name: /add pane/i }).click()
-    await page.getByRole('button', { name: /preview/i }).click()
+    await importProject(page)
+    await addPane(page, /preview/i)
 
     await expect(page.getByTestId('preview-active-target')).toHaveText(
       'http://127.0.0.1:4173',
@@ -399,13 +490,9 @@ test.describe('electron spatial navigation', () => {
 
   test('shows an inline error when the chosen folder is not a git repo', async () => {
     const chosenProjectRoot = mkdtempSync(path.join(tmpdir(), 'aide-non-git-'))
-    const launched = await launchAideApp(
-      {
-        AIDE_USE_NAVIGATION_POC: '0',
-        AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
-      },
-      { expectActivePane: false },
-    )
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
     importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
@@ -423,11 +510,20 @@ test.describe('electron spatial navigation', () => {
   })
 
   test('refocuses the terminal when returning to its pane', async () => {
-    const launched = await launchAideApp()
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await addPane(page, /git/i)
+
     const terminalPaneButton = page.getByRole('button', {
       name: /workspace terminal/i,
     })
