@@ -97,8 +97,10 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     const snapshot = await aideApi.createTerminalSession({
       cols: terminal.cols,
       cwd: workspace.worktreePath || '~',
+      paneId,
       rows: terminal.rows,
       sessionId,
+      workspaceId: workspace.id,
     })
 
     if (snapshot.buffer) {
@@ -111,7 +113,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
         `[terminal exited${snapshot.exitCode !== null ? `: ${snapshot.exitCode}` : ''}]`,
       )
     }
-  }, [sessionId, workspace.worktreePath])
+  }, [paneId, sessionId, workspace.id, workspace.worktreePath])
 
   useEffect(() => {
     const container = containerRef.current

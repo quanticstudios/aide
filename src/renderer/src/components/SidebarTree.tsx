@@ -8,14 +8,23 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/relative-time'
-import type { WorkspaceSummary } from '@/lib/workspace-summary'
+import { cn } from '@/lib/utils'
+import {
+  type WorkspaceSummary,
+  resolveProjectSummaryActivity,
+} from '@/lib/workspace-summary'
+import type { WorktreeBranchStats } from '../../../shared/git'
 import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
-import type { WorktreeBranchStats } from '../../../shared/git'
+import {
+  formatWorkspaceActivityLabel,
+  resolveWorkspaceActivityAccentClassName,
+  resolveWorkspaceActivityDotClassName,
+  shouldPulseWorkspaceActivity,
+} from '../../../shared/workspace-activity'
 
 const BRANCH_STATS_POLL_INTERVAL_MS = 30_000
 const TIMESTAMP_TICK_INTERVAL_MS = 10_000
@@ -47,19 +56,46 @@ function getProjectGlyph(projectName: string): string {
   )
 }
 
-function getStatusIconClassName(
-  status: WorkspaceSummary['status'] | undefined,
-): string {
-  if (status === 'error') {
-    return 'text-red-400'
+function getWorkspaceIndicatorClassName(input: {
+  activity: WorkspaceSummary['activity'] | null | undefined
+  isCurrent: boolean
+}): string {
+  if (input.activity) {
+    return resolveWorkspaceActivityAccentClassName(input.activity)
   }
 
-  if (status === 'running') {
-    return 'text-amber-400'
-  }
-
-  if (status === 'active') {
+  if (input.isCurrent) {
     return 'text-primary'
+  }
+
+  return 'text-muted-foreground'
+}
+
+function renderActivityDot(
+  activity: WorkspaceSummary['activity'] | null | undefined,
+  sizeClassName = 'size-2',
+) {
+  if (!activity) {
+    return null
+  }
+
+  return (
+    <span
+      className={cn(
+        'rounded-full',
+        resolveWorkspaceActivityDotClassName(activity),
+        shouldPulseWorkspaceActivity(activity) && 'animate-pulse',
+        sizeClassName,
+      )}
+    />
+  )
+}
+
+function getProjectStatusIconClassName(
+  activity: WorkspaceSummary['activity'] | null | undefined,
+): string {
+  if (activity) {
+    return resolveWorkspaceActivityAccentClassName(activity)
   }
 
   return 'text-muted-foreground'
@@ -227,6 +263,11 @@ export default function SidebarTree({
         <div className="mt-4 flex flex-1 flex-col items-center gap-2">
           {projects.map((project, index) => {
             const isActive = project.id === activeProjectId
+            const projectActivity = resolveProjectSummaryActivity(
+              summaries,
+              workspaces,
+              project.id,
+            )
 
             return (
               <button
@@ -243,6 +284,11 @@ export default function SidebarTree({
                 type="button"
               >
                 {getProjectGlyph(project.name)}
+                {projectActivity ? (
+                  <span className="absolute -left-0.5 -top-0.5">
+                    {renderActivityDot(projectActivity, 'size-2.5')}
+                  </span>
+                ) : null}
                 {showProjectHints ? (
                   <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] font-medium text-muted-foreground">
                     {index + 1}
@@ -328,6 +374,11 @@ export default function SidebarTree({
               (workspace) => workspace.projectId === project.id,
             )
             const isActiveProject = project.id === activeProjectId
+            const projectActivity = resolveProjectSummaryActivity(
+              summaries,
+              workspaces,
+              project.id,
+            )
             const isProjectExpanded =
               expandedProjectIds[project.id] ?? isActiveProject
 
@@ -368,6 +419,7 @@ export default function SidebarTree({
                     onClick={() => onSelectProject(project.id)}
                     type="button"
                   >
+                    {renderActivityDot(projectActivity)}
                     <span className="truncate text-sm font-medium">
                       {project.name}
                     </span>
@@ -391,10 +443,14 @@ export default function SidebarTree({
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
                       const summary = summaries[workspace.id]
+                      const activity = summary?.activity ?? null
                       const stats = branchStats[workspace.id]
                       const mergeLabel = stats
                         ? getMergeStatusLabel(stats.mergeStatus)
                         : ''
+                      const activityLabel = activity
+                        ? formatWorkspaceActivityLabel(activity)
+                        : null
 
                       return (
                         <button
@@ -412,7 +468,10 @@ export default function SidebarTree({
                             <GitBranch
                               className={cn(
                                 'size-3 shrink-0',
-                                getStatusIconClassName(summary?.status),
+                                getWorkspaceIndicatorClassName({
+                                  activity,
+                                  isCurrent: isActiveWorkspace,
+                                }),
                               )}
                             />
                             <span
@@ -443,7 +502,20 @@ export default function SidebarTree({
                             <span className="truncate">
                               {summary?.branchName ?? workspace.branchName}
                             </span>
-                            {mergeLabel ? (
+                            {activityLabel ? (
+                              <>
+                                <span>·</span>
+                                <span
+                                  className={cn(
+                                    'shrink-0',
+                                    getProjectStatusIconClassName(activity),
+                                  )}
+                                  title={activity?.detail ?? activityLabel}
+                                >
+                                  {activityLabel}
+                                </span>
+                              </>
+                            ) : mergeLabel ? (
                               <>
                                 <span>·</span>
                                 <span

@@ -1,8 +1,10 @@
 export interface TerminalSessionConfig {
   cols: number
   cwd: string
+  paneId: string
   rows: number
   sessionId: string
+  workspaceId: string
 }
 
 export interface TerminalResizeInput {

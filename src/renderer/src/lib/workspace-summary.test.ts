@@ -4,16 +4,20 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
-import { buildWorkspaceSummaryMap } from './workspace-summary'
+import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
+import {
+  buildWorkspaceSummaryMap,
+  resolveProjectSummaryActivity,
+} from './workspace-summary'
 
 function createProject(id: string, name: string): ProjectRecord {
   return {
+    createdAt: '2026-03-24T00:00:00Z',
+    defaultBranch: 'main',
     id,
     name,
-    repoRoot: `/repo/${name}`,
     remoteUrl: null,
-    defaultBranch: 'main',
-    createdAt: '2026-03-24T00:00:00Z',
+    repoRoot: `/repo/${name}`,
     updatedAt: '2026-03-24T00:00:00Z',
   }
 }
@@ -24,38 +28,92 @@ function createWorkspace(
   name: string,
 ): WorkspaceRecord {
   return {
-    id,
-    projectId,
-    name,
     branchName: `${name}-branch`,
-    worktreePath: `/repo/${projectId}/${name}`,
-    windowId: null,
     createdAt: '2026-03-24T00:00:00Z',
+    id,
+    name,
+    projectId,
     updatedAt: '2026-03-24T00:00:00Z',
+    windowId: null,
+    worktreePath: `/repo/${projectId}/${name}`,
+  }
+}
+
+function createActivity(
+  workspaceId: string,
+  state: WorkspaceActivitySnapshot['state'],
+): WorkspaceActivitySnapshot {
+  return {
+    detail: null,
+    provider: 'claude',
+    state,
+    updatedAt: '2026-04-06T12:00:00Z',
+    workspaceId,
   }
 }
 
 describe('buildWorkspaceSummaryMap', () => {
-  it('builds compact branch, status, and placeholder job-count summaries', () => {
+  it('builds compact branch and runtime activity summaries for real workspaces', () => {
     const summaries = buildWorkspaceSummaryMap(
       [createProject('project-a', 'aide')],
       [
-        createWorkspace('demo-workspace-aide-nav', 'project-a', 'nav'),
-        createWorkspace('demo-workspace-aide-review', 'project-a', 'review'),
+        createWorkspace('workspace-nav', 'project-a', 'nav'),
+        createWorkspace('workspace-review', 'project-a', 'review'),
       ],
-      'demo-workspace-aide-review',
+      {
+        'workspace-review': createActivity('workspace-review', 'working'),
+      },
     )
 
-    expect(summaries['demo-workspace-aide-nav']).toMatchObject({
+    expect(summaries['workspace-nav']).toMatchObject({
+      activity: null,
       branchName: 'nav-branch',
-      jobCount: 2,
       projectName: 'aide',
-      status: 'idle',
       workspaceName: 'nav',
     })
-    expect(summaries['demo-workspace-aide-review']).toMatchObject({
-      jobCount: 1,
-      status: 'error',
+    expect(summaries['workspace-review']).toMatchObject({
+      activity: {
+        provider: 'claude',
+        state: 'working',
+      },
+    })
+  })
+
+  it('keeps demo-mode activity overrides behind the explicit runtime flag', () => {
+    const summaries = buildWorkspaceSummaryMap(
+      [createProject('project-a', 'aide')],
+      [createWorkspace('demo-workspace-aide-review', 'project-a', 'review')],
+      {},
+      { useDemoMode: true },
+    )
+
+    expect(summaries['demo-workspace-aide-review']?.activity).toMatchObject({
+      provider: 'claude',
+      state: 'attention',
+    })
+  })
+})
+
+describe('resolveProjectSummaryActivity', () => {
+  it('aggregates child workspace activity by priority', () => {
+    const workspaces = [
+      createWorkspace('workspace-a', 'project-a', 'nav'),
+      createWorkspace('workspace-b', 'project-a', 'review'),
+    ]
+    const summaries = buildWorkspaceSummaryMap(
+      [createProject('project-a', 'aide')],
+      workspaces,
+      {
+        'workspace-a': createActivity('workspace-a', 'working'),
+        'workspace-b': createActivity('workspace-b', 'attention'),
+      },
+    )
+
+    expect(
+      resolveProjectSummaryActivity(summaries, workspaces, 'project-a'),
+    ).toMatchObject({
+      state: 'attention',
+      workspaceId: 'workspace-b',
     })
   })
 })

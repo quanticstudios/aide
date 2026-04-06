@@ -25,6 +25,10 @@ import type {
   TerminalSessionConfig,
   TerminalSessionSnapshot,
 } from './terminal'
+import type {
+  WorkspaceActivityEvent,
+  WorkspaceActivitySnapshot,
+} from './workspace-activity'
 
 export const IPC_CHANNELS = {
   createWorkspace: 'storage:create-workspace',
@@ -40,8 +44,10 @@ export const IPC_CHANNELS = {
   getWorktreeBranchStats: 'app:get-worktree-branch-stats',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   getStorageSnapshot: 'storage:get-snapshot',
+  getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
+  workspaceActivityEvent: 'app:workspace-activity',
   terminalCreate: 'terminal:create-session',
   terminalEvent: 'terminal:event',
   terminalKill: 'terminal:kill-session',
@@ -75,6 +81,9 @@ export interface AideApi {
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
+  getWorkspaceActivitySnapshot: () => Promise<
+    Record<string, WorkspaceActivitySnapshot>
+  >
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
@@ -84,6 +93,9 @@ export interface AideApi {
   ) => Promise<TerminalSessionSnapshot>
   killTerminalSession: (sessionId: string) => Promise<void>
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
+  onWorkspaceActivity: (
+    callback: (event: WorkspaceActivityEvent) => void,
+  ) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
   resizeTerminalSession: (
     sessionId: string,

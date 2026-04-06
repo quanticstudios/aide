@@ -8,6 +8,7 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
+import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 
 const aideApi: AideApi = {
   createTerminalSession: (input: TerminalSessionConfig) =>
@@ -16,6 +17,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  getWorkspaceActivitySnapshot: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceActivitySnapshot),
   importProject: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.importProject, repoPath),
   listProjectRefs: (projectId: string) =>
@@ -48,6 +51,16 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.terminalEvent, listener)
+    }
+  },
+  onWorkspaceActivity: (callback: (event: WorkspaceActivityEvent) => void) => {
+    const listener = (_event: unknown, payload: WorkspaceActivityEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.workspaceActivityEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.workspaceActivityEvent, listener)
     }
   },
   probeExecutableCommand: (input: ExecutableProbeInput) =>

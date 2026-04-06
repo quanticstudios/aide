@@ -25,6 +25,7 @@ import { focusHyprlandStartupWorkspace } from './hyprland'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
 import { TerminalSessionManager } from './terminal-session-manager'
+import { WorkspaceActivityService } from './workspace-activity-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -32,8 +33,16 @@ const database = createAideDatabase(
   process.env.AIDE_DATABASE_PATH ?? path.join(process.cwd(), '.aide.sqlite3'),
 )
 const gitWorkspaceService = new GitWorkspaceService(database)
+const workspaceActivityService = new WorkspaceActivityService({
+  onUpdate: (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
+    }
+  },
+})
 const terminalSessionManager = new TerminalSessionManager({
   onEvent: (event) => {
+    workspaceActivityService.handleTerminalEvent(event)
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.terminalEvent, event)
     }
@@ -156,6 +165,9 @@ function createMainWindow(): BrowserWindow {
 
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceActivitySnapshot, () =>
+    workspaceActivityService.getSnapshot(),
+  )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
@@ -202,6 +214,9 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.setActiveSelection,
     (_event, input: SetActiveSelectionInput) => {
       database.setActiveSelection(input)
+      if (input.workspaceId) {
+        workspaceActivityService.markWorkspaceVisited(input.workspaceId)
+      }
     },
   )
   ipcMain.handle(
@@ -213,8 +228,10 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.terminalCreate,
-    (_event, input: TerminalSessionConfig) =>
-      terminalSessionManager.createSession(input),
+    (_event, input: TerminalSessionConfig) => {
+      workspaceActivityService.trackSession(input)
+      return terminalSessionManager.createSession(input)
+    },
   )
   ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {
     terminalSessionManager.killSession(sessionId)
@@ -228,6 +245,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.terminalWrite,
     (_event, sessionId: string, data: string) => {
+      workspaceActivityService.handleTerminalInput(sessionId, data)
       terminalSessionManager.writeToSession(sessionId, data)
     },
   )

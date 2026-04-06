@@ -1,60 +1,101 @@
-import type { WorkspaceStatus } from '../../../shared/domain'
 import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
+import { resolveAggregateWorkspaceActivity } from '../../../shared/workspace-activity'
 
 export interface WorkspaceSummary {
+  activity: WorkspaceActivitySnapshot | null
   branchName: string
-  jobCount: number
   projectId: string
   projectName: string
-  status: WorkspaceStatus
   workspaceId: string
   workspaceName: string
 }
 
-const WORKSPACE_SUMMARY_OVERRIDES: Record<
-  string,
-  { jobCount: number; status: Exclude<WorkspaceStatus, 'active'> }
-> = {
-  'demo-workspace-aide-nav': { jobCount: 2, status: 'idle' },
-  'demo-workspace-aide-review': { jobCount: 1, status: 'error' },
-  'demo-workspace-storefront-checkout': { jobCount: 3, status: 'running' },
-  'demo-workspace-storefront-pricing': { jobCount: 1, status: 'idle' },
-  'demo-workspace-infra-deploy': { jobCount: 4, status: 'running' },
+const DEMO_ACTIVITY_OVERRIDES: Record<string, WorkspaceActivitySnapshot> = {
+  'demo-workspace-aide-nav': {
+    detail: null,
+    provider: 'claude',
+    state: 'ready',
+    updatedAt: '2026-03-24T00:00:00Z',
+    workspaceId: 'demo-workspace-aide-nav',
+  },
+  'demo-workspace-aide-review': {
+    detail: '1 MCP server failed',
+    provider: 'claude',
+    state: 'attention',
+    updatedAt: '2026-03-24T00:00:00Z',
+    workspaceId: 'demo-workspace-aide-review',
+  },
+  'demo-workspace-storefront-checkout': {
+    detail: null,
+    provider: 'codex',
+    state: 'working',
+    updatedAt: '2026-03-24T00:00:00Z',
+    workspaceId: 'demo-workspace-storefront-checkout',
+  },
+  'demo-workspace-storefront-pricing': {
+    detail: null,
+    provider: 'claude',
+    state: 'ready',
+    updatedAt: '2026-03-24T00:00:00Z',
+    workspaceId: 'demo-workspace-storefront-pricing',
+  },
+  'demo-workspace-infra-deploy': {
+    detail: null,
+    provider: 'terminal',
+    state: 'working',
+    updatedAt: '2026-03-24T00:00:00Z',
+    workspaceId: 'demo-workspace-infra-deploy',
+  },
 }
 
 export function buildWorkspaceSummaryMap(
   projects: readonly ProjectRecord[],
   workspaces: readonly WorkspaceRecord[],
-  activeWorkspaceId: string | null,
+  activitiesByWorkspace: Record<string, WorkspaceActivitySnapshot>,
+  options?: {
+    useDemoMode?: boolean
+  },
 ): Record<string, WorkspaceSummary> {
   const projectNameById = new Map(
     projects.map((project) => [project.id, project.name]),
   )
+  const useDemoMode = options?.useDemoMode ?? false
 
   return Object.fromEntries(
     workspaces.map((workspace) => [
       workspace.id,
-      (() => {
-        const override = WORKSPACE_SUMMARY_OVERRIDES[workspace.id]
-        const isActive = workspace.id === activeWorkspaceId
-
-        return {
-          branchName: workspace.branchName,
-          jobCount: override?.jobCount ?? 0,
-          projectId: workspace.projectId,
-          projectName:
-            projectNameById.get(workspace.projectId) ?? 'Unknown project',
-          status:
-            isActive && (override?.status ?? 'idle') === 'idle'
-              ? 'active'
-              : (override?.status ?? 'idle'),
-          workspaceId: workspace.id,
-          workspaceName: workspace.name,
-        }
-      })(),
+      {
+        activity:
+          activitiesByWorkspace[workspace.id] ??
+          (useDemoMode
+            ? (DEMO_ACTIVITY_OVERRIDES[workspace.id] ?? null)
+            : null),
+        branchName: workspace.branchName,
+        projectId: workspace.projectId,
+        projectName:
+          projectNameById.get(workspace.projectId) ?? 'Unknown project',
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      },
     ]),
+  )
+}
+
+export function resolveProjectSummaryActivity(
+  summaries: Record<string, WorkspaceSummary>,
+  workspaces: readonly WorkspaceRecord[],
+  projectId: string,
+): WorkspaceActivitySnapshot | null {
+  return resolveAggregateWorkspaceActivity(
+    workspaces
+      .filter((workspace) => workspace.projectId === projectId)
+      .map((workspace) => summaries[workspace.id]?.activity ?? null)
+      .filter(
+        (activity): activity is WorkspaceActivitySnapshot => activity !== null,
+      ),
   )
 }

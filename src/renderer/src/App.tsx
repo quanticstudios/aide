@@ -7,6 +7,7 @@ import type {
   WorkspaceLayoutRecord,
   WorkspaceRecord,
 } from '../../shared/persistence'
+import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
 import AppShell from './components/AppShell'
 import PaneCreationModal from './components/PaneCreationModal'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
@@ -125,6 +126,9 @@ export default function App() {
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
+  const [workspaceActivities, setWorkspaceActivities] = useState<
+    Record<string, WorkspaceActivitySnapshot>
+  >({})
   const [workspaceRuntimeState, setWorkspaceRuntimeState] =
     useState<WorkspaceRuntimeState>({})
   const lastResolvedNavigationRef = useRef('')
@@ -195,12 +199,14 @@ export default function App() {
     }
 
     try {
-      const [snapshot, runtimeSnapshot] = await Promise.all([
+      const [snapshot, runtimeSnapshot, activitySnapshot] = await Promise.all([
         api.getStorageSnapshot(),
         api.getRuntimeSnapshot(),
+        api.getWorkspaceActivitySnapshot(),
       ])
       setStorageSnapshot(snapshot)
       setUseNavigationPoc(runtimeSnapshot.useNavigationPoc)
+      setWorkspaceActivities(activitySnapshot)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
@@ -790,6 +796,33 @@ export default function App() {
     })
   }, [])
 
+
+  useEffect(() => {
+    const api = getAideApi()
+
+    if (api == null) {
+      return
+    }
+
+    return api.onWorkspaceActivity((event) => {
+      setWorkspaceActivities((current) => {
+        if (event.activity == null) {
+          if (current[event.workspaceId] === undefined) {
+            return current
+          }
+
+          const next = { ...current }
+          delete next[event.workspaceId]
+          return next
+        }
+
+        return {
+          ...current,
+          [event.workspaceId]: event.activity,
+        }
+      })
+    })
+  }, [])
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const normalizedKey = event.key.toLowerCase()
@@ -945,13 +978,8 @@ export default function App() {
     resolvedNavigationState.activeWorkspaceId,
   )
   const workspaceSummaries = useMemo(
-    () =>
-      buildWorkspaceSummaryMap(
-        projects,
-        allWorkspaces,
-        resolvedNavigationState.activeWorkspaceId,
-      ),
-    [allWorkspaces, projects, resolvedNavigationState.activeWorkspaceId],
+    () => buildWorkspaceSummaryMap(projects, allWorkspaces, workspaceActivities, { useDemoMode: isDemoMode }),
+    [allWorkspaces, isDemoMode, projects, workspaceActivities],
   )
   const handleLoadPreviewTarget = useCallback(
     (workspace: WorkspaceRecord, url: string) => {
