@@ -252,7 +252,7 @@ export default function SidebarTree({
         data-testid="workspace-tree-panel"
       >
         <button
-          aria-label="aide"
+          aria-label="Workspace sidebar"
           className="flex size-8 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground"
           tabIndex={0}
           type="button"
@@ -271,7 +271,7 @@ export default function SidebarTree({
 
             return (
               <button
-                aria-label={project.name}
+                aria-label={`Project ${project.name}`}
                 className={cn(
                   'relative flex size-9 items-center justify-center rounded-xl border text-[10px] font-semibold tracking-[0.1em] transition-all',
                   isActive

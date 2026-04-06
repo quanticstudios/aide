@@ -244,7 +244,7 @@ test.describe('electron spatial navigation', () => {
     await page.waitForTimeout(180)
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
 
-    await page.getByLabel('aide').focus()
+    await page.getByLabel('Workspace sidebar').focus()
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
 
     await page.getByRole('button', { name: /pin sidebar open/i }).click()
@@ -438,7 +438,9 @@ test.describe('electron spatial navigation', () => {
       'Workspace terminal',
     )
     await expect(
-      page.locator('.terminal-pane .xterm-helper-textarea'),
+      page.locator(
+        '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
+      ),
     ).toBeFocused()
 
     await gitPaneButton.click()
@@ -449,7 +451,9 @@ test.describe('electron spatial navigation', () => {
       'Workspace terminal',
     )
     await expect(
-      page.locator('.terminal-pane .xterm-helper-textarea'),
+      page.locator(
+        '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
+      ),
     ).toBeFocused()
   })
 })

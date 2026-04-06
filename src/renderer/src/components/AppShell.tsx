@@ -1,5 +1,5 @@
 import type { FocusEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
@@ -64,21 +64,49 @@ export default function AppShell({
   const isSidebarExpanded =
     isSidebarPinnedOpen || isSidebarHovered || isSidebarFocusWithin
 
-  function clearPendingCollapse(): void {
+  const sidebarContainsActiveElement = useCallback((): boolean => {
+    if (typeof document === 'undefined') {
+      return false
+    }
+
+    const activeElement = document.activeElement
+
+    return Boolean(
+      activeElement instanceof Node &&
+        sidebarShellRef.current?.contains(activeElement),
+    )
+  }, [])
+
+  const blurSidebarActiveElement = useCallback((): void => {
+    if (typeof document === 'undefined') {
+      return
+    }
+
+    const activeElement = document.activeElement
+
+    if (
+      activeElement instanceof HTMLElement &&
+      sidebarShellRef.current?.contains(activeElement)
+    ) {
+      activeElement.blur()
+    }
+  }, [])
+
+  const clearPendingCollapse = useCallback((): void => {
     if (collapseTimerRef.current === null) {
       return
     }
 
     window.clearTimeout(collapseTimerRef.current)
     collapseTimerRef.current = null
-  }
+  }, [])
 
-  function scheduleSidebarCollapse(): void {
+  const scheduleSidebarCollapse = useCallback((): void => {
     clearPendingCollapse()
     collapseTimerRef.current = window.setTimeout(() => {
       setIsSidebarHovered(false)
     }, SIDEBAR_COLLAPSE_DELAY_MS)
-  }
+  }, [clearPendingCollapse])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -102,6 +130,59 @@ export default function AppShell({
     },
     [],
   )
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isSidebarPinnedOpen) {
+      return
+    }
+
+    const handlePointerMove = (event: MouseEvent) => {
+      const sidebarShell = sidebarShellRef.current
+
+      if (!sidebarShell) {
+        return
+      }
+
+      const bounds = sidebarShell.getBoundingClientRect()
+      const isInsideBounds =
+        event.clientX >= bounds.left &&
+        event.clientX <= bounds.right &&
+        event.clientY >= bounds.top &&
+        event.clientY <= bounds.bottom
+
+      if (isInsideBounds) {
+        clearPendingCollapse()
+        setIsSidebarHovered(true)
+        return
+      }
+
+      const hasSidebarFocus = sidebarContainsActiveElement()
+
+      if (!hasSidebarFocus) {
+        setIsSidebarFocusWithin(false)
+        clearPendingCollapse()
+        setIsSidebarHovered(false)
+        return
+      }
+
+      blurSidebarActiveElement()
+      setIsSidebarFocusWithin(false)
+      clearPendingCollapse()
+      setIsSidebarHovered(false)
+    }
+
+    window.addEventListener('mousemove', handlePointerMove)
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove)
+    }
+  }, [
+    clearPendingCollapse,
+    blurSidebarActiveElement,
+    isSidebarPinnedOpen,
+    sidebarContainsActiveElement,
+    scheduleSidebarCollapse,
+  ])
 
   function handleSidebarFocus(): void {
     clearPendingCollapse()
@@ -131,10 +212,17 @@ export default function AppShell({
   }
 
   function handleSidebarMouseLeave(): void {
-    if (isSidebarPinnedOpen || isSidebarFocusWithin) {
+    const hasSidebarFocus = sidebarContainsActiveElement()
+
+    if (isSidebarPinnedOpen) {
       return
     }
 
+    if (hasSidebarFocus) {
+      blurSidebarActiveElement()
+    }
+
+    setIsSidebarFocusWithin(false)
     scheduleSidebarCollapse()
   }
 

@@ -469,6 +469,7 @@ function renderPaneTrack(args: {
               workspace: args.workspace,
             })}
           </div>
+        data-active-pane={isActive ? 'true' : 'false'}
         ))}
       </div>
     </div>
@@ -672,3 +673,4 @@ export default function WorkspaceCanvas({
     </section>
   )
 }
+                data-active-workspace={isActiveWorkspace ? 'true' : 'false'}

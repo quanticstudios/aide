@@ -929,9 +929,13 @@ export default function App() {
     }
 
     const focusTerminal = () => {
-      const textarea = document.querySelector<HTMLTextAreaElement>(
-        '.terminal-pane .xterm-helper-textarea',
+      const activePaneElement = document.querySelector<HTMLElement>(
+        '[data-active-pane="true"]',
       )
+      const textarea =
+        activePaneElement?.querySelector<HTMLTextAreaElement>(
+          '.terminal-pane .xterm-helper-textarea',
+        ) ?? null
 
       if (!textarea) {
         return
