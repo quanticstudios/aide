@@ -16,7 +16,9 @@ function createActivity(
 ): WorkspaceActivitySnapshot {
   return {
     detail: null,
+    paneId: 'pane-1',
     provider: 'claude',
+    sessionId: 'session-1',
     source: 'managed',
     state,
     updatedAt: '2026-04-06T12:00:00Z',

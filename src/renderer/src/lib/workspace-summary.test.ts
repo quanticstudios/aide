@@ -45,7 +45,9 @@ function createActivity(
 ): WorkspaceActivitySnapshot {
   return {
     detail: null,
+    paneId: `${workspaceId}:pane-1`,
     provider: 'claude',
+    sessionId: `${workspaceId}:session-1`,
     source: 'managed',
     state,
     updatedAt: '2026-04-06T12:00:00Z',
@@ -62,17 +64,24 @@ describe('buildWorkspaceSummaryMap', () => {
         createWorkspace('workspace-review', 'project-a', 'review'),
       ],
       {
-        'workspace-review': createActivity('workspace-review', 'working'),
+        'workspace-review': [createActivity('workspace-review', 'working')],
       },
     )
 
     expect(summaries['workspace-nav']).toMatchObject({
       activity: null,
+      activities: [],
       branchName: 'nav-branch',
       projectName: 'aide',
       workspaceName: 'nav',
     })
     expect(summaries['workspace-review']).toMatchObject({
+      activities: [
+        {
+          provider: 'claude',
+          state: 'working',
+        },
+      ],
       activity: {
         provider: 'claude',
         state: 'working',
@@ -101,8 +110,8 @@ describe('resolveProjectSummaryActivity', () => {
       [createProject('project-a', 'aide')],
       workspaces,
       {
-        'workspace-a': createActivity('workspace-a', 'working'),
-        'workspace-b': createActivity('workspace-b', 'pending-approval'),
+        'workspace-a': [createActivity('workspace-a', 'working')],
+        'workspace-b': [createActivity('workspace-b', 'pending-approval')],
       },
     )
 

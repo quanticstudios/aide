@@ -85,7 +85,9 @@ function resolveReadyPattern(
 
 function createActivitySnapshot(input: {
   detail?: string | null
+  paneId: string
   provider: WorkspaceActivityProvider
+  sessionId: string
   source: WorkspaceActivitySource
   state: WorkspaceActivitySnapshot['state']
   updatedAt: string
@@ -93,7 +95,9 @@ function createActivitySnapshot(input: {
 }): WorkspaceActivitySnapshot {
   return {
     detail: input.detail ?? null,
+    paneId: input.paneId,
     provider: input.provider,
+    sessionId: input.sessionId,
     source: input.source,
     state: input.state,
     updatedAt: input.updatedAt,
@@ -164,7 +168,9 @@ function deriveLiveSessionActivity(
     ) {
       return createActivitySnapshot({
         detail: runtime.lastError,
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'error',
         updatedAt: runtime.lastErrorAt,
@@ -175,7 +181,9 @@ function deriveLiveSessionActivity(
     if (runtime.hasPendingApproval) {
       return createActivitySnapshot({
         detail: runtime.detail,
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'pending-approval',
         updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
@@ -186,7 +194,9 @@ function deriveLiveSessionActivity(
     if (runtime.hasPendingUserInput) {
       return createActivitySnapshot({
         detail: runtime.detail,
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'awaiting-input',
         updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
@@ -196,7 +206,9 @@ function deriveLiveSessionActivity(
 
     if (runtime.sessionState === 'connecting') {
       return createActivitySnapshot({
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'connecting',
         updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
@@ -206,7 +218,9 @@ function deriveLiveSessionActivity(
 
     if (runtime.sessionState === 'running' || runtime.activeTurnStartedAt) {
       return createActivitySnapshot({
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'working',
         updatedAt:
@@ -222,7 +236,9 @@ function deriveLiveSessionActivity(
       (!lastVisitedAt || runtime.lastCompletedAt > lastVisitedAt)
     ) {
       return createActivitySnapshot({
+        paneId: session.paneId,
         provider: runtime.provider,
+        sessionId: session.sessionId,
         source: session.source,
         state: 'completed',
         updatedAt: runtime.lastCompletedAt,
@@ -235,7 +251,9 @@ function deriveLiveSessionActivity(
 
   if (session.provider !== 'terminal' && session.sessionState === 'running') {
     return createActivitySnapshot({
+      paneId: session.paneId,
       provider: session.provider,
+      sessionId: session.sessionId,
       source: session.source,
       state: 'working',
       updatedAt: session.lastSeenAt ?? new Date(0).toISOString(),
@@ -245,7 +263,9 @@ function deriveLiveSessionActivity(
 
   if (session.provider === 'terminal' && session.sessionState === 'running') {
     return createActivitySnapshot({
+      paneId: session.paneId,
       provider: 'terminal',
+      sessionId: session.sessionId,
       source: session.source,
       state: 'terminal-running',
       updatedAt: session.lastSeenAt ?? new Date(0).toISOString(),
@@ -271,7 +291,7 @@ export class WorkspaceActivityService {
   private readonly sessions = new Map<string, SessionActivityState>()
   private readonly snapshotByWorkspace = new Map<
     string,
-    WorkspaceActivitySnapshot
+    WorkspaceActivitySnapshot[]
   >()
 
   public constructor(
@@ -280,7 +300,7 @@ export class WorkspaceActivityService {
     this.getNow = options.getNow ?? (() => new Date().toISOString())
   }
 
-  public getSnapshot(): Record<string, WorkspaceActivitySnapshot> {
+  public getSnapshot(): Record<string, WorkspaceActivitySnapshot[]> {
     return Object.fromEntries(this.snapshotByWorkspace)
   }
 
@@ -401,29 +421,29 @@ export class WorkspaceActivityService {
   }
 
   private publishWorkspaceActivity(workspaceId: string): void {
-    const activity = resolveAggregateWorkspaceActivity(
-      [...this.sessions.values()]
-        .filter((session) => session.workspaceId === workspaceId)
-        .map((session) =>
-          deriveLiveSessionActivity(
-            session,
-            this.lastVisitedAtByWorkspace.get(workspaceId) ?? null,
-          ),
-        )
-        .filter(
-          (snapshot): snapshot is WorkspaceActivitySnapshot =>
-            snapshot !== null,
+    const activities = [...this.sessions.values()]
+      .filter((session) => session.workspaceId === workspaceId)
+      .map((session) =>
+        deriveLiveSessionActivity(
+          session,
+          this.lastVisitedAtByWorkspace.get(workspaceId) ?? null,
         ),
-    )
+      )
+      .filter(
+        (snapshot): snapshot is WorkspaceActivitySnapshot => snapshot !== null,
+      )
+      .sort((left, right) =>
+        resolveAggregateWorkspaceActivity([left, right]) === left ? -1 : 1,
+      )
 
-    if (activity) {
-      this.snapshotByWorkspace.set(workspaceId, activity)
+    if (activities.length > 0) {
+      this.snapshotByWorkspace.set(workspaceId, activities)
     } else {
       this.snapshotByWorkspace.delete(workspaceId)
     }
 
     this.options.onUpdate({
-      activity,
+      activities,
       workspaceId,
     })
   }

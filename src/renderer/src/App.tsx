@@ -136,7 +136,7 @@ export default function App() {
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
   const [workspaceActivities, setWorkspaceActivities] = useState<
-    Record<string, WorkspaceActivitySnapshot>
+    Record<string, WorkspaceActivitySnapshot[]>
   >({})
   const [workspaceRuntimeState, setWorkspaceRuntimeState] =
     useState<WorkspaceRuntimeState>({})
@@ -1046,7 +1046,7 @@ export default function App() {
 
     return api.onWorkspaceActivity((event) => {
       setWorkspaceActivities((current) => {
-        if (!event.activity) {
+        if (event.activities.length === 0) {
           if (!(event.workspaceId in current)) {
             return current
           }
@@ -1058,7 +1058,7 @@ export default function App() {
 
         return {
           ...current,
-          [event.workspaceId]: event.activity,
+          [event.workspaceId]: event.activities,
         }
       })
     })

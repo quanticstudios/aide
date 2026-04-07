@@ -3,10 +3,14 @@ import type {
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
-import { resolveAggregateWorkspaceActivity } from '../../../shared/workspace-activity'
+import {
+  resolveAggregateWorkspaceActivity,
+  resolveWorkspaceActivityList,
+} from '../../../shared/workspace-activity'
 
 export interface WorkspaceSummary {
   activity: WorkspaceActivitySnapshot | null
+  activities: WorkspaceActivitySnapshot[]
   branchName: string
   projectId: string
   projectName: string
@@ -17,7 +21,7 @@ export interface WorkspaceSummary {
 export function buildWorkspaceSummaryMap(
   projects: readonly ProjectRecord[],
   workspaces: readonly WorkspaceRecord[],
-  activitiesByWorkspace: Record<string, WorkspaceActivitySnapshot>,
+  activitiesByWorkspace: Record<string, WorkspaceActivitySnapshot[]>,
 ): Record<string, WorkspaceSummary> {
   const projectNameById = new Map(
     projects.map((project) => [project.id, project.name]),
@@ -27,7 +31,12 @@ export function buildWorkspaceSummaryMap(
     workspaces.map((workspace) => [
       workspace.id,
       {
-        activity: activitiesByWorkspace[workspace.id] ?? null,
+        activities: resolveWorkspaceActivityList(
+          activitiesByWorkspace[workspace.id] ?? [],
+        ),
+        activity: resolveAggregateWorkspaceActivity(
+          activitiesByWorkspace[workspace.id] ?? [],
+        ),
         branchName: workspace.branchName,
         projectId: workspace.projectId,
         projectName:

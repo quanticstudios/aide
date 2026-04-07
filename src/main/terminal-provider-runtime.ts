@@ -278,27 +278,25 @@ export class ManagedTerminalProviderAdapter {
       return events
     }
 
+    if (this.openApproval || this.openUserInput) {
+      if (this.sessionState !== 'waiting') {
+        this.sessionState = 'waiting'
+        events.push({
+          createdAt: updatedAt,
+          detail:
+            this.openApproval?.detail ??
+            this.openUserInput?.detail ??
+            undefined,
+          provider: this.provider,
+          state: 'waiting',
+          type: 'session.state.changed',
+        })
+      }
+
+      return events
+    }
+
     if (isReady) {
-      if (this.openApproval) {
-        events.push({
-          createdAt: updatedAt,
-          provider: this.provider,
-          requestId: this.openApproval.requestId,
-          type: 'request.resolved',
-        })
-        this.openApproval = null
-      }
-
-      if (this.openUserInput) {
-        events.push({
-          createdAt: updatedAt,
-          provider: this.provider,
-          requestId: this.openUserInput.requestId,
-          type: 'user-input.resolved',
-        })
-        this.openUserInput = null
-      }
-
       if (this.activeTurnId) {
         events.push({
           createdAt: updatedAt,

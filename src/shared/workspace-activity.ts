@@ -13,7 +13,9 @@ export type WorkspaceActivityState =
 
 export interface WorkspaceActivitySnapshot {
   detail: string | null
+  paneId: string
   provider: WorkspaceActivityProvider
+  sessionId: string
   source: WorkspaceActivitySource
   state: WorkspaceActivityState
   updatedAt: string
@@ -21,7 +23,7 @@ export interface WorkspaceActivitySnapshot {
 }
 
 export interface WorkspaceActivityEvent {
-  activity: WorkspaceActivitySnapshot | null
+  activities: WorkspaceActivitySnapshot[]
   workspaceId: string
 }
 
@@ -148,4 +150,10 @@ export function resolveAggregateWorkspaceActivity(
   }
 
   return [...activities].sort(compareWorkspaceActivityPriority)[0] ?? null
+}
+
+export function resolveWorkspaceActivityList(
+  activities: readonly WorkspaceActivitySnapshot[],
+): WorkspaceActivitySnapshot[] {
+  return [...activities].sort(compareWorkspaceActivityPriority)
 }

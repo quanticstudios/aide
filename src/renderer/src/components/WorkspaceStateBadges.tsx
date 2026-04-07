@@ -8,27 +8,26 @@ interface WorkspaceStateBadgesProps {
   readonly summary: WorkspaceSummary
 }
 
-function getActivityChipClassName(summary: WorkspaceSummary): string {
-  if (!summary.activity) {
+function getActivityChipClassName(
+  activity: WorkspaceSummary['activity'] | null | undefined,
+): string {
+  if (!activity) {
     return 'border-border bg-background text-muted-foreground'
   }
 
-  if (summary.activity.state === 'pending-approval') {
+  if (activity.state === 'pending-approval') {
     return 'border-warning/40 bg-warning/10 text-warning'
   }
 
-  if (summary.activity.state === 'error') {
+  if (activity.state === 'error') {
     return 'border-danger/40 bg-danger/10 text-danger'
   }
 
-  if (
-    summary.activity.state === 'working' ||
-    summary.activity.state === 'connecting'
-  ) {
+  if (activity.state === 'working' || activity.state === 'connecting') {
     return 'border-primary/40 bg-primary/10 text-primary'
   }
 
-  if (summary.activity.state === 'awaiting-input') {
+  if (activity.state === 'awaiting-input') {
     return 'border-secondary/40 bg-secondary/10 text-secondary'
   }
 
@@ -39,6 +38,9 @@ export default function WorkspaceStateBadges({
   isCurrent = false,
   summary,
 }: WorkspaceStateBadgesProps) {
+  const visibleActivities = summary.activities.slice(0, 2)
+  const hiddenActivityCount = Math.max(0, summary.activities.length - 2)
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {isCurrent ? (
@@ -47,17 +49,26 @@ export default function WorkspaceStateBadges({
         </Chip>
       ) : null}
 
-      {summary.activity ? (
+      {visibleActivities.map((activity) => (
         <Chip
-          className={getActivityChipClassName(summary)}
+          className={getActivityChipClassName(activity)}
+          key={activity.sessionId}
           size="sm"
-          title={
-            summary.activity.detail ??
-            formatWorkspaceActivityLabel(summary.activity)
-          }
+          title={activity.detail ?? formatWorkspaceActivityLabel(activity)}
           variant="secondary"
         >
-          {formatWorkspaceActivityLabel(summary.activity)}
+          {formatWorkspaceActivityLabel(activity)}
+        </Chip>
+      ))}
+
+      {hiddenActivityCount > 0 ? (
+        <Chip
+          className="border-border bg-background text-muted-foreground"
+          size="sm"
+          title={`${hiddenActivityCount} more active sessions`}
+          variant="secondary"
+        >
+          +{hiddenActivityCount}
         </Chip>
       ) : null}
     </div>

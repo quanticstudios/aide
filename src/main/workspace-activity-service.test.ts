@@ -22,6 +22,13 @@ function createConfig(
 describe('WorkspaceActivityService', () => {
   const getNow = vi.fn(() => '2026-04-06T12:00:00.000Z')
 
+  function getActivity(
+    service: WorkspaceActivityService,
+    workspaceId = 'workspace-1',
+  ) {
+    return service.getSnapshot()[workspaceId]?.[0]
+  }
+
   beforeEach(() => {
     getNow.mockReset()
     getNow.mockReturnValue('2026-04-06T12:00:00.000Z')
@@ -37,7 +44,7 @@ describe('WorkspaceActivityService', () => {
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'claude',
       source: 'managed',
       state: 'connecting',
@@ -62,7 +69,7 @@ describe('WorkspaceActivityService', () => {
     getNow.mockReturnValue('2026-04-06T12:01:00.000Z')
     service.handleTerminalInput('workspace-1:claude', 'build preview\n')
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'claude',
       source: 'managed',
       state: 'working',
@@ -84,7 +91,7 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       detail: 'Approval required to continue',
       provider: 'codex',
       source: 'managed',
@@ -114,7 +121,7 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+    expect(getActivity(service)).toBeUndefined()
   })
 
   it('surfaces managed Claude input requests separately from approvals', () => {
@@ -132,7 +139,7 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'claude',
       source: 'managed',
       state: 'awaiting-input',
@@ -163,10 +170,40 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
       provider: 'claude',
       source: 'managed',
+      state: 'awaiting-input',
+    })
+  })
+
+  it('keeps managed Claude input requests sticky across passive output', () => {
+    const service = new WorkspaceActivityService({
+      getNow,
+      onUpdate: () => undefined,
+    })
+
+    service.trackSession(
+      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    )
+    service.handleTerminalInput('workspace-1:claude', 'hello\n')
+    service.handleTerminalEvent({
+      data: [
+        'What would you like to work on today?',
+        '1. Fix a bug',
+        'Enter to select · ↑/↓ to navigate · Esc to cancel',
+      ].join('\n'),
+      sessionId: 'workspace-1:claude',
+      type: 'data',
+    })
+    service.handleTerminalEvent({
+      data: '\n[ Task ]\n6. Chat about this\n',
+      sessionId: 'workspace-1:claude',
+      type: 'data',
+    })
+
+    expect(getActivity(service)).toMatchObject({
       state: 'awaiting-input',
     })
   })
@@ -184,12 +221,12 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+    expect(getActivity(service)).toBeUndefined()
 
     getNow.mockReturnValue('2026-04-06T12:02:00.000Z')
     service.handleTerminalInput('workspace-1:shell', 'npm run dev\n')
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'terminal',
       source: 'fallback',
       state: 'terminal-running',
@@ -209,12 +246,12 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+    expect(getActivity(service)).toBeUndefined()
 
     getNow.mockReturnValue('2026-04-06T12:03:00.000Z')
     service.handleTerminalInput('workspace-1:shell', 'run tests\n')
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'claude',
       source: 'fallback',
       state: 'working',
@@ -234,7 +271,7 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+    expect(getActivity(service)).toBeUndefined()
   })
 
   it('keeps completed managed turns sticky until the workspace is visited', () => {
@@ -262,7 +299,7 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'claude',
       state: 'completed',
     })
@@ -270,7 +307,7 @@ describe('WorkspaceActivityService', () => {
     getNow.mockReturnValue('2026-04-06T12:06:00.000Z')
     service.markWorkspaceVisited('workspace-1')
 
-    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+    expect(getActivity(service)).toBeUndefined()
   })
 
   it('aggregates multiple sessions in one workspace by t3code-style priority', () => {
@@ -302,9 +339,46 @@ describe('WorkspaceActivityService', () => {
       type: 'data',
     })
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       provider: 'codex',
       state: 'pending-approval',
+    })
+  })
+
+  it('retains multiple live workspace activities ordered by priority', () => {
+    const service = new WorkspaceActivityService({
+      getNow,
+      onUpdate: () => undefined,
+    })
+
+    service.trackSession(
+      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    )
+    service.trackSession({
+      ...createConfig('workspace-1:codex', 'workspace-1', 'codex'),
+      paneId: 'workspace-1:pane-codex',
+    })
+
+    service.handleTerminalInput('workspace-1:claude', 'hello\n')
+    service.handleTerminalEvent({
+      data: 'What would you like to work on today?\nEnter to select\n',
+      sessionId: 'workspace-1:claude',
+      type: 'data',
+    })
+    service.handleTerminalEvent({
+      data: 'OpenAI Codex\nApproval required to continue\n› ',
+      sessionId: 'workspace-1:codex',
+      type: 'data',
+    })
+
+    expect(service.getSnapshot()['workspace-1']).toHaveLength(2)
+    expect(service.getSnapshot()['workspace-1']?.[0]).toMatchObject({
+      provider: 'codex',
+      state: 'pending-approval',
+    })
+    expect(service.getSnapshot()['workspace-1']?.[1]).toMatchObject({
+      provider: 'claude',
+      state: 'awaiting-input',
     })
   })
 
@@ -319,7 +393,7 @@ describe('WorkspaceActivityService', () => {
       new Error('spawn codex ENOENT'),
     )
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(getActivity(service)).toMatchObject({
       detail: 'spawn codex ENOENT',
       provider: 'codex',
       state: 'error',

@@ -84,7 +84,7 @@ export interface AideApi {
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<
-    Record<string, WorkspaceActivitySnapshot>
+    Record<string, WorkspaceActivitySnapshot[]>
   >
   saveWorkspaceLayout: (
     workspaceId: string,

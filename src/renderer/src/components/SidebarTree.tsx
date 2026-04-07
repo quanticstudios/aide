@@ -466,13 +466,38 @@ export default function SidebarTree({
                         workspace.id === activeWorkspaceId
                       const summary = summaries[workspace.id]
                       const activity = summary?.activity ?? null
+                      const visibleActivities =
+                        summary?.activities.slice(0, 2) ?? []
+                      const hiddenActivityCount = Math.max(
+                        0,
+                        (summary?.activities.length ?? 0) -
+                          visibleActivities.length,
+                      )
                       const stats = branchStats[workspace.id]
                       const mergeLabel = stats
                         ? getMergeStatusLabel(stats.mergeStatus)
                         : ''
                       const activityLabel = activity
-                        ? formatWorkspaceActivityLabel(activity)
+                        ? [
+                            ...visibleActivities.map((entry) =>
+                              formatWorkspaceActivityLabel(entry),
+                            ),
+                            hiddenActivityCount > 0
+                              ? `+${hiddenActivityCount}`
+                              : null,
+                          ]
+                            .filter((value): value is string => Boolean(value))
+                            .join(', ')
                         : null
+                      const activityTitle = summary?.activities.length
+                        ? summary.activities
+                            .map(
+                              (entry) =>
+                                entry.detail ??
+                                formatWorkspaceActivityLabel(entry),
+                            )
+                            .join('\n')
+                        : undefined
 
                       return (
                         <button
@@ -507,9 +532,24 @@ export default function SidebarTree({
                               {summary?.workspaceName ?? workspace.name}
                             </span>
 
+                            {visibleActivities.length > 0 ? (
+                              <span className="ml-auto flex shrink-0 items-center gap-1">
+                                {visibleActivities.map((entry) => (
+                                  <span key={entry.sessionId}>
+                                    {renderActivityDot(entry, 'size-2')}
+                                  </span>
+                                ))}
+                                {hiddenActivityCount > 0 ? (
+                                  <span className="text-[10px] text-muted-foreground/70">
+                                    +{hiddenActivityCount}
+                                  </span>
+                                ) : null}
+                              </span>
+                            ) : null}
+
                             {stats &&
                             (stats.additions > 0 || stats.deletions > 0) ? (
-                              <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
+                              <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
                                 <span className="text-green-400">
                                   +{stats.additions}
                                 </span>
@@ -532,7 +572,7 @@ export default function SidebarTree({
                                     'shrink-0',
                                     getProjectStatusIconClassName(activity),
                                   )}
-                                  title={activity?.detail ?? activityLabel}
+                                  title={activityTitle ?? activityLabel}
                                 >
                                   {activityLabel}
                                 </span>
