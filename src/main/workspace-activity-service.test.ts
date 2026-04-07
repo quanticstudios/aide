@@ -92,6 +92,31 @@ describe('WorkspaceActivityService', () => {
     })
   })
 
+  it('does not treat Claude permission mode hints as pending approval', () => {
+    const service = new WorkspaceActivityService({
+      getNow,
+      onUpdate: () => undefined,
+    })
+
+    service.trackSession(
+      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    )
+    service.handleTerminalEvent({
+      data: [
+        'Claude Code v2.1.92',
+        '> hello',
+        'Hello! How can I help you today?',
+        'bypass permissions on (shift+tab to cycle)',
+        '',
+        '> ',
+      ].join('\n'),
+      sessionId: 'workspace-1:claude',
+      type: 'data',
+    })
+
+    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
+  })
+
   it('surfaces managed Claude input requests separately from approvals', () => {
     const service = new WorkspaceActivityService({
       getNow,
@@ -162,6 +187,22 @@ describe('WorkspaceActivityService', () => {
       source: 'fallback',
       state: 'working',
     })
+  })
+
+  it('does not elevate fallback shell prompts to approval states', () => {
+    const service = new WorkspaceActivityService({
+      getNow,
+      onUpdate: () => undefined,
+    })
+
+    service.trackSession(createConfig('workspace-1:shell'))
+    service.handleTerminalEvent({
+      data: 'Claude Code v2.1.92\nbypass permissions on (shift+tab to cycle)\n> ',
+      sessionId: 'workspace-1:shell',
+      type: 'data',
+    })
+
+    expect(service.getSnapshot()['workspace-1']).toBeUndefined()
   })
 
   it('keeps completed managed turns sticky until the workspace is visited', () => {

@@ -19,7 +19,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 4,
+      schemaVersion: 5,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -328,6 +328,77 @@ describe('createAideDatabase', () => {
           },
         ],
         rootNodeId: 'root-horizontal',
+        workspaceId: workspace.id,
+      })
+
+      reopenedDatabase.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
+  })
+
+  it('keeps an explicit empty workspace surface state across relaunches', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'main',
+        name: 'main',
+        projectId: project.id,
+        windowId: null,
+        worktreePath: '/workspace/aide',
+      })
+
+      database.saveWorkspaceLayout(workspace.id, {
+        nodes: [
+          {
+            activeViewIndex: 0,
+            children: [],
+            id: 'legacy-pane',
+            paneId: 'terminal',
+            parentId: null,
+            sizeWeights: [],
+            type: 'pane',
+            viewIds: ['terminal'],
+            workspaceId: workspace.id,
+          },
+        ],
+        rootNodeId: 'legacy-pane',
+      })
+      database.saveWorkspaceSurfaceState(workspace.id, {
+        layouts: {},
+        surfaces: [],
+      })
+      database.close()
+
+      const reopenedDatabase = createAideDatabase(databasePath)
+      const snapshot = reopenedDatabase.getSnapshot()
+
+      expect(snapshot.workspaceSurfaces?.[workspace.id]).toEqual([])
+      expect(snapshot.surfaceLayouts).toEqual({})
+      expect(snapshot.workspaceLayouts[workspace.id]).toEqual({
+        nodes: [
+          {
+            activeViewIndex: 0,
+            children: [],
+            id: 'legacy-pane',
+            paneId: 'terminal',
+            parentId: null,
+            sizeWeights: [],
+            type: 'pane',
+            viewIds: ['terminal'],
+            workspaceId: workspace.id,
+          },
+        ],
+        rootNodeId: 'legacy-pane',
         workspaceId: workspace.id,
       })
 

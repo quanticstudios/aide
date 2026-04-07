@@ -70,10 +70,11 @@ export function resolveWorkspaceSurfaces(
     return []
   }
 
-  const persisted = snapshot.workspaceSurfaces?.[workspaceId]
+  const workspaceSurfaces = snapshot.workspaceSurfaces ?? {}
+  const hasPersistedSurfaceState = Object.hasOwn(workspaceSurfaces, workspaceId)
 
-  if (persisted && persisted.length > 0) {
-    return [...persisted].sort(
+  if (hasPersistedSurfaceState) {
+    return [...(workspaceSurfaces[workspaceId] ?? [])].sort(
       (left, right) => left.orderIndex - right.orderIndex,
     )
   }
@@ -116,6 +117,10 @@ export function findWorkspaceIdForSurface(
   }
 
   for (const workspaceId of Object.keys(snapshot.workspaceLayouts)) {
+    if (Object.hasOwn(snapshot.workspaceSurfaces ?? {}, workspaceId)) {
+      continue
+    }
+
     if (surfaceId === createLegacySurfaceId(workspaceId)) {
       return workspaceId
     }
@@ -137,6 +142,10 @@ export function resolveSurfaceLayout(
 
   if (persisted) {
     return persisted
+  }
+
+  if (Object.hasOwn(snapshot.workspaceSurfaces ?? {}, workspaceId)) {
+    return null
   }
 
   const legacySurfaceId = createLegacySurfaceId(workspaceId)

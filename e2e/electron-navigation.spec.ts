@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -49,6 +55,46 @@ function createGitRepository(): string {
   ])
 
   return repoRoot
+}
+
+function createManagedCliStub(
+  repoRoot: string,
+  name: 'claude' | 'codex',
+): string {
+  const commandPath = path.join(repoRoot, `${name}-stub.sh`)
+  const prompt = name === 'claude' ? '> ' : '› '
+  const banner = name === 'claude' ? 'Claude Code v2.1.92' : 'OpenAI Codex v0.1'
+
+  writeFileSync(
+    commandPath,
+    [
+      '#!/bin/sh',
+      `printf '%s\\n' '${banner}'`,
+      "printf '%s\\n' 'bypass permissions on (shift+tab to cycle)'",
+      `printf '%s' '${prompt}'`,
+      'while IFS= read -r line; do',
+      '  case "$line" in',
+      '    approval)',
+      "      printf '%s\\n' 'Approval required to continue'",
+      `      printf '%s' '${prompt}'`,
+      '      ;;',
+      '    input)',
+      "      printf '%s\\n' 'Select an option to continue'",
+      `      printf '%s' '${prompt}'`,
+      '      ;;',
+      '    *)',
+      "      printf '%s\\n' 'Working...'",
+      `      printf '%s' '${prompt}'`,
+      '      ;;',
+      '  esac',
+      'done',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  )
+  chmodSync(commandPath, 0o755)
+
+  return commandPath
 }
 
 async function launchAideApp(
@@ -393,6 +439,38 @@ test.describe('electron spatial navigation', () => {
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 
+  test('does not treat Claude permission mode hints as pending approval', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const claudeStub = createManagedCliStub(chosenProjectRoot, 'claude')
+    const launched = await launchAideApp({
+      AIDE_CLAUDE_COMMAND: claudeStub,
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /claude/i)
+    await expandSidebar(page)
+    const workspaceSidebarRow = page
+      .getByTestId('workspace-tree-panel')
+      .getByRole('button', { name: /main/i })
+
+    await expect(
+      workspaceSidebarRow.getByText('Claude Pending Approval'),
+    ).toHaveCount(0)
+
+    await page.keyboard.type('approval')
+    await page.keyboard.press('Enter')
+
+    await expect(
+      workspaceSidebarRow.getByText('Claude Pending Approval'),
+    ).toBeVisible()
+  })
+
   test('renders a real git pane and updates the review surface on file selection', async () => {
     const chosenProjectRoot = createGitRepository()
     const readmePath = path.join(chosenProjectRoot, 'README.md')
@@ -551,5 +629,33 @@ test.describe('electron spatial navigation', () => {
         '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
       ),
     ).toBeFocused()
+  })
+
+  test('shows an empty workspace after closing the last pane and keeps it empty after reload', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+
+    await page.getByLabel(/close pane/i).click()
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
   })
 })
