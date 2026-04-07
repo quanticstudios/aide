@@ -139,6 +139,38 @@ describe('WorkspaceActivityService', () => {
     })
   })
 
+  it('treats Claude startup task picker prompts as awaiting input', () => {
+    const service = new WorkspaceActivityService({
+      getNow,
+      onUpdate: () => undefined,
+    })
+
+    service.trackSession(
+      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    )
+    service.handleTerminalEvent({
+      data: [
+        'Claude Code v2.1.92',
+        '',
+        'What would you like to work on today?',
+        '',
+        '1. Fix a bug',
+        '2. Build a feature',
+        '',
+        'Enter to select · ↑/↓ to navigate · Esc to cancel',
+      ].join('\n'),
+      sessionId: 'workspace-1:claude',
+      type: 'data',
+    })
+
+    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
+      provider: 'claude',
+      source: 'managed',
+      state: 'awaiting-input',
+    })
+  })
+
   it('keeps generic shell terminals coarse and provider-agnostic', () => {
     const service = new WorkspaceActivityService({
       getNow,
