@@ -13,6 +13,12 @@ import type {
   WorktreeBranchStatsResult,
 } from './git'
 import type {
+  ManagedSessionConfig,
+  ManagedSessionDecision,
+  ManagedSessionEvent,
+  ManagedSessionSnapshot,
+} from './managed-session'
+import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
@@ -47,9 +53,17 @@ export const IPC_CHANNELS = {
   saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
+  getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
+  managedSessionCreate: 'managed-session:create',
+  managedSessionClose: 'managed-session:close',
+  managedSessionEvent: 'managed-session:event',
+  managedSessionInterrupt: 'managed-session:interrupt',
+  managedSessionResolveRequest: 'managed-session:resolve-request',
+  managedSessionResolveUserInput: 'managed-session:resolve-user-input',
+  managedSessionSendInput: 'managed-session:send-input',
   terminalCreate: 'terminal:create-session',
   terminalEvent: 'terminal:event',
   terminalKill: 'terminal:kill-session',
@@ -86,6 +100,9 @@ export interface AideApi {
   getWorkspaceActivitySnapshot: () => Promise<
     Record<string, WorkspaceActivitySnapshot[]>
   >
+  getManagedSessionSnapshots: () => Promise<
+    Record<string, ManagedSessionSnapshot>
+  >
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
@@ -97,7 +114,15 @@ export interface AideApi {
   createTerminalSession: (
     input: TerminalSessionConfig,
   ) => Promise<TerminalSessionSnapshot>
+  createManagedSession: (
+    input: ManagedSessionConfig,
+  ) => Promise<ManagedSessionSnapshot>
+  closeManagedSession: (sessionId: string) => Promise<void>
+  interruptManagedSession: (sessionId: string) => Promise<void>
   killTerminalSession: (sessionId: string) => Promise<void>
+  onManagedSessionEvent: (
+    callback: (event: ManagedSessionEvent) => void,
+  ) => () => void
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   onWorkspaceActivity: (
     callback: (event: WorkspaceActivityEvent) => void,
@@ -108,5 +133,16 @@ export interface AideApi {
     size: TerminalResizeInput,
   ) => Promise<void>
   setActiveSelection: (input: SetActiveSelectionInput) => Promise<void>
+  resolveManagedSessionRequest: (
+    sessionId: string,
+    requestId: string,
+    decision: ManagedSessionDecision,
+  ) => Promise<void>
+  resolveManagedSessionUserInput: (
+    sessionId: string,
+    requestId: string,
+    answers: Record<string, string | string[]>,
+  ) => Promise<void>
+  sendManagedSessionInput: (sessionId: string, text: string) => Promise<void>
   writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }

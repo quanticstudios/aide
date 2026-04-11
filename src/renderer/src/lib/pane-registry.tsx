@@ -6,6 +6,7 @@ import type {
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import GitPane from '../components/GitPane'
+import ManagedAgentPane from '../components/ManagedAgentPane'
 import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
 import PreviewPane from '../components/PreviewPane'
 import TerminalPane from '../components/TerminalPane'
@@ -16,6 +17,7 @@ import {
   listPaneCatalogEntries,
   resolvePaneMetadata,
   resolvePaneType,
+  resolveTerminalLaunchModeForPaneId,
 } from './pane-catalog'
 
 interface PaneRenderArgs {
@@ -43,13 +45,16 @@ const placeholderRenderer = (args: PaneRenderArgs): ReactNode => (
   />
 )
 
-const terminalRenderer = (args: PaneRenderArgs): ReactNode => (
-  <TerminalPane
-    onClose={() => args.onClosePane(args.pane.id)}
-    paneId={args.pane.id}
-    workspace={args.workspace}
-  />
-)
+const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
+  resolveTerminalLaunchModeForPaneId(args.pane.id) === 'shell' ? (
+    <TerminalPane
+      onClose={() => args.onClosePane(args.pane.id)}
+      paneId={args.pane.id}
+      workspace={args.workspace}
+    />
+  ) : (
+    <ManagedAgentPane paneId={args.pane.id} workspace={args.workspace} />
+  )
 
 const previewRenderer = (args: PaneRenderArgs): ReactNode =>
   args.pane.id === args.activePaneId ? (

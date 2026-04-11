@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import type { TerminalSessionConfig } from '../shared/terminal'
 import { WorkspaceActivityService } from './workspace-activity-service'
 
@@ -29,6 +30,14 @@ describe('WorkspaceActivityService', () => {
     return service.getSnapshot()[workspaceId]?.[0]
   }
 
+  function emitManagedEvent(
+    service: WorkspaceActivityService,
+    sessionId: string,
+    event: ManagedProviderRuntimeEvent,
+  ) {
+    service.handleManagedRuntimeEvent(sessionId, event)
+  }
+
   beforeEach(() => {
     getNow.mockReset()
     getNow.mockReturnValue('2026-04-06T12:00:00.000Z')
@@ -40,7 +49,7 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
 
@@ -57,17 +66,17 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\n> ',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
-    })
 
     getNow.mockReturnValue('2026-04-06T12:01:00.000Z')
-    service.handleTerminalInput('workspace-1:claude', 'build preview\n')
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:01:00.000Z',
+      provider: 'claude',
+      turnId: 'turn-1',
+      type: 'turn.started',
+    })
 
     expect(getActivity(service)).toMatchObject({
       provider: 'claude',
@@ -82,13 +91,16 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:codex', 'workspace-1', 'codex'),
     )
-    service.handleTerminalEvent({
-      data: 'OpenAI Codex v0.1\nApproval required to continue\n› ',
-      sessionId: 'workspace-1:codex',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:codex', {
+      createdAt: '2026-04-06T12:00:00.000Z',
+      detail: 'Approval required to continue',
+      provider: 'codex',
+      requestId: 'approval-1',
+      requestType: 'command-execution-approval',
+      type: 'request.opened',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -105,23 +117,23 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalEvent({
-      data: [
-        'Claude Code v2.1.92',
-        '> hello',
-        'Hello! How can I help you today?',
-        'bypass permissions on (shift+tab to cycle)',
-        '',
-        '> ',
-      ].join('\n'),
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:00:00.000Z',
+      itemId: 'msg-1',
+      kind: 'assistant-text',
+      provider: 'claude',
+      text: 'bypass permissions on (shift+tab to cycle)',
+      type: 'content.delta',
     })
 
-    expect(getActivity(service)).toBeUndefined()
+    expect(getActivity(service)).toMatchObject({
+      provider: 'claude',
+      source: 'managed',
+      state: 'connecting',
+    })
   })
 
   it('surfaces managed Claude input requests separately from approvals', () => {
@@ -130,13 +142,16 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\nSelect an option to continue\n> ',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:00:00.000Z',
+      detail: 'Select an option to continue',
+      provider: 'claude',
+      questions: [],
+      requestId: 'input-1',
+      type: 'user-input.requested',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -152,22 +167,22 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalEvent({
-      data: [
-        'Claude Code v2.1.92',
-        '',
-        'What would you like to work on today?',
-        '',
-        '1. Fix a bug',
-        '2. Build a feature',
-        '',
-        'Enter to select · ↑/↓ to navigate · Esc to cancel',
-      ].join('\n'),
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:00:00.000Z',
+      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
+      provider: 'claude',
+      questions: [
+        {
+          id: 'task',
+          options: [{ id: 'bug', label: 'Fix a bug' }],
+          prompt: 'What would you like to work on today?',
+        },
+      ],
+      requestId: 'input-1',
+      type: 'user-input.requested',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -184,23 +199,36 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalInput('workspace-1:claude', 'hello\n')
-    service.handleTerminalEvent({
-      data: [
-        'What would you like to work on today?',
-        '1. Fix a bug',
-        'Enter to select · ↑/↓ to navigate · Esc to cancel',
-      ].join('\n'),
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:01:00.000Z',
+      provider: 'claude',
+      turnId: 'turn-1',
+      type: 'turn.started',
     })
-    service.handleTerminalEvent({
-      data: '\n[ Task ]\n6. Chat about this\n',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:02:00.000Z',
+      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
+      provider: 'claude',
+      questions: [
+        {
+          id: 'task',
+          options: [{ id: 'chat', label: 'Chat about this' }],
+          prompt: 'What would you like to work on today?',
+        },
+      ],
+      requestId: 'input-1',
+      type: 'user-input.requested',
+    })
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:03:00.000Z',
+      itemId: 'progress-1',
+      kind: 'assistant-text',
+      provider: 'claude',
+      text: '[ Task ]\n6. Chat about this\n',
+      type: 'content.delta',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -280,23 +308,21 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\n> ',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:04:00.000Z',
+      provider: 'claude',
+      turnId: 'turn-1',
+      type: 'turn.started',
     })
-
-    getNow.mockReturnValue('2026-04-06T12:04:00.000Z')
-    service.handleTerminalInput('workspace-1:claude', 'run tests\n')
-
-    getNow.mockReturnValue('2026-04-06T12:05:00.000Z')
-    service.handleTerminalEvent({
-      data: '\nDone.\n> ',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:05:00.000Z',
+      provider: 'claude',
+      state: 'completed',
+      turnId: 'turn-1',
+      type: 'turn.completed',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -316,27 +342,27 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.trackSession({
+    service.handleManagedSessionStart({
       ...createConfig('workspace-1:codex', 'workspace-1', 'codex'),
       paneId: 'workspace-1:pane-codex',
     })
 
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\n> ',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:01:00.000Z',
+      provider: 'claude',
+      turnId: 'turn-1',
+      type: 'turn.started',
     })
-    getNow.mockReturnValue('2026-04-06T12:01:00.000Z')
-    service.handleTerminalInput('workspace-1:claude', 'run tests\n')
-
-    getNow.mockReturnValue('2026-04-06T12:02:00.000Z')
-    service.handleTerminalEvent({
-      data: 'OpenAI Codex v0.1\nApproval required to continue\n› ',
-      sessionId: 'workspace-1:codex',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:codex', {
+      createdAt: '2026-04-06T12:02:00.000Z',
+      detail: 'Approval required to continue',
+      provider: 'codex',
+      requestId: 'approval-1',
+      requestType: 'command-execution-approval',
+      type: 'request.opened',
     })
 
     expect(getActivity(service)).toMatchObject({
@@ -351,24 +377,29 @@ describe('WorkspaceActivityService', () => {
       onUpdate: () => undefined,
     })
 
-    service.trackSession(
+    service.handleManagedSessionStart(
       createConfig('workspace-1:claude', 'workspace-1', 'claude'),
     )
-    service.trackSession({
+    service.handleManagedSessionStart({
       ...createConfig('workspace-1:codex', 'workspace-1', 'codex'),
       paneId: 'workspace-1:pane-codex',
     })
 
-    service.handleTerminalInput('workspace-1:claude', 'hello\n')
-    service.handleTerminalEvent({
-      data: 'What would you like to work on today?\nEnter to select\n',
-      sessionId: 'workspace-1:claude',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:claude', {
+      createdAt: '2026-04-06T12:01:00.000Z',
+      detail: 'Enter to select',
+      provider: 'claude',
+      questions: [],
+      requestId: 'input-1',
+      type: 'user-input.requested',
     })
-    service.handleTerminalEvent({
-      data: 'OpenAI Codex\nApproval required to continue\n› ',
-      sessionId: 'workspace-1:codex',
-      type: 'data',
+    emitManagedEvent(service, 'workspace-1:codex', {
+      createdAt: '2026-04-06T12:02:00.000Z',
+      detail: 'Approval required to continue',
+      provider: 'codex',
+      requestId: 'approval-1',
+      requestType: 'command-execution-approval',
+      type: 'request.opened',
     })
 
     expect(service.getSnapshot()['workspace-1']).toHaveLength(2)

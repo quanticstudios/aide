@@ -19,6 +19,35 @@ export type ManagedProviderRuntimeTurnState =
   | 'cancelled'
   | 'interrupted'
 
+export type ManagedProviderRuntimeRequestType =
+  | 'command-execution-approval'
+  | 'file-change-approval'
+  | 'file-read-approval'
+  | 'dynamic-tool-call'
+  | 'tool-user-input'
+  | 'unknown'
+
+export type ManagedProviderRuntimeContentKind =
+  | 'assistant-text'
+  | 'reasoning-text'
+  | 'reasoning-summary-text'
+  | 'command-output'
+  | 'file-change-output'
+  | 'system'
+
+export interface ManagedProviderRuntimePromptOption {
+  description?: string
+  id: string
+  label: string
+}
+
+export interface ManagedProviderRuntimeUserQuestion {
+  header?: string
+  id: string
+  options: ManagedProviderRuntimePromptOption[]
+  prompt: string
+}
+
 interface ManagedProviderRuntimeEventBase {
   createdAt: string
   provider: ManagedProviderRuntimeProvider
@@ -49,6 +78,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       detail?: string
+      requestType?: ManagedProviderRuntimeRequestType
       requestId: string
       type: 'request.opened'
     })
@@ -57,7 +87,14 @@ export type ManagedProviderRuntimeEvent =
       type: 'request.resolved'
     })
   | (ManagedProviderRuntimeEventBase & {
+      kind: ManagedProviderRuntimeContentKind
+      itemId: string
+      text: string
+      type: 'content.delta'
+    })
+  | (ManagedProviderRuntimeEventBase & {
       detail?: string
+      questions?: ManagedProviderRuntimeUserQuestion[]
       requestId: string
       type: 'user-input.requested'
     })

@@ -10,10 +10,7 @@ import {
   type WorkspaceActivitySnapshot,
   resolveAggregateWorkspaceActivity,
 } from '../shared/workspace-activity'
-import {
-  ManagedTerminalProviderAdapter,
-  ManagedTerminalProviderProjector,
-} from './terminal-provider-runtime'
+import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 
 interface WorkspaceActivityServiceOptions {
   readonly getNow?: () => string
@@ -30,7 +27,6 @@ interface SessionActivityState {
   mode: TerminalLaunchMode
   paneId: string
   provider: WorkspaceActivityProvider
-  runtimeAdapter: ManagedTerminalProviderAdapter | null
   runtimeProjector: ManagedTerminalProviderProjector | null
   running: boolean
   sessionId: string
@@ -109,18 +105,10 @@ function createSessionState(
   config: TerminalSessionConfig,
   updatedAt: string,
 ): SessionActivityState {
-  const runtimeAdapter =
-    config.mode === 'claude' || config.mode === 'codex'
-      ? new ManagedTerminalProviderAdapter(config.mode, config.mode)
-      : null
   const runtimeProjector =
     config.mode === 'claude' || config.mode === 'codex'
       ? new ManagedTerminalProviderProjector(config.mode)
       : null
-
-  runtimeProjector?.apply(
-    runtimeAdapter?.createSessionStartEvents(updatedAt) ?? [],
-  )
 
   return {
     buffer: '',
@@ -129,7 +117,6 @@ function createSessionState(
     mode: config.mode,
     paneId: config.paneId,
     provider: resolveProvider(config.mode),
-    runtimeAdapter,
     runtimeProjector,
     running: true,
     sessionId: config.sessionId,
@@ -316,12 +303,25 @@ export class WorkspaceActivityService {
     session.exitCode = 1
 
     if (session.source === 'managed') {
-      applyManagedSessionEvents(
-        session,
-        updatedAt,
-        () =>
-          session.runtimeAdapter?.handleLaunchFailure(message, updatedAt) ?? [],
-      )
+      const provider = config.mode as Exclude<
+        WorkspaceActivityProvider,
+        'terminal'
+      >
+      applyManagedSessionEvents(session, updatedAt, () => [
+        {
+          createdAt: updatedAt,
+          message,
+          provider,
+          type: 'runtime.error',
+        },
+        {
+          createdAt: updatedAt,
+          detail: message,
+          provider,
+          state: 'error',
+          type: 'session.state.changed',
+        },
+      ])
     } else {
       session.sessionState = 'error'
     }
@@ -341,33 +341,32 @@ export class WorkspaceActivityService {
     session.lastSeenAt = updatedAt
 
     if (event.type === 'data') {
+      if (session.source === 'managed') {
+        return
+      }
+
       session.buffer = `${session.buffer}${event.data}`.slice(
         -MAX_BUFFER_LENGTH,
       )
       session.running = true
       session.exitCode = null
-
-      if (session.source === 'managed') {
-        applyManagedSessionEvents(
-          session,
-          updatedAt,
-          () =>
-            session.runtimeAdapter?.handleOutput(event.data, updatedAt) ?? [],
-        )
-      } else {
-        updateFallbackSessionState(session)
-      }
+      updateFallbackSessionState(session)
     } else {
       session.exitCode = event.exitCode
       session.running = false
 
       if (session.source === 'managed') {
-        applyManagedSessionEvents(
-          session,
-          updatedAt,
-          () =>
-            session.runtimeAdapter?.handleExit(event.exitCode, updatedAt) ?? [],
-        )
+        applyManagedSessionEvents(session, updatedAt, () => [
+          {
+            createdAt: updatedAt,
+            exitCode: event.exitCode,
+            provider: session.provider as Exclude<
+              WorkspaceActivityProvider,
+              'terminal'
+            >,
+            type: 'session.exited',
+          },
+        ])
       } else if (event.exitCode && event.exitCode !== 0) {
         session.sessionState = 'error'
       } else {
@@ -393,13 +392,7 @@ export class WorkspaceActivityService {
       return
     }
 
-    if (session.source === 'managed') {
-      applyManagedSessionEvents(
-        session,
-        updatedAt,
-        () => session.runtimeAdapter?.handleInput(data, updatedAt) ?? [],
-      )
-    } else {
+    if (session.source === 'fallback') {
       session.buffer = ''
       session.sessionState = 'running'
     }
@@ -418,6 +411,59 @@ export class WorkspaceActivityService {
       createSessionState(config, this.getNow()),
     )
     this.publishWorkspaceActivity(config.workspaceId)
+  }
+
+  public handleManagedRuntimeEvent(
+    sessionId: string,
+    event: ManagedProviderRuntimeEvent,
+  ): void {
+    const session = this.sessions.get(sessionId)
+
+    if (!session || session.source !== 'managed') {
+      return
+    }
+
+    applyManagedSessionEvents(session, event.createdAt, () => [event])
+    this.publishWorkspaceActivity(session.workspaceId)
+  }
+
+  public handleManagedSessionStart(config: TerminalSessionConfig): void {
+    if (this.sessions.has(config.sessionId)) {
+      return
+    }
+
+    const updatedAt = this.getNow()
+    const session = createSessionState(config, updatedAt)
+    const provider = config.mode as Exclude<
+      WorkspaceActivityProvider,
+      'terminal'
+    >
+    this.sessions.set(config.sessionId, session)
+    applyManagedSessionEvents(session, updatedAt, () => [
+      {
+        createdAt: updatedAt,
+        provider,
+        type: 'session.started',
+      },
+      {
+        createdAt: updatedAt,
+        provider,
+        state: 'connecting',
+        type: 'session.state.changed',
+      },
+    ])
+    this.publishWorkspaceActivity(config.workspaceId)
+  }
+
+  public handleManagedSessionClosed(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+
+    if (!session) {
+      return
+    }
+
+    this.sessions.delete(sessionId)
+    this.publishWorkspaceActivity(session.workspaceId)
   }
 
   private publishWorkspaceActivity(workspaceId: string): void {

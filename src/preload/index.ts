@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
+import type {
+  ManagedSessionConfig,
+  ManagedSessionDecision,
+  ManagedSessionEvent,
+} from '../shared/managed-session'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   TerminalEvent,
@@ -13,10 +18,16 @@ import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 const aideApi: AideApi = {
   createTerminalSession: (input: TerminalSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
+  createManagedSession: (input: ManagedSessionConfig) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionCreate, input),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
+  closeManagedSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  getManagedSessionSnapshots: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
   getWorkspaceActivitySnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceActivitySnapshot),
   importProject: (repoPath: string) =>
@@ -31,6 +42,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorktreeBranchStats, workspaceId),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
+  interruptManagedSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionInterrupt, sessionId),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => {
@@ -41,6 +54,16 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.appShortcut, listener)
+    }
+  },
+  onManagedSessionEvent: (callback: (event: ManagedSessionEvent) => void) => {
+    const listener = (_event: unknown, payload: ManagedSessionEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.managedSessionEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.managedSessionEvent, listener)
     }
   },
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => {
@@ -77,8 +100,32 @@ const aideApi: AideApi = {
       workspaceId,
       input,
     ),
+  resolveManagedSessionRequest: (
+    sessionId: string,
+    requestId: string,
+    decision: ManagedSessionDecision,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionResolveRequest,
+      sessionId,
+      requestId,
+      decision,
+    ),
+  resolveManagedSessionUserInput: (
+    sessionId: string,
+    requestId: string,
+    answers: Record<string, string | string[]>,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionResolveUserInput,
+      sessionId,
+      requestId,
+      answers,
+    ),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
+  sendManagedSessionInput: (sessionId: string, text: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
   validateExecutableCommand: (command: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),
   writeTerminalInput: (sessionId: string, data: string) =>

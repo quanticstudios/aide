@@ -1,11 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -55,46 +49,6 @@ function createGitRepository(): string {
   ])
 
   return repoRoot
-}
-
-function createManagedCliStub(
-  repoRoot: string,
-  name: 'claude' | 'codex',
-): string {
-  const commandPath = path.join(repoRoot, `${name}-stub.sh`)
-  const prompt = name === 'claude' ? '> ' : '› '
-  const banner = name === 'claude' ? 'Claude Code v2.1.92' : 'OpenAI Codex v0.1'
-
-  writeFileSync(
-    commandPath,
-    [
-      '#!/bin/sh',
-      `printf '%s\\n' '${banner}'`,
-      "printf '%s\\n' 'bypass permissions on (shift+tab to cycle)'",
-      `printf '%s' '${prompt}'`,
-      'while IFS= read -r line; do',
-      '  case "$line" in',
-      '    approval)',
-      "      printf '%s\\n' 'Approval required to continue'",
-      `      printf '%s' '${prompt}'`,
-      '      ;;',
-      '    input)',
-      "      printf '%s\\n' 'Select an option to continue'",
-      `      printf '%s' '${prompt}'`,
-      '      ;;',
-      '    *)',
-      "      printf '%s\\n' 'Working...'",
-      `      printf '%s' '${prompt}'`,
-      '      ;;',
-      '  esac',
-      'done',
-      '',
-    ].join('\n'),
-    { mode: 0o755 },
-  )
-  chmodSync(commandPath, 0o755)
-
-  return commandPath
 }
 
 async function launchAideApp(
@@ -439,11 +393,10 @@ test.describe('electron spatial navigation', () => {
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 
-  test('does not treat Claude permission mode hints as pending approval', async () => {
+  test('renders managed Claude states from structured runtime events', async () => {
     const chosenProjectRoot = createGitRepository()
-    const claudeStub = createManagedCliStub(chosenProjectRoot, 'claude')
     const launched = await launchAideApp({
-      AIDE_CLAUDE_COMMAND: claudeStub,
+      AIDE_FAKE_MANAGED_PROVIDERS: '1',
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
     })
     app = launched.app
@@ -459,16 +412,34 @@ test.describe('electron spatial navigation', () => {
       .getByTestId('workspace-tree-panel')
       .getByRole('button', { name: /main/i })
 
+    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
+
+    const promptInput = page.getByRole('textbox', { name: /claude prompt/i })
+    await promptInput.fill('input')
+    await page.getByRole('button', { name: /^Send$/i }).click()
+    await expect(page.getByTestId('managed-session-state')).toHaveText(
+      'Awaiting Input',
+    )
     await expect(
-      workspaceSidebarRow.getByText('Claude Pending Approval'),
-    ).toHaveCount(0)
+      workspaceSidebarRow.getByText('Claude Awaiting Input'),
+    ).toBeVisible()
+    await page.getByRole('button', { name: /^Continue$/i }).click()
+    await page.getByRole('button', { name: /submit answers/i }).click()
+    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
 
-    await page.keyboard.type('approval')
-    await page.keyboard.press('Enter')
-
+    await promptInput.fill('approval')
+    await page.getByRole('button', { name: /^Send$/i }).click()
     await expect(
       workspaceSidebarRow.getByText('Claude Pending Approval'),
     ).toBeVisible()
+    await page.getByRole('button', { name: /allow once/i }).click()
+
+    await promptInput.fill('ship it')
+    await page.getByRole('button', { name: /^Send$/i }).click()
+    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: ship it',
+    )
   })
 
   test('renders a real git pane and updates the review surface on file selection', async () => {

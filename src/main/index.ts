@@ -6,6 +6,10 @@ import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
 import type { CreateWorkspaceRequest } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
 import type {
+  ManagedSessionConfig,
+  ManagedSessionDecision,
+} from '../shared/managed-session'
+import type {
   SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
@@ -22,6 +26,7 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { focusHyprlandStartupWorkspace } from './hyprland'
+import { ManagedSessionManager } from './managed-session-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
 import { TerminalSessionManager } from './terminal-session-manager'
@@ -37,6 +42,16 @@ const workspaceActivityService = new WorkspaceActivityService({
   onUpdate: (event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
+    }
+  },
+})
+const managedSessionManager = new ManagedSessionManager({
+  onRuntimeEvent: (meta, event) => {
+    workspaceActivityService.handleManagedRuntimeEvent(meta.sessionId, event)
+  },
+  onUpdate: (event) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.managedSessionEvent, event)
     }
   },
 })
@@ -170,6 +185,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceActivitySnapshot, () =>
     workspaceActivityService.getSnapshot(),
   )
+  ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
+    managedSessionManager.getSnapshots(),
+  )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
@@ -238,6 +256,12 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.terminalCreate,
     (_event, input: TerminalSessionConfig) => {
+      if (input.mode !== 'shell') {
+        throw new Error(
+          `Managed provider mode "${input.mode}" must use managed-session:create.`,
+        )
+      }
+
       workspaceActivityService.trackSession(input)
 
       try {
@@ -264,6 +288,56 @@ function registerIpcHandlers(): void {
       terminalSessionManager.writeToSession(sessionId, data)
     },
   )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionCreate,
+    (_event, input: ManagedSessionConfig) => {
+      workspaceActivityService.handleManagedSessionStart({
+        cols: 80,
+        cwd: input.cwd,
+        mode: input.mode,
+        paneId: input.paneId,
+        rows: 24,
+        sessionId: input.sessionId,
+        workspaceId: input.workspaceId,
+      })
+      return managedSessionManager.createSession(input)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionClose,
+    (_event, sessionId: string) =>
+      managedSessionManager.closeSession(sessionId).finally(() => {
+        workspaceActivityService.handleManagedSessionClosed(sessionId)
+      }),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionInterrupt,
+    (_event, sessionId: string) =>
+      managedSessionManager.interruptSession(sessionId),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSendInput,
+    (_event, sessionId: string, text: string) =>
+      managedSessionManager.sendInput(sessionId, text),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionResolveRequest,
+    (
+      _event,
+      sessionId: string,
+      requestId: string,
+      decision: ManagedSessionDecision,
+    ) => managedSessionManager.resolveRequest(sessionId, requestId, decision),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionResolveUserInput,
+    (
+      _event,
+      sessionId: string,
+      requestId: string,
+      answers: Record<string, string | string[]>,
+    ) => managedSessionManager.resolveUserInput(sessionId, requestId, answers),
+  )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
     readProjectFile(process.cwd(), relativePath),
   )
@@ -288,6 +362,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    void managedSessionManager.closeAll()
     terminalSessionManager.killAll()
     database.close()
     app.quit()
