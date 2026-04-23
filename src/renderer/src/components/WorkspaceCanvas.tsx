@@ -1,3 +1,4 @@
+import { Resizable } from '@heroui-pro/react'
 import { Button, Tooltip } from '@heroui/react'
 import {
   Columns2,
@@ -9,7 +10,7 @@ import {
   Shrink,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 import {
   createFallbackPaneMetadata,
@@ -422,13 +423,18 @@ function renderLayoutNode(args: {
     )
   }
 
+  const totalWeight =
+    args.node.sizeWeights.reduce((sum, weight) => sum + (weight ?? 1), 0) ||
+    args.node.children.length
+
   return (
-    <section
-      className={cn(
-        'flex min-h-0 min-w-0 flex-1 gap-4',
-        args.node.type === 'split-horizontal' ? 'flex-row' : 'flex-col',
-      )}
+    <Resizable
+      autoSaveId={`aide:split:${args.node.id}`}
+      className="min-h-0 min-w-0 flex-1"
       key={args.node.id}
+      orientation={
+        args.node.type === 'split-horizontal' ? 'horizontal' : 'vertical'
+      }
     >
       {args.node.children.map((childId, index) => {
         const childNode = args.nodeLookup.get(childId)
@@ -437,24 +443,24 @@ function renderLayoutNode(args: {
           return null
         }
 
+        const weight = args.node.sizeWeights[index] ?? 1
+        const defaultSize = Math.max(5, (weight / totalWeight) * 100)
+
         return (
-          <div
-            className="flex min-h-0 min-w-0"
-            key={childId}
-            style={{
-              flexBasis: 0,
-              flexGrow: args.node.sizeWeights[index] ?? 1,
-              flexShrink: 1,
-            }}
-          >
-            {renderLayoutNode({
-              ...args,
-              node: childNode,
-            })}
-          </div>
+          <Fragment key={childId}>
+            {index > 0 ? <Resizable.Handle withIndicator /> : null}
+            <Resizable.Panel defaultSize={defaultSize} minSize={10}>
+              <div className="flex h-full min-h-0 min-w-0 flex-1">
+                {renderLayoutNode({
+                  ...args,
+                  node: childNode,
+                })}
+              </div>
+            </Resizable.Panel>
+          </Fragment>
         )
       })}
-    </section>
+    </Resizable>
   )
 }
 
