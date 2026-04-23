@@ -19,7 +19,6 @@ import {
 } from '@/lib/pane-catalog'
 import type { PreviewTarget } from '../../../shared/domain'
 
-import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
 import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
 import { cn } from '@/lib/utils'
@@ -590,15 +589,6 @@ export default function WorkspaceCanvas({
             const visibleSurfaceId = isActiveWorkspace
               ? activeSurfaceId
               : (surfaces[0]?.id ?? null)
-            const activeSurfaceIndex = Math.max(
-              surfaces.findIndex((surface) => surface.id === visibleSurfaceId),
-              0,
-            )
-            const surfaceTrackStyle = getPaneTrackStyle(
-              surfaces.length,
-              activeSurfaceIndex,
-            )
-            const surfaceSlideWidth = getPaneSlideWidth(surfaces.length)
 
             return (
               <section
@@ -610,77 +600,68 @@ export default function WorkspaceCanvas({
                 <div className="flex min-h-0 flex-1 overflow-hidden">
                   {activeProject && surfaces.length > 0 ? (
                     <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                      <div
-                        className="flex min-h-0 min-w-0 shrink-0 transition-transform duration-200 ease-out"
-                        style={surfaceTrackStyle}
-                      >
-                        {surfaces.map((surface) => {
-                          const layout = resolveSurfaceLayout(
-                            surfaceSnapshot,
-                            workspace.id,
-                            surface.id,
-                          )
-                          const rootNode = resolveWorkspaceLayoutRoot(layout)
-                          const paneCount =
-                            collectWorkspaceLayoutPaneIds(layout).length
-                          const nodeLookup = new Map(
-                            layout?.nodes.map((node) => [node.id, node]),
-                          )
+                      {(() => {
+                        const activeSurface =
+                          surfaces.find(
+                            (surface) => surface.id === visibleSurfaceId,
+                          ) ?? surfaces[0]
 
-                          return (
-                            <div
-                              className="flex min-h-0 min-w-0 w-full shrink-0"
-                              data-active-surface={
-                                surface.id === visibleSurfaceId
-                                  ? 'true'
-                                  : 'false'
-                              }
-                              key={surface.id}
-                              style={{ width: surfaceSlideWidth }}
-                            >
-                              {rootNode && paneCount > 0 ? (
-                                renderLayoutNode({
-                                  activePaneId:
-                                    isActiveWorkspace &&
-                                    surface.id === visibleSurfaceId
-                                      ? activePaneId
-                                      : null,
-                                  activeProject,
-                                  activePreviewTarget:
-                                    isActiveWorkspace &&
-                                    surface.id === visibleSurfaceId
-                                      ? activePreviewTarget
-                                      : null,
-                                  isInteractive:
-                                    isActiveWorkspace &&
-                                    surface.id === visibleSurfaceId,
-                                  node: rootNode,
-                                  nodeLookup,
-                                  onAddView,
-                                  onClosePane,
-                                  onLoadPreviewTarget,
-                                  onRemoveView,
-                                  onResizePane,
-                                  onSelectPreviewTarget,
-                                  onSelectPane,
-                                  onSplitPane,
-                                  onSwitchView,
-                                  previewTargets:
-                                    isActiveWorkspace &&
-                                    surface.id === visibleSurfaceId
-                                      ? previewTargets
-                                      : [],
-                                  workspace,
-                                })
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
-                                  Surface layout is missing a valid root node.
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
+                        if (!activeSurface) {
+                          return null
+                        }
+
+                        const layout = resolveSurfaceLayout(
+                          surfaceSnapshot,
+                          workspace.id,
+                          activeSurface.id,
+                        )
+                        const rootNode = resolveWorkspaceLayoutRoot(layout)
+                        const paneCount =
+                          collectWorkspaceLayoutPaneIds(layout).length
+                        const nodeLookup = new Map(
+                          layout?.nodes.map((node) => [node.id, node]),
+                        )
+
+                        return (
+                          <div
+                            className="flex min-h-0 min-w-0 flex-1"
+                            data-active-surface="true"
+                            key={activeSurface.id}
+                          >
+                            {rootNode && paneCount > 0 ? (
+                              renderLayoutNode({
+                                activePaneId: isActiveWorkspace
+                                  ? activePaneId
+                                  : null,
+                                activeProject,
+                                activePreviewTarget: isActiveWorkspace
+                                  ? activePreviewTarget
+                                  : null,
+                                isInteractive: isActiveWorkspace,
+                                node: rootNode,
+                                nodeLookup,
+                                onAddView,
+                                onClosePane,
+                                onLoadPreviewTarget,
+                                onRemoveView,
+                                onResizePane,
+                                onSelectPreviewTarget,
+                                onSelectPane,
+                                onSplitPane,
+                                onSwitchView,
+                                previewTargets: isActiveWorkspace
+                                  ? previewTargets
+                                  : [],
+                                workspace,
+                              })
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
+                                Surface layout is missing a valid root node.
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   ) : activeProject ? (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">

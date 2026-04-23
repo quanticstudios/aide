@@ -1187,6 +1187,83 @@ export default function App() {
   ])
 
   useEffect(() => {
+    const HOLD_MS = 250
+    let showTimer: number | null = null
+    let openedByHold = false
+
+    const cancelTimer = () => {
+      if (showTimer !== null) {
+        window.clearTimeout(showTimer)
+        showTimer = null
+      }
+    }
+
+    const handleAltDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Alt' ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey
+      ) {
+        return
+      }
+
+      if (event.repeat) {
+        return
+      }
+
+      cancelTimer()
+      showTimer = window.setTimeout(() => {
+        showTimer = null
+        openedByHold = true
+        setIsCommandPaletteOpen(false)
+        setIsOverviewVisible(false)
+        setIsWorkspaceSwitcherVisible(true)
+      }, HOLD_MS)
+    }
+
+    const handleOtherDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Alt' && showTimer !== null) {
+        cancelTimer()
+      }
+    }
+
+    const handleAltUp = (event: KeyboardEvent) => {
+      if (event.key !== 'Alt') {
+        return
+      }
+
+      cancelTimer()
+
+      if (openedByHold) {
+        openedByHold = false
+        setIsWorkspaceSwitcherVisible(false)
+      }
+    }
+
+    const handleBlur = () => {
+      cancelTimer()
+      if (openedByHold) {
+        openedByHold = false
+        setIsWorkspaceSwitcherVisible(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleAltDown, true)
+    window.addEventListener('keydown', handleOtherDown, true)
+    window.addEventListener('keyup', handleAltUp, true)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      cancelTimer()
+      window.removeEventListener('keydown', handleAltDown, true)
+      window.removeEventListener('keydown', handleOtherDown, true)
+      window.removeEventListener('keyup', handleAltUp, true)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [])
+
+  useEffect(() => {
     if (
       !resolvedNavigationState.activePaneId ||
       resolvePaneType(

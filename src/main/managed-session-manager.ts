@@ -276,6 +276,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private activeTurnId: string | null = null
   private readonly promptQueue = new AsyncQueue<SDKUserMessage>()
   private queryRuntime: ReturnType<typeof query> | null = null
+  private readonly streamedMessageUuids = new Set<string>()
   private readonly pendingApprovals = new Map<
     string,
     {
@@ -406,7 +407,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         canUseTool,
         cwd,
         env: process.env,
-        includePartialMessages: false,
+        includePartialMessages: true,
         pathToClaudeCodeExecutable: cliPath,
         settingSources: ['user', 'project', 'local'],
       },
@@ -531,6 +532,63 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
   }
 
+  private handleStreamEvent(message: {
+    readonly uuid: string
+    readonly event: unknown
+  }): void {
+    const event = message.event
+
+    if (!event || typeof event !== 'object' || !('type' in event)) {
+      return
+    }
+
+    const record = event as Record<string, unknown>
+
+    if (record.type === 'content_block_delta') {
+      const delta = record.delta
+      if (!delta || typeof delta !== 'object') {
+        return
+      }
+
+      const deltaRecord = delta as Record<string, unknown>
+
+      if (deltaRecord.type === 'text_delta') {
+        const text = deltaRecord.text
+        if (typeof text !== 'string' || text.length === 0) {
+          return
+        }
+
+        this.streamedMessageUuids.add(message.uuid)
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId: message.uuid,
+          kind: 'assistant-text',
+          provider: 'claude',
+          text,
+          type: 'content.delta',
+        })
+        return
+      }
+
+      if (deltaRecord.type === 'thinking_delta') {
+        const thinking = deltaRecord.thinking
+        if (typeof thinking !== 'string' || thinking.length === 0) {
+          return
+        }
+
+        this.streamedMessageUuids.add(message.uuid)
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId: `${message.uuid}:thinking`,
+          kind: 'reasoning-text',
+          provider: 'claude',
+          text: thinking,
+          type: 'content.delta',
+        })
+      }
+    }
+  }
+
   private handleMessage(message: SDKMessage): void {
     if (message.type === 'system' && message.subtype === 'init') {
       this.emitRuntimeEvent({
@@ -560,7 +618,17 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (message.type === 'stream_event') {
+      this.handleStreamEvent(message)
+      return
+    }
+
     if (message.type === 'assistant') {
+      if (this.streamedMessageUuids.has(message.uuid)) {
+        this.streamedMessageUuids.delete(message.uuid)
+        return
+      }
+
       const content = Array.isArray(message.message.content)
         ? message.message.content
         : []

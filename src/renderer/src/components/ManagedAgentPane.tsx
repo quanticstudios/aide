@@ -1,4 +1,3 @@
-import { EmptyState } from '@heroui-pro/react'
 import { Button, Chip, Surface, TextArea } from '@heroui/react'
 import {
   ArrowDown,
@@ -835,33 +834,31 @@ export default function ManagedAgentPane({
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
-            <EmptyState size="sm">
-              <EmptyState.Header>
-                <EmptyState.Media variant="icon">
-                  {snapshot?.sessionState === 'connecting' ? (
-                    <Plug />
-                  ) : snapshot?.sessionState === 'ready' ? (
-                    <Sparkles />
-                  ) : (
-                    <Bot />
-                  )}
-                </EmptyState.Media>
-                <EmptyState.Title>
-                  {snapshot?.sessionState === 'connecting'
-                    ? `Connecting to ${providerLabel}`
-                    : snapshot?.sessionState === 'ready'
-                      ? `${providerLabel} is ready`
-                      : `Waiting for ${providerLabel}`}
-                </EmptyState.Title>
-                <EmptyState.Description>
-                  {snapshot?.sessionState === 'ready'
-                    ? 'Send a prompt below to start a turn.'
-                    : snapshot?.sessionState === 'connecting'
-                      ? 'Spinning up the managed session…'
-                      : 'The provider is warming up.'}
-                </EmptyState.Description>
-              </EmptyState.Header>
-            </EmptyState>
+            <div className="flex max-w-md flex-col items-center gap-3 text-center">
+              <div className="flex size-10 items-center justify-center rounded-full bg-surface-secondary text-muted-foreground">
+                {snapshot?.sessionState === 'connecting' ? (
+                  <Plug className="size-4" />
+                ) : snapshot?.sessionState === 'ready' ? (
+                  <Sparkles className="size-4" />
+                ) : (
+                  <Bot className="size-4" />
+                )}
+              </div>
+              <h3 className="text-base font-semibold text-foreground">
+                {snapshot?.sessionState === 'connecting'
+                  ? `Connecting to ${providerLabel}`
+                  : snapshot?.sessionState === 'ready'
+                    ? `${providerLabel} is ready`
+                    : `Waiting for ${providerLabel}`}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {snapshot?.sessionState === 'ready'
+                  ? 'Send a prompt below to start a turn.'
+                  : snapshot?.sessionState === 'connecting'
+                    ? 'Spinning up the managed session…'
+                    : 'The provider is warming up.'}
+              </p>
+            </div>
           </div>
         )}
 

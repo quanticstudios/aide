@@ -1,6 +1,13 @@
-import { Command } from '@heroui-pro/react'
 import { Kbd } from '@heroui/react'
-import type { Key } from 'react'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from 'cmdk'
+import { useEffect, useRef } from 'react'
 
 import type { PaletteCommand } from '@/lib/command-registry'
 
@@ -22,16 +29,25 @@ const GROUP_ORDER: readonly PaletteCommand['group'][] = [
   'view',
 ]
 
-function buildTextValue(command: PaletteCommand): string {
-  const keywords = command.keywords?.join(' ') ?? ''
-  return `${command.label} ${keywords}`.trim()
-}
-
 export default function CommandPalette({
   commands,
   isOpen,
   onClose,
 }: CommandPaletteProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus()
+      })
+    }
+  }, [isOpen])
+
+  if (!isOpen) {
+    return null
+  }
+
   const grouped = new Map<PaletteCommand['group'], PaletteCommand[]>()
 
   for (const cmd of commands) {
@@ -44,90 +60,82 @@ export default function CommandPalette({
     }
   }
 
-  const handleAction = (key: Key) => {
-    const command = commands.find((cmd) => cmd.id === key)
-
-    if (command) {
-      command.onSelect()
-      onClose()
-    }
-  }
-
   return (
-    <Command>
-      <Command.Backdrop
-        isOpen={isOpen}
-        onOpenChange={(open: boolean) => {
-          if (!open) {
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
+      <button
+        aria-label="Close command palette"
+        className="fixed inset-0 bg-black/50"
+        onClick={onClose}
+        type="button"
+      />
+      <Command
+        className="relative w-full max-w-lg rounded-2xl border border-border/80 bg-surface shadow-[0_24px_80px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+        label="Command palette"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
             onClose()
           }
         }}
-        variant="blur"
       >
-        <Command.Container>
-          <Command.Dialog>
-            <Command.InputGroup>
-              <Command.InputGroup.Input placeholder="Type a command..." />
-              <Command.InputGroup.ClearButton />
-              <Command.InputGroup.Suffix>
-                <Kbd className="text-xs">
-                  <Kbd.Content>Esc</Kbd.Content>
-                </Kbd>
-              </Command.InputGroup.Suffix>
-            </Command.InputGroup>
-            <Command.List
-              onAction={handleAction}
-              renderEmptyState={() => (
-                <div className="flex h-12 items-center justify-center px-4 text-sm text-muted-foreground">
-                  No results found.
-                </div>
-              )}
-            >
-              {GROUP_ORDER.map((group) => {
-                const items = grouped.get(group)
+        <CommandInput
+          className="w-full border-b border-border/60 bg-transparent px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          placeholder="Type a command..."
+          ref={inputRef}
+        />
+        <CommandList className="max-h-72 overflow-y-auto p-1.5">
+          <CommandEmpty className="px-4 py-6 text-center text-sm text-muted-foreground">
+            No results found.
+          </CommandEmpty>
+          {GROUP_ORDER.map((group) => {
+            const items = grouped.get(group)
 
-                if (!items || items.length === 0) {
-                  return null
-                }
+            if (!items || items.length === 0) {
+              return null
+            }
 
-                return (
-                  <Command.Group heading={GROUP_LABELS[group]} key={group}>
-                    {items.map((cmd) => {
-                      const Icon = cmd.icon
+            return (
+              <CommandGroup
+                heading={GROUP_LABELS[group]}
+                key={group}
+                className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.18em] [&_[cmdk-group-heading]]:text-muted-foreground"
+              >
+                {items.map((cmd) => {
+                  const Icon = cmd.icon
 
-                      return (
-                        <Command.Item
-                          id={cmd.id}
-                          key={cmd.id}
-                          textValue={buildTextValue(cmd)}
-                        >
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="flex-1 truncate">{cmd.label}</span>
-                          {cmd.shortcut ? (
-                            <span
-                              className="ml-auto flex shrink-0 items-center gap-1"
-                              slot="keyboard"
+                  return (
+                    <CommandItem
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground"
+                      key={cmd.id}
+                      keywords={cmd.keywords as string[] | undefined}
+                      onSelect={() => {
+                        cmd.onSelect()
+                        onClose()
+                      }}
+                      value={`${cmd.id}:${cmd.label}`}
+                    >
+                      <Icon className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 truncate">{cmd.label}</span>
+                      {cmd.shortcut ? (
+                        <span className="ml-auto flex shrink-0 items-center gap-1">
+                          {cmd.shortcut.split(' ').map((part) => (
+                            <Kbd
+                              className="min-w-5 border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                              key={part}
                             >
-                              {cmd.shortcut.split(' ').map((part) => (
-                                <Kbd
-                                  className="min-w-5 border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                                  key={part}
-                                >
-                                  {part}
-                                </Kbd>
-                              ))}
-                            </span>
-                          ) : null}
-                        </Command.Item>
-                      )
-                    })}
-                  </Command.Group>
-                )
-              })}
-            </Command.List>
-          </Command.Dialog>
-        </Command.Container>
-      </Command.Backdrop>
-    </Command>
+                              {part}
+                            </Kbd>
+                          ))}
+                        </span>
+                      ) : null}
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            )
+          })}
+        </CommandList>
+      </Command>
+    </div>
   )
 }
