@@ -106,3 +106,10 @@ export type ManagedProviderRuntimeEvent =
       message: string
       type: 'runtime.error'
     })
+  | (ManagedProviderRuntimeEventBase & {
+      cachedInputTokens?: number
+      inputTokens: number
+      maxTokens?: number
+      outputTokens: number
+      type: 'session.usage.updated'
+    })

@@ -20,6 +20,7 @@ import type {
   ManagedSessionPendingUserInput,
   ManagedSessionSnapshot,
   ManagedSessionTurnSummary,
+  ManagedSessionUsage,
   ManagedSessionUserQuestion,
 } from '../shared/managed-session'
 import type {
@@ -58,6 +59,7 @@ interface ManagedSessionMutableState {
   projector: ManagedTerminalProviderProjector
   snapshot: ManagedSessionSnapshot
   turns: Map<string, ManagedSessionTurnSummary>
+  usage: ManagedSessionUsage | null
 }
 
 interface ManagedSessionBackend {
@@ -628,6 +630,51 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
               }),
         })
         this.activeTurnId = null
+      }
+
+      if (message.subtype === 'success') {
+        const usages = Object.values(message.modelUsage ?? {})
+        const aggregate = usages.reduce<{
+          cacheReadInputTokens: number
+          contextWindow: number
+          inputTokens: number
+          outputTokens: number
+        }>(
+          (acc, usage) => ({
+            cacheReadInputTokens:
+              acc.cacheReadInputTokens + (usage.cacheReadInputTokens ?? 0),
+            contextWindow: Math.max(
+              acc.contextWindow,
+              usage.contextWindow ?? 0,
+            ),
+            inputTokens: acc.inputTokens + (usage.inputTokens ?? 0),
+            outputTokens: acc.outputTokens + (usage.outputTokens ?? 0),
+          }),
+          {
+            cacheReadInputTokens: 0,
+            contextWindow: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+          },
+        )
+
+        if (
+          aggregate.inputTokens > 0 ||
+          aggregate.outputTokens > 0 ||
+          aggregate.contextWindow > 0
+        ) {
+          this.emitRuntimeEvent({
+            cachedInputTokens: aggregate.cacheReadInputTokens,
+            createdAt: this.getNow(),
+            inputTokens: aggregate.inputTokens,
+            ...(aggregate.contextWindow > 0
+              ? { maxTokens: aggregate.contextWindow }
+              : {}),
+            outputTokens: aggregate.outputTokens,
+            provider: 'claude',
+            type: 'session.usage.updated',
+          })
+        }
       }
 
       return
@@ -1420,6 +1467,7 @@ export class ManagedSessionManager {
       projector: new ManagedTerminalProviderProjector(config.mode),
       snapshot: buildEmptySnapshot(config, updatedAt),
       turns: new Map(),
+      usage: null,
     }
 
     const emitRuntimeEvent = (event: ManagedProviderRuntimeEvent) => {
@@ -1648,6 +1696,23 @@ export class ManagedSessionManager {
       state.pendingUserPromptText = null
     }
 
+    if (event.type === 'session.usage.updated') {
+      const nextUsage: ManagedSessionUsage = {
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+      }
+
+      if (event.maxTokens !== undefined) {
+        nextUsage.maxTokens = event.maxTokens
+      }
+
+      if (event.cachedInputTokens !== undefined) {
+        nextUsage.cachedInputTokens = event.cachedInputTokens
+      }
+
+      state.usage = nextUsage
+    }
+
     const runtime = state.projector.getSnapshot()
 
     if (
@@ -1673,6 +1738,7 @@ export class ManagedSessionManager {
       sessionState: runtime.sessionState,
       turns: [...state.turns.values()],
       updatedAt: event.createdAt,
+      ...(state.usage !== null ? { usage: state.usage } : {}),
       workspaceId: state.config.workspaceId,
     }
 
