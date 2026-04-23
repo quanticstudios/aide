@@ -46,6 +46,7 @@ import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedPendingUserInputPanel from './ManagedPendingUserInputPanel'
+import OpenInEditorButton from './OpenInEditorButton'
 
 interface ManagedAgentPaneProps {
   readonly paneId: string
@@ -755,6 +756,7 @@ export default function ManagedAgentPane({
           {snapshot?.usage ? (
             <ContextWindowMeter usage={snapshot.usage} />
           ) : null}
+          <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
             isDisabled={!snapshot || snapshot.sessionState !== 'running'}
             onPress={() => {

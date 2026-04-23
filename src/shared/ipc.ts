@@ -39,6 +39,8 @@ import type {
 
 export const IPC_CHANNELS = {
   createWorkspace: 'storage:create-workspace',
+  editorList: 'app:editor-list',
+  editorLaunch: 'app:editor-launch',
   executableProbe: 'executables:probe',
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
@@ -71,11 +73,19 @@ export const IPC_CHANNELS = {
   terminalWrite: 'terminal:write',
 } as const
 
+export interface AvailableEditorDescriptor {
+  readonly command: string
+  readonly id: string
+  readonly label: string
+}
+
 export interface AideApi {
   createWorkspace: (
     input: CreateWorkspaceRequest,
   ) => Promise<PersistenceSnapshot>
   importProject: (repoPath: string) => Promise<ImportProjectResult>
+  listAvailableEditors: () => Promise<AvailableEditorDescriptor[]>
+  launchEditor: (editorId: string, cwd: string) => Promise<void>
   listProjectRefs: (projectId: string) => Promise<ProjectRefRecord[]>
   getWorkspaceGitStatus: (
     workspaceId: string,

@@ -20,6 +20,7 @@ import type {
 } from '../shared/terminal'
 import { mapInputToShortcutEvent } from './app-shortcuts'
 import { createAideDatabase } from './database'
+import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
   probeExecutable,
   validateExecutablePath,
@@ -192,6 +193,11 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.createWorkspace,
     (_event, input: CreateWorkspaceRequest) =>
       gitWorkspaceService.createWorkspace(input),
+  )
+  ipcMain.handle(IPC_CHANNELS.editorList, () => listAvailableEditors())
+  ipcMain.handle(
+    IPC_CHANNELS.editorLaunch,
+    (_event, editorId: string, cwd: string) => launchEditor(editorId, cwd),
   )
   ipcMain.handle(IPC_CHANNELS.importProject, (_event, repoPath: string) =>
     gitWorkspaceService.importProject(repoPath),
