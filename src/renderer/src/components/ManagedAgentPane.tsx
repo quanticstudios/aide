@@ -9,6 +9,7 @@ import {
   Clipboard,
   ClipboardCheck,
   FileCode,
+  GitBranch,
   LoaderCircle,
   Plug,
   RefreshCw,
@@ -33,6 +34,7 @@ import type {
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import {
   SLASH_COMMANDS,
   type SlashCommand,
@@ -273,6 +275,52 @@ function ContentItemBlock({
   )
 }
 
+function GitBranchChip({
+  info,
+}: {
+  readonly info: {
+    aheadCount: number | null
+    behindCount: number | null
+    branchName: string | null
+    dirtyCount: number | null
+  }
+}) {
+  if (!info.branchName) {
+    return null
+  }
+
+  const ahead = info.aheadCount ?? 0
+  const behind = info.behindCount ?? 0
+  const dirty = info.dirtyCount ?? 0
+  const hasCounts = ahead > 0 || behind > 0 || dirty > 0
+
+  const titleSegments = [`Branch: ${info.branchName}`]
+
+  if (ahead > 0) titleSegments.push(`${ahead} ahead`)
+  if (behind > 0) titleSegments.push(`${behind} behind`)
+  if (dirty > 0)
+    titleSegments.push(`${dirty} dirty file${dirty === 1 ? '' : 's'}`)
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-surface-secondary px-2 py-0.5 text-[10px] text-muted-foreground"
+      title={titleSegments.join(' · ')}
+    >
+      <GitBranch className="size-3" />
+      <span className="max-w-[12rem] truncate font-mono">
+        {info.branchName}
+      </span>
+      {hasCounts ? (
+        <span className="flex items-center gap-1 tabular-nums">
+          {ahead > 0 ? <span className="text-success">↑{ahead}</span> : null}
+          {behind > 0 ? <span className="text-warning">↓{behind}</span> : null}
+          {dirty > 0 ? <span className="text-primary">●{dirty}</span> : null}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function TurnGroupBlock({
   group,
   isRetryReady,
@@ -392,6 +440,7 @@ export default function ManagedAgentPane({
   const startedSessionRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
+  const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel =
     terminalMode === 'claude'
@@ -702,6 +751,7 @@ export default function ManagedAgentPane({
         </div>
 
         <div className="flex items-center gap-2">
+          <GitBranchChip info={gitInfo} />
           {snapshot?.usage ? (
             <ContextWindowMeter usage={snapshot.usage} />
           ) : null}
