@@ -48,6 +48,9 @@ function getAideApi(): AideApi | null {
   return window.aide ?? null
 }
 
+const isMac =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
@@ -648,37 +651,55 @@ export default function ManagedAgentPane({
       </div>
 
       <div className="border-t border-border/60 px-4 py-3">
-        <div className="mx-auto flex max-w-3xl gap-2">
-          <TextArea
-            aria-label={`${providerLabel} prompt`}
-            className="flex-1"
-            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-              setDraftInput(event.target.value)
-            }
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault()
-                if (isSubmitting || draftInput.trim().length === 0) {
-                  return
-                }
-                void handleSendInput()
+        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+          <div className="flex gap-2">
+            <TextArea
+              aria-label={`${providerLabel} prompt`}
+              className="flex-1"
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                setDraftInput(event.target.value)
               }
-            }}
-            placeholder={`Send a prompt to ${providerLabel}...`}
-            value={draftInput}
-            variant="secondary"
-          />
-          <Button
-            isDisabled={isSubmitting || draftInput.trim().length === 0}
-            onPress={() => void handleSendInput()}
-            variant="primary"
-          >
-            {isSubmitting ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Send className="size-4" />
-            )}
-          </Button>
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  if (isSubmitting || draftInput.trim().length === 0) {
+                    return
+                  }
+                  void handleSendInput()
+                }
+              }}
+              placeholder={`Send a prompt to ${providerLabel}...`}
+              value={draftInput}
+              variant="secondary"
+            />
+            <Button
+              isDisabled={isSubmitting || draftInput.trim().length === 0}
+              onPress={() => void handleSendInput()}
+              variant="primary"
+            >
+              {isSubmitting ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
+            </Button>
+          </div>
+          <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground">
+            <span>
+              {draftInput.length > 0
+                ? `${draftInput.length.toLocaleString()} chars`
+                : ''}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <kbd className="rounded border border-border/60 bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px]">
+                {isMac ? '⌘' : 'Ctrl'}
+              </kbd>
+              <kbd className="rounded border border-border/60 bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px]">
+                ↵
+              </kbd>
+              <span>to send</span>
+            </span>
+          </div>
         </div>
       </div>
     </section>
