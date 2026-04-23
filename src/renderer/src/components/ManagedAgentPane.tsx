@@ -1,17 +1,18 @@
-import { Button, Chip, Input, Surface, TextArea } from '@heroui/react'
+import { EmptyState } from '@heroui-pro/react'
+import { Button, Chip, Surface, TextArea } from '@heroui/react'
 import {
-  AlertTriangle,
   ArrowDown,
+  Bot,
   Brain,
-  Check,
   ChevronDown,
   CirclePause,
   FileCode,
   LoaderCircle,
+  Plug,
   Send,
+  Sparkles,
   Terminal,
   User,
-  X,
 } from 'lucide-react'
 import {
   useCallback,
@@ -30,6 +31,9 @@ import type {
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import ContextWindowMeter from './ContextWindowMeter'
+import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import ManagedPendingUserInputPanel from './ManagedPendingUserInputPanel'
 
 interface ManagedAgentPaneProps {
   readonly paneId: string
@@ -515,20 +519,25 @@ export default function ManagedAgentPane({
           ) : null}
         </div>
 
-        <Button
-          isDisabled={!snapshot || snapshot.sessionState !== 'running'}
-          onPress={() => {
-            const api = getAideApi()
-            if (api) {
-              void api.interruptManagedSession(sessionId)
-            }
-          }}
-          size="sm"
-          variant="ghost"
-        >
-          <CirclePause className="size-3.5" />
-          Interrupt
-        </Button>
+        <div className="flex items-center gap-2">
+          {snapshot?.usage ? (
+            <ContextWindowMeter usage={snapshot.usage} />
+          ) : null}
+          <Button
+            isDisabled={!snapshot || snapshot.sessionState !== 'running'}
+            onPress={() => {
+              const api = getAideApi()
+              if (api) {
+                void api.interruptManagedSession(sessionId)
+              }
+            }}
+            size="sm"
+            variant="ghost"
+          >
+            <CirclePause className="size-3.5" />
+            Interrupt
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -566,135 +575,25 @@ export default function ManagedAgentPane({
             ))}
 
             {snapshot?.pendingApprovals.map((approval) => (
-              <Surface
-                className="mx-auto max-w-3xl rounded-xl border border-warning/30 bg-warning/5 px-4 py-3"
-                data-testid={`managed-approval-${approval.id}`}
+              <ManagedPendingApprovalPanel
+                approval={approval}
                 key={approval.id}
-              >
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 size-4 text-warning" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground">
-                      Approval required
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {approval.detail ?? approval.requestType}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        onPress={() =>
-                          void handleResolveApproval(approval.id, 'accept')
-                        }
-                        size="sm"
-                        variant="primary"
-                      >
-                        <Check className="size-3.5" />
-                        Allow once
-                      </Button>
-                      <Button
-                        onPress={() =>
-                          void handleResolveApproval(
-                            approval.id,
-                            'accept-for-session',
-                          )
-                        }
-                        size="sm"
-                        variant="secondary"
-                      >
-                        <Check className="size-3.5" />
-                        Allow for session
-                      </Button>
-                      <Button
-                        onPress={() =>
-                          void handleResolveApproval(approval.id, 'deny')
-                        }
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <X className="size-3.5" />
-                        Deny
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </Surface>
+                onResolve={(requestId, decision) =>
+                  void handleResolveApproval(requestId, decision)
+                }
+              />
             ))}
 
             {snapshot?.pendingUserInputs.map((request) => (
-              <Surface
-                className="mx-auto max-w-3xl rounded-xl border border-secondary/30 bg-secondary/5 px-4 py-3"
-                data-testid={`managed-input-${request.id}`}
+              <ManagedPendingUserInputPanel
+                answers={draftAnswers[request.id] ?? {}}
                 key={request.id}
-              >
-                <p className="text-sm font-medium text-foreground">
-                  User input requested
-                </p>
-                <div className="mt-3 space-y-4">
-                  {request.questions.map((question) => (
-                    <div className="space-y-2" key={question.id}>
-                      {question.header ? (
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                          {question.header}
-                        </p>
-                      ) : null}
-                      <p className="text-sm text-foreground">
-                        {question.prompt}
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {question.options.map((option) => {
-                          const selected =
-                            draftAnswers[request.id]?.[question.id] ===
-                            option.label
-
-                          return (
-                            <Button
-                              key={option.id}
-                              onPress={() =>
-                                handleDraftAnswerChange(
-                                  request.id,
-                                  question.id,
-                                  option.label,
-                                )
-                              }
-                              size="sm"
-                              variant={selected ? 'secondary' : 'ghost'}
-                            >
-                              {option.label}
-                            </Button>
-                          )
-                        })}
-                      </div>
-                      <Input
-                        aria-label={`${question.prompt} answer`}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                          handleDraftAnswerChange(
-                            request.id,
-                            question.id,
-                            event.target.value,
-                          )
-                        }
-                        placeholder="Type a custom answer"
-                        value={draftAnswers[request.id]?.[question.id] ?? ''}
-                        variant="secondary"
-                      />
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4">
-                  <Button
-                    isDisabled={request.questions.some(
-                      (question) =>
-                        (draftAnswers[request.id]?.[question.id] ?? '').trim()
-                          .length === 0,
-                    )}
-                    onPress={() => void handleResolveUserInput(request.id)}
-                    size="sm"
-                    variant="primary"
-                  >
-                    Submit answers
-                  </Button>
-                </div>
-              </Surface>
+                onAnswerChange={(questionId, value) =>
+                  handleDraftAnswerChange(request.id, questionId, value)
+                }
+                onSubmit={(requestId) => void handleResolveUserInput(requestId)}
+                request={request}
+              />
             ))}
 
             {snapshot?.sessionState === 'running' && runningTurnId === null ? (
@@ -705,12 +604,34 @@ export default function ManagedAgentPane({
             ) : null}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {snapshot?.sessionState === 'connecting'
-              ? `Connecting to ${providerLabel}...`
-              : snapshot?.sessionState === 'ready'
-                ? `${providerLabel} is ready. Send a prompt to start.`
-                : `Waiting for ${providerLabel}...`}
+          <div className="flex h-full items-center justify-center">
+            <EmptyState size="sm">
+              <EmptyState.Header>
+                <EmptyState.Media variant="icon">
+                  {snapshot?.sessionState === 'connecting' ? (
+                    <Plug />
+                  ) : snapshot?.sessionState === 'ready' ? (
+                    <Sparkles />
+                  ) : (
+                    <Bot />
+                  )}
+                </EmptyState.Media>
+                <EmptyState.Title>
+                  {snapshot?.sessionState === 'connecting'
+                    ? `Connecting to ${providerLabel}`
+                    : snapshot?.sessionState === 'ready'
+                      ? `${providerLabel} is ready`
+                      : `Waiting for ${providerLabel}`}
+                </EmptyState.Title>
+                <EmptyState.Description>
+                  {snapshot?.sessionState === 'ready'
+                    ? 'Send a prompt below to start a turn.'
+                    : snapshot?.sessionState === 'connecting'
+                      ? 'Spinning up the managed session…'
+                      : 'The provider is warming up.'}
+                </EmptyState.Description>
+              </EmptyState.Header>
+            </EmptyState>
           </div>
         )}
 

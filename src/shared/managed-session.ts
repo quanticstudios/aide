@@ -78,6 +78,13 @@ export interface ManagedSessionPendingUserInput {
   questions: ManagedSessionUserQuestion[]
 }
 
+export interface ManagedSessionUsage {
+  cachedInputTokens?: number
+  inputTokens: number
+  maxTokens?: number
+  outputTokens: number
+}
+
 export interface ManagedSessionSnapshot {
   content: ManagedSessionContentItem[]
   detail: string | null
@@ -92,6 +99,7 @@ export interface ManagedSessionSnapshot {
   sessionState: ManagedProviderRuntimeSessionState
   turns: ManagedSessionTurnSummary[]
   updatedAt: string
+  usage?: ManagedSessionUsage
   workspaceId: string
 }
 
