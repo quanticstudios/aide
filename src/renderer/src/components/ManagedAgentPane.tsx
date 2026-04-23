@@ -11,6 +11,7 @@ import {
   FileCode,
   LoaderCircle,
   Plug,
+  RefreshCw,
   Send,
   Sparkles,
   Terminal,
@@ -274,15 +275,21 @@ function ContentItemBlock({
 
 function TurnGroupBlock({
   group,
+  isRetryReady,
   isRunning,
+  onRetry,
   providerLabel,
 }: {
   readonly group: TurnGroup
+  readonly isRetryReady: boolean
   readonly isRunning: boolean
+  readonly onRetry: (text: string) => void
   readonly providerLabel: string
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
+  const userPromptItem = group.items.find((item) => item.kind === 'user-prompt')
+  const canRetry = isRetryReady && Boolean(userPromptItem) && !isRunning
 
   useEffect(() => {
     return () => {
@@ -331,7 +338,18 @@ function TurnGroupBlock({
         </div>
       ) : null}
       {group.items.length > 0 ? (
-        <div className="pointer-events-none absolute right-0 top-0 opacity-0 transition-opacity group-hover/turn:pointer-events-auto group-hover/turn:opacity-100">
+        <div className="pointer-events-none absolute right-0 top-0 flex gap-1 opacity-0 transition-opacity group-hover/turn:pointer-events-auto group-hover/turn:opacity-100">
+          {canRetry && userPromptItem ? (
+            <button
+              aria-label="Retry turn"
+              className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+              onClick={() => onRetry(userPromptItem.text)}
+              type="button"
+            >
+              <RefreshCw className="size-3" />
+              Retry
+            </button>
+          ) : null}
           <button
             aria-label={copied ? 'Copied turn' : 'Copy turn'}
             className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
@@ -485,26 +503,40 @@ export default function ManagedAgentPane({
     }
   }, [])
 
+  const sendPromptText = useCallback(
+    async (text: string) => {
+      const api = getAideApi()
+      const trimmed = text.trim()
+
+      if (!api || !trimmed) {
+        return
+      }
+
+      setIsSubmitting(true)
+
+      try {
+        await api.sendManagedSessionInput(sessionId, trimmed)
+        setError(null)
+      } catch (sendError) {
+        setError(getErrorMessage(sendError))
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [sessionId],
+  )
+
   const handleSendInput = useCallback(async () => {
-    const api = getAideApi()
-    const trimmed = draftInput.trim()
+    await sendPromptText(draftInput)
+    setDraftInput('')
+  }, [draftInput, sendPromptText])
 
-    if (!api || !trimmed) {
-      return
-    }
-
-    setIsSubmitting(true)
-
-    try {
-      await api.sendManagedSessionInput(sessionId, trimmed)
-      setDraftInput('')
-      setError(null)
-    } catch (sendError) {
-      setError(getErrorMessage(sendError))
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [draftInput, sessionId])
+  const handleRetryTurn = useCallback(
+    async (text: string) => {
+      await sendPromptText(text)
+    },
+    [sendPromptText],
+  )
 
   const handleResolveApproval = useCallback(
     async (
@@ -707,10 +739,15 @@ export default function ManagedAgentPane({
             {turnGroups.map((group) => (
               <TurnGroupBlock
                 group={group}
+                isRetryReady={
+                  snapshot?.sessionState === 'ready' ||
+                  snapshot?.sessionState === 'stopped'
+                }
                 isRunning={
                   group.turnId !== null && group.turnId === runningTurnId
                 }
                 key={group.turnId ?? `system-${group.items[0]?.id}`}
+                onRetry={(text) => void handleRetryTurn(text)}
                 providerLabel={providerLabel}
               />
             ))}
