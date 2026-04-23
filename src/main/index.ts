@@ -70,6 +70,7 @@ app.setAppUserModelId('aide')
 if (process.platform === 'linux') {
   process.env.LIBGL_ALWAYS_SOFTWARE ??= '1'
   process.env.MESA_LOADER_DRIVER_OVERRIDE ??= 'llvmpipe'
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
   app.disableHardwareAcceleration()
   app.commandLine.appendSwitch('disable-gpu')
   app.commandLine.appendSwitch('disable-gpu-compositing')
