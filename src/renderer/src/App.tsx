@@ -555,7 +555,15 @@ export default function App() {
         const nextWorkspace = workspaces[nextIndex]
 
         if (nextWorkspace) {
-          handleWorkspaceSelection(nextWorkspace.id)
+          setSelection(
+            applyWorkspaceSelection(
+              navigationSnapshot,
+              resolvedNavigationState,
+              nextWorkspace.id,
+              getSurfaceIdsForWorkspace,
+              getPaneIdsForWorkspace,
+            ),
+          )
         }
         return
       }
@@ -573,7 +581,6 @@ export default function App() {
     [
       getPaneIdsForWorkspace,
       getSurfaceIdsForWorkspace,
-      handleWorkspaceSelection,
       isWorkspaceSwitcherVisible,
       navigationSnapshot,
       resolvedNavigationState,
