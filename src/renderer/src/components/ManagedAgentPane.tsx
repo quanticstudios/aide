@@ -728,7 +728,7 @@ export default function ManagedAgentPane({
 
   return (
     <section
-      className="managed-agent-pane flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background"
+      className="managed-agent-pane flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background"
       data-testid="managed-agent-pane"
     >
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">

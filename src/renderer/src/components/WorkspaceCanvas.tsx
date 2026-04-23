@@ -588,7 +588,7 @@ export default function WorkspaceCanvas({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <section className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
       {actionError ? (
         <div className="px-4 pt-4">
           <div className="rounded-2xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive">
@@ -601,11 +601,11 @@ export default function WorkspaceCanvas({
         <span data-testid="active-pane-name">{activePaneLabel}</span>
       </div>
       <div
-        className="flex min-h-0 flex-1 overflow-hidden p-4"
+        className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden p-4"
         data-testid="workspace-viewport"
       >
         <div
-          className="workspace-slider flex min-h-0 min-w-0 flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
+          className="workspace-slider flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
           style={workspaceTrackStyle}
         >
           {projectWorkspaces.map((workspace) => {
@@ -625,9 +625,9 @@ export default function WorkspaceCanvas({
                 key={workspace.id}
                 style={{ height: workspaceSlideHeight }}
               >
-                <div className="flex min-h-0 flex-1 overflow-hidden">
+                <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                   {activeProject && surfaces.length > 0 ? (
-                    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                       {(() => {
                         const activeSurface =
                           surfaces.find(
@@ -652,7 +652,7 @@ export default function WorkspaceCanvas({
 
                         return (
                           <div
-                            className="flex min-h-0 min-w-0 flex-1"
+                            className="flex min-h-0 min-w-0 w-full flex-1"
                             data-active-surface="true"
                             key={activeSurface.id}
                           >

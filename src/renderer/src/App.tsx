@@ -538,6 +538,28 @@ export default function App() {
 
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
+      if (
+        isWorkspaceSwitcherVisible &&
+        navigationSnapshot.workspaces.length > 0
+      ) {
+        const workspaces = navigationSnapshot.workspaces
+        const currentIndex = Math.max(
+          workspaces.findIndex(
+            (workspace) =>
+              workspace.id === resolvedNavigationState.activeWorkspaceId,
+          ),
+          0,
+        )
+        const nextIndex =
+          (currentIndex + direction + workspaces.length) % workspaces.length
+        const nextWorkspace = workspaces[nextIndex]
+
+        if (nextWorkspace) {
+          handleWorkspaceSelection(nextWorkspace.id)
+        }
+        return
+      }
+
       setSelection(
         moveRelativeWorkspace(
           navigationSnapshot,
@@ -551,6 +573,8 @@ export default function App() {
     [
       getPaneIdsForWorkspace,
       getSurfaceIdsForWorkspace,
+      handleWorkspaceSelection,
+      isWorkspaceSwitcherVisible,
       navigationSnapshot,
       resolvedNavigationState,
       setSelection,
@@ -1415,7 +1439,7 @@ export default function App() {
           projectName={activeProject?.name ?? null}
           summaries={workspaceSummaries}
           visible={isWorkspaceSwitcherVisible}
-          workspaces={projectWorkspaces}
+          workspaces={allWorkspaces}
         />
         <WorkspaceSwitcherOverlay
           activeWorkspaceId={activeWorkspace?.id ?? null}
