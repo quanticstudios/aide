@@ -19,6 +19,7 @@ import type {
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
   ManagedSessionSnapshot,
+  ManagedSessionTurnSummary,
   ManagedSessionUserQuestion,
 } from '../shared/managed-session'
 import type {
@@ -46,14 +47,17 @@ interface ManagedSessionManagerOptions {
 }
 
 interface ManagedSessionMutableState {
+  activeTurnId: string | null
   backend: ManagedSessionBackend
   config: ManagedSessionConfig
   contentByKey: Map<string, ManagedSessionContentItem>
   orderedContentKeys: string[]
   pendingApprovals: Map<string, ManagedSessionPendingApproval>
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
+  pendingUserPromptText: string | null
   projector: ManagedTerminalProviderProjector
   snapshot: ManagedSessionSnapshot
+  turns: Map<string, ManagedSessionTurnSummary>
 }
 
 interface ManagedSessionBackend {
@@ -141,13 +145,14 @@ function buildEmptySnapshot(
     running: true,
     sessionId: config.sessionId,
     sessionState: 'connecting',
+    turns: [],
     updatedAt,
     workspaceId: config.workspaceId,
   }
 }
 
 function createContentKey(
-  kind: ManagedProviderRuntimeContentKind,
+  kind: ManagedProviderRuntimeContentKind | 'user-prompt',
   itemId: string,
 ): string {
   return `${kind}:${itemId}`
@@ -1404,14 +1409,17 @@ export class ManagedSessionManager {
 
     const updatedAt = this.getNow()
     const state: ManagedSessionMutableState = {
+      activeTurnId: null,
       backend: null as never,
       config,
       contentByKey: new Map(),
       orderedContentKeys: [],
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
+      pendingUserPromptText: null,
       projector: new ManagedTerminalProviderProjector(config.mode),
       snapshot: buildEmptySnapshot(config, updatedAt),
+      turns: new Map(),
     }
 
     const emitRuntimeEvent = (event: ManagedProviderRuntimeEvent) => {
@@ -1507,7 +1515,14 @@ export class ManagedSessionManager {
   }
 
   public async sendInput(sessionId: string, text: string): Promise<void> {
-    await this.sessions.get(sessionId)?.backend.sendInput(text)
+    const state = this.sessions.get(sessionId)
+
+    if (!state) {
+      return
+    }
+
+    state.pendingUserPromptText = text
+    await state.backend.sendInput(text)
   }
 
   public async resolveRequest(
@@ -1544,6 +1559,42 @@ export class ManagedSessionManager {
   ): void {
     state.projector.apply([event])
 
+    if (event.type === 'turn.started') {
+      state.activeTurnId = event.turnId
+      state.turns.set(event.turnId, {
+        completedAt: null,
+        id: event.turnId,
+        startedAt: event.createdAt,
+        state: 'running',
+      })
+
+      if (state.pendingUserPromptText !== null) {
+        const userItemId = `user-prompt:${event.turnId}`
+        const userKey = createContentKey('user-prompt', userItemId)
+
+        state.contentByKey.set(userKey, {
+          id: userItemId,
+          kind: 'user-prompt',
+          text: state.pendingUserPromptText,
+          turnId: event.turnId,
+          updatedAt: event.createdAt,
+        })
+        state.orderedContentKeys.push(userKey)
+        state.pendingUserPromptText = null
+      }
+    }
+
+    if (event.type === 'turn.completed') {
+      const turn = state.turns.get(event.turnId)
+
+      if (turn) {
+        turn.completedAt = event.createdAt
+        turn.state = event.state
+      }
+
+      state.activeTurnId = null
+    }
+
     if (event.type === 'content.delta') {
       const key = createContentKey(event.kind, event.itemId)
       const existing = state.contentByKey.get(key)
@@ -1556,6 +1607,7 @@ export class ManagedSessionManager {
           id: event.itemId,
           kind: event.kind,
           text: event.text,
+          turnId: state.activeTurnId,
           updatedAt: event.createdAt,
         })
         state.orderedContentKeys.push(key)
@@ -1593,9 +1645,18 @@ export class ManagedSessionManager {
 
     if (event.type === 'session.exited') {
       state.snapshot.running = false
+      state.pendingUserPromptText = null
     }
 
     const runtime = state.projector.getSnapshot()
+
+    if (
+      (runtime.sessionState === 'stopped' ||
+        runtime.sessionState === 'error') &&
+      state.pendingUserPromptText !== null
+    ) {
+      state.pendingUserPromptText = null
+    }
     state.snapshot = {
       content: state.orderedContentKeys
         .map((key) => state.contentByKey.get(key) ?? null)
@@ -1610,6 +1671,7 @@ export class ManagedSessionManager {
       running: runtime.sessionState !== 'stopped',
       sessionId: state.config.sessionId,
       sessionState: runtime.sessionState,
+      turns: [...state.turns.values()],
       updatedAt: event.createdAt,
       workspaceId: state.config.workspaceId,
     }

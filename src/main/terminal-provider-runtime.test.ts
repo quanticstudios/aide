@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import {
   ManagedTerminalProviderAdapter,
   ManagedTerminalProviderProjector,
@@ -66,5 +67,80 @@ describe('ManagedTerminalProviderAdapter', () => {
       hasPendingApproval: false,
       sessionState: 'running',
     })
+  })
+})
+
+describe('ManagedTerminalProviderProjector turn.completed state transitions', () => {
+  const baseEvents: ManagedProviderRuntimeEvent[] = [
+    {
+      createdAt: '2026-04-23T10:00:00.000Z',
+      provider: 'claude',
+      type: 'session.started',
+    },
+    {
+      createdAt: '2026-04-23T10:00:00.000Z',
+      provider: 'claude',
+      state: 'ready',
+      type: 'session.state.changed',
+    },
+  ]
+
+  it('stays in waiting when a failed turn completes while an approval is pending', () => {
+    const projector = new ManagedTerminalProviderProjector('claude')
+    projector.apply(baseEvents)
+    projector.apply([
+      {
+        createdAt: '2026-04-23T10:01:00.000Z',
+        provider: 'claude',
+        turnId: 'turn-1',
+        type: 'turn.started',
+      },
+      {
+        createdAt: '2026-04-23T10:01:10.000Z',
+        detail: 'Command requires approval',
+        provider: 'claude',
+        requestId: 'req-1',
+        requestType: 'command-execution-approval',
+        type: 'request.opened',
+      },
+      {
+        createdAt: '2026-04-23T10:01:20.000Z',
+        errorMessage: 'Turn failed mid-approval',
+        provider: 'claude',
+        state: 'failed',
+        turnId: 'turn-1',
+        type: 'turn.completed',
+      },
+    ])
+
+    const snapshot = projector.getSnapshot()
+    expect(snapshot.sessionState).toBe('waiting')
+    expect(snapshot.hasPendingApproval).toBe(true)
+    expect(snapshot.lastError).toBe('Turn failed mid-approval')
+  })
+
+  it('transitions to error when a failed turn completes with no pending items', () => {
+    const projector = new ManagedTerminalProviderProjector('claude')
+    projector.apply(baseEvents)
+    projector.apply([
+      {
+        createdAt: '2026-04-23T10:01:00.000Z',
+        provider: 'claude',
+        turnId: 'turn-1',
+        type: 'turn.started',
+      },
+      {
+        createdAt: '2026-04-23T10:01:20.000Z',
+        errorMessage: 'Turn crashed',
+        provider: 'claude',
+        state: 'failed',
+        turnId: 'turn-1',
+        type: 'turn.completed',
+      },
+    ])
+
+    const snapshot = projector.getSnapshot()
+    expect(snapshot.sessionState).toBe('error')
+    expect(snapshot.lastError).toBe('Turn crashed')
   })
 })

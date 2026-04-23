@@ -21,6 +21,7 @@ export type ManagedSessionContentKind =
   | 'command-output'
   | 'file-change-output'
   | 'system'
+  | 'user-prompt'
 
 export interface ManagedSessionConfig {
   cwd: string
@@ -30,10 +31,25 @@ export interface ManagedSessionConfig {
   workspaceId: string
 }
 
+export type ManagedSessionTurnState =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted'
+
+export interface ManagedSessionTurnSummary {
+  completedAt: string | null
+  id: string
+  startedAt: string
+  state: ManagedSessionTurnState
+}
+
 export interface ManagedSessionContentItem {
   id: string
   kind: ManagedSessionContentKind
   text: string
+  turnId: string | null
   updatedAt: string
 }
 
@@ -74,6 +90,7 @@ export interface ManagedSessionSnapshot {
   running: boolean
   sessionId: string
   sessionState: ManagedProviderRuntimeSessionState
+  turns: ManagedSessionTurnSummary[]
   updatedAt: string
   workspaceId: string
 }

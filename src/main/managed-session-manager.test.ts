@@ -99,12 +99,40 @@ describe('ManagedSessionManager', () => {
 
     const snapshot = manager.getSnapshots()[config.sessionId]
 
-    expect(snapshot.content).toHaveLength(1)
+    expect(snapshot.content).toHaveLength(2)
     expect(snapshot.content[0]).toMatchObject({
+      kind: 'user-prompt',
+      text: 'build preview',
+    })
+    expect(snapshot.content[0]?.turnId).toBeTruthy()
+    expect(snapshot.content[1]).toMatchObject({
       kind: 'assistant-text',
       text: 'Handled: build preview',
     })
+    expect(snapshot.content[1]?.turnId).toBe(snapshot.content[0]?.turnId)
     expect(snapshot.lastCompletedAt).toBe('2026-04-11T10:00:00.000Z')
     expect(snapshot.sessionState).toBe('ready')
+  })
+
+  it('tracks turn summaries through the snapshot', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    const config = createConfig('claude')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'hello')
+
+    const snapshot = manager.getSnapshots()[config.sessionId]
+
+    expect(snapshot.turns).toHaveLength(1)
+    expect(snapshot.turns[0]).toMatchObject({
+      state: 'completed',
+      startedAt: '2026-04-11T10:00:00.000Z',
+      completedAt: '2026-04-11T10:00:00.000Z',
+    })
+    expect(snapshot.turns[0]?.id).toBeTruthy()
   })
 })

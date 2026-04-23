@@ -441,7 +441,12 @@ export class ManagedTerminalProviderProjector {
           } else {
             this.lastError = event.errorMessage ?? `Turn ${event.state}`
             this.lastErrorAt = event.createdAt
-            this.sessionState = 'error'
+            if (
+              this.pendingApprovals.size === 0 &&
+              this.pendingUserInputs.size === 0
+            ) {
+              this.sessionState = 'error'
+            }
           }
           break
         case 'request.opened':

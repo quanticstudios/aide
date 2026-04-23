@@ -102,7 +102,6 @@ export default function TerminalPane({
       return
     }
 
-    safeFit(fitAddon)
     setError(null)
     terminal.clear()
 
@@ -221,6 +220,10 @@ export default function TerminalPane({
     })
 
     const resizeObserver = new ResizeObserver(() => {
+      if (container.clientHeight <= 0 || container.clientWidth <= 0) {
+        return
+      }
+
       safeFit(fitAddon)
       void aideApi.resizeTerminalSession(sessionId, {
         cols: terminal.cols,

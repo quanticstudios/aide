@@ -25,7 +25,6 @@ import {
   validateExecutablePath,
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
-import { focusHyprlandStartupWorkspace } from './hyprland'
 import { ManagedSessionManager } from './managed-session-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
@@ -63,6 +62,9 @@ const terminalSessionManager = new TerminalSessionManager({
     }
   },
 })
+
+app.setName('aide')
+app.setAppUserModelId('aide')
 
 if (process.platform === 'linux') {
   process.env.LIBGL_ALWAYS_SOFTWARE ??= '1'
@@ -114,26 +116,11 @@ function createMainWindow(): BrowserWindow {
 
     didRevealWindow = true
 
-    void (async () => {
-      try {
-        await focusHyprlandStartupWorkspace()
-      } catch (error) {
-        console.warn(
-          'Unable to switch to the configured Hyprland workspace.',
-          error,
-        )
-      }
+    if (!window.isVisible()) {
+      window.show()
+    }
 
-      if (window.isDestroyed()) {
-        return
-      }
-
-      if (!window.isVisible()) {
-        window.show()
-      }
-
-      window.focus()
-    })()
+    window.focus()
   }
 
   window.once('ready-to-show', revealWindow)
