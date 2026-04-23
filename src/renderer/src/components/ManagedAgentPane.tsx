@@ -32,6 +32,13 @@ import type {
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import {
+  SLASH_COMMANDS,
+  type SlashCommand,
+  type SlashCommandContext,
+  extractSlashQuery,
+  filterSlashCommands,
+} from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
@@ -363,6 +370,7 @@ export default function ManagedAgentPane({
   const [draftInput, setDraftInput] = useState('')
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const startedSessionRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -574,6 +582,64 @@ export default function ManagedAgentPane({
     [snapshot?.content],
   )
 
+  const slashContext = useMemo<SlashCommandContext>(
+    () => ({
+      clearDraft: () => setDraftInput(''),
+      copyTranscript: async () => {
+        const text = (snapshot?.content ?? [])
+          .map((item) => {
+            if (item.kind === 'user-prompt') {
+              return `> ${item.text}`
+            }
+
+            return item.text
+          })
+          .join('\n\n')
+
+        if (text.length === 0) {
+          return
+        }
+
+        try {
+          await navigator.clipboard.writeText(text)
+        } catch {
+          // clipboard unavailable in some shells
+        }
+      },
+      interrupt: () => {
+        const api = getAideApi()
+        if (api) {
+          void api.interruptManagedSession(sessionId)
+        }
+      },
+      sessionState: snapshot?.sessionState,
+      setDraft: (text: string) => setDraftInput(text),
+    }),
+    [sessionId, snapshot?.content, snapshot?.sessionState],
+  )
+
+  const slashQuery = extractSlashQuery(draftInput)
+  const filteredSlashCommands = useMemo<SlashCommand[]>(
+    () =>
+      slashQuery === null
+        ? []
+        : filterSlashCommands(SLASH_COMMANDS, slashQuery, slashContext),
+    [slashContext, slashQuery],
+  )
+  const slashMenuOpen = filteredSlashCommands.length > 0 && slashQuery !== null
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: slashQuery is an intentional trigger even though it's not read in the effect body
+  useEffect(() => {
+    setSlashActiveIndex(0)
+  }, [slashQuery])
+
+  const runSlashCommand = useCallback(
+    async (command: SlashCommand) => {
+      await command.run(slashContext)
+    },
+    [slashContext],
+  )
+
   const runningTurnId = useMemo(
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
@@ -724,7 +790,48 @@ export default function ManagedAgentPane({
 
       <div className="border-t border-border/60 px-4 py-3">
         <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          <div className="flex gap-2">
+          <div className="relative flex gap-2">
+            {slashMenuOpen ? (
+              <div
+                className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-xl border border-border/70 bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.35)]"
+                data-testid="managed-slash-menu"
+              >
+                <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Slash commands
+                </div>
+                <ul className="max-h-60 overflow-y-auto p-1">
+                  {filteredSlashCommands.map((command, index) => {
+                    const isActive = index === slashActiveIndex
+
+                    return (
+                      <li key={command.id}>
+                        <button
+                          className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                            isActive
+                              ? 'bg-primary/12 text-foreground'
+                              : 'text-foreground/80 hover:bg-surface-secondary'
+                          }`}
+                          onClick={() => {
+                            void runSlashCommand(command)
+                          }}
+                          onMouseEnter={() => setSlashActiveIndex(index)}
+                          type="button"
+                        >
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate font-medium">
+                              {command.label}
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              {command.description}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ) : null}
             <TextArea
               aria-label={`${providerLabel} prompt`}
               className="flex-1"
@@ -732,6 +839,45 @@ export default function ManagedAgentPane({
                 setDraftInput(event.target.value)
               }
               onKeyDown={(event) => {
+                if (slashMenuOpen) {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault()
+                    setSlashActiveIndex(
+                      (index) => (index + 1) % filteredSlashCommands.length,
+                    )
+                    return
+                  }
+
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault()
+                    setSlashActiveIndex(
+                      (index) =>
+                        (index - 1 + filteredSlashCommands.length) %
+                        filteredSlashCommands.length,
+                    )
+                    return
+                  }
+
+                  if (
+                    event.key === 'Enter' &&
+                    !event.metaKey &&
+                    !event.ctrlKey
+                  ) {
+                    event.preventDefault()
+                    const command = filteredSlashCommands[slashActiveIndex]
+                    if (command) {
+                      void runSlashCommand(command)
+                    }
+                    return
+                  }
+
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    setDraftInput('')
+                    return
+                  }
+                }
+
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                   event.preventDefault()
                   if (isSubmitting || draftInput.trim().length === 0) {
@@ -740,7 +886,7 @@ export default function ManagedAgentPane({
                   void handleSendInput()
                 }
               }}
-              placeholder={`Send a prompt to ${providerLabel}...`}
+              placeholder={`Send a prompt to ${providerLabel}... (type / for commands)`}
               value={draftInput}
               variant="secondary"
             />
