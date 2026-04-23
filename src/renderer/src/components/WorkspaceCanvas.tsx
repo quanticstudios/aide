@@ -421,6 +421,42 @@ function renderLayoutNode(args: {
     )
   }
 
+  const resolvedChildren = args.node.children
+    .map((childId, index) => {
+      const childNode = args.nodeLookup.get(childId)
+
+      if (!childNode) {
+        return null
+      }
+
+      return {
+        childId,
+        node: childNode,
+        weight: args.node.sizeWeights[index] ?? 1,
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+
+  if (resolvedChildren.length === 0) {
+    return null
+  }
+
+  if (resolvedChildren.length === 1) {
+    const only = resolvedChildren[0]
+    if (!only) {
+      return null
+    }
+
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1" key={args.node.id}>
+        {renderLayoutNode({
+          ...args,
+          node: only.node,
+        })}
+      </div>
+    )
+  }
+
   return (
     <section
       className={cn(
@@ -429,30 +465,22 @@ function renderLayoutNode(args: {
       )}
       key={args.node.id}
     >
-      {args.node.children.map((childId, index) => {
-        const childNode = args.nodeLookup.get(childId)
-
-        if (!childNode) {
-          return null
-        }
-
-        return (
-          <div
-            className="flex min-h-0 min-w-0"
-            key={childId}
-            style={{
-              flexBasis: 0,
-              flexGrow: args.node.sizeWeights[index] ?? 1,
-              flexShrink: 1,
-            }}
-          >
-            {renderLayoutNode({
-              ...args,
-              node: childNode,
-            })}
-          </div>
-        )
-      })}
+      {resolvedChildren.map((entry) => (
+        <div
+          className="flex min-h-0 min-w-0"
+          key={entry.childId}
+          style={{
+            flexBasis: 0,
+            flexGrow: entry.weight,
+            flexShrink: 1,
+          }}
+        >
+          {renderLayoutNode({
+            ...args,
+            node: entry.node,
+          })}
+        </div>
+      ))}
     </section>
   )
 }

@@ -1155,6 +1155,16 @@ export default function App() {
         dispatchShortcut({ type: 'workspace-next' })
       }
 
+      if (isAltChord && isWorkspaceSwitcherVisible && normalizedKey === 'k') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-previous' })
+      }
+
+      if (isAltChord && isWorkspaceSwitcherVisible && normalizedKey === 'j') {
+        event.preventDefault()
+        dispatchShortcut({ type: 'workspace-next' })
+      }
+
       if (
         (isAltChord && event.key === 'ArrowLeft') ||
         (normalizedKey === 'h' && isAltChord) ||
@@ -1187,16 +1197,7 @@ export default function App() {
   ])
 
   useEffect(() => {
-    const HOLD_MS = 250
-    let showTimer: number | null = null
     let openedByHold = false
-
-    const cancelTimer = () => {
-      if (showTimer !== null) {
-        window.clearTimeout(showTimer)
-        showTimer = null
-      }
-    }
 
     const handleAltDown = (event: KeyboardEvent) => {
       if (
@@ -1208,32 +1209,20 @@ export default function App() {
         return
       }
 
-      if (event.repeat) {
+      if (event.repeat || openedByHold) {
         return
       }
 
-      cancelTimer()
-      showTimer = window.setTimeout(() => {
-        showTimer = null
-        openedByHold = true
-        setIsCommandPaletteOpen(false)
-        setIsOverviewVisible(false)
-        setIsWorkspaceSwitcherVisible(true)
-      }, HOLD_MS)
-    }
-
-    const handleOtherDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Alt' && showTimer !== null) {
-        cancelTimer()
-      }
+      openedByHold = true
+      setIsCommandPaletteOpen(false)
+      setIsOverviewVisible(false)
+      setIsWorkspaceSwitcherVisible(true)
     }
 
     const handleAltUp = (event: KeyboardEvent) => {
       if (event.key !== 'Alt') {
         return
       }
-
-      cancelTimer()
 
       if (openedByHold) {
         openedByHold = false
@@ -1242,7 +1231,6 @@ export default function App() {
     }
 
     const handleBlur = () => {
-      cancelTimer()
       if (openedByHold) {
         openedByHold = false
         setIsWorkspaceSwitcherVisible(false)
@@ -1250,14 +1238,11 @@ export default function App() {
     }
 
     window.addEventListener('keydown', handleAltDown, true)
-    window.addEventListener('keydown', handleOtherDown, true)
     window.addEventListener('keyup', handleAltUp, true)
     window.addEventListener('blur', handleBlur)
 
     return () => {
-      cancelTimer()
       window.removeEventListener('keydown', handleAltDown, true)
-      window.removeEventListener('keydown', handleOtherDown, true)
       window.removeEventListener('keyup', handleAltUp, true)
       window.removeEventListener('blur', handleBlur)
     }
