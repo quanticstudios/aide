@@ -1150,17 +1150,7 @@ export default function App() {
         dispatchShortcut({ type: 'workspace-previous' })
       }
 
-      if (isAltChord && normalizedKey === 'k') {
-        event.preventDefault()
-        dispatchShortcut({ type: 'workspace-previous' })
-      }
-
       if (isAltChord && event.key === 'ArrowDown') {
-        event.preventDefault()
-        dispatchShortcut({ type: 'workspace-next' })
-      }
-
-      if (isAltChord && normalizedKey === 'j') {
         event.preventDefault()
         dispatchShortcut({ type: 'workspace-next' })
       }

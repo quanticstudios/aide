@@ -104,11 +104,11 @@ export function mapShortcutInputToAppEvent(
     return { type: 'pane-next' }
   }
 
-  if (isAltOnly && matchesDirectionalShortcut(input, 'up')) {
+  if (isAltOnly && (input.key === 'ArrowUp' || input.key === 'Up')) {
     return { type: 'workspace-previous' }
   }
 
-  if (isAltOnly && matchesDirectionalShortcut(input, 'down')) {
+  if (isAltOnly && (input.key === 'ArrowDown' || input.key === 'Down')) {
     return { type: 'workspace-next' }
   }
 

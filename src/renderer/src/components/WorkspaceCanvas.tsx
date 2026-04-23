@@ -423,9 +423,45 @@ function renderLayoutNode(args: {
     )
   }
 
+  const resolvedChildren = args.node.children
+    .map((childId, index) => {
+      const childNode = args.nodeLookup.get(childId)
+
+      if (!childNode) {
+        return null
+      }
+
+      return {
+        childId,
+        node: childNode,
+        weight: args.node.sizeWeights[index] ?? 1,
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+
+  if (resolvedChildren.length === 0) {
+    return null
+  }
+
+  if (resolvedChildren.length === 1) {
+    const only = resolvedChildren[0]
+    if (!only) {
+      return null
+    }
+
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1" key={args.node.id}>
+        {renderLayoutNode({
+          ...args,
+          node: only.node,
+        })}
+      </div>
+    )
+  }
+
   const totalWeight =
-    args.node.sizeWeights.reduce((sum, weight) => sum + (weight ?? 1), 0) ||
-    args.node.children.length
+    resolvedChildren.reduce((sum, entry) => sum + entry.weight, 0) ||
+    resolvedChildren.length
 
   return (
     <Resizable
@@ -436,24 +472,17 @@ function renderLayoutNode(args: {
         args.node.type === 'split-horizontal' ? 'horizontal' : 'vertical'
       }
     >
-      {args.node.children.map((childId, index) => {
-        const childNode = args.nodeLookup.get(childId)
-
-        if (!childNode) {
-          return null
-        }
-
-        const weight = args.node.sizeWeights[index] ?? 1
-        const defaultSize = Math.max(5, (weight / totalWeight) * 100)
+      {resolvedChildren.map((entry, index) => {
+        const defaultSize = Math.max(5, (entry.weight / totalWeight) * 100)
 
         return (
-          <Fragment key={childId}>
+          <Fragment key={entry.childId}>
             {index > 0 ? <Resizable.Handle withIndicator /> : null}
             <Resizable.Panel defaultSize={defaultSize} minSize={10}>
               <div className="flex h-full min-h-0 min-w-0 flex-1">
                 {renderLayoutNode({
                   ...args,
-                  node: childNode,
+                  node: entry.node,
                 })}
               </div>
             </Resizable.Panel>

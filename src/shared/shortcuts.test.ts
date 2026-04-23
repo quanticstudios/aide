@@ -69,6 +69,20 @@ describe('mapShortcutInputToAppEvent', () => {
       mapShortcutInputToAppEvent(createInput({ key: 'x', code: 'KeyX' })),
     ).toBeNull()
   })
+
+  it('does not claim Alt+J or Alt+K so Hyprland can handle workspace switching', () => {
+    expect(
+      mapShortcutInputToAppEvent(
+        createInput({ alt: true, code: 'KeyJ', key: 'j' }),
+      ),
+    ).toBeNull()
+
+    expect(
+      mapShortcutInputToAppEvent(
+        createInput({ alt: true, code: 'KeyK', key: 'k' }),
+      ),
+    ).toBeNull()
+  })
 })
 
 describe('shouldBlockTerminalShortcutInput', () => {

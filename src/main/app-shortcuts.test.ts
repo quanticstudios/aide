@@ -37,7 +37,7 @@ describe('mapInputToShortcutEvent', () => {
     ).toEqual({ type: 'pane-next' })
   })
 
-  it('maps Alt+j/k and Alt+arrow keys to workspace navigation', () => {
+  it('maps Alt+arrow keys (but not Alt+j/k) to workspace navigation', () => {
     expect(
       mapInputToShortcutEvent({
         alt: true,
@@ -46,7 +46,17 @@ describe('mapInputToShortcutEvent', () => {
         key: 'j',
         meta: false,
       }),
-    ).toEqual({ type: 'workspace-next' })
+    ).toBeNull()
+
+    expect(
+      mapInputToShortcutEvent({
+        alt: true,
+        code: 'KeyK',
+        control: false,
+        key: 'k',
+        meta: false,
+      }),
+    ).toBeNull()
 
     expect(
       mapInputToShortcutEvent({
@@ -57,6 +67,16 @@ describe('mapInputToShortcutEvent', () => {
         meta: false,
       }),
     ).toEqual({ type: 'workspace-previous' })
+
+    expect(
+      mapInputToShortcutEvent({
+        alt: true,
+        code: 'ArrowDown',
+        control: false,
+        key: 'ArrowDown',
+        meta: false,
+      }),
+    ).toEqual({ type: 'workspace-next' })
   })
 
   it('maps Ctrl+digit to project jump', () => {
