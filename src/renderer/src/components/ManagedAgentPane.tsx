@@ -6,6 +6,8 @@ import {
   Brain,
   ChevronDown,
   CirclePause,
+  Clipboard,
+  ClipboardCheck,
   FileCode,
   LoaderCircle,
   Plug,
@@ -260,6 +262,85 @@ function ContentItemBlock({
         {item.text}
       </pre>
     </Surface>
+  )
+}
+
+function TurnGroupBlock({
+  group,
+  isRunning,
+  providerLabel,
+}: {
+  readonly group: TurnGroup
+  readonly isRunning: boolean
+  readonly providerLabel: string
+}) {
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleCopy = useCallback(async () => {
+    const text = group.items
+      .map((item) => {
+        if (item.kind === 'user-prompt') {
+          return `> ${item.text}`
+        }
+
+        return item.text
+      })
+      .join('\n\n')
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current)
+      }
+
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied(false)
+      }, 1500)
+    } catch {
+      // ignore copy failure; clipboard may be unavailable in the shell
+    }
+  }, [group.items])
+
+  return (
+    <div className="group/turn relative space-y-2">
+      {group.items.map((item) => (
+        <ContentItemBlock item={item} key={`${item.kind}:${item.id}`} />
+      ))}
+      {isRunning ? (
+        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <LoaderCircle className="size-3 animate-spin text-primary" />
+          {providerLabel} is working...
+        </div>
+      ) : null}
+      {group.items.length > 0 ? (
+        <div className="pointer-events-none absolute right-0 top-0 opacity-0 transition-opacity group-hover/turn:pointer-events-auto group-hover/turn:opacity-100">
+          <button
+            aria-label={copied ? 'Copied turn' : 'Copy turn'}
+            className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+            onClick={() => void handleCopy()}
+            type="button"
+          >
+            {copied ? (
+              <ClipboardCheck className="size-3" />
+            ) : (
+              <Clipboard className="size-3" />
+            )}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -558,23 +639,14 @@ export default function ManagedAgentPane({
         {turnGroups.length > 0 ? (
           <div className="mx-auto max-w-3xl space-y-4">
             {turnGroups.map((group) => (
-              <div
-                className="space-y-2"
+              <TurnGroupBlock
+                group={group}
+                isRunning={
+                  group.turnId !== null && group.turnId === runningTurnId
+                }
                 key={group.turnId ?? `system-${group.items[0]?.id}`}
-              >
-                {group.items.map((item) => (
-                  <ContentItemBlock
-                    item={item}
-                    key={`${item.kind}:${item.id}`}
-                  />
-                ))}
-                {group.turnId !== null && group.turnId === runningTurnId ? (
-                  <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-                    <LoaderCircle className="size-3 animate-spin text-primary" />
-                    {providerLabel} is working...
-                  </div>
-                ) : null}
-              </div>
+                providerLabel={providerLabel}
+              />
             ))}
 
             {snapshot?.pendingApprovals.map((approval) => (
