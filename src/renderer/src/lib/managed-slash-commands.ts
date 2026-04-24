@@ -18,7 +18,8 @@ export interface SlashCommand {
 
 const HELP_TEXT = [
   'Keybindings:',
-  '• Ctrl/Cmd+Enter — send prompt',
+  '• Enter — send prompt',
+  '• Shift+Enter — new line',
   '• / — open this slash-command menu',
   '• Esc — dismiss menus and modals',
   '• Cmd/Ctrl+K — command palette',

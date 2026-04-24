@@ -4,9 +4,13 @@ import {
   type WorkspaceActivitySnapshot,
   compareWorkspaceActivityPriority,
   formatWorkspaceActivityLabel,
+  formatWorkspaceActivityPillLabel,
   resolveAggregateWorkspaceActivity,
   resolveWorkspaceActivityAccentClassName,
+  resolveWorkspaceActivityBorderColorClassName,
   resolveWorkspaceActivityDotClassName,
+  resolveWorkspaceActivityPillClassName,
+  resolveWorkspaceAttentionTier,
   shouldPulseWorkspaceActivity,
 } from './workspace-activity'
 
@@ -89,6 +93,109 @@ describe('workspace activity helpers', () => {
     )
     expect(shouldPulseWorkspaceActivity(createActivity('completed'))).toBe(
       false,
+    )
+  })
+
+  it('classifies attention tiers by user-action urgency', () => {
+    expect(resolveWorkspaceAttentionTier(createActivity('error'))).toBe(
+      'attention',
+    )
+    expect(
+      resolveWorkspaceAttentionTier(createActivity('pending-approval')),
+    ).toBe('attention')
+    expect(
+      resolveWorkspaceAttentionTier(createActivity('awaiting-input')),
+    ).toBe('attention')
+    expect(resolveWorkspaceAttentionTier(createActivity('working'))).toBe(
+      'active',
+    )
+    expect(resolveWorkspaceAttentionTier(createActivity('connecting'))).toBe(
+      'active',
+    )
+    expect(
+      resolveWorkspaceAttentionTier(createActivity('terminal-running')),
+    ).toBe('active')
+    expect(resolveWorkspaceAttentionTier(createActivity('completed'))).toBe(
+      'idle',
+    )
+    expect(resolveWorkspaceAttentionTier(null)).toBe('idle')
+    expect(resolveWorkspaceAttentionTier(undefined)).toBe('idle')
+  })
+
+  it('formats compact pill labels', () => {
+    expect(formatWorkspaceActivityPillLabel(createActivity('working'))).toBe(
+      'Claude Working',
+    )
+    expect(
+      formatWorkspaceActivityPillLabel(createActivity('pending-approval')),
+    ).toBe('Claude Approval')
+    expect(
+      formatWorkspaceActivityPillLabel(createActivity('awaiting-input')),
+    ).toBe('Claude Input')
+    expect(formatWorkspaceActivityPillLabel(createActivity('completed'))).toBe(
+      'Claude Done',
+    )
+    expect(
+      formatWorkspaceActivityPillLabel(
+        createActivity('terminal-running', {
+          provider: 'terminal',
+          source: 'fallback',
+        }),
+      ),
+    ).toBe('Running')
+  })
+
+  it('returns pill class triples matching activity state', () => {
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('error')),
+    ).toContain('text-red-400')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('pending-approval')),
+    ).toContain('text-amber-400')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('working')),
+    ).toContain('text-sky-400')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('completed')),
+    ).toContain('text-emerald-300')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('awaiting-input')),
+    ).toContain('text-indigo-300')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('connecting')),
+    ).toContain('text-sky-300')
+    expect(
+      resolveWorkspaceActivityPillClassName(createActivity('terminal-running')),
+    ).toContain('text-emerald-300')
+  })
+
+  it('returns border-l color classes per activity state', () => {
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(createActivity('error')),
+    ).toBe('border-l-red-400')
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(
+        createActivity('pending-approval'),
+      ),
+    ).toBe('border-l-amber-400')
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(createActivity('working')),
+    ).toBe('border-l-sky-400')
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(
+        createActivity('connecting'),
+      ),
+    ).toBe('border-l-sky-300')
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(
+        createActivity('awaiting-input'),
+      ),
+    ).toBe('border-l-indigo-300')
+    expect(
+      resolveWorkspaceActivityBorderColorClassName(createActivity('completed')),
+    ).toBe('border-l-emerald-300')
+    expect(resolveWorkspaceActivityBorderColorClassName(null)).toBe(
+      'border-l-transparent',
     )
   })
 })

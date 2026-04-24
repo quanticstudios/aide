@@ -3,7 +3,7 @@ import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
 } from '../shared/provider-runtime'
-import type { TerminalLaunchMode } from '../shared/terminal'
+import type { ManagedSessionMode } from '../shared/terminal'
 
 export type ManagedSessionRuntimeState = ManagedProviderRuntimeSessionState
 
@@ -33,10 +33,7 @@ interface PendingRequestState {
 
 const MAX_BUFFER_LENGTH = 16_000
 
-const PROVIDER_PATTERNS: Record<
-  Exclude<TerminalLaunchMode, 'shell'>,
-  ProviderPatternSet
-> = {
+const PROVIDER_PATTERNS: Record<ManagedSessionMode, ProviderPatternSet> = {
   claude: {
     approval: [
       /\bapproval required\b/i,
@@ -109,7 +106,7 @@ export class ManagedTerminalProviderAdapter {
 
   public constructor(
     private readonly provider: ManagedProviderRuntimeProvider,
-    private readonly mode: Exclude<TerminalLaunchMode, 'shell'>,
+    private readonly mode: ManagedSessionMode,
   ) {}
 
   public createSessionStartEvents(

@@ -2,7 +2,7 @@ import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
 } from './provider-runtime'
-import type { TerminalLaunchMode } from './terminal'
+import type { ManagedSessionMode } from './terminal'
 
 export type ManagedSessionProvider = ManagedProviderRuntimeProvider
 
@@ -25,7 +25,7 @@ export type ManagedSessionContentKind =
 
 export interface ManagedSessionConfig {
   cwd: string
-  mode: Exclude<TerminalLaunchMode, 'shell'>
+  mode: ManagedSessionMode
   paneId: string
   sessionId: string
   workspaceId: string
@@ -41,6 +41,7 @@ export type ManagedSessionTurnState =
 export interface ManagedSessionTurnSummary {
   completedAt: string | null
   id: string
+  provider: ManagedSessionProvider
   startedAt: string
   state: ManagedSessionTurnState
 }
@@ -48,6 +49,7 @@ export interface ManagedSessionTurnSummary {
 export interface ManagedSessionContentItem {
   id: string
   kind: ManagedSessionContentKind
+  provider: ManagedSessionProvider | null
   text: string
   turnId: string | null
   updatedAt: string

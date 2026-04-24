@@ -1,9 +1,11 @@
 import { Chip, Description, Kbd, Label, ListBox, Surface } from '@heroui/react'
 import type { Key } from 'react'
+import { useMemo } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import { compareWorkspacesByAttentionTier } from '../../../shared/workspace-activity'
 import WorkspaceStateBadges from './WorkspaceStateBadges'
 
 interface WorkspaceSwitcherOverlayProps {
@@ -35,6 +37,19 @@ export default function WorkspaceSwitcherOverlay({
     onSelectWorkspace(workspaceId)
     onRequestClose?.()
   }
+
+  const sortedWorkspaces = useMemo(
+    () =>
+      [...workspaces].sort((a, b) =>
+        compareWorkspacesByAttentionTier(
+          summaries[a.id]?.activity ?? null,
+          a.updatedAt,
+          summaries[b.id]?.activity ?? null,
+          b.updatedAt,
+        ),
+      ),
+    [workspaces, summaries],
+  )
 
   const isOverviewMode = mode === 'overview'
   const overlayTitle = isOverviewMode ? 'Overview' : 'Workspace switcher'
@@ -145,7 +160,7 @@ export default function WorkspaceSwitcherOverlay({
           selectedKeys={new Set(activeWorkspaceId ? [activeWorkspaceId] : [])}
           selectionMode="single"
         >
-          {workspaces.map((workspace, index) => (
+          {sortedWorkspaces.map((workspace, index) => (
             <ListBox.Item
               className="rounded-xl border border-border/80 bg-surface px-3 py-2 text-muted-foreground transition-all data-[focused=true]:border-primary/45 data-[selected=true]:border-primary/60 data-[selected=true]:bg-surface-tertiary data-[selected=true]:text-foreground data-[selected=true]:shadow-[var(--surface-shadow)]"
               id={workspace.id}

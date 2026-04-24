@@ -1,7 +1,7 @@
 import { Button, Modal, Surface } from '@heroui/react'
 import { useCallback, useEffect, useState } from 'react'
 
-import { listPaneCatalogEntries } from '@/lib/pane-catalog'
+import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 
 const COLUMNS = 2
 
@@ -16,7 +16,7 @@ export default function PaneCreationModal({
   onCreatePane,
   onOpenChange,
 }: PaneCreationModalProps) {
-  const paneOptions = listPaneCatalogEntries()
+  const paneOptions = listCreatablePaneCatalogEntries()
   const [focusedIndex, setFocusedIndex] = useState(0)
 
   useEffect(() => {

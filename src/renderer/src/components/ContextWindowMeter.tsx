@@ -43,10 +43,6 @@ export default function ContextWindowMeter({ usage }: ContextWindowMeterProps) {
       ? (total / usage.maxTokens) * 100
       : null
 
-  const normalized = Math.max(0, Math.min(100, percentage ?? 0))
-  const radius = 9.75
-  const circumference = 2 * Math.PI * radius
-  const dashOffset = circumference - (normalized / 100) * circumference
   const label = formatPercentage(percentage)
 
   const title = usage.maxTokens
@@ -56,38 +52,10 @@ export default function ContextWindowMeter({ usage }: ContextWindowMeterProps) {
   return (
     <span
       aria-label={title}
-      className="relative inline-flex h-6 w-6 items-center justify-center"
+      className="inline-flex items-center justify-center rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-primary"
       title={title}
     >
-      <svg
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full -rotate-90 transform-gpu"
-        viewBox="0 0 24 24"
-      >
-        <circle
-          cx="12"
-          cy="12"
-          fill="none"
-          r={radius}
-          stroke="color-mix(in oklab, var(--color-muted) 70%, transparent)"
-          strokeWidth="3"
-        />
-        <circle
-          className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
-          cx="12"
-          cy="12"
-          fill="none"
-          r={radius}
-          stroke="var(--color-muted-foreground)"
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          strokeLinecap="round"
-          strokeWidth="3"
-        />
-      </svg>
-      <span className="relative flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-background px-0.5 text-[8px] font-medium text-muted-foreground">
-        {label ?? formatTokens(total)}
-      </span>
+      {label ?? formatTokens(total)}
     </span>
   )
 }

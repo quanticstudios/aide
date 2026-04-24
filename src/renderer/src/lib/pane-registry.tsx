@@ -14,7 +14,7 @@ import {
   type ResolvedPaneMetadata,
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
-  listPaneCatalogEntries,
+  listAllPaneCatalogEntries,
   resolvePaneMetadata,
   resolvePaneType,
   resolveTerminalLaunchModeForPaneId,
@@ -33,7 +33,7 @@ interface PaneRenderArgs {
 }
 
 export interface PaneRegistryEntry {
-  readonly type: ReturnType<typeof listPaneCatalogEntries>[number]['type']
+  readonly type: ReturnType<typeof listAllPaneCatalogEntries>[number]['type']
   render: (args: PaneRenderArgs) => ReactNode
 }
 
@@ -77,7 +77,7 @@ const gitRenderer = (args: PaneRenderArgs): ReactNode => (
   />
 )
 
-const paneRegistryEntries = listPaneCatalogEntries().map((entry) => ({
+const paneRegistryEntries = listAllPaneCatalogEntries().map((entry) => ({
   render:
     entry.type === 'terminal'
       ? terminalRenderer

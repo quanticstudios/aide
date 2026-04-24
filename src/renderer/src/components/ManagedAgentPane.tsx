@@ -1,22 +1,21 @@
-import { Button, Chip, Surface, TextArea } from '@heroui/react'
+import { Button, Surface, TextArea } from '@heroui/react'
 import {
   ArrowDown,
-  Bot,
+  ArrowUp,
   Brain,
   ChevronDown,
   CirclePause,
   Clipboard,
   ClipboardCheck,
   FileCode,
+  FolderOpen,
   GitBranch,
   LoaderCircle,
-  Plug,
   RefreshCw,
-  Send,
-  Sparkles,
   Terminal,
   User,
 } from 'lucide-react'
+
 import {
   useCallback,
   useEffect,
@@ -26,6 +25,7 @@ import {
   useState,
 } from 'react'
 import type { ChangeEvent } from 'react'
+import MarkdownContent from './MarkdownContent'
 
 import type { AideApi } from '../../../shared/ipc'
 import type {
@@ -33,6 +33,7 @@ import type {
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import {
   SLASH_COMMANDS,
@@ -45,6 +46,7 @@ import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedPendingUserInputPanel from './ManagedPendingUserInputPanel'
+import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 
 interface ManagedAgentPaneProps {
@@ -59,9 +61,6 @@ function getAideApi(): AideApi | null {
 
   return window.aide ?? null
 }
-
-const isMac =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -94,25 +93,25 @@ function formatSessionState(snapshot: ManagedSessionSnapshot | null): string {
   }
 }
 
-function getSessionStateClassName(
+function getSessionStateDotColor(
   snapshot: ManagedSessionSnapshot | null,
 ): string {
   if (!snapshot) {
-    return 'border-primary/40 bg-primary/10 text-primary'
+    return 'bg-primary'
   }
 
   switch (snapshot.sessionState) {
     case 'waiting':
-      return snapshot.pendingApprovals.length > 0
-        ? 'border-warning/40 bg-warning/10 text-warning'
-        : 'border-secondary/40 bg-secondary/10 text-secondary'
+      return 'bg-amber-400'
     case 'running':
     case 'connecting':
-      return 'border-primary/40 bg-primary/10 text-primary'
+      return 'bg-primary'
     case 'error':
-      return 'border-danger/40 bg-danger/10 text-danger'
+      return 'bg-red-400'
+    case 'ready':
+      return 'bg-emerald-400'
     default:
-      return 'border-success/40 bg-success/10 text-success'
+      return 'bg-muted-foreground'
   }
 }
 
@@ -254,7 +253,7 @@ function ContentItemBlock({
   if (item.kind === 'system') {
     return (
       <p
-        className="px-1 text-xs text-muted-foreground/60"
+        className="py-2 text-center text-xs italic text-muted-foreground/60"
         data-testid={`managed-content-${item.kind}`}
       >
         {item.text}
@@ -263,61 +262,9 @@ function ContentItemBlock({
   }
 
   return (
-    <Surface
-      className="rounded-xl border border-border/40 px-4 py-3"
-      data-testid={`managed-content-${item.kind}`}
-      variant="secondary"
-    >
-      <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-        {item.text}
-      </pre>
-    </Surface>
-  )
-}
-
-function GitBranchChip({
-  info,
-}: {
-  readonly info: {
-    aheadCount: number | null
-    behindCount: number | null
-    branchName: string | null
-    dirtyCount: number | null
-  }
-}) {
-  if (!info.branchName) {
-    return null
-  }
-
-  const ahead = info.aheadCount ?? 0
-  const behind = info.behindCount ?? 0
-  const dirty = info.dirtyCount ?? 0
-  const hasCounts = ahead > 0 || behind > 0 || dirty > 0
-
-  const titleSegments = [`Branch: ${info.branchName}`]
-
-  if (ahead > 0) titleSegments.push(`${ahead} ahead`)
-  if (behind > 0) titleSegments.push(`${behind} behind`)
-  if (dirty > 0)
-    titleSegments.push(`${dirty} dirty file${dirty === 1 ? '' : 's'}`)
-
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-surface-secondary px-2 py-0.5 text-[10px] text-muted-foreground"
-      title={titleSegments.join(' · ')}
-    >
-      <GitBranch className="size-3" />
-      <span className="max-w-[12rem] truncate font-mono">
-        {info.branchName}
-      </span>
-      {hasCounts ? (
-        <span className="flex items-center gap-1 tabular-nums">
-          {ahead > 0 ? <span className="text-success">↑{ahead}</span> : null}
-          {behind > 0 ? <span className="text-warning">↓{behind}</span> : null}
-          {dirty > 0 ? <span className="text-primary">●{dirty}</span> : null}
-        </span>
-      ) : null}
-    </span>
+    <div className="px-1" data-testid={`managed-content-${item.kind}`}>
+      <MarkdownContent text={item.text} />
+    </div>
   )
 }
 
@@ -431,6 +378,19 @@ export default function ManagedAgentPane({
     () => resolveTerminalLaunchModeForPaneId(paneId),
     [paneId],
   )
+  const isUnifiedPane = terminalMode === 'agent'
+  const [selectedProvider, setSelectedProvider] = useState<ManagedSessionMode>(
+    () => {
+      if (terminalMode === 'claude' || terminalMode === 'codex') {
+        return terminalMode
+      }
+      const stored = localStorage.getItem(
+        `aide:workspace:${workspace.id}:provider`,
+      )
+      if (stored === 'claude' || stored === 'codex') return stored
+      return 'claude'
+    },
+  )
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
@@ -442,14 +402,11 @@ export default function ManagedAgentPane({
   const [isAtBottom, setIsAtBottom] = useState(true)
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
-  const providerLabel =
-    terminalMode === 'claude'
-      ? 'Claude'
-      : terminalMode === 'codex'
-        ? 'Codex'
-        : 'Managed'
+  const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
 
   const loadOrCreateSession = useCallback(async () => {
+    if (startedSessionRef.current) return
+
     const api = getAideApi()
 
     if (!api || terminalMode === 'shell') {
@@ -463,13 +420,16 @@ export default function ManagedAgentPane({
 
       if (existing) {
         setSnapshot(existing)
+        if (isUnifiedPane) {
+          setSelectedProvider(existing.provider as ManagedSessionMode)
+        }
         startedSessionRef.current = true
         return
       }
 
       const created = await api.createManagedSession({
         cwd: workspace.worktreePath || '~',
-        mode: terminalMode,
+        mode: selectedProvider,
         paneId,
         sessionId,
         workspaceId: workspace.id,
@@ -480,7 +440,15 @@ export default function ManagedAgentPane({
     } catch (sessionError) {
       setError(getErrorMessage(sessionError))
     }
-  }, [paneId, sessionId, terminalMode, workspace.id, workspace.worktreePath])
+  }, [
+    isUnifiedPane,
+    paneId,
+    selectedProvider,
+    sessionId,
+    terminalMode,
+    workspace.id,
+    workspace.worktreePath,
+  ])
 
   useEffect(() => {
     void loadOrCreateSession()
@@ -585,6 +553,27 @@ export default function ManagedAgentPane({
       await sendPromptText(text)
     },
     [sendPromptText],
+  )
+
+  const handleProviderSwitch = useCallback(
+    async (newMode: ManagedSessionMode) => {
+      if (newMode === selectedProvider) return
+      const api = getAideApi()
+      if (!api || !startedSessionRef.current) return
+
+      try {
+        const updated = await api.switchManagedSessionProvider(
+          sessionId,
+          newMode,
+        )
+        setSnapshot(updated)
+        setSelectedProvider(newMode)
+        localStorage.setItem(`aide:workspace:${workspace.id}:provider`, newMode)
+      } catch (switchError) {
+        setError(getErrorMessage(switchError))
+      }
+    },
+    [selectedProvider, sessionId, workspace.id],
   )
 
   const handleResolveApproval = useCallback(
@@ -732,29 +721,11 @@ export default function ManagedAgentPane({
       data-testid="managed-agent-pane"
     >
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold tracking-tight text-foreground">
-            {providerLabel}
-          </h2>
-          <Chip
-            className={getSessionStateClassName(snapshot)}
-            size="sm"
-            variant="secondary"
-          >
-            {formatSessionState(snapshot)}
-          </Chip>
-          {snapshot?.detail ? (
-            <span className="text-xs text-muted-foreground">
-              {snapshot.detail}
-            </span>
-          ) : null}
-        </div>
+        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+          {isUnifiedPane ? 'Agent' : providerLabel}
+        </h2>
 
         <div className="flex items-center gap-2">
-          <GitBranchChip info={gitInfo} />
-          {snapshot?.usage ? (
-            <ContextWindowMeter usage={snapshot.usage} />
-          ) : null}
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
             isDisabled={!snapshot || snapshot.sessionState !== 'running'}
@@ -803,28 +774,6 @@ export default function ManagedAgentPane({
               />
             ))}
 
-            {snapshot?.pendingApprovals.map((approval) => (
-              <ManagedPendingApprovalPanel
-                approval={approval}
-                key={approval.id}
-                onResolve={(requestId, decision) =>
-                  void handleResolveApproval(requestId, decision)
-                }
-              />
-            ))}
-
-            {snapshot?.pendingUserInputs.map((request) => (
-              <ManagedPendingUserInputPanel
-                answers={draftAnswers[request.id] ?? {}}
-                key={request.id}
-                onAnswerChange={(questionId, value) =>
-                  handleDraftAnswerChange(request.id, questionId, value)
-                }
-                onSubmit={(requestId) => void handleResolveUserInput(requestId)}
-                request={request}
-              />
-            ))}
-
             {snapshot?.sessionState === 'running' && runningTurnId === null ? (
               <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
                 <LoaderCircle className="size-3 animate-spin text-primary" />
@@ -834,31 +783,9 @@ export default function ManagedAgentPane({
           </div>
         ) : (
           <div className="flex h-full items-center justify-center">
-            <div className="flex max-w-md flex-col items-center gap-3 text-center">
-              <div className="flex size-10 items-center justify-center rounded-full bg-surface-secondary text-muted-foreground">
-                {snapshot?.sessionState === 'connecting' ? (
-                  <Plug className="size-4" />
-                ) : snapshot?.sessionState === 'ready' ? (
-                  <Sparkles className="size-4" />
-                ) : (
-                  <Bot className="size-4" />
-                )}
-              </div>
-              <h3 className="text-base font-semibold text-foreground">
-                {snapshot?.sessionState === 'connecting'
-                  ? `Connecting to ${providerLabel}`
-                  : snapshot?.sessionState === 'ready'
-                    ? `${providerLabel} is ready`
-                    : `Waiting for ${providerLabel}`}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                {snapshot?.sessionState === 'ready'
-                  ? 'Send a prompt below to start a turn.'
-                  : snapshot?.sessionState === 'connecting'
-                    ? 'Spinning up the managed session…'
-                    : 'The provider is warming up.'}
-              </p>
-            </div>
+            <p className="text-sm text-muted-foreground/60">
+              Send a prompt to start.
+            </p>
           </div>
         )}
 
@@ -874,136 +801,179 @@ export default function ManagedAgentPane({
         ) : null}
       </div>
 
-      <div className="border-t border-border/60 px-4 py-3">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          <div className="relative flex gap-2">
-            {slashMenuOpen ? (
-              <div
-                className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-xl border border-border/70 bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.35)]"
-                data-testid="managed-slash-menu"
-              >
-                <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Slash commands
-                </div>
-                <ul className="max-h-60 overflow-y-auto p-1">
-                  {filteredSlashCommands.map((command, index) => {
-                    const isActive = index === slashActiveIndex
+      <div className="flex flex-col gap-2 px-4 pb-3 pt-2">
+        {snapshot?.pendingApprovals.map((approval) => (
+          <ManagedPendingApprovalPanel
+            approval={approval}
+            key={approval.id}
+            onResolve={(requestId, decision) =>
+              void handleResolveApproval(requestId, decision)
+            }
+          />
+        ))}
 
-                    return (
-                      <li key={command.id}>
-                        <button
-                          className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                            isActive
-                              ? 'bg-primary/12 text-foreground'
-                              : 'text-foreground/80 hover:bg-surface-secondary'
-                          }`}
-                          onClick={() => {
-                            void runSlashCommand(command)
-                          }}
-                          onMouseEnter={() => setSlashActiveIndex(index)}
-                          type="button"
-                        >
-                          <span className="flex min-w-0 flex-col">
-                            <span className="truncate font-medium">
-                              {command.label}
-                            </span>
-                            <span className="truncate text-xs text-muted-foreground">
-                              {command.description}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
+        {snapshot?.pendingUserInputs.map((request) => (
+          <ManagedPendingUserInputPanel
+            answers={draftAnswers[request.id] ?? {}}
+            key={request.id}
+            onAnswerChange={(questionId, value) =>
+              handleDraftAnswerChange(request.id, questionId, value)
+            }
+            onSubmit={(requestId) => void handleResolveUserInput(requestId)}
+            request={request}
+          />
+        ))}
+
+        <div className="relative mx-auto w-full max-w-3xl rounded-2xl border border-border/60 bg-surface">
+          {slashMenuOpen ? (
+            <div
+              className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-xl border border-border/70 bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.35)]"
+              data-testid="managed-slash-menu"
+            >
+              <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                Slash commands
               </div>
-            ) : null}
-            <TextArea
-              aria-label={`${providerLabel} prompt`}
-              className="flex-1"
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                setDraftInput(event.target.value)
-              }
-              onKeyDown={(event) => {
-                if (slashMenuOpen) {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault()
-                    setSlashActiveIndex(
-                      (index) => (index + 1) % filteredSlashCommands.length,
-                    )
-                    return
-                  }
+              <ul className="max-h-60 overflow-y-auto p-1">
+                {filteredSlashCommands.map((command, index) => {
+                  const isActive = index === slashActiveIndex
 
-                  if (event.key === 'ArrowUp') {
-                    event.preventDefault()
-                    setSlashActiveIndex(
-                      (index) =>
-                        (index - 1 + filteredSlashCommands.length) %
-                        filteredSlashCommands.length,
-                    )
-                    return
-                  }
+                  return (
+                    <li key={command.id}>
+                      <button
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                          isActive
+                            ? 'bg-primary/12 text-foreground'
+                            : 'text-foreground/80 hover:bg-surface-secondary'
+                        }`}
+                        onClick={() => {
+                          void runSlashCommand(command)
+                        }}
+                        onMouseEnter={() => setSlashActiveIndex(index)}
+                        type="button"
+                      >
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium">
+                            {command.label}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {command.description}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ) : null}
 
-                  if (
-                    event.key === 'Enter' &&
-                    !event.metaKey &&
-                    !event.ctrlKey
-                  ) {
-                    event.preventDefault()
-                    const command = filteredSlashCommands[slashActiveIndex]
-                    if (command) {
-                      void runSlashCommand(command)
-                    }
-                    return
-                  }
-
-                  if (event.key === 'Escape') {
-                    event.preventDefault()
-                    setDraftInput('')
-                    return
-                  }
-                }
-
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          <TextArea
+            aria-label={`${providerLabel} prompt`}
+            className="w-full border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
+            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+              setDraftInput(event.target.value)
+            }
+            onKeyDown={(event) => {
+              if (slashMenuOpen) {
+                if (event.key === 'ArrowDown') {
                   event.preventDefault()
-                  if (isSubmitting || draftInput.trim().length === 0) {
-                    return
-                  }
-                  void handleSendInput()
+                  setSlashActiveIndex(
+                    (index) => (index + 1) % filteredSlashCommands.length,
+                  )
+                  return
                 }
-              }}
-              placeholder={`Send a prompt to ${providerLabel}... (type / for commands)`}
-              value={draftInput}
-              variant="secondary"
-            />
-            <Button
-              isDisabled={isSubmitting || draftInput.trim().length === 0}
-              onPress={() => void handleSendInput()}
-              variant="primary"
+
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  setSlashActiveIndex(
+                    (index) =>
+                      (index - 1 + filteredSlashCommands.length) %
+                      filteredSlashCommands.length,
+                  )
+                  return
+                }
+
+                if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+                  event.preventDefault()
+                  const command = filteredSlashCommands[slashActiveIndex]
+                  if (command) {
+                    void runSlashCommand(command)
+                  }
+                  return
+                }
+
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setDraftInput('')
+                  return
+                }
+              }
+
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                if (isSubmitting || draftInput.trim().length === 0) {
+                  return
+                }
+                void handleSendInput()
+              }
+            }}
+            placeholder="Ask anything, type / for commands"
+            value={draftInput}
+            variant="secondary"
+          />
+
+          <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2">
+            {isUnifiedPane ? (
+              <ModelSelector
+                isDisabled={snapshot?.running === true}
+                onChange={(mode) => void handleProviderSwitch(mode)}
+                value={selectedProvider}
+              />
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                {providerLabel}
+              </span>
+            )}
+            <span className="text-border/50">|</span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span
+                className={`size-1.5 rounded-full ${getSessionStateDotColor(snapshot)}`}
+              />
+              {formatSessionState(snapshot)}
+            </span>
+            <span className="flex-1" />
+            {snapshot?.usage ? (
+              <ContextWindowMeter usage={snapshot.usage} />
+            ) : null}
+            <button
+              className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
+              disabled={isSubmitting || draftInput.trim().length === 0}
+              onClick={() => void handleSendInput()}
+              type="button"
             >
               {isSubmitting ? (
-                <LoaderCircle className="size-4 animate-spin" />
+                <LoaderCircle className="size-3.5 animate-spin" />
               ) : (
-                <Send className="size-4" />
+                <ArrowUp className="size-4" />
               )}
-            </Button>
+            </button>
           </div>
-          <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground">
-            <span>
-              {draftInput.length > 0
-                ? `${draftInput.length.toLocaleString()} chars`
-                : ''}
+        </div>
+
+        <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-muted-foreground/70">
+          <span className="flex items-center gap-1.5">
+            <FolderOpen className="size-3" />
+            {workspace.name}
+          </span>
+          {gitInfo.branchName ? (
+            <span className="flex items-center gap-1 font-mono">
+              <GitBranch className="size-3" />
+              <span className="max-w-[10rem] truncate">
+                {gitInfo.branchName}
+              </span>
+              <ChevronDown className="size-2.5 opacity-50" />
             </span>
-            <span className="inline-flex items-center gap-1">
-              <kbd className="rounded border border-border/60 bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px]">
-                {isMac ? '⌘' : 'Ctrl'}
-              </kbd>
-              <kbd className="rounded border border-border/60 bg-surface-secondary px-1.5 py-0.5 font-mono text-[10px]">
-                ↵
-              </kbd>
-              <span>to send</span>
-            </span>
-          </div>
+          ) : null}
         </div>
       </div>
     </section>

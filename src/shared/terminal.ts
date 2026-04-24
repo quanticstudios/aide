@@ -1,4 +1,6 @@
-export type TerminalLaunchMode = 'shell' | 'claude' | 'codex'
+export type TerminalLaunchMode = 'shell' | 'claude' | 'codex' | 'agent'
+
+export type ManagedSessionMode = 'claude' | 'codex'
 
 export interface TerminalSessionConfig {
   cols: number

@@ -1,4 +1,5 @@
 import {
+  Bot,
   Eye,
   GitBranch,
   MessageSquareText,
@@ -12,6 +13,7 @@ import type { TerminalLaunchMode } from '../../../shared/terminal'
 
 type PaneAccent = 'amber' | 'blue' | 'emerald' | 'rose' | 'violet'
 export type PaneTemplateId =
+  | 'agent'
   | 'chat'
   | 'terminal'
   | 'terminal-claude'
@@ -34,6 +36,7 @@ export interface ResolvedPaneMetadata extends PaneDefaultMetadata {
 export interface PaneCatalogEntry {
   createDescription: string
   defaultMetadata: PaneDefaultMetadata
+  hidden?: boolean
   id: PaneTemplateId
   icon: LucideIcon
   terminalMode?: TerminalLaunchMode
@@ -67,6 +70,19 @@ const paneCatalogEntries = [
     type: 'terminal',
   },
   {
+    createDescription: 'Unified AI agent chat. Pick your model.',
+    defaultMetadata: {
+      accent: 'emerald',
+      description: 'AI agent session with model selection.',
+      label: 'Agent',
+      type: 'Agent',
+    },
+    id: 'agent',
+    icon: Bot,
+    terminalMode: 'agent',
+    type: 'terminal',
+  },
+  {
     createDescription: 'Managed Claude Code session for agent work.',
     defaultMetadata: {
       accent: 'emerald',
@@ -74,6 +90,7 @@ const paneCatalogEntries = [
       label: 'Claude terminal',
       type: 'Claude',
     },
+    hidden: true,
     id: 'terminal-claude',
     icon: SquareTerminal,
     terminalMode: 'claude',
@@ -87,6 +104,7 @@ const paneCatalogEntries = [
       label: 'Codex terminal',
       type: 'Codex',
     },
+    hidden: true,
     id: 'terminal-codex',
     icon: SquareTerminal,
     terminalMode: 'codex',
@@ -151,8 +169,12 @@ const displayTypeToPaneType = Object.fromEntries(
 
 const PANE_COPY_MARKER = '::copy-'
 
-export function listPaneCatalogEntries(): readonly PaneCatalogEntry[] {
+export function listAllPaneCatalogEntries(): readonly PaneCatalogEntry[] {
   return paneCatalogEntries
+}
+
+export function listCreatablePaneCatalogEntries(): readonly PaneCatalogEntry[] {
+  return paneCatalogEntries.filter((entry) => !entry.hidden)
 }
 
 export function getPaneCatalogEntry(paneType: PaneType): PaneCatalogEntry {

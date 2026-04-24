@@ -246,6 +246,7 @@ export default function AppShell({
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
           onSelectProject={onSelectProject}
+          onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
           onTogglePinnedOpen={() =>
             setIsSidebarPinnedOpen((current) => !current)

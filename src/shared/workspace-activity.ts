@@ -157,3 +157,129 @@ export function resolveWorkspaceActivityList(
 ): WorkspaceActivitySnapshot[] {
   return [...activities].sort(compareWorkspaceActivityPriority)
 }
+
+export type WorkspaceAttentionTier = 'attention' | 'active' | 'idle'
+
+const ATTENTION_TIER_SORT_ORDER: Record<WorkspaceAttentionTier, number> = {
+  attention: 0,
+  active: 1,
+  idle: 2,
+}
+
+export function compareWorkspacesByAttentionTier(
+  aActivity: WorkspaceActivitySnapshot | null | undefined,
+  aUpdatedAt: string,
+  bActivity: WorkspaceActivitySnapshot | null | undefined,
+  bUpdatedAt: string,
+): number {
+  const tierA =
+    ATTENTION_TIER_SORT_ORDER[resolveWorkspaceAttentionTier(aActivity)]
+  const tierB =
+    ATTENTION_TIER_SORT_ORDER[resolveWorkspaceAttentionTier(bActivity)]
+
+  if (tierA !== tierB) return tierA - tierB
+
+  return new Date(bUpdatedAt).getTime() - new Date(aUpdatedAt).getTime()
+}
+
+export function resolveWorkspaceAttentionTier(
+  activity: WorkspaceActivitySnapshot | null | undefined,
+): WorkspaceAttentionTier {
+  if (!activity) {
+    return 'idle'
+  }
+
+  if (
+    activity.state === 'error' ||
+    activity.state === 'pending-approval' ||
+    activity.state === 'awaiting-input'
+  ) {
+    return 'attention'
+  }
+
+  if (
+    activity.state === 'working' ||
+    activity.state === 'connecting' ||
+    activity.state === 'terminal-running'
+  ) {
+    return 'active'
+  }
+
+  return 'idle'
+}
+
+const SHORT_STATE_LABELS: Record<WorkspaceActivityState, string> = {
+  'awaiting-input': 'Input',
+  completed: 'Done',
+  connecting: 'Connecting',
+  error: 'Error',
+  'pending-approval': 'Approval',
+  'terminal-running': 'Running',
+  working: 'Working',
+}
+
+export function formatWorkspaceActivityPillLabel(
+  activity: WorkspaceActivitySnapshot,
+): string {
+  if (activity.provider === 'terminal') {
+    return SHORT_STATE_LABELS[activity.state]
+  }
+
+  return `${PROVIDER_LABELS[activity.provider]} ${SHORT_STATE_LABELS[activity.state]}`
+}
+
+export function resolveWorkspaceActivityPillClassName(
+  activity: WorkspaceActivitySnapshot,
+): string {
+  if (activity.state === 'error') {
+    return 'border-red-400/30 bg-red-400/[0.12] text-red-400'
+  }
+
+  if (activity.state === 'pending-approval') {
+    return 'border-amber-400/30 bg-amber-400/[0.12] text-amber-400'
+  }
+
+  if (activity.state === 'awaiting-input') {
+    return 'border-indigo-300/30 bg-indigo-300/[0.12] text-indigo-300'
+  }
+
+  if (activity.state === 'working') {
+    return 'border-sky-400/30 bg-sky-400/[0.12] text-sky-400'
+  }
+
+  if (activity.state === 'connecting') {
+    return 'border-sky-300/30 bg-sky-300/[0.12] text-sky-300'
+  }
+
+  return 'border-emerald-300/30 bg-emerald-300/[0.12] text-emerald-300'
+}
+
+export function resolveWorkspaceActivityBorderColorClassName(
+  activity: WorkspaceActivitySnapshot | null | undefined,
+): string {
+  if (!activity) {
+    return 'border-l-transparent'
+  }
+
+  if (activity.state === 'error') {
+    return 'border-l-red-400'
+  }
+
+  if (activity.state === 'pending-approval') {
+    return 'border-l-amber-400'
+  }
+
+  if (activity.state === 'awaiting-input') {
+    return 'border-l-indigo-300'
+  }
+
+  if (activity.state === 'working') {
+    return 'border-l-sky-400'
+  }
+
+  if (activity.state === 'connecting') {
+    return 'border-l-sky-300'
+  }
+
+  return 'border-l-emerald-300'
+}

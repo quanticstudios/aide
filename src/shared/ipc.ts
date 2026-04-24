@@ -27,6 +27,7 @@ import type {
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
+  ManagedSessionMode,
   TerminalEvent,
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -66,6 +67,7 @@ export const IPC_CHANNELS = {
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
+  managedSessionSwitchProvider: 'managed-session:switch-provider',
   terminalCreate: 'terminal:create-session',
   terminalEvent: 'terminal:event',
   terminalKill: 'terminal:kill-session',
@@ -154,5 +156,9 @@ export interface AideApi {
     answers: Record<string, string | string[]>,
   ) => Promise<void>
   sendManagedSessionInput: (sessionId: string, text: string) => Promise<void>
+  switchManagedSessionProvider: (
+    sessionId: string,
+    mode: ManagedSessionMode,
+  ) => Promise<ManagedSessionSnapshot>
   writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }

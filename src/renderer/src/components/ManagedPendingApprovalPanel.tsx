@@ -1,4 +1,4 @@
-import { Button, Surface } from '@heroui/react'
+import { Button } from '@heroui/react'
 import { AlertTriangle, Check, X } from 'lucide-react'
 
 import type {
@@ -19,12 +19,12 @@ export default function ManagedPendingApprovalPanel({
   onResolve,
 }: ManagedPendingApprovalPanelProps) {
   return (
-    <Surface
-      className="mx-auto max-w-3xl rounded-xl border border-warning/30 bg-warning/5 px-4 py-3"
+    <div
+      className="mx-auto w-full max-w-3xl rounded-2xl border border-warning/30 bg-warning/5 px-4 py-3"
       data-testid={`managed-approval-${approval.id}`}
     >
       <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 size-4 text-warning" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
             Approval required
@@ -60,6 +60,6 @@ export default function ManagedPendingApprovalPanel({
           </div>
         </div>
       </div>
-    </Surface>
+    </div>
   )
 }

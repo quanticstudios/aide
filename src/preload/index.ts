@@ -9,6 +9,7 @@ import type {
 } from '../shared/managed-session'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
+  ManagedSessionMode,
   TerminalEvent,
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -129,6 +130,12 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
   sendManagedSessionInput: (sessionId: string, text: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
+  switchManagedSessionProvider: (sessionId: string, mode: ManagedSessionMode) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionSwitchProvider,
+      sessionId,
+      mode,
+    ),
   validateExecutableCommand: (command: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),
   writeTerminalInput: (sessionId: string, data: string) =>

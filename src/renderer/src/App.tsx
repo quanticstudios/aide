@@ -10,7 +10,11 @@ import {
   type WorkspaceRecord,
   createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
-import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
+import {
+  type WorkspaceActivitySnapshot,
+  compareWorkspacesByAttentionTier,
+  resolveAggregateWorkspaceActivity,
+} from '../../shared/workspace-activity'
 import AppShell from './components/AppShell'
 import CommandPalette from './components/CommandPalette'
 import PaneCreationModal from './components/PaneCreationModal'
@@ -30,7 +34,6 @@ import {
   applySurfaceSelection,
   applyWorkspaceSelection,
   moveRelativePane,
-  moveRelativeWorkspace,
   resolveSpatialNavigationState,
 } from './lib/spatial-navigation-state'
 import { collectWorkspaceLayoutPaneIds } from './lib/workspace-layout'
@@ -538,53 +541,51 @@ export default function App() {
 
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
-      if (
-        isWorkspaceSwitcherVisible &&
-        navigationSnapshot.workspaces.length > 0
-      ) {
-        const workspaces = navigationSnapshot.workspaces
-        const currentIndex = Math.max(
-          workspaces.findIndex(
-            (workspace) =>
-              workspace.id === resolvedNavigationState.activeWorkspaceId,
+      const projectId = resolvedNavigationState.activeProjectId
+      if (!projectId) return
+
+      const sorted = [...navigationSnapshot.workspaces]
+        .filter((ws) => ws.projectId === projectId)
+        .sort((a, b) =>
+          compareWorkspacesByAttentionTier(
+            resolveAggregateWorkspaceActivity(workspaceActivities[a.id] ?? []),
+            a.updatedAt,
+            resolveAggregateWorkspaceActivity(workspaceActivities[b.id] ?? []),
+            b.updatedAt,
           ),
-          0,
         )
-        const nextIndex =
-          (currentIndex + direction + workspaces.length) % workspaces.length
-        const nextWorkspace = workspaces[nextIndex]
 
-        if (nextWorkspace) {
-          setSelection(
-            applyWorkspaceSelection(
-              navigationSnapshot,
-              resolvedNavigationState,
-              nextWorkspace.id,
-              getSurfaceIdsForWorkspace,
-              getPaneIdsForWorkspace,
-            ),
-          )
-        }
-        return
-      }
+      if (sorted.length === 0) return
 
-      setSelection(
-        moveRelativeWorkspace(
-          navigationSnapshot,
-          resolvedNavigationState,
-          direction,
-          getSurfaceIdsForWorkspace,
-          getPaneIdsForWorkspace,
+      const currentIndex = Math.max(
+        sorted.findIndex(
+          (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
         ),
+        0,
       )
+      const nextIndex =
+        (currentIndex + direction + sorted.length) % sorted.length
+      const nextWorkspace = sorted[nextIndex]
+
+      if (nextWorkspace) {
+        setSelection(
+          applyWorkspaceSelection(
+            navigationSnapshot,
+            resolvedNavigationState,
+            nextWorkspace.id,
+            getSurfaceIdsForWorkspace,
+            getPaneIdsForWorkspace,
+          ),
+        )
+      }
     },
     [
       getPaneIdsForWorkspace,
       getSurfaceIdsForWorkspace,
-      isWorkspaceSwitcherVisible,
       navigationSnapshot,
       resolvedNavigationState,
       setSelection,
+      workspaceActivities,
     ],
   )
 

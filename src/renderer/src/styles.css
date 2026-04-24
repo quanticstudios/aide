@@ -225,3 +225,147 @@ body {
 .pane-strip-card {
   scroll-snap-align: center;
 }
+
+@keyframes sidebar-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ── Prose (markdown) ────────────────────────── */
+
+.prose {
+  color: var(--foreground);
+  line-height: 1.65;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+  font-weight: 600;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+  color: var(--foreground);
+}
+
+.prose h1 {
+  font-size: 1.25em;
+}
+.prose h2 {
+  font-size: 1.125em;
+}
+.prose h3 {
+  font-size: 1em;
+}
+
+.prose p {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5em;
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose ul {
+  list-style-type: disc;
+}
+.prose ol {
+  list-style-type: decimal;
+}
+.prose li {
+  margin-top: 0.25em;
+}
+
+.prose code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.85em;
+  background: var(--surface-secondary);
+  padding: 0.15em 0.35em;
+  border-radius: 0.25rem;
+}
+
+.prose pre {
+  background: #0d0d10;
+  border: 1px solid rgba(42, 42, 49, 0.4);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.8em;
+  border-radius: 0;
+}
+
+.prose blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.prose a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid rgba(42, 42, 49, 0.4);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+
+.prose th {
+  font-weight: 600;
+  background: var(--surface-secondary);
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+
+.sidebar-working-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(56, 189, 248, 0.04) 40%,
+    rgba(56, 189, 248, 0.08) 50%,
+    rgba(56, 189, 248, 0.04) 60%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: sidebar-shimmer 3s ease-in-out infinite;
+  will-change: background-position;
+}

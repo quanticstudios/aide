@@ -1,12 +1,17 @@
-import { Button, Chip, ScrollShadow } from '@heroui/react'
+import { Button, Chip, ScrollShadow, Tooltip } from '@heroui/react'
 import {
   ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  CircleHelp,
   FolderKanban,
   GitBranch,
+  Loader2,
   PanelLeftClose,
   Plus,
+  Terminal,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { formatRelativeTime } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
@@ -19,10 +24,16 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
 import {
+  compareWorkspacesByAttentionTier,
   formatWorkspaceActivityLabel,
+  formatWorkspaceActivityPillLabel,
   resolveWorkspaceActivityAccentClassName,
+  resolveWorkspaceActivityBorderColorClassName,
   resolveWorkspaceActivityDotClassName,
+  resolveWorkspaceActivityPillClassName,
+  resolveWorkspaceAttentionTier,
   shouldPulseWorkspaceActivity,
 } from '../../../shared/workspace-activity'
 
@@ -36,6 +47,7 @@ interface SidebarTreeProps {
   readonly isPinnedOpen: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onTogglePinnedOpen: () => void
@@ -56,49 +68,52 @@ function getProjectGlyph(projectName: string): string {
   )
 }
 
-function getWorkspaceIndicatorClassName(input: {
+function renderWorkspaceStateIcon(input: {
   activity: WorkspaceSummary['activity'] | null | undefined
   isCurrent: boolean
-}): string {
-  if (input.activity) {
-    return resolveWorkspaceActivityAccentClassName(input.activity)
-  }
+}) {
+  const { activity, isCurrent } = input
 
-  if (input.isCurrent) {
-    return 'text-primary'
-  }
-
-  return 'text-muted-foreground'
-}
-
-function renderActivityDot(
-  activity: WorkspaceSummary['activity'] | null | undefined,
-  sizeClassName = 'size-2',
-) {
   if (!activity) {
-    return null
+    return (
+      <GitBranch
+        className={cn(
+          'size-3 shrink-0',
+          isCurrent ? 'text-primary' : 'text-muted-foreground',
+        )}
+      />
+    )
   }
 
-  return (
-    <span
-      className={cn(
-        'rounded-full',
-        resolveWorkspaceActivityDotClassName(activity),
-        shouldPulseWorkspaceActivity(activity) && 'animate-pulse',
-        sizeClassName,
-      )}
-    />
-  )
-}
-
-function getProjectStatusIconClassName(
-  activity: WorkspaceSummary['activity'] | null | undefined,
-): string {
-  if (activity) {
-    return resolveWorkspaceActivityAccentClassName(activity)
+  switch (activity.state) {
+    case 'error':
+      return <CircleAlert className="size-3 shrink-0 text-red-400" />
+    case 'pending-approval':
+      return <CircleAlert className="size-3 shrink-0 text-amber-400" />
+    case 'awaiting-input':
+      return <CircleHelp className="size-3 shrink-0 text-indigo-300" />
+    case 'working':
+      return (
+        <span className="flex size-3 shrink-0 items-center justify-center text-amber-400">
+          <span className="size-1.5 animate-pulse rounded-full bg-current" />
+        </span>
+      )
+    case 'connecting':
+      return <Loader2 className="size-3 shrink-0 animate-spin text-sky-300" />
+    case 'completed':
+      return <CircleCheck className="size-3 shrink-0 text-emerald-300" />
+    case 'terminal-running':
+      return <Terminal className="size-3 shrink-0 text-emerald-300" />
+    default:
+      return (
+        <GitBranch
+          className={cn(
+            'size-3 shrink-0',
+            resolveWorkspaceActivityAccentClassName(activity),
+          )}
+        />
+      )
   }
-
-  return 'text-muted-foreground'
 }
 
 function getMergeStatusLabel(
@@ -133,6 +148,45 @@ function getMergeStatusClassName(
   return 'text-muted-foreground/70'
 }
 
+function getWorkspaceBackgroundClassName(
+  activity: WorkspaceActivitySnapshot | null | undefined,
+  isActive: boolean,
+): string {
+  if (activity?.state === 'error') return 'bg-red-400/[0.03]'
+  if (activity?.state === 'pending-approval') return 'bg-amber-400/[0.03]'
+  if (activity?.state === 'awaiting-input') return 'bg-indigo-300/[0.03]'
+  if (activity?.state === 'working') return 'sidebar-working-shimmer'
+  if (isActive) return 'bg-primary/8'
+  return ''
+}
+
+function ActivityPill({
+  activity,
+  onSelect,
+}: {
+  readonly activity: WorkspaceActivitySnapshot
+  readonly onSelect: () => void
+}) {
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: pill is inside a <button> row — keyboard access provided by parent
+    <span
+      className={cn(
+        'flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-medium leading-tight',
+        resolveWorkspaceActivityPillClassName(activity),
+      )}
+      onClick={(event) => {
+        event.stopPropagation()
+        onSelect()
+      }}
+    >
+      {shouldPulseWorkspaceActivity(activity) ? (
+        <span className="size-1.5 animate-pulse rounded-full bg-current" />
+      ) : null}
+      {formatWorkspaceActivityPillLabel(activity)}
+    </span>
+  )
+}
+
 export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
@@ -140,6 +194,7 @@ export default function SidebarTree({
   isPinnedOpen,
   onCreateProject,
   onCreateWorkspace,
+  onSelectPane,
   onSelectProject,
   onSelectWorkspace,
   onTogglePinnedOpen,
@@ -168,7 +223,6 @@ export default function SidebarTree({
     }))
   }, [activeProjectId])
 
-  // Timestamp refresh tick
   useEffect(() => {
     const timer = window.setInterval(() => {
       setTimestampTick((tick) => tick + 1)
@@ -232,7 +286,6 @@ export default function SidebarTree({
     setBranchStats((current) => ({ ...current, ...newStats }))
   }, [isExpanded, workspaces, expandedProjectIds, activeProjectId])
 
-  // Fetch branch stats on mount, project expand, and poll interval
   useEffect(() => {
     void fetchBranchStatsForVisibleWorkspaces()
 
@@ -251,6 +304,27 @@ export default function SidebarTree({
       }
     }
   }, [fetchBranchStatsForVisibleWorkspaces])
+
+  const sortedWorkspacesByProject = useMemo(() => {
+    const result: Record<string, WorkspaceRecord[]> = {}
+
+    for (const project of projects) {
+      const projectWorkspaces = workspaces.filter(
+        (ws) => ws.projectId === project.id,
+      )
+
+      result[project.id] = [...projectWorkspaces].sort((a, b) =>
+        compareWorkspacesByAttentionTier(
+          summaries[a.id]?.activity ?? null,
+          a.updatedAt,
+          summaries[b.id]?.activity ?? null,
+          b.updatedAt,
+        ),
+      )
+    }
+
+    return result
+  }, [projects, workspaces, summaries])
 
   // ── Collapsed rail ──────────────────────────────
 
@@ -278,6 +352,14 @@ export default function SidebarTree({
               workspaces,
               project.id,
             )
+            const attentionCount = workspaces
+              .filter((ws) => ws.projectId === project.id)
+              .filter(
+                (ws) =>
+                  resolveWorkspaceAttentionTier(
+                    summaries[ws.id]?.activity ?? null,
+                  ) === 'attention',
+              ).length
 
             return (
               <button
@@ -294,10 +376,19 @@ export default function SidebarTree({
                 type="button"
               >
                 {getProjectGlyph(project.name)}
-                {projectActivity ? (
-                  <span className="absolute -left-0.5 -top-0.5">
-                    {renderActivityDot(projectActivity, 'size-2.5')}
+                {attentionCount > 0 ? (
+                  <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full border border-amber-400/40 bg-amber-400/20 text-[9px] font-semibold text-amber-400">
+                    {attentionCount}
                   </span>
+                ) : projectActivity ? (
+                  <span
+                    className={cn(
+                      'absolute -left-0.5 -top-0.5 size-2.5 rounded-full',
+                      resolveWorkspaceActivityDotClassName(projectActivity),
+                      shouldPulseWorkspaceActivity(projectActivity) &&
+                        'animate-pulse',
+                    )}
+                  />
                 ) : null}
                 {showProjectHints ? (
                   <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] font-medium text-muted-foreground">
@@ -327,7 +418,7 @@ export default function SidebarTree({
 
   return (
     <aside
-      className="flex h-full w-64 flex-col overflow-hidden border-r border-border bg-card/55 transition-[width,opacity] duration-180 ease-out opacity-100"
+      className="flex h-full w-72 flex-col overflow-hidden border-r border-border bg-card/55 transition-[width,opacity] duration-180 ease-out opacity-100"
       data-expanded="true"
       data-testid="workspace-tree-panel"
     >
@@ -380,15 +471,15 @@ export default function SidebarTree({
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
         <div className="py-1.5">
           {projects.map((project, projectIndex) => {
-            const projectWorkspaces = workspaces.filter(
-              (workspace) => workspace.projectId === project.id,
-            )
+            const projectWorkspaces =
+              sortedWorkspacesByProject[project.id] ?? []
             const isActiveProject = project.id === activeProjectId
-            const projectActivity = resolveProjectSummaryActivity(
-              summaries,
-              workspaces,
-              project.id,
-            )
+            const attentionCount = projectWorkspaces.filter(
+              (ws) =>
+                resolveWorkspaceAttentionTier(
+                  summaries[ws.id]?.activity ?? null,
+                ) === 'attention',
+            ).length
             const isProjectExpanded =
               expandedProjectIds[project.id] ?? isActiveProject
 
@@ -429,10 +520,14 @@ export default function SidebarTree({
                     onClick={toggleProject}
                     type="button"
                   >
-                    {renderActivityDot(projectActivity)}
                     <span className="truncate text-sm font-medium">
                       {project.name}
                     </span>
+                    {attentionCount > 0 ? (
+                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[9px] font-semibold text-amber-400">
+                        {attentionCount}
+                      </span>
+                    ) : null}
                   </button>
 
                   <button
@@ -460,73 +555,90 @@ export default function SidebarTree({
                 </div>
 
                 {isProjectExpanded && projectWorkspaces.length > 0 ? (
-                  <div className="sidebar-tree-indent ml-3 pb-1">
+                  <div className="sidebar-tree-indent mx-3 pb-1">
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
                       const summary = summaries[workspace.id]
                       const activity = summary?.activity ?? null
                       const visibleActivities =
-                        summary?.activities.slice(0, 2) ?? []
-                      const hiddenActivityCount = Math.max(
-                        0,
-                        (summary?.activities.length ?? 0) -
-                          visibleActivities.length,
-                      )
+                        summary?.activities
+                          .filter((a) => a.state !== 'connecting')
+                          .slice(0, 1) ?? []
                       const stats = branchStats[workspace.id]
                       const mergeLabel = stats
                         ? getMergeStatusLabel(stats.mergeStatus)
                         : ''
-                      const activityLabel = activity
-                        ? [
-                            ...visibleActivities.map((entry) =>
-                              formatWorkspaceActivityLabel(entry),
-                            ),
-                            hiddenActivityCount > 0
-                              ? `+${hiddenActivityCount}`
-                              : null,
-                          ]
-                            .filter((value): value is string => Boolean(value))
-                            .join(', ')
-                        : null
-                      const activityTitle = summary?.activities.length
-                        ? summary.activities
-                            .map(
-                              (entry) =>
-                                entry.detail ??
-                                formatWorkspaceActivityLabel(entry),
-                            )
-                            .join('\n')
-                        : undefined
+                      const attentionTier =
+                        resolveWorkspaceAttentionTier(activity)
+                      const borderColorClass = activity
+                        ? resolveWorkspaceActivityBorderColorClassName(activity)
+                        : isActiveWorkspace
+                          ? 'border-l-primary'
+                          : 'border-l-transparent'
+                      const bgClass = getWorkspaceBackgroundClassName(
+                        activity,
+                        isActiveWorkspace,
+                      )
+                      const showGitStatsRow =
+                        stats != null &&
+                        (stats.additions > 0 ||
+                          stats.deletions > 0 ||
+                          (mergeLabel !== '' && mergeLabel !== 'Up to date'))
 
-                      return (
+                      const tooltipContent = summary?.activities.length ? (
+                        <div className="flex flex-col gap-1">
+                          {summary.activities.map((entry) => (
+                            <div
+                              className="flex items-center gap-1.5"
+                              key={entry.sessionId}
+                            >
+                              <span
+                                className={cn(
+                                  'size-1.5 shrink-0 rounded-full',
+                                  resolveWorkspaceActivityDotClassName(entry),
+                                )}
+                              />
+                              <span>{formatWorkspaceActivityLabel(entry)}</span>
+                              {entry.detail ? (
+                                <span className="ml-1 text-muted-foreground/70">
+                                  —{' '}
+                                  {entry.detail.length > 120
+                                    ? `${entry.detail.slice(0, 120)}…`
+                                    : entry.detail}
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null
+
+                      const rowElement = (
                         <button
                           className={cn(
-                            'group flex w-full flex-col gap-0.5 rounded-lg px-3 py-1.5 text-left transition-colors',
-                            isActiveWorkspace
-                              ? 'border-l-2 border-primary bg-primary/8 ml-[-1px]'
-                              : 'hover:bg-surface-secondary',
+                            'group flex w-full flex-col gap-1 rounded-r-lg border-l-2 pl-2.5 pr-3 py-2 text-left transition-colors',
+                            borderColorClass,
+                            bgClass,
+                            !activity &&
+                              !isActiveWorkspace &&
+                              'hover:bg-surface-secondary',
                           )}
-                          key={workspace.id}
                           onClick={() => onSelectWorkspace(workspace.id)}
                           type="button"
                         >
                           <div className="flex items-center gap-2 min-w-0">
-                            <GitBranch
-                              className={cn(
-                                'size-3 shrink-0',
-                                getWorkspaceIndicatorClassName({
-                                  activity,
-                                  isCurrent: isActiveWorkspace,
-                                }),
-                              )}
-                            />
+                            {renderWorkspaceStateIcon({
+                              activity,
+                              isCurrent: isActiveWorkspace,
+                            })}
                             <span
                               className={cn(
-                                'truncate text-[13px] font-medium',
-                                isActiveWorkspace
-                                  ? 'text-foreground'
-                                  : 'text-foreground/80',
+                                'truncate text-[13px]',
+                                attentionTier === 'attention'
+                                  ? 'font-semibold text-foreground'
+                                  : isActiveWorkspace
+                                    ? 'font-medium text-foreground'
+                                    : 'font-medium text-foreground/80',
                               )}
                             >
                               {summary?.workspaceName ?? workspace.name}
@@ -535,70 +647,78 @@ export default function SidebarTree({
                             {visibleActivities.length > 0 ? (
                               <span className="ml-auto flex shrink-0 items-center gap-1">
                                 {visibleActivities.map((entry) => (
-                                  <span key={entry.sessionId}>
-                                    {renderActivityDot(entry, 'size-2')}
-                                  </span>
+                                  <ActivityPill
+                                    activity={entry}
+                                    key={entry.sessionId}
+                                    onSelect={() => {
+                                      onSelectWorkspace(workspace.id)
+                                      onSelectPane(entry.paneId)
+                                    }}
+                                  />
                                 ))}
-                                {hiddenActivityCount > 0 ? (
-                                  <span className="text-[10px] text-muted-foreground/70">
-                                    +{hiddenActivityCount}
-                                  </span>
-                                ) : null}
-                              </span>
-                            ) : null}
-
-                            {stats &&
-                            (stats.additions > 0 || stats.deletions > 0) ? (
-                              <span className="flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums">
-                                <span className="text-green-400">
-                                  +{stats.additions}
-                                </span>
-                                <span className="text-red-400">
-                                  -{stats.deletions}
-                                </span>
                               </span>
                             ) : null}
                           </div>
 
                           <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
-                            <span className="truncate">
+                            <span className="truncate font-mono">
                               {summary?.branchName ?? workspace.branchName}
                             </span>
-                            {activityLabel ? (
-                              <>
-                                <span>·</span>
-                                <span
-                                  className={cn(
-                                    'shrink-0',
-                                    getProjectStatusIconClassName(activity),
-                                  )}
-                                  title={activityTitle ?? activityLabel}
-                                >
-                                  {activityLabel}
-                                </span>
-                              </>
-                            ) : mergeLabel ? (
-                              <>
-                                <span>·</span>
-                                <span
-                                  className={cn(
-                                    'shrink-0',
-                                    stats
-                                      ? getMergeStatusClassName(
-                                          stats.mergeStatus,
-                                        )
-                                      : '',
-                                  )}
-                                >
-                                  {mergeLabel}
-                                </span>
-                              </>
-                            ) : null}
                             <span className="ml-auto shrink-0 tabular-nums">
                               {formatRelativeTime(workspace.updatedAt)}
                             </span>
                           </div>
+
+                          {showGitStatsRow && stats ? (
+                            <div className="flex items-center gap-1.5 pl-5 text-[11px]">
+                              {stats.additions > 0 || stats.deletions > 0 ? (
+                                <span className="flex items-center gap-1.5 tabular-nums">
+                                  <span className="text-green-400">
+                                    +{stats.additions}
+                                  </span>
+                                  <span className="text-red-400">
+                                    -{stats.deletions}
+                                  </span>
+                                </span>
+                              ) : null}
+                              {mergeLabel && mergeLabel !== 'Up to date' ? (
+                                <>
+                                  {stats.additions > 0 ||
+                                  stats.deletions > 0 ? (
+                                    <span className="text-muted-foreground/50">
+                                      ·
+                                    </span>
+                                  ) : null}
+                                  <span
+                                    className={getMergeStatusClassName(
+                                      stats.mergeStatus,
+                                    )}
+                                  >
+                                    {mergeLabel}
+                                  </span>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </button>
+                      )
+
+                      if (!tooltipContent) {
+                        return <div key={workspace.id}>{rowElement}</div>
+                      }
+
+                      return (
+                        <Tooltip delay={400} key={workspace.id}>
+                          <Tooltip.Trigger className="w-full">
+                            {rowElement}
+                          </Tooltip.Trigger>
+                          <Tooltip.Content
+                            className="rounded-xl border border-[#3a3a44] bg-[#28282f] px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
+                            placement="right"
+                          >
+                            {tooltipContent}
+                          </Tooltip.Content>
+                        </Tooltip>
                       )
                     })}
                   </div>

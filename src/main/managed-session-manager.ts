@@ -52,6 +52,7 @@ interface ManagedSessionMutableState {
   backend: ManagedSessionBackend
   config: ManagedSessionConfig
   contentByKey: Map<string, ManagedSessionContentItem>
+  emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void
   orderedContentKeys: string[]
   pendingApprovals: Map<string, ManagedSessionPendingApproval>
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
@@ -154,7 +155,7 @@ function buildEmptySnapshot(
 }
 
 function createContentKey(
-  kind: ManagedProviderRuntimeContentKind | 'user-prompt',
+  kind: ManagedProviderRuntimeContentKind | 'user-prompt' | 'system',
   itemId: string,
 ): string {
   return `${kind}:${itemId}`
@@ -786,6 +787,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     }
   >()
   private readonly pendingUserInputs = new Map<string, CodexPendingUserInput>()
+  private readonly activeContentItemIds = new Map<string, string>()
   private output: readline.Interface | null = null
   private providerThreadId: string | null = null
 
@@ -1038,6 +1040,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
         'message',
       )
       this.activeTurnId = null
+      this.activeContentItemIds.clear()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         provider: 'codex',
@@ -1060,12 +1063,17 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
         return
       }
 
+      const stableItemId =
+        this.readString(params, 'itemId') ??
+        this.readString(this.readObject(params, 'item'), 'id') ??
+        this.activeContentItemIds.get(contentKind) ??
+        randomUUID()
+
+      this.activeContentItemIds.set(contentKind, stableItemId)
+
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
-        itemId:
-          this.readString(params, 'itemId') ??
-          this.readString(this.readObject(params, 'item'), 'id') ??
-          randomUUID(),
+        itemId: stableItemId,
         kind: contentKind,
         provider: 'codex',
         text: delta,
@@ -1528,6 +1536,7 @@ export class ManagedSessionManager {
       backend: null as never,
       config,
       contentByKey: new Map(),
+      emitRuntimeEvent: null as never,
       orderedContentKeys: [],
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
@@ -1538,45 +1547,28 @@ export class ManagedSessionManager {
       usage: null,
     }
 
-    const emitRuntimeEvent = (event: ManagedProviderRuntimeEvent) => {
+    state.emitRuntimeEvent = (event: ManagedProviderRuntimeEvent) => {
       this.applyRuntimeEvent(state, event)
       this.options.onRuntimeEvent(
         {
-          mode: config.mode,
-          paneId: config.paneId,
-          sessionId: config.sessionId,
-          workspaceId: config.workspaceId,
+          mode: state.config.mode,
+          paneId: state.config.paneId,
+          sessionId: state.config.sessionId,
+          workspaceId: state.config.workspaceId,
         },
         event,
       )
     }
 
-    state.backend =
-      process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1'
-        ? new FakeManagedSessionBackend(
-            config.mode,
-            emitRuntimeEvent,
-            this.getNow,
-          )
-        : config.mode === 'claude'
-          ? new ClaudeManagedSessionBackend(
-              config,
-              emitRuntimeEvent,
-              this.getNow,
-            )
-          : new CodexManagedSessionBackend(
-              config,
-              emitRuntimeEvent,
-              this.getNow,
-            )
+    state.backend = this.createBackend(state)
 
     this.sessions.set(config.sessionId, state)
-    emitRuntimeEvent({
+    state.emitRuntimeEvent({
       createdAt: updatedAt,
       provider: config.mode,
       type: 'session.started',
     })
-    emitRuntimeEvent({
+    state.emitRuntimeEvent({
       createdAt: updatedAt,
       provider: config.mode,
       state: 'connecting',
@@ -1586,7 +1578,7 @@ export class ManagedSessionManager {
     try {
       await state.backend.start()
     } catch (error) {
-      emitRuntimeEvent({
+      state.emitRuntimeEvent({
         createdAt: this.getNow(),
         message:
           error instanceof Error
@@ -1595,7 +1587,7 @@ export class ManagedSessionManager {
         provider: config.mode,
         type: 'runtime.error',
       })
-      emitRuntimeEvent({
+      state.emitRuntimeEvent({
         createdAt: this.getNow(),
         detail:
           error instanceof Error
@@ -1669,6 +1661,120 @@ export class ManagedSessionManager {
     )
   }
 
+  public async switchSessionProvider(
+    sessionId: string,
+    newMode: 'claude' | 'codex',
+  ): Promise<ManagedSessionSnapshot> {
+    if (newMode !== 'claude' && newMode !== 'codex') {
+      throw new Error(`Invalid provider mode: ${String(newMode)}`)
+    }
+
+    const state = this.sessions.get(sessionId)
+
+    if (!state) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    if (
+      state.activeTurnId !== null ||
+      state.pendingApprovals.size > 0 ||
+      state.pendingUserInputs.size > 0 ||
+      state.pendingUserPromptText !== null
+    ) {
+      throw new Error(
+        'Cannot switch provider while a turn is active or approvals/inputs are pending',
+      )
+    }
+
+    const now = this.getNow()
+
+    await state.backend.close()
+
+    state.pendingApprovals.clear()
+    state.pendingUserInputs.clear()
+    state.pendingUserPromptText = null
+    state.activeTurnId = null
+    state.usage = null
+
+    state.config = { ...state.config, mode: newMode }
+    state.projector = new ManagedTerminalProviderProjector(newMode)
+
+    const switchKey = createContentKey('system', `provider-switch:${now}`)
+    state.contentByKey.set(switchKey, {
+      id: `provider-switch:${now}`,
+      kind: 'system',
+      provider: null,
+      text: `Switched to ${newMode === 'claude' ? 'Claude' : 'Codex'}`,
+      turnId: null,
+      updatedAt: now,
+    })
+    state.orderedContentKeys.push(switchKey)
+
+    state.backend = this.createBackend(state)
+
+    state.emitRuntimeEvent({
+      createdAt: now,
+      provider: newMode,
+      type: 'session.started',
+    })
+    state.emitRuntimeEvent({
+      createdAt: now,
+      provider: newMode,
+      state: 'connecting',
+      type: 'session.state.changed',
+    })
+
+    try {
+      await state.backend.start()
+    } catch (error) {
+      state.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Backend failed to start after provider switch',
+        provider: newMode,
+        type: 'runtime.error',
+      })
+      state.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        detail:
+          error instanceof Error
+            ? error.message
+            : 'Backend failed to start after provider switch',
+        provider: newMode,
+        state: 'error',
+        type: 'session.state.changed',
+      })
+    }
+
+    return state.snapshot
+  }
+
+  private createBackend(
+    state: ManagedSessionMutableState,
+  ): ManagedSessionBackend {
+    if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1') {
+      return new FakeManagedSessionBackend(
+        state.config.mode,
+        state.emitRuntimeEvent,
+        this.getNow,
+      )
+    }
+
+    return state.config.mode === 'claude'
+      ? new ClaudeManagedSessionBackend(
+          state.config,
+          state.emitRuntimeEvent,
+          this.getNow,
+        )
+      : new CodexManagedSessionBackend(
+          state.config,
+          state.emitRuntimeEvent,
+          this.getNow,
+        )
+  }
+
   private applyRuntimeEvent(
     state: ManagedSessionMutableState,
     event: ManagedProviderRuntimeEvent,
@@ -1680,6 +1786,7 @@ export class ManagedSessionManager {
       state.turns.set(event.turnId, {
         completedAt: null,
         id: event.turnId,
+        provider: state.config.mode,
         startedAt: event.createdAt,
         state: 'running',
       })
@@ -1691,6 +1798,7 @@ export class ManagedSessionManager {
         state.contentByKey.set(userKey, {
           id: userItemId,
           kind: 'user-prompt',
+          provider: null,
           text: state.pendingUserPromptText,
           turnId: event.turnId,
           updatedAt: event.createdAt,
@@ -1722,6 +1830,7 @@ export class ManagedSessionManager {
         state.contentByKey.set(key, {
           id: event.itemId,
           kind: event.kind,
+          provider: state.config.mode,
           text: event.text,
           turnId: state.activeTurnId,
           updatedAt: event.createdAt,

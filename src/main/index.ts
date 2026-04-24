@@ -331,6 +331,15 @@ function registerIpcHandlers(): void {
       answers: Record<string, string | string[]>,
     ) => managedSessionManager.resolveUserInput(sessionId, requestId, answers),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSwitchProvider,
+    (_event, sessionId: string, mode: string) => {
+      if (mode !== 'claude' && mode !== 'codex') {
+        throw new Error(`Invalid provider mode: ${mode}`)
+      }
+      return managedSessionManager.switchSessionProvider(sessionId, mode)
+    },
+  )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
     readProjectFile(process.cwd(), relativePath),
   )

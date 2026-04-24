@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
-  listPaneCatalogEntries,
+  listCreatablePaneCatalogEntries,
   resolvePaneMetadata,
 } from '@/lib/pane-catalog'
 import type { PreviewTarget } from '../../../shared/domain'
@@ -182,7 +182,7 @@ function PaneActionBar({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [pickerMode])
 
-  const viewOptions = listPaneCatalogEntries()
+  const viewOptions = listCreatablePaneCatalogEntries()
 
   const actions: ReadonlyArray<{
     readonly icon: LucideIcon

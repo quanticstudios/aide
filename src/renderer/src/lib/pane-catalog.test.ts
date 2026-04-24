@@ -4,18 +4,31 @@ import {
   createDefaultPaneMetadata,
   createDefaultPaneState,
   createFallbackPaneMetadata,
-  listPaneCatalogEntries,
+  listAllPaneCatalogEntries,
+  listCreatablePaneCatalogEntries,
   resolvePaneType,
   resolveTerminalLaunchModeForPaneId,
 } from './pane-catalog'
 
 describe('pane catalog', () => {
-  it('lists pane templates in the expected creation order', () => {
-    expect(listPaneCatalogEntries().map((entry) => entry.id)).toEqual([
+  it('lists all pane templates including hidden ones', () => {
+    expect(listAllPaneCatalogEntries().map((entry) => entry.id)).toEqual([
       'chat',
       'terminal',
+      'agent',
       'terminal-claude',
       'terminal-codex',
+      'git',
+      'editor',
+      'preview',
+    ])
+  })
+
+  it('lists only creatable (non-hidden) pane templates', () => {
+    expect(listCreatablePaneCatalogEntries().map((entry) => entry.id)).toEqual([
+      'chat',
+      'terminal',
+      'agent',
       'git',
       'editor',
       'preview',
@@ -40,6 +53,7 @@ describe('pane catalog', () => {
     expect(resolvePaneType('Preview')).toBe('preview')
     expect(resolvePaneType('Claude')).toBe('terminal')
     expect(resolvePaneType('Codex')).toBe('terminal')
+    expect(resolvePaneType('Agent')).toBe('terminal')
     expect(resolvePaneType('Unknown')).toBeNull()
   })
 
@@ -80,5 +94,6 @@ describe('pane catalog', () => {
       'claude',
     )
     expect(resolveTerminalLaunchModeForPaneId('terminal-codex')).toBe('codex')
+    expect(resolveTerminalLaunchModeForPaneId('agent')).toBe('agent')
   })
 })
