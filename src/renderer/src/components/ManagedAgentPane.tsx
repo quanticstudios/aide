@@ -1,16 +1,20 @@
-import { Button, Surface, TextArea } from '@heroui/react'
+import { Button, Surface } from '@heroui/react'
 import {
   ArrowDown,
   ArrowUp,
   Brain,
+  Check,
   ChevronDown,
   CirclePause,
   Clipboard,
   ClipboardCheck,
+  ClipboardList,
   FileCode,
   FolderOpen,
   GitBranch,
   LoaderCircle,
+  Lock,
+  PenLine,
   RefreshCw,
   Terminal,
   User,
@@ -30,6 +34,8 @@ import MarkdownContent from './MarkdownContent'
 import type { AideApi } from '../../../shared/ipc'
 import type {
   ManagedSessionContentItem,
+  ManagedSessionEffort,
+  ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
@@ -70,49 +76,193 @@ function getErrorMessage(error: unknown): string {
   return 'Managed session failed.'
 }
 
-function formatSessionState(snapshot: ManagedSessionSnapshot | null): string {
-  if (!snapshot) {
-    return 'Connecting'
-  }
+const EFFORT_OPTIONS: ReadonlyArray<{
+  label: string
+  value: ManagedSessionEffort
+}> = [
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+  { label: 'Extra High (default)', value: 'max' },
+]
 
-  switch (snapshot.sessionState) {
-    case 'connecting':
-      return 'Connecting'
-    case 'running':
-      return 'Working'
-    case 'waiting':
-      return snapshot.pendingApprovals.length > 0
-        ? 'Pending Approval'
-        : 'Awaiting Input'
-    case 'ready':
-      return 'Ready'
-    case 'error':
-      return 'Error'
-    case 'stopped':
-      return 'Stopped'
+const PERMISSION_OPTIONS: ReadonlyArray<{
+  description: string
+  icon: typeof Lock
+  label: string
+  value: ManagedSessionPermissionMode
+}> = [
+  {
+    description: 'Ask before commands and file changes.',
+    icon: Lock,
+    label: 'Supervised',
+    value: 'default',
+  },
+  {
+    description: 'Auto-approve edits, ask before other actions.',
+    icon: PenLine,
+    label: 'Auto-accept edits',
+    value: 'acceptEdits',
+  },
+  {
+    description: 'Allow commands and edits without prompts.',
+    icon: Lock,
+    label: 'Full access',
+    value: 'bypassPermissions',
+  },
+]
+
+function formatEffortTrigger(effort: ManagedSessionEffort): string {
+  switch (effort) {
+    case 'low':
+      return 'Low'
+    case 'medium':
+      return 'Medium'
+    case 'high':
+      return 'High'
+    case 'max':
+      return 'Extra High'
   }
 }
 
-function getSessionStateDotColor(
-  snapshot: ManagedSessionSnapshot | null,
-): string {
-  if (!snapshot) {
-    return 'bg-primary'
-  }
+function formatPermissionTrigger(mode: ManagedSessionPermissionMode): string {
+  const opt = PERMISSION_OPTIONS.find((o) => o.value === mode)
+  return opt?.label ?? 'Supervised'
+}
 
-  switch (snapshot.sessionState) {
-    case 'waiting':
-      return 'bg-amber-400'
-    case 'running':
-    case 'connecting':
-      return 'bg-primary'
-    case 'error':
-      return 'bg-red-400'
-    case 'ready':
-      return 'bg-emerald-400'
-    default:
-      return 'bg-muted-foreground'
-  }
+function useClickOutside(
+  ref: React.RefObject<HTMLElement | null>,
+  onClose: () => void,
+  active: boolean,
+) {
+  useEffect(() => {
+    if (!active) return
+
+    const handler = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        onClose()
+      }
+    }
+
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [active, onClose, ref])
+}
+
+function ReasoningDropdown({
+  effort,
+  onEffortChange,
+}: {
+  readonly effort: ManagedSessionEffort
+  readonly onEffortChange: (effort: ManagedSessionEffort) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+      >
+        {formatEffortTrigger(effort)}
+        <ChevronDown className="size-3 opacity-50" />
+      </button>
+      {isOpen && (
+        <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[200px] rounded-xl border border-border bg-popover py-2 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+          <div className="px-4 pb-1 text-xs font-medium text-muted-foreground">
+            Reasoning
+          </div>
+          {EFFORT_OPTIONS.map((opt) => (
+            <button
+              className={`flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors ${
+                opt.value === effort
+                  ? 'text-foreground'
+                  : 'text-foreground/80 hover:bg-secondary/60'
+              }`}
+              key={opt.value}
+              onClick={() => {
+                onEffortChange(opt.value)
+                setIsOpen(false)
+              }}
+              type="button"
+            >
+              {opt.value === effort ? (
+                <Check className="size-3.5" />
+              ) : (
+                <span className="size-3.5" />
+              )}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PermissionDropdown({
+  onPermissionModeChange,
+  permissionMode,
+}: {
+  readonly onPermissionModeChange: (mode: ManagedSessionPermissionMode) => void
+  readonly permissionMode: ManagedSessionPermissionMode
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+      >
+        <Lock className="size-3" />
+        {formatPermissionTrigger(permissionMode)}
+        <ChevronDown className="size-3 opacity-50" />
+      </button>
+      {isOpen && (
+        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-xl border border-border bg-popover py-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+          {PERMISSION_OPTIONS.map((opt) => {
+            const Icon = opt.icon
+            const isSelected = opt.value === permissionMode
+
+            return (
+              <button
+                className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                  isSelected
+                    ? 'text-foreground'
+                    : 'text-foreground/80 hover:bg-secondary/60'
+                }`}
+                key={opt.value}
+                onClick={() => {
+                  onPermissionModeChange(opt.value)
+                  setIsOpen(false)
+                }}
+                type="button"
+              >
+                {isSelected ? (
+                  <Check className="size-4 shrink-0" />
+                ) : (
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                )}
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{opt.label}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {opt.description}
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface TurnGroup {
@@ -391,20 +541,34 @@ export default function ManagedAgentPane({
       return 'claude'
     },
   )
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(
+    undefined,
+  )
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build')
+  const [effort, setEffort] = useState<ManagedSessionEffort>('high')
+  const [permissionMode, setPermissionMode] =
+    useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const startedSessionRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
 
-  const loadOrCreateSession = useCallback(async () => {
+  useEffect(() => {
+    if (draftInput === '' && textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+    }
+  }, [draftInput])
+
+  const ensureSession = useCallback(async () => {
     if (startedSessionRef.current) return
 
     const api = getAideApi()
@@ -429,8 +593,11 @@ export default function ManagedAgentPane({
 
       const created = await api.createManagedSession({
         cwd: workspace.worktreePath || '~',
+        effort,
         mode: selectedProvider,
+        model: selectedModel,
         paneId,
+        permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
         workspaceId: workspace.id,
       })
@@ -441,8 +608,12 @@ export default function ManagedAgentPane({
       setError(getErrorMessage(sessionError))
     }
   }, [
+    agentMode,
+    effort,
     isUnifiedPane,
     paneId,
+    permissionMode,
+    selectedModel,
     selectedProvider,
     sessionId,
     terminalMode,
@@ -451,8 +622,25 @@ export default function ManagedAgentPane({
   ])
 
   useEffect(() => {
-    void loadOrCreateSession()
-  }, [loadOrCreateSession])
+    const api = getAideApi()
+    if (!api || terminalMode === 'shell' || startedSessionRef.current) return
+
+    void (async () => {
+      try {
+        const snapshots = await api.getManagedSessionSnapshots()
+        const existing = snapshots[sessionId] ?? null
+        if (existing) {
+          setSnapshot(existing)
+          if (isUnifiedPane) {
+            setSelectedProvider(existing.provider as ManagedSessionMode)
+          }
+          startedSessionRef.current = true
+        }
+      } catch {
+        /* no existing session — will create on first send */
+      }
+    })()
+  }, [isUnifiedPane, sessionId, terminalMode])
 
   useEffect(() => {
     const api = getAideApi()
@@ -532,6 +720,9 @@ export default function ManagedAgentPane({
       setIsSubmitting(true)
 
       try {
+        if (!startedSessionRef.current) {
+          await ensureSession()
+        }
         await api.sendManagedSessionInput(sessionId, trimmed)
         setError(null)
       } catch (sendError) {
@@ -540,7 +731,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [sessionId],
+    [ensureSession, sessionId],
   )
 
   const handleSendInput = useCallback(async () => {
@@ -555,9 +746,14 @@ export default function ManagedAgentPane({
     [sendPromptText],
   )
 
-  const handleProviderSwitch = useCallback(
-    async (newMode: ManagedSessionMode) => {
-      if (newMode === selectedProvider) return
+  const handleModelSwitch = useCallback(
+    async (newMode: ManagedSessionMode, newModelId: string) => {
+      setSelectedModel(newModelId)
+      if (newMode !== selectedProvider) {
+        setSelectedProvider(newMode)
+        localStorage.setItem(`aide:workspace:${workspace.id}:provider`, newMode)
+      }
+
       const api = getAideApi()
       if (!api || !startedSessionRef.current) return
 
@@ -565,10 +761,9 @@ export default function ManagedAgentPane({
         const updated = await api.switchManagedSessionProvider(
           sessionId,
           newMode,
+          newModelId,
         )
         setSnapshot(updated)
-        setSelectedProvider(newMode)
-        localStorage.setItem(`aide:workspace:${workspace.id}:provider`, newMode)
       } catch (switchError) {
         setError(getErrorMessage(switchError))
       }
@@ -867,12 +1062,16 @@ export default function ManagedAgentPane({
             </div>
           ) : null}
 
-          <TextArea
+          <textarea
+            ref={textareaRef}
             aria-label={`${providerLabel} prompt`}
-            className="w-full border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
-            onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+            className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
+            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
               setDraftInput(event.target.value)
-            }
+              const el = event.target
+              el.style.height = 'auto'
+              el.style.height = `${el.scrollHeight}px`
+            }}
             onKeyDown={(event) => {
               if (slashMenuOpen) {
                 if (event.key === 'ArrowDown') {
@@ -918,29 +1117,44 @@ export default function ManagedAgentPane({
               }
             }}
             placeholder="Ask anything, type / for commands"
+            rows={3}
             value={draftInput}
-            variant="secondary"
           />
 
-          <div className="flex items-center gap-2 border-t border-border/40 px-3 py-2">
+          <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
             {isUnifiedPane ? (
               <ModelSelector
-                isDisabled={snapshot?.running === true}
-                onChange={(mode) => void handleProviderSwitch(mode)}
-                value={selectedProvider}
+                isDisabled={snapshot?.sessionState === 'running'}
+                model={selectedModel}
+                onChange={(mode, modelId) =>
+                  void handleModelSwitch(mode, modelId)
+                }
+                provider={selectedProvider}
               />
             ) : (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 {providerLabel}
               </span>
             )}
-            <span className="text-border/50">|</span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span
-                className={`size-1.5 rounded-full ${getSessionStateDotColor(snapshot)}`}
-              />
-              {formatSessionState(snapshot)}
-            </span>
+            <ReasoningDropdown effort={effort} onEffortChange={setEffort} />
+            <button
+              className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors ${
+                agentMode === 'plan'
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() =>
+                setAgentMode((m) => (m === 'plan' ? 'build' : 'plan'))
+              }
+              type="button"
+            >
+              <ClipboardList className="size-3" />
+              {agentMode === 'plan' ? 'Plan' : 'Build'}
+            </button>
+            <PermissionDropdown
+              onPermissionModeChange={setPermissionMode}
+              permissionMode={permissionMode}
+            />
             <span className="flex-1" />
             {snapshot?.usage ? (
               <ContextWindowMeter usage={snapshot.usage} />

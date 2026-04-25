@@ -24,6 +24,7 @@ import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import { buildCommandList } from './lib/command-registry'
 import {
   getPaneCatalogEntryForTemplate,
+  getPaneTemplateId,
   resolvePaneMetadata,
   resolvePaneType,
 } from './lib/pane-catalog'
@@ -541,19 +542,20 @@ export default function App() {
 
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
-      const projectId = resolvedNavigationState.activeProjectId
-      if (!projectId) return
+      const candidates = isWorkspaceSwitcherVisible
+        ? [...navigationSnapshot.workspaces]
+        : [...navigationSnapshot.workspaces].filter(
+            (ws) => ws.projectId === resolvedNavigationState.activeProjectId,
+          )
 
-      const sorted = [...navigationSnapshot.workspaces]
-        .filter((ws) => ws.projectId === projectId)
-        .sort((a, b) =>
-          compareWorkspacesByAttentionTier(
-            resolveAggregateWorkspaceActivity(workspaceActivities[a.id] ?? []),
-            a.updatedAt,
-            resolveAggregateWorkspaceActivity(workspaceActivities[b.id] ?? []),
-            b.updatedAt,
-          ),
-        )
+      const sorted = candidates.sort((a, b) =>
+        compareWorkspacesByAttentionTier(
+          resolveAggregateWorkspaceActivity(workspaceActivities[a.id] ?? []),
+          a.updatedAt,
+          resolveAggregateWorkspaceActivity(workspaceActivities[b.id] ?? []),
+          b.updatedAt,
+        ),
+      )
 
       if (sorted.length === 0) return
 
@@ -582,6 +584,7 @@ export default function App() {
     [
       getPaneIdsForWorkspace,
       getSurfaceIdsForWorkspace,
+      isWorkspaceSwitcherVisible,
       navigationSnapshot,
       resolvedNavigationState,
       setSelection,
@@ -1337,9 +1340,51 @@ export default function App() {
         (workspace) => workspace.projectId === activeProject.id,
       )
     : []
+  const allWorkspacesOrdered = useMemo(() => {
+    const result: typeof allWorkspaces = []
+    for (const project of projects) {
+      for (const ws of allWorkspaces) {
+        if (ws.projectId === project.id) {
+          result.push(ws)
+        }
+      }
+    }
+    return result
+  }, [projects, allWorkspaces])
   const activeWorkspaceSurfaces = activeWorkspace
     ? resolveWorkspaceSurfaces(navigationSnapshot, activeWorkspace.id)
     : []
+  const surfaceManagedSessionIds = useMemo(() => {
+    if (!activeWorkspace) return {}
+    const map: Record<string, string | null> = {}
+    for (const surface of activeWorkspaceSurfaces) {
+      const layout = resolveSurfaceLayout(
+        navigationSnapshot,
+        activeWorkspace.id,
+        surface.id,
+      )
+      if (!layout) {
+        map[surface.id] = null
+        continue
+      }
+      const managedViewId = layout.nodes
+        .flatMap((n) => (n.type === 'pane' ? n.viewIds : []))
+        .find((viewId) => {
+          const entry = getPaneCatalogEntryForTemplate(
+            getPaneTemplateId(viewId),
+          )
+          return (
+            entry?.terminalMode === 'agent' ||
+            entry?.terminalMode === 'claude' ||
+            entry?.terminalMode === 'codex'
+          )
+        })
+      map[surface.id] = managedViewId
+        ? `${activeWorkspace.id}:${managedViewId}`
+        : null
+    }
+    return map
+  }, [activeWorkspace, activeWorkspaceSurfaces, navigationSnapshot])
   const workspaceSummaries = useMemo(
     () =>
       buildWorkspaceSummaryMap(projects, allWorkspaces, workspaceActivities),
@@ -1399,6 +1444,7 @@ export default function App() {
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       surfaces={activeWorkspaceSurfaces}
+      surfaceManagedSessionIds={surfaceManagedSessionIds}
       showProjectHints={showProjectHints}
       onSelectPane={(paneId: string) =>
         setSelection(
@@ -1486,7 +1532,8 @@ export default function App() {
           onSplitPane={handleSplitPane}
           onSwitchView={handleSwitchView}
           previewTargets={activePreviewState.targets}
-          projectWorkspaces={projectWorkspaces}
+          allWorkspaces={allWorkspacesOrdered}
+          projects={projects}
           shellError={shellError}
           activePaneId={resolvedNavigationState.activePaneId}
           activeSurfaceId={resolvedNavigationState.activeSurfaceId}

@@ -21,6 +21,7 @@ interface AppShellProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onCreatePane: () => void
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
+  readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly showProjectHints: boolean
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -39,6 +40,7 @@ export default function AppShell({
   activeWorkspace,
   onCreatePane,
   surfaces,
+  surfaceManagedSessionIds,
   showProjectHints,
   onSelectPane,
   onSelectProject,
@@ -265,6 +267,7 @@ export default function AppShell({
           activeWorkspace={activeWorkspace}
           onCreatePane={onCreatePane}
           surfaces={surfaces}
+          surfaceManagedSessionIds={surfaceManagedSessionIds}
           onSelectPane={onSelectPane}
         />
 

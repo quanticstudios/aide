@@ -1,12 +1,14 @@
 import { Button, Kbd, Toolbar } from '@heroui/react'
 import { GitBranch, Plus } from 'lucide-react'
 
+import { getSessionStateDotClass } from '@/lib/session-state-dot'
 import { cn } from '@/lib/utils'
 import type {
   ProjectRecord,
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
+import { useManagedSessionState } from '../hooks/useManagedSessionState'
 
 interface TopBarProps {
   readonly activeSurfaceId: string | null
@@ -14,7 +16,51 @@ interface TopBarProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onCreatePane: () => void
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
+  readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly onSelectPane: (paneId: string) => void
+}
+
+function SurfaceTab({
+  index,
+  isActive,
+  managedSessionId,
+  onSelect,
+  surface,
+}: {
+  readonly index: number
+  readonly isActive: boolean
+  readonly managedSessionId: string | null
+  readonly onSelect: () => void
+  readonly surface: WorkspaceSurfaceRecord
+}) {
+  const sessionState = useManagedSessionState(managedSessionId)
+
+  return (
+    <Button
+      aria-label={surface.title}
+      className={cn(
+        'workspace-strip-item h-8 shrink-0 rounded-lg px-2.5 text-left text-[12px] font-medium transition-all',
+        isActive
+          ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
+          : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
+      )}
+      onMouseDown={(event) => {
+        event.preventDefault()
+      }}
+      onPress={onSelect}
+      variant={isActive ? 'secondary' : 'ghost'}
+    >
+      <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">
+        {index + 1}
+      </span>
+      <span>{surface.title}</span>
+      {managedSessionId ? (
+        <span
+          className={`size-2 shrink-0 rounded-full ${getSessionStateDotClass(sessionState)}`}
+        />
+      ) : null}
+    </Button>
+  )
 }
 
 export default function TopBar({
@@ -23,6 +69,7 @@ export default function TopBar({
   activeWorkspace,
   onCreatePane,
   surfaces,
+  surfaceManagedSessionIds,
   onSelectPane,
 }: TopBarProps) {
   const visibleSurfaces = surfaces
@@ -50,32 +97,16 @@ export default function TopBar({
             className="workspace-strip inline-flex min-w-max rounded-xl border border-border/80 bg-surface/80 p-1"
             isAttached
           >
-            {visibleSurfaces.map((surface, index) => {
-              const isActive = surface.id === activeSurfaceId
-
-              return (
-                <Button
-                  aria-label={surface.title}
-                  className={cn(
-                    'workspace-strip-item h-8 shrink-0 rounded-lg px-2.5 text-left text-[12px] font-medium transition-all',
-                    isActive
-                      ? 'border-primary/60 bg-primary/12 text-foreground shadow-[0_0_0_1px_rgba(94,234,212,0.12)]'
-                      : 'border-transparent bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-surface-secondary hover:text-foreground',
-                  )}
-                  key={surface.id}
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                  }}
-                  onPress={() => onSelectPane(surface.id)}
-                  variant={isActive ? 'secondary' : 'ghost'}
-                >
-                  <span className="grid size-5 place-items-center rounded-full border border-border/80 bg-background text-[10px] font-medium leading-none text-muted-foreground">
-                    {index + 1}
-                  </span>
-                  <span>{surface.title}</span>
-                </Button>
-              )
-            })}
+            {visibleSurfaces.map((surface, index) => (
+              <SurfaceTab
+                index={index}
+                isActive={surface.id === activeSurfaceId}
+                key={surface.id}
+                managedSessionId={surfaceManagedSessionIds[surface.id] ?? null}
+                onSelect={() => onSelectPane(surface.id)}
+                surface={surface}
+              />
+            ))}
 
             {activeWorkspace ? (
               <Button

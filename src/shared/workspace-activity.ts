@@ -37,12 +37,6 @@ const STATE_PRIORITY: Record<WorkspaceActivityState, number> = {
   'terminal-running': 1,
 }
 
-const PROVIDER_LABELS: Record<WorkspaceActivityProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex',
-  terminal: 'Terminal',
-}
-
 const STATE_LABELS: Record<WorkspaceActivityState, string> = {
   'awaiting-input': 'Awaiting Input',
   completed: 'Completed',
@@ -73,7 +67,7 @@ export function formatWorkspaceActivityLabel(
     return `Terminal ${STATE_LABELS[activity.state]}`
   }
 
-  return `${PROVIDER_LABELS[activity.provider]} ${STATE_LABELS[activity.state]}`
+  return `Agent ${STATE_LABELS[activity.state]}`
 }
 
 export function resolveWorkspaceActivityAccentClassName(
@@ -100,7 +94,7 @@ export function resolveWorkspaceActivityAccentClassName(
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'text-indigo-300'
+    return 'text-amber-400'
   }
 
   return 'text-emerald-300'
@@ -130,7 +124,7 @@ export function resolveWorkspaceActivityDotClassName(
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'bg-indigo-300'
+    return 'bg-amber-400'
   }
 
   return 'bg-emerald-300'
@@ -225,7 +219,7 @@ export function formatWorkspaceActivityPillLabel(
     return SHORT_STATE_LABELS[activity.state]
   }
 
-  return `${PROVIDER_LABELS[activity.provider]} ${SHORT_STATE_LABELS[activity.state]}`
+  return `Agent ${SHORT_STATE_LABELS[activity.state]}`
 }
 
 export function resolveWorkspaceActivityPillClassName(
@@ -240,7 +234,7 @@ export function resolveWorkspaceActivityPillClassName(
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'border-indigo-300/30 bg-indigo-300/[0.12] text-indigo-300'
+    return 'border-amber-400/30 bg-amber-400/[0.12] text-amber-400'
   }
 
   if (activity.state === 'working') {
@@ -270,7 +264,7 @@ export function resolveWorkspaceActivityBorderColorClassName(
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'border-l-indigo-300'
+    return 'border-l-amber-400'
   }
 
   if (activity.state === 'working') {

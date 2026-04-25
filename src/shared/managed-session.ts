@@ -23,10 +23,20 @@ export type ManagedSessionContentKind =
   | 'system'
   | 'user-prompt'
 
+export type ManagedSessionEffort = 'high' | 'low' | 'max' | 'medium'
+export type ManagedSessionPermissionMode =
+  | 'acceptEdits'
+  | 'bypassPermissions'
+  | 'default'
+  | 'plan'
+
 export interface ManagedSessionConfig {
   cwd: string
+  effort?: ManagedSessionEffort
   mode: ManagedSessionMode
+  model?: string
   paneId: string
+  permissionMode?: ManagedSessionPermissionMode
   sessionId: string
   workspaceId: string
 }

@@ -9,18 +9,22 @@ import {
   Shrink,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
+  getPaneCatalogEntryForTemplate,
+  getPaneTemplateId,
   listCreatablePaneCatalogEntries,
   resolvePaneMetadata,
 } from '@/lib/pane-catalog'
 import type { PreviewTarget } from '../../../shared/domain'
+import { useManagedSessionState } from '../hooks/useManagedSessionState'
 
 import { getPaneFrameClassName } from '@/lib/pane-frame'
 import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
+import { getSessionStateDotClass } from '@/lib/session-state-dot'
 import { cn } from '@/lib/utils'
 import {
   getWorkspaceSlideHeight,
@@ -59,7 +63,8 @@ interface WorkspaceCanvasProps {
     workspace: WorkspaceRecord,
     url: string,
   ) => void
-  readonly projectWorkspaces: readonly WorkspaceRecord[]
+  readonly allWorkspaces: readonly WorkspaceRecord[]
+  readonly projects: readonly ProjectRecord[]
   readonly onRemoveView: (paneId: string, viewIndex: number) => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSelectPreviewTarget: (
@@ -294,53 +299,93 @@ function PaneActionBar({
   )
 }
 
+function PaneTab({
+  isActive,
+  onRemove,
+  onSwitch,
+  viewId,
+  workspaceId,
+}: {
+  readonly isActive: boolean
+  readonly onRemove: () => void
+  readonly onSwitch: () => void
+  readonly viewId: string
+  readonly workspaceId: string
+}) {
+  const { metadata, resolvedType } = createFallbackPaneMetadata(viewId)
+  const entry = resolvedType ? getPaneCatalogEntry(resolvedType) : null
+  const Icon = entry?.icon
+
+  const templateId = getPaneTemplateId(viewId)
+  const templateEntry = getPaneCatalogEntryForTemplate(templateId)
+  const isManagedPane =
+    templateEntry?.terminalMode === 'agent' ||
+    templateEntry?.terminalMode === 'claude' ||
+    templateEntry?.terminalMode === 'codex'
+
+  const sessionId = useMemo(
+    () => (isManagedPane ? `${workspaceId}:${viewId}` : null),
+    [isManagedPane, viewId, workspaceId],
+  )
+  const sessionState = useManagedSessionState(sessionId)
+  return (
+    <button
+      className={cn(
+        'group/tab flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
+        isActive
+          ? 'bg-primary/10 text-foreground'
+          : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
+      )}
+      onClick={onSwitch}
+      type="button"
+    >
+      {Icon ? <Icon className="size-3" /> : null}
+      <span className="truncate">{metadata.type}</span>
+      {isManagedPane ? (
+        <span
+          className={`size-2 rounded-full ${getSessionStateDotClass(sessionState)}`}
+        />
+      ) : null}
+      <button
+        aria-label={`Close ${metadata.type} view`}
+        className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/tab:opacity-100"
+        onClick={(event) => {
+          event.stopPropagation()
+          onRemove()
+        }}
+        type="button"
+      >
+        <X className="size-2.5" />
+      </button>
+    </button>
+  )
+}
+
 function PaneTabBar({
   activeViewIndex,
   onRemoveView,
   onSwitchView,
   viewIds,
+  workspaceId,
 }: {
   readonly activeViewIndex: number
   readonly onRemoveView: (viewIndex: number) => void
   readonly onSwitchView: (viewIndex: number) => void
   readonly viewIds: readonly string[]
+  readonly workspaceId: string
 }) {
   return (
     <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto px-1 pb-1">
-      {viewIds.map((viewId, index) => {
-        const { metadata, resolvedType } = createFallbackPaneMetadata(viewId)
-        const entry = resolvedType ? getPaneCatalogEntry(resolvedType) : null
-        const isActive = index === activeViewIndex
-        const Icon = entry?.icon
-
-        return (
-          <button
-            className={cn(
-              'group/tab flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
-              isActive
-                ? 'bg-primary/10 text-foreground'
-                : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
-            )}
-            key={viewId}
-            onClick={() => onSwitchView(index)}
-            type="button"
-          >
-            {Icon ? <Icon className="size-3" /> : null}
-            <span className="truncate">{metadata.type}</span>
-            <button
-              aria-label={`Close ${metadata.type} view`}
-              className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/tab:opacity-100"
-              onClick={(event) => {
-                event.stopPropagation()
-                onRemoveView(index)
-              }}
-              type="button"
-            >
-              <X className="size-2.5" />
-            </button>
-          </button>
-        )
-      })}
+      {viewIds.map((viewId, index) => (
+        <PaneTab
+          isActive={index === activeViewIndex}
+          key={viewId}
+          onRemove={() => onRemoveView(index)}
+          onSwitch={() => onSwitchView(index)}
+          viewId={viewId}
+          workspaceId={workspaceId}
+        />
+      ))}
     </div>
   )
 }
@@ -402,6 +447,7 @@ function renderLayoutNode(args: {
             onRemoveView={(viewIndex) => args.onRemoveView(paneId, viewIndex)}
             onSwitchView={(viewIndex) => args.onSwitchView(paneId, viewIndex)}
             viewIds={viewIds}
+            workspaceId={args.workspace.id}
           />
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.2xl)-1px)]">
@@ -504,15 +550,16 @@ export default function WorkspaceCanvas({
   onSplitPane,
   onSwitchView,
   previewTargets,
-  projectWorkspaces,
+  allWorkspaces,
+  projects,
   shellError,
   surfaceLayouts,
   workspaceLayouts,
   workspaceSurfaces,
 }: WorkspaceCanvasProps) {
-  const workspaceCount = Math.max(projectWorkspaces.length, 1)
+  const workspaceCount = Math.max(allWorkspaces.length, 1)
   const activeWorkspaceIndex = Math.max(
-    projectWorkspaces.findIndex(
+    allWorkspaces.findIndex(
       (workspace) => workspace.id === activeWorkspace?.id,
     ),
     0,
@@ -608,8 +655,12 @@ export default function WorkspaceCanvas({
           className="workspace-slider flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
           style={workspaceTrackStyle}
         >
-          {projectWorkspaces.map((workspace) => {
+          {allWorkspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspace.id
+            const workspaceProject =
+              workspace.projectId === activeProject?.id
+                ? activeProject
+                : (projects.find((p) => p.id === workspace.projectId) ?? null)
             const surfaces = resolveWorkspaceSurfaces(
               surfaceSnapshot,
               workspace.id,
@@ -626,7 +677,7 @@ export default function WorkspaceCanvas({
                 style={{ height: workspaceSlideHeight }}
               >
                 <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
-                  {activeProject && surfaces.length > 0 ? (
+                  {workspaceProject && surfaces.length > 0 ? (
                     <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                       {(() => {
                         const activeSurface =
@@ -661,7 +712,7 @@ export default function WorkspaceCanvas({
                                 activePaneId: isActiveWorkspace
                                   ? activePaneId
                                   : null,
-                                activeProject,
+                                activeProject: workspaceProject,
                                 activePreviewTarget: isActiveWorkspace
                                   ? activePreviewTarget
                                   : null,
@@ -691,7 +742,7 @@ export default function WorkspaceCanvas({
                         )
                       })()}
                     </div>
-                  ) : activeProject ? (
+                  ) : workspaceProject ? (
                     <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">
                       <div className="max-w-md space-y-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">

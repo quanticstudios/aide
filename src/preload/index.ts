@@ -130,11 +130,16 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
   sendManagedSessionInput: (sessionId: string, text: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
-  switchManagedSessionProvider: (sessionId: string, mode: ManagedSessionMode) =>
+  switchManagedSessionProvider: (
+    sessionId: string,
+    mode: ManagedSessionMode,
+    model?: string,
+  ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.managedSessionSwitchProvider,
       sessionId,
       mode,
+      model,
     ),
   validateExecutableCommand: (command: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),

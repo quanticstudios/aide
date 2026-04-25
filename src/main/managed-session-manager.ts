@@ -407,9 +407,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       options: {
         canUseTool,
         cwd,
+        effort: this.config.effort,
         env: process.env,
         includePartialMessages: true,
+        ...(this.config.model ? { model: this.config.model } : {}),
         pathToClaudeCodeExecutable: cliPath,
+        permissionMode: this.config.permissionMode,
         settingSources: ['user', 'project', 'local'],
       },
       prompt: this.promptQueue,
@@ -848,6 +851,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     const response = (await this.sendRequest('thread/start', {
       approvalPolicy: 'on-request',
       cwd,
+      ...(this.config.model ? { model: this.config.model } : {}),
       sandbox: 'workspace-write',
     })) as Record<string, unknown>
 
@@ -1664,6 +1668,7 @@ export class ManagedSessionManager {
   public async switchSessionProvider(
     sessionId: string,
     newMode: 'claude' | 'codex',
+    newModel?: string,
   ): Promise<ManagedSessionSnapshot> {
     if (newMode !== 'claude' && newMode !== 'codex') {
       throw new Error(`Invalid provider mode: ${String(newMode)}`)
@@ -1696,7 +1701,7 @@ export class ManagedSessionManager {
     state.activeTurnId = null
     state.usage = null
 
-    state.config = { ...state.config, mode: newMode }
+    state.config = { ...state.config, mode: newMode, model: newModel }
     state.projector = new ManagedTerminalProviderProjector(newMode)
 
     const switchKey = createContentKey('system', `provider-switch:${now}`)

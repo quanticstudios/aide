@@ -34,7 +34,7 @@ function createActivity(
 describe('workspace activity helpers', () => {
   it('formats provider-aware labels for managed and shell sessions', () => {
     expect(formatWorkspaceActivityLabel(createActivity('working'))).toBe(
-      'Claude Working',
+      'Agent Working',
     )
     expect(
       formatWorkspaceActivityLabel(
@@ -124,16 +124,16 @@ describe('workspace activity helpers', () => {
 
   it('formats compact pill labels', () => {
     expect(formatWorkspaceActivityPillLabel(createActivity('working'))).toBe(
-      'Claude Working',
+      'Agent Working',
     )
     expect(
       formatWorkspaceActivityPillLabel(createActivity('pending-approval')),
-    ).toBe('Claude Approval')
+    ).toBe('Agent Approval')
     expect(
       formatWorkspaceActivityPillLabel(createActivity('awaiting-input')),
-    ).toBe('Claude Input')
+    ).toBe('Agent Input')
     expect(formatWorkspaceActivityPillLabel(createActivity('completed'))).toBe(
-      'Claude Done',
+      'Agent Done',
     )
     expect(
       formatWorkspaceActivityPillLabel(
@@ -160,7 +160,7 @@ describe('workspace activity helpers', () => {
     ).toContain('text-emerald-300')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('awaiting-input')),
-    ).toContain('text-indigo-300')
+    ).toContain('text-amber-400')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('connecting')),
     ).toContain('text-sky-300')
@@ -190,7 +190,7 @@ describe('workspace activity helpers', () => {
       resolveWorkspaceActivityBorderColorClassName(
         createActivity('awaiting-input'),
       ),
-    ).toBe('border-l-indigo-300')
+    ).toBe('border-l-amber-400')
     expect(
       resolveWorkspaceActivityBorderColorClassName(createActivity('completed')),
     ).toBe('border-l-emerald-300')

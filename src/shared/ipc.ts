@@ -159,6 +159,7 @@ export interface AideApi {
   switchManagedSessionProvider: (
     sessionId: string,
     mode: ManagedSessionMode,
+    model?: string,
   ) => Promise<ManagedSessionSnapshot>
   writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }

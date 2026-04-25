@@ -333,11 +333,11 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSwitchProvider,
-    (_event, sessionId: string, mode: string) => {
+    (_event, sessionId: string, mode: string, model?: string) => {
       if (mode !== 'claude' && mode !== 'codex') {
         throw new Error(`Invalid provider mode: ${mode}`)
       }
-      return managedSessionManager.switchSessionProvider(sessionId, mode)
+      return managedSessionManager.switchSessionProvider(sessionId, mode, model)
     },
   )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
