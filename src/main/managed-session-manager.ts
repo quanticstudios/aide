@@ -623,6 +623,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'stream_event') {
+      this.streamedMessageUuids.add(message.uuid)
       this.handleStreamEvent(message)
       return
     }

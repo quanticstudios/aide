@@ -60,6 +60,16 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Navigation Rules
+
+**Alt+J/K/H/L workspace and pane navigation is the foundational UX of this app. Under no circumstance should navigation shortcuts be broken, removed, or compromised.**
+
+Any change to keyboard handling in `App.tsx` must be verified against:
+- Alt+J/K cycles workspaces (all workspaces when switcher visible, project-local otherwise)
+- Alt+H/L cycles panes
+- Alt+Arrow keys mirror J/K/H/L behavior
+- Alt-hold shows workspace switcher, Alt-release hides it
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
