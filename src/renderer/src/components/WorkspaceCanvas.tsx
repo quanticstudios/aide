@@ -1,27 +1,18 @@
-import { Button, Tooltip } from '@heroui/react'
-import {
-  Columns2,
-  Expand,
-  FolderOpen,
-  type LucideIcon,
-  Plus,
-  Rows2,
-  Shrink,
-  X,
-} from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@heroui/react'
+import { FolderOpen, Plus, X } from 'lucide-react'
+import { useMemo } from 'react'
 
 import {
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
   getPaneCatalogEntryForTemplate,
   getPaneTemplateId,
-  listCreatablePaneCatalogEntries,
   resolvePaneMetadata,
 } from '@/lib/pane-catalog'
 import type { PreviewTarget } from '../../../shared/domain'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
 
+import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
 import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
@@ -40,7 +31,6 @@ import {
 } from '@/lib/workspace-surfaces'
 import type {
   PersistedLayoutNode,
-  PersistedSplitLayoutNode,
   PersistenceSnapshot,
   ProjectRecord,
   SurfaceLayoutRecord,
@@ -66,17 +56,11 @@ interface WorkspaceCanvasProps {
   readonly allWorkspaces: readonly WorkspaceRecord[]
   readonly projects: readonly ProjectRecord[]
   readonly onRemoveView: (paneId: string, viewIndex: number) => void
-  readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSelectPreviewTarget: (
     workspace: WorkspaceRecord,
     targetId: string,
   ) => void
   readonly onSelectPane: (paneId: string) => void
-  readonly onSplitPane: (
-    paneId: string,
-    splitType: PersistedSplitLayoutNode['type'],
-    targetPaneType?: string,
-  ) => void
   readonly onSwitchView: (paneId: string, viewIndex: number) => void
   readonly previewTargets: readonly PreviewTarget[]
   readonly shellError: string | null
@@ -101,22 +85,28 @@ function EmptyState({
   return (
     <section className="flex h-full items-center justify-center p-8">
       <div className="flex max-w-xl flex-col items-center gap-4 text-center">
-        <div className="rounded-full border border-border bg-card p-4 text-muted-foreground">
+        <div className="rounded-full border border-border bg-surface p-4 text-muted-foreground">
           <FolderOpen className="size-6" />
         </div>
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
             Navigation shell
           </p>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-[-0.374px]">
+            {title}
+          </h1>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
         {error ? (
-          <div className="w-full rounded-2xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive">
+          <div className="w-full rounded-md border border-accent-red bg-accent-red-soft px-4 py-3 text-sm text-accent-red">
             {error}
           </div>
         ) : null}
-        <Button onPress={onAction} size="sm" variant="primary">
+        <Button
+          className="rounded-pill px-[22px] py-[11px]"
+          onPress={onAction}
+          variant="primary"
+        >
           <Plus className="size-4" />
           {actionLabel}
         </Button>
@@ -151,154 +141,6 @@ function resolvePaneContent(args: {
   })
 }
 
-function PaneActionBar({
-  onClosePane,
-  onResizePane,
-  onSplitPane,
-  paneId,
-}: {
-  readonly onClosePane: (paneId: string) => void
-  readonly onResizePane: (paneId: string, delta: number) => void
-  readonly onSplitPane: (
-    paneId: string,
-    splitType: PersistedSplitLayoutNode['type'],
-    targetPaneType?: string,
-  ) => void
-  readonly paneId: string
-}) {
-  const [pickerMode, setPickerMode] = useState<
-    'split-horizontal' | 'split-vertical' | null
-  >(null)
-  const pickerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!pickerMode) {
-      return
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        setPickerMode(null)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [pickerMode])
-
-  const viewOptions = listCreatablePaneCatalogEntries()
-
-  const actions: ReadonlyArray<{
-    readonly icon: LucideIcon
-    readonly label: string
-    readonly onPress: () => void
-  }> = [
-    {
-      icon: Columns2,
-      label: 'Split horizontally',
-      onPress: () => setPickerMode('split-horizontal'),
-    },
-    {
-      icon: Rows2,
-      label: 'Split vertically',
-      onPress: () => setPickerMode('split-vertical'),
-    },
-    {
-      icon: Expand,
-      label: 'Grow pane',
-      onPress: () => onResizePane(paneId, 0.25),
-    },
-    {
-      icon: Shrink,
-      label: 'Shrink pane',
-      onPress: () => onResizePane(paneId, -0.25),
-    },
-    {
-      icon: X,
-      label: 'Close pane',
-      onPress: () => onClosePane(paneId),
-    },
-  ]
-
-  const pickerLabel =
-    pickerMode === 'split-horizontal'
-      ? 'Split horizontal with'
-      : 'Split vertical with'
-
-  return (
-    <div
-      className="absolute right-6 top-4 z-10 -translate-y-1/2 opacity-0 transition-opacity group-hover/pane:opacity-100"
-      onMouseDown={(event) => event.stopPropagation()}
-      role="presentation"
-      ref={pickerRef}
-    >
-      <div className="flex flex-row items-center rounded-full border border-[#3a3a44] bg-[#28282f] px-0.5 shadow-[0_18px_44px_rgba(0,0,0,0.42)]">
-        {actions.map((action) => {
-          const Icon = action.icon
-
-          return (
-            <Tooltip delay={550} key={action.label}>
-              <Tooltip.Trigger>
-                <Button
-                  aria-label={action.label}
-                  className="size-6 rounded-full border border-transparent bg-transparent text-[#b0b0bc] transition-colors hover:border-primary/35 hover:bg-primary/8 hover:text-white"
-                  isIconOnly
-                  onPress={action.onPress}
-                  size="sm"
-                  variant="ghost"
-                >
-                  <Icon className="size-3.5" />
-                </Button>
-              </Tooltip.Trigger>
-              <Tooltip.Content
-                className="rounded-xl border border-[#3a3a44] bg-[#28282f] px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
-                placement="bottom"
-              >
-                {action.label}
-              </Tooltip.Content>
-            </Tooltip>
-          )
-        })}
-      </div>
-
-      {pickerMode ? (
-        <>
-          <button
-            aria-label="Close pane picker"
-            className="fixed inset-0 z-10"
-            onClick={() => setPickerMode(null)}
-            type="button"
-          />
-          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-xl border border-[#3a3a44] bg-[#28282f] p-1 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-[#8a8a96]">
-              {pickerLabel}
-            </p>
-            {viewOptions.map((view) => {
-              const Icon = view.icon
-
-              return (
-                <button
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm text-[#e4e4e8] transition-colors hover:bg-primary/12 hover:text-white"
-                  key={view.type}
-                  onClick={() => {
-                    onSplitPane(paneId, pickerMode, view.type)
-                    setPickerMode(null)
-                  }}
-                  type="button"
-                >
-                  <Icon className="size-3.5 text-[#b0b0bc]" />
-                  <span>{view.defaultMetadata.type}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      ) : null}
-    </div>
-  )
-}
-
 function PaneTab({
   isActive,
   onRemove,
@@ -331,9 +173,9 @@ function PaneTab({
   return (
     <button
       className={cn(
-        'group/tab flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors',
+        'group/tab flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
         isActive
-          ? 'bg-primary/10 text-foreground'
+          ? 'bg-surface-elevated text-foreground'
           : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
       )}
       onClick={onSwitch}
@@ -396,20 +238,15 @@ function renderLayoutNode(args: {
   activePreviewTarget: PreviewTarget | null
 
   isInteractive: boolean
+  isSolePane?: boolean
   node: PersistedLayoutNode
   nodeLookup: Map<string, PersistedLayoutNode>
   onAddView: (paneId: string, templateViewId: string) => void
   onClosePane: (paneId: string) => void
   onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
   onRemoveView: (paneId: string, viewIndex: number) => void
-  onResizePane: (paneId: string, delta: number) => void
   onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
   onSelectPane: (paneId: string) => void
-  onSplitPane: (
-    paneId: string,
-    splitType: PersistedSplitLayoutNode['type'],
-    targetPaneType?: string,
-  ) => void
   onSwitchView: (paneId: string, viewIndex: number) => void
   previewTargets: readonly PreviewTarget[]
   workspace: WorkspaceRecord
@@ -421,9 +258,11 @@ function renderLayoutNode(args: {
     const activeViewIndex = args.node.activeViewIndex
     const activeViewId = viewIds[activeViewIndex] ?? viewIds[0] ?? paneId
 
+    const isSolePane = args.isSolePane ?? false
+
     return (
       <article
-        className={`${getPaneFrameClassName(isActive)} group/pane relative cursor-pointer`}
+        className={`${getPaneFrameClassName(isActive, isSolePane)} relative cursor-pointer`}
         data-active-pane={isActive ? 'true' : 'false'}
         data-pane-id={paneId}
         key={args.node.id}
@@ -433,14 +272,6 @@ function renderLayoutNode(args: {
           }
         }}
       >
-        {args.isInteractive ? (
-          <PaneActionBar
-            onClosePane={args.onClosePane}
-            onResizePane={args.onResizePane}
-            onSplitPane={args.onSplitPane}
-            paneId={paneId}
-          />
-        ) : null}
         {viewIds.length > 1 ? (
           <PaneTabBar
             activeViewIndex={activeViewIndex}
@@ -450,7 +281,7 @@ function renderLayoutNode(args: {
             workspaceId={args.workspace.id}
           />
         ) : null}
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.2xl)-1px)]">
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.lg)-1px)]">
           {resolvePaneContent({
             activePaneId: args.activePaneId,
             activeProject: args.activeProject,
@@ -544,10 +375,8 @@ export default function WorkspaceCanvas({
   onClosePane,
   onLoadPreviewTarget,
   onRemoveView,
-  onResizePane,
   onSelectPreviewTarget,
   onSelectPane,
-  onSplitPane,
   onSwitchView,
   previewTargets,
   allWorkspaces,
@@ -597,8 +426,8 @@ export default function WorkspaceCanvas({
   if (shellError) {
     return (
       <section className="flex h-full items-center justify-center p-8">
-        <div className="max-w-xl rounded-xl border border-destructive/40 bg-card p-6 text-center shadow-sm">
-          <p className="text-xs uppercase tracking-[0.2em] text-destructive">
+        <div className="max-w-xl rounded-lg border border-accent-red bg-accent-red-soft p-6 text-center">
+          <p className="text-xs uppercase tracking-[0.2em] text-accent-red">
             Shell error
           </p>
           <h1 className="mt-3 text-xl font-semibold">
@@ -638,7 +467,7 @@ export default function WorkspaceCanvas({
     <section className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
       {actionError ? (
         <div className="px-4 pt-4">
-          <div className="rounded-2xl border border-destructive/40 bg-card px-4 py-3 text-sm text-destructive">
+          <div className="rounded-md border border-accent-red bg-accent-red-soft px-4 py-3 text-sm text-accent-red">
             {actionError}
           </div>
         </div>
@@ -648,9 +477,32 @@ export default function WorkspaceCanvas({
         <span data-testid="active-pane-name">{activePaneLabel}</span>
       </div>
       <div
-        className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden p-4"
+        className="relative flex min-h-0 min-w-0 w-full flex-1 overflow-hidden"
         data-testid="workspace-viewport"
       >
+        {allWorkspaces.length > 1 ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 flex-col items-center gap-1.5"
+            data-testid="workspace-stack-indicator"
+          >
+            {allWorkspaces.map((workspace, index) => {
+              const isActive = index === activeWorkspaceIndex
+              return (
+                <span
+                  className="rounded-full bg-[var(--border-strong)] transition-all duration-200 data-[active=true]:bg-primary"
+                  data-active={isActive ? 'true' : 'false'}
+                  data-testid={`workspace-stack-dot-${workspace.id}`}
+                  key={workspace.id}
+                  style={{
+                    width: isActive ? 6 : 4,
+                    height: isActive ? 18 : 4,
+                  }}
+                />
+              )
+            })}
+          </div>
+        ) : null}
         <div
           className="workspace-slider flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
           style={workspaceTrackStyle}
@@ -678,77 +530,98 @@ export default function WorkspaceCanvas({
               >
                 <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                   {workspaceProject && surfaces.length > 0 ? (
-                    <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
-                      {(() => {
-                        const activeSurface =
-                          surfaces.find(
-                            (surface) => surface.id === visibleSurfaceId,
-                          ) ?? surfaces[0]
+                    (() => {
+                      const surfaceCount = surfaces.length
+                      const activeSurfaceIndex = Math.max(
+                        surfaces.findIndex(
+                          (surface) => surface.id === visibleSurfaceId,
+                        ),
+                        0,
+                      )
+                      const surfaceTrackStyle = getPaneTrackStyle(
+                        surfaceCount,
+                        activeSurfaceIndex,
+                      )
+                      const surfaceSlideWidth = getPaneSlideWidth(surfaceCount)
 
-                        if (!activeSurface) {
-                          return null
-                        }
-
-                        const layout = resolveSurfaceLayout(
-                          surfaceSnapshot,
-                          workspace.id,
-                          activeSurface.id,
-                        )
-                        const rootNode = resolveWorkspaceLayoutRoot(layout)
-                        const paneCount =
-                          collectWorkspaceLayoutPaneIds(layout).length
-                        const nodeLookup = new Map(
-                          layout?.nodes.map((node) => [node.id, node]),
-                        )
-
-                        return (
+                      return (
+                        <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                           <div
-                            className="flex min-h-0 min-w-0 w-full flex-1"
-                            data-active-surface="true"
-                            key={activeSurface.id}
+                            className="surface-slider flex h-full shrink-0 transition-transform duration-200 ease-out"
+                            style={surfaceTrackStyle}
                           >
-                            {rootNode && paneCount > 0 ? (
-                              renderLayoutNode({
-                                activePaneId: isActiveWorkspace
-                                  ? activePaneId
-                                  : null,
-                                activeProject: workspaceProject,
-                                activePreviewTarget: isActiveWorkspace
-                                  ? activePreviewTarget
-                                  : null,
-                                isInteractive: isActiveWorkspace,
-                                node: rootNode,
-                                nodeLookup,
-                                onAddView,
-                                onClosePane,
-                                onLoadPreviewTarget,
-                                onRemoveView,
-                                onResizePane,
-                                onSelectPreviewTarget,
-                                onSelectPane,
-                                onSplitPane,
-                                onSwitchView,
-                                previewTargets: isActiveWorkspace
-                                  ? previewTargets
-                                  : [],
-                                workspace,
-                              })
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
-                                Surface layout is missing a valid root node.
-                              </div>
-                            )}
+                            {surfaces.map((surface, surfaceIndex) => {
+                              const isActiveSurface =
+                                surfaceIndex === activeSurfaceIndex
+                              const isInteractiveSurface =
+                                isActiveWorkspace && isActiveSurface
+                              const layout = resolveSurfaceLayout(
+                                surfaceSnapshot,
+                                workspace.id,
+                                surface.id,
+                              )
+                              const rootNode =
+                                resolveWorkspaceLayoutRoot(layout)
+                              const paneCount =
+                                collectWorkspaceLayoutPaneIds(layout).length
+                              const nodeLookup = new Map(
+                                layout?.nodes.map((node) => [node.id, node]),
+                              )
+
+                              return (
+                                <div
+                                  className="flex min-h-0 min-w-0 h-full shrink-0 overflow-hidden"
+                                  data-active-surface={
+                                    isActiveSurface ? 'true' : 'false'
+                                  }
+                                  key={surface.id}
+                                  style={{ width: surfaceSlideWidth }}
+                                >
+                                  {rootNode && paneCount > 0 ? (
+                                    renderLayoutNode({
+                                      activePaneId: isInteractiveSurface
+                                        ? activePaneId
+                                        : null,
+                                      activeProject: workspaceProject,
+                                      activePreviewTarget: isInteractiveSurface
+                                        ? activePreviewTarget
+                                        : null,
+                                      isInteractive: isInteractiveSurface,
+                                      isSolePane: rootNode.type === 'pane',
+                                      node: rootNode,
+                                      nodeLookup,
+                                      onAddView,
+                                      onClosePane,
+                                      onLoadPreviewTarget,
+                                      onRemoveView,
+                                      onSelectPreviewTarget,
+                                      onSelectPane,
+                                      onSwitchView,
+                                      previewTargets: isInteractiveSurface
+                                        ? previewTargets
+                                        : [],
+                                      workspace,
+                                    })
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
+                                      Surface layout is missing a valid root
+                                      node.
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
                           </div>
-                        )
-                      })()}
-                    </div>
+                        </div>
+                      )
+                    })()
                   ) : workspaceProject ? (
-                    <div className="flex h-full w-full items-center justify-center rounded-2xl border border-border/70 bg-card/60 p-8 text-center">
+                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface p-8 text-center">
                       <div className="max-w-md space-y-3">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                           Empty workspace
                         </p>
-                        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+                        <h2 className="text-2xl font-semibold tracking-[-0.374px] text-foreground">
                           {workspace.name} starts blank
                         </h2>
                         <p className="text-sm text-muted-foreground">
@@ -759,7 +632,7 @@ export default function WorkspaceCanvas({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-2xl border border-destructive/30 bg-card text-sm text-muted-foreground">
+                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
                       Workspace layout is missing a valid root node.
                     </div>
                   )}

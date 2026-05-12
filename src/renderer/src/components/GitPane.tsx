@@ -1,5 +1,15 @@
+import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
+import '@git-diff-view/react/styles/diff-view-pure.css'
+import { getDiffViewHighlighter } from '@git-diff-view/shiki'
 import { Button, Chip, Surface } from '@heroui/react'
-import { GitBranch, RefreshCcw, TriangleAlert } from 'lucide-react'
+import {
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  GitBranch,
+  RefreshCcw,
+  TriangleAlert,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
@@ -8,10 +18,161 @@ import type {
 } from '../../../shared/git'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
+  type GitTreeNode,
+  buildGitFileTree,
+  dominantGitChangeKind,
   formatGitChangeKind,
-  getGitFileChangeBadges,
+  gitChangeKindColorClass,
+  iconForGitFile,
+  letterForGitChangeKind,
   resolveSelectedGitFilePath,
 } from '../lib/git-pane-state'
+import { materialIconUrlForFile } from '../lib/material-file-icon'
+import { cn } from '../lib/utils'
+
+type DiffHighlighter = Awaited<ReturnType<typeof getDiffViewHighlighter>>
+
+type DiffLayout = 'line-by-line' | 'side-by-side'
+
+const DIFF_LAYOUT_STORAGE_KEY = 'aide.gitPane.diffLayout'
+
+function readStoredDiffLayout(): DiffLayout {
+  if (typeof window === 'undefined') {
+    return 'side-by-side'
+  }
+
+  const stored = window.localStorage.getItem(DIFF_LAYOUT_STORAGE_KEY)
+  return stored === 'line-by-line' ? 'line-by-line' : 'side-by-side'
+}
+
+const HIGHLIGHTER_LANGS = [
+  'typescript',
+  'tsx',
+  'javascript',
+  'jsx',
+  'json',
+  'css',
+  'html',
+  'markdown',
+  'bash',
+  'python',
+  'go',
+  'sql',
+  'yaml',
+  'xml',
+] as const
+
+let highlighterPromise: Promise<DiffHighlighter> | null = null
+
+function loadHighlighter(): Promise<DiffHighlighter> {
+  highlighterPromise ??= getDiffViewHighlighter([...HIGHLIGHTER_LANGS])
+  return highlighterPromise
+}
+
+function inferFileLang(filePath: string): string {
+  const lower = filePath.toLowerCase()
+  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
+  switch (ext) {
+    case 'ts':
+      return 'typescript'
+    case 'tsx':
+      return 'tsx'
+    case 'js':
+    case 'mjs':
+    case 'cjs':
+      return 'javascript'
+    case 'jsx':
+      return 'jsx'
+    case 'json':
+      return 'json'
+    case 'md':
+    case 'mdx':
+      return 'markdown'
+    case 'css':
+      return 'css'
+    case 'scss':
+    case 'sass':
+      return 'sass'
+    case 'html':
+    case 'htm':
+      return 'html'
+    case 'xml':
+      return 'xml'
+    case 'sh':
+    case 'bash':
+    case 'zsh':
+      return 'bash'
+    case 'py':
+      return 'python'
+    case 'go':
+      return 'go'
+    case 'sql':
+      return 'sql'
+    case 'yaml':
+    case 'yml':
+      return 'yaml'
+    default:
+      return 'txt'
+  }
+}
+
+function GitDiffView({
+  filePath,
+  outputFormat,
+  patch,
+}: {
+  readonly filePath: string
+  readonly outputFormat: DiffLayout
+  readonly patch: string
+}) {
+  const [highlighter, setHighlighter] = useState<DiffHighlighter | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void loadHighlighter().then((h) => {
+      if (!cancelled) {
+        setHighlighter(h)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const lang = useMemo(() => inferFileLang(filePath), [filePath])
+
+  const diffFile = useMemo(() => {
+    const file = DiffFile.createInstance({
+      hunks: [patch],
+      newFile: { fileLang: lang, fileName: filePath },
+      oldFile: { fileLang: lang, fileName: filePath },
+    })
+    file.initTheme('dark')
+    file.init()
+    if (outputFormat === 'side-by-side') {
+      file.buildSplitDiffLines()
+    } else {
+      file.buildUnifiedDiffLines()
+    }
+    return file
+  }, [filePath, lang, outputFormat, patch])
+
+  return (
+    <DiffView
+      diffFile={diffFile}
+      diffViewFontSize={12}
+      diffViewHighlight={highlighter !== null}
+      diffViewMode={
+        outputFormat === 'side-by-side'
+          ? DiffModeEnum.Split
+          : DiffModeEnum.Unified
+      }
+      diffViewTheme="dark"
+      diffViewWrap={false}
+      registerHighlighter={highlighter ?? undefined}
+    />
+  )
+}
 
 function getAideApi() {
   if (typeof window === 'undefined') {
@@ -29,6 +190,106 @@ function getErrorMessage(error: unknown): string {
   return 'Unable to load workspace Git status.'
 }
 
+function GitFileTreeRow({
+  collapsed,
+  depth,
+  node,
+  onSelectFile,
+  onToggleDir,
+  selectedPath,
+}: {
+  readonly collapsed: ReadonlySet<string>
+  readonly depth: number
+  readonly node: GitTreeNode
+  readonly onSelectFile: (path: string) => void
+  readonly onToggleDir: (path: string) => void
+  readonly selectedPath: string | null
+}) {
+  const indentPx = depth * 12 + 4
+
+  if (node.kind === 'dir') {
+    const isCollapsed = collapsed.has(node.path)
+    const FolderIcon = isCollapsed ? Folder : FolderOpen
+    return (
+      <>
+        <button
+          aria-expanded={!isCollapsed}
+          className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-xs text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+          onClick={() => onToggleDir(node.path)}
+          style={{ paddingLeft: indentPx }}
+          type="button"
+        >
+          <ChevronRight
+            className={cn(
+              'size-3 shrink-0 transition-transform',
+              isCollapsed ? 'rotate-0' : 'rotate-90',
+            )}
+          />
+          <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate font-mono">{node.name}</span>
+        </button>
+        {!isCollapsed
+          ? node.children.map((child) => (
+              <GitFileTreeRow
+                collapsed={collapsed}
+                depth={depth + 1}
+                key={child.path}
+                node={child}
+                onSelectFile={onSelectFile}
+                onToggleDir={onToggleDir}
+                selectedPath={selectedPath}
+              />
+            ))
+          : null}
+      </>
+    )
+  }
+
+  const file = node.file
+  const isSelected = node.path === selectedPath
+  const iconUrl = materialIconUrlForFile(file.path)
+  const FallbackIcon = iconForGitFile(file)
+  const dominant = dominantGitChangeKind(file)
+  const letter = letterForGitChangeKind(dominant)
+  const dotClass = gitChangeKindColorClass(dominant)
+
+  return (
+    <button
+      aria-current={isSelected ? 'true' : undefined}
+      className={cn(
+        'change-row flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left',
+        isSelected ? 'is-active' : 'hover:bg-surface-secondary',
+      )}
+      data-testid={`git-pane-file-${file.path}`}
+      onClick={() => onSelectFile(file.path)}
+      style={{ paddingLeft: indentPx }}
+      title={`${file.path}${file.originalPath ? ` (from ${file.originalPath})` : ''} — ${formatGitChangeKind(dominant)}`}
+      type="button"
+    >
+      <span className="size-3 shrink-0" />
+      {iconUrl ? (
+        <img alt="" className="size-3.5 shrink-0" src={iconUrl} />
+      ) : (
+        <FallbackIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="min-w-0 flex-1 truncate font-mono text-xs leading-4 text-foreground">
+        {node.name}
+      </span>
+      {letter ? (
+        <span
+          aria-label={formatGitChangeKind(dominant)}
+          className={cn(
+            'grid size-4 shrink-0 place-items-center rounded text-[10px] font-semibold text-background',
+            dotClass,
+          )}
+        >
+          {letter}
+        </span>
+      ) : null}
+    </button>
+  )
+}
+
 interface GitPaneProps {
   readonly isActive: boolean
   readonly workspace: WorkspaceRecord
@@ -42,6 +303,32 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [status, setStatus] = useState<WorkspaceGitStatusSnapshot | null>(null)
   const [diff, setDiff] = useState<WorkspaceGitDiffSnapshot | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>(readStoredDiffLayout)
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(DIFF_LAYOUT_STORAGE_KEY, diffLayout)
+  }, [diffLayout])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset tree state when switching workspaces
+  useEffect(() => {
+    setCollapsedDirs(new Set())
+  }, [workspace.id])
+
+  const toggleDir = useCallback((path: string) => {
+    setCollapsedDirs((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }, [])
 
   const refreshStatus = useCallback(async () => {
     const api = getAideApi()
@@ -87,6 +374,11 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
     void refreshStatus()
   }, [isActive, refreshStatus])
+
+  const fileTree = useMemo(
+    () => (status ? buildGitFileTree(status.files) : []),
+    [status],
+  )
 
   const selectedFile = useMemo(() => {
     if (!status) {
@@ -159,8 +451,8 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   if (error) {
     return (
       <section className="flex h-full min-h-0 flex-col items-center justify-center p-6">
-        <Surface className="max-w-lg rounded-2xl border border-destructive/35 p-6 text-center">
-          <div className="mx-auto flex size-10 items-center justify-center rounded-full border border-destructive/35 bg-destructive/10 text-destructive">
+        <Surface className="max-w-lg rounded-lg border border-accent-red p-6 text-center">
+          <div className="mx-auto flex size-10 items-center justify-center rounded-full border border-accent-red bg-accent-red-soft text-accent-red">
             <TriangleAlert className="size-4" />
           </div>
           <h2 className="mt-4 text-lg font-semibold text-foreground">
@@ -195,17 +487,17 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
   return (
     <section
-      className="git-pane flex h-full min-h-0 flex-col"
+      className="git-pane flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       data-testid="git-pane"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <GitBranch className="size-3.5" />
             Git review surface
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+            <h2 className="text-lg font-semibold tracking-[-0.374px] text-foreground">
               {status.branchName}
             </h2>
             <Chip
@@ -236,7 +528,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
       {status.files.length === 0 ? (
         <div className="flex h-full min-h-0 items-center justify-center p-6">
-          <Surface className="max-w-lg rounded-2xl border border-border/70 p-6 text-center">
+          <Surface className="max-w-lg rounded-lg border border-border p-6 text-center">
             <h3 className="text-lg font-semibold text-foreground">
               Workspace is clean
             </h3>
@@ -247,132 +539,112 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           </Surface>
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]">
+        <div className="grid min-h-0 min-w-0 w-full flex-1 gap-4 overflow-hidden p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
           <Surface
-            className="flex min-h-0 flex-col rounded-2xl border border-border/70"
+            className="flex min-h-0 flex-col rounded-lg border border-border"
             variant="secondary"
           >
-            <div className="border-b border-border/60 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                Changed files
-              </p>
+            <div className="border-b border-border px-4 py-3">
+              <p className="eyebrow">Changed files</p>
             </div>
 
             <div
-              className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+              className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1"
               data-testid="git-pane-file-list"
             >
-              {status.files.map((file) => {
-                const isSelected = file.path === selectedFile?.path
-                const badges = getGitFileChangeBadges(file)
-
-                return (
-                  <button
-                    className={`rounded-2xl border p-3 text-left transition-colors ${
-                      isSelected
-                        ? 'border-primary/55 bg-primary/10'
-                        : 'border-border/70 bg-background/55 hover:border-primary/30 hover:bg-surface-secondary'
-                    }`}
-                    data-testid={`git-pane-file-${file.path}`}
-                    key={file.path}
-                    onClick={() => setSelectedPath(file.path)}
-                    type="button"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-xs text-foreground">
-                          {file.path}
-                        </p>
-                        {file.originalPath ? (
-                          <p className="mt-1 truncate text-xs text-muted-foreground">
-                            from {file.originalPath}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        {isSelected ? 'Active' : 'Review'}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {badges.map((badge) => (
-                        <Chip key={badge} size="sm" variant="secondary">
-                          {badge}
-                        </Chip>
-                      ))}
-                    </div>
-                  </button>
-                )
-              })}
+              {fileTree.map((node) => (
+                <GitFileTreeRow
+                  collapsed={collapsedDirs}
+                  depth={0}
+                  key={node.path}
+                  node={node}
+                  onSelectFile={setSelectedPath}
+                  onToggleDir={toggleDir}
+                  selectedPath={selectedFile?.path ?? null}
+                />
+              ))}
             </div>
           </Surface>
 
           <Surface
-            className="flex min-h-0 flex-col rounded-2xl border border-border/70 p-5"
+            className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border"
             variant="secondary"
           >
             {selectedFile ? (
               <>
-                <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  <GitBranch className="size-3.5" />
-                  Review surface
-                </div>
-                <h3
-                  className="mt-4 break-all font-mono text-sm font-semibold text-foreground"
-                  data-testid="git-pane-selected-file"
-                >
-                  {selectedFile.path}
-                </h3>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {getGitFileChangeBadges(selectedFile).map((badge) => (
-                    <Chip key={badge} size="sm" variant="secondary">
-                      {badge}
-                    </Chip>
-                  ))}
-                </div>
-                <div className="mt-6 grid gap-3 md:grid-cols-2">
-                  <Surface
-                    className="rounded-2xl border border-border/60 p-4"
-                    variant="tertiary"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      Staged status
-                    </p>
-                    <p className="mt-2 text-sm text-foreground">
-                      {formatGitChangeKind(selectedFile.staged)}
-                    </p>
-                  </Surface>
-                  <Surface
-                    className="rounded-2xl border border-border/60 p-4"
-                    variant="tertiary"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      Unstaged status
-                    </p>
-                    <p className="mt-2 text-sm text-foreground">
-                      {formatGitChangeKind(selectedFile.unstaged)}
-                    </p>
-                  </Surface>
-                </div>
-                {selectedFile.originalPath ? (
-                  <Surface
-                    className="mt-4 rounded-2xl border border-border/60 p-4"
-                    variant="tertiary"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                      Original path
-                    </p>
-                    <p className="mt-2 break-all font-mono text-xs text-foreground">
-                      {selectedFile.originalPath}
-                    </p>
-                  </Surface>
-                ) : null}
+                {(() => {
+                  const FileIcon = iconForGitFile(selectedFile)
+                  return (
+                    <div className="flex items-center gap-3 border-b border-border px-4 py-2">
+                      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <div
+                        className="min-w-0 flex-1 truncate font-mono text-sm text-foreground"
+                        data-testid="git-pane-selected-file"
+                      >
+                        {selectedFile.path}
+                        {selectedFile.originalPath ? (
+                          <span className="ml-2 text-muted-foreground">
+                            ← {selectedFile.originalPath}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <span
+                            className={cn(
+                              'size-1.5 rounded-full',
+                              gitChangeKindColorClass(selectedFile.staged),
+                            )}
+                          />
+                          staged: {formatGitChangeKind(selectedFile.staged)}
+                        </span>
+                        <span className="text-border">·</span>
+                        <span className="flex items-center gap-1">
+                          <span
+                            className={cn(
+                              'size-1.5 rounded-full',
+                              gitChangeKindColorClass(selectedFile.unstaged),
+                            )}
+                          />
+                          unstaged: {formatGitChangeKind(selectedFile.unstaged)}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 gap-1 rounded-md border border-border bg-surface-secondary p-0.5">
+                        <button
+                          className={cn(
+                            'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
+                            diffLayout === 'side-by-side'
+                              ? 'bg-surface text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                          onClick={() => setDiffLayout('side-by-side')}
+                          type="button"
+                        >
+                          Split
+                        </button>
+                        <button
+                          className={cn(
+                            'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
+                            diffLayout === 'line-by-line'
+                              ? 'bg-surface text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                          onClick={() => setDiffLayout('line-by-line')}
+                          type="button"
+                        >
+                          Inline
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })()}
                 <div
-                  className="mt-4 flex min-h-0 flex-1 flex-col gap-3"
+                  className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-3"
                   data-testid="git-pane-diff-surface"
                 >
                   {diffError ? (
                     <Surface
-                      className="rounded-2xl border border-destructive/35 p-4"
+                      className="rounded-md border border-accent-red p-3"
                       variant="tertiary"
                     >
                       <p className="text-[11px] uppercase tracking-[0.16em] text-destructive">
@@ -385,39 +657,34 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                   ) : null}
 
                   {isDiffLoading && !diff ? (
-                    <Surface
-                      className="rounded-2xl border border-border/60 p-4"
-                      variant="tertiary"
-                    >
-                      <p className="text-sm text-muted-foreground">
-                        Loading file diff…
-                      </p>
-                    </Surface>
+                    <p className="text-sm text-muted-foreground">
+                      Loading file diff…
+                    </p>
                   ) : null}
 
                   {diff?.sections.map((section) => (
-                    <Surface
-                      className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/60 p-4"
+                    <div
+                      className="flex min-h-0 min-w-0 flex-1 flex-col"
                       key={`${diff.path}:${section.kind}`}
-                      variant="tertiary"
                     >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                          {section.title}
-                        </p>
-                        {section.isTruncated ? (
+                      {section.isTruncated ? (
+                        <div className="mb-1 flex items-center gap-2">
                           <Chip color="warning" size="sm" variant="secondary">
                             Truncated
                           </Chip>
-                        ) : null}
-                      </div>
-                      <pre
-                        className="mt-3 min-h-0 flex-1 overflow-auto rounded-xl border border-border/50 bg-background/80 p-4 font-mono text-[11px] leading-5 text-foreground"
+                        </div>
+                      ) : null}
+                      <div
+                        className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border bg-surface"
                         data-testid={`git-pane-diff-${section.kind}`}
                       >
-                        {section.patch}
-                      </pre>
-                    </Surface>
+                        <GitDiffView
+                          filePath={diff.path}
+                          outputFormat={diffLayout}
+                          patch={section.patch}
+                        />
+                      </div>
+                    </div>
                   ))}
                 </div>
               </>

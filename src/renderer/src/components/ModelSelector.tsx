@@ -1,7 +1,8 @@
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { ChevronDown, Search, Star } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { cn } from '@/lib/utils'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
@@ -25,12 +26,16 @@ const PROVIDER_GROUPS: readonly ProviderGroup[] = [
     icon: AnthropicIcon,
     label: 'Claude',
     models: [
-      { id: 'claude-opus-4-7', label: 'Opus 4.7', provider: 'claude' },
-      { id: 'claude-opus-4-6', label: 'Opus 4.6', provider: 'claude' },
-      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', provider: 'claude' },
+      { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', provider: 'claude' },
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'claude' },
+      {
+        id: 'claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6',
+        provider: 'claude',
+      },
       {
         id: 'claude-haiku-4-5-20251001',
-        label: 'Haiku 4.5',
+        label: 'Claude Haiku 4.5',
         provider: 'claude',
       },
     ],
@@ -62,6 +67,10 @@ const DEFAULT_MODELS: Record<ManagedSessionMode, string> = {
   codex: 'gpt-5.4',
 }
 
+const FAVORITES_STORAGE_KEY = 'aide.favoriteModels'
+
+type TabId = 'favorites' | ManagedSessionMode
+
 export function resolveModelOption(
   modelId: string | undefined,
   provider: ManagedSessionMode,
@@ -72,6 +81,45 @@ export function resolveModelOption(
   }
   const fallbackId = DEFAULT_MODELS[provider]
   return ALL_MODELS.find((m) => m.id === fallbackId) ?? ALL_MODELS[0]
+}
+
+function loadFavorites(): Set<string> {
+  if (typeof window === 'undefined') {
+    return new Set()
+  }
+
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY)
+
+    if (!raw) {
+      return new Set()
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+
+    return new Set(parsed.filter((v): v is string => typeof v === 'string'))
+  } catch {
+    return new Set()
+  }
+}
+
+function persistFavorites(favorites: Set<string>): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(
+      FAVORITES_STORAGE_KEY,
+      JSON.stringify(Array.from(favorites)),
+    )
+  } catch {
+    // Quota / private-mode failures are non-fatal.
+  }
 }
 
 interface ModelSelectorProps {
@@ -89,6 +137,8 @@ export default function ModelSelector({
 }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [activeTab, setActiveTab] = useState<TabId>(provider)
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites())
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -98,28 +148,37 @@ export default function ModelSelector({
   )
   const ActiveProviderIcon = activeGroup?.icon ?? AnthropicIcon
 
-  const filteredGroups = useMemo(() => {
-    const groups = search
-      ? PROVIDER_GROUPS.map((group) => {
-          const q = search.toLowerCase()
-          return {
-            ...group,
-            models: group.models.filter(
-              (m) =>
-                m.label.toLowerCase().includes(q) ||
-                m.id.toLowerCase().includes(q) ||
-                group.label.toLowerCase().includes(q),
-            ),
-          }
-        }).filter((group) => group.models.length > 0)
-      : [...PROVIDER_GROUPS]
+  const toggleFavorite = useCallback((modelId: string) => {
+    setFavorites((current) => {
+      const next = new Set(current)
 
-    return groups.sort((a, b) => {
-      if (a.provider === provider) return -1
-      if (b.provider === provider) return 1
-      return 0
+      if (next.has(modelId)) {
+        next.delete(modelId)
+      } else {
+        next.add(modelId)
+      }
+
+      persistFavorites(next)
+      return next
     })
-  }, [provider, search])
+  }, [])
+
+  const visibleModels = useMemo<readonly ModelOption[]>(() => {
+    const pool =
+      activeTab === 'favorites'
+        ? ALL_MODELS.filter((m) => favorites.has(m.id))
+        : (PROVIDER_GROUPS.find((g) => g.provider === activeTab)?.models ?? [])
+
+    if (!search) {
+      return pool
+    }
+
+    const q = search.toLowerCase()
+    return pool.filter(
+      (m) =>
+        m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+    )
+  }, [activeTab, favorites, search])
 
   const handleSelect = useCallback(
     (opt: ModelOption) => {
@@ -153,10 +212,42 @@ export default function ModelSelector({
     }
   }, [isOpen])
 
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(provider)
+    }
+  }, [isOpen, provider])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setIsOpen(false)
+        setSearch('')
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && /^[1-9]$/.test(event.key)) {
+        const index = Number.parseInt(event.key, 10) - 1
+        const target = visibleModels[index]
+
+        if (target) {
+          event.preventDefault()
+          handleSelect(target)
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [handleSelect, isOpen, visibleModels])
+
   return (
     <div ref={containerRef} className="relative">
       <button
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         disabled={isDisabled}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
@@ -165,63 +256,153 @@ export default function ModelSelector({
         {activeModel.label}
         <ChevronDown className="size-3 opacity-50" />
       </button>
-      {isOpen && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-[280px] rounded-xl border border-border bg-popover shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
-          <div className="px-3 pb-2 pt-2.5">
-            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-background px-2.5 py-1.5">
-              <Search className="size-3.5 text-muted-foreground" />
-              <input
-                ref={searchRef}
-                className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search models..."
-                type="text"
-                value={search}
+
+      {isOpen ? (
+        <div className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          {/* Provider rail */}
+          <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-[var(--surface-1)] py-2">
+            <ProviderRailButton
+              ariaLabel="Favorites"
+              icon={Star}
+              isActive={activeTab === 'favorites'}
+              onClick={() => setActiveTab('favorites')}
+            />
+            {PROVIDER_GROUPS.map((group) => (
+              <ProviderRailButton
+                ariaLabel={group.label}
+                icon={group.icon}
+                isActive={activeTab === group.provider}
+                key={group.provider}
+                onClick={() => setActiveTab(group.provider)}
               />
-            </div>
+            ))}
           </div>
-          <div className="max-h-[320px] overflow-y-auto px-1.5 pb-1.5">
-            {filteredGroups.map((group) => {
-              const GroupIcon = group.icon
 
-              return (
-                <div key={group.provider}>
-                  <div className="flex items-center gap-2 px-3 pb-1 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-                    <GroupIcon className="size-3" />
-                    {group.label}
-                  </div>
-                  {group.models.map((opt) => {
-                    const isSelected = opt.id === activeModel.id
+          {/* Right column: search + model list */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="border-b border-border px-3 pb-2 pt-2.5">
+              <div className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface-2)] px-3 py-1.5">
+                <Search className="size-3.5 text-muted-foreground" />
+                <input
+                  ref={searchRef}
+                  className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search models..."
+                  type="text"
+                  value={search}
+                />
+              </div>
+            </div>
 
-                    return (
+            <div className="h-[320px] overflow-y-auto p-1.5">
+              {visibleModels.length === 0 ? (
+                <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {activeTab === 'favorites'
+                    ? 'No starred models yet. Click ★ on any row to add it.'
+                    : 'No models found'}
+                </p>
+              ) : (
+                visibleModels.map((opt, index) => {
+                  const isSelected = opt.id === activeModel.id
+                  const providerLabel =
+                    PROVIDER_GROUPS.find((g) => g.provider === opt.provider)
+                      ?.label ?? ''
+                  const ProviderIcon =
+                    PROVIDER_GROUPS.find((g) => g.provider === opt.provider)
+                      ?.icon ?? AnthropicIcon
+                  const isFavorite = favorites.has(opt.id)
+                  const keycapLabel = index < 9 ? `Ctrl+${index + 1}` : null
+
+                  return (
+                    <button
+                      className={cn(
+                        'group/row relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors',
+                        isSelected
+                          ? 'bg-[var(--surface-2)] text-foreground'
+                          : 'text-foreground hover:bg-[var(--surface-1)]',
+                      )}
+                      key={opt.id}
+                      onClick={() => handleSelect(opt)}
+                      type="button"
+                    >
+                      {isSelected ? (
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
+                      ) : null}
                       <button
-                        className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-                          isSelected
-                            ? 'bg-secondary text-foreground'
-                            : 'text-foreground/80 hover:bg-secondary/60'
-                        }`}
-                        key={opt.id}
-                        onClick={() => handleSelect(opt)}
+                        aria-label={
+                          isFavorite ? 'Unfavorite model' : 'Favorite model'
+                        }
+                        className={cn(
+                          'shrink-0 rounded p-0.5 transition-colors',
+                          isFavorite
+                            ? 'text-accent-yellow'
+                            : 'text-muted-foreground/60 hover:text-foreground',
+                        )}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          toggleFavorite(opt.id)
+                        }}
                         type="button"
                       >
-                        <span className="flex-1 text-left">{opt.label}</span>
-                        {isSelected && (
-                          <Check className="size-3.5 text-muted-foreground" />
-                        )}
+                        <Star
+                          className={cn(
+                            'size-3.5',
+                            isFavorite && 'fill-current',
+                          )}
+                        />
                       </button>
-                    )
-                  })}
-                </div>
-              )
-            })}
-            {filteredGroups.length === 0 && (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                No models found
-              </p>
-            )}
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="display truncate text-sm">
+                          {opt.label}
+                        </span>
+                        <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
+                          <ProviderIcon className="size-3" />
+                          {providerLabel}
+                        </span>
+                      </div>
+                      {keycapLabel ? (
+                        <span className="keycap shrink-0">{keycapLabel}</span>
+                      ) : null}
+                    </button>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
+  )
+}
+
+function ProviderRailButton({
+  ariaLabel,
+  icon: Icon,
+  isActive,
+  onClick,
+}: {
+  readonly ariaLabel: string
+  readonly icon: SvgIcon
+  readonly isActive: boolean
+  readonly onClick: () => void
+}) {
+  return (
+    <button
+      aria-label={ariaLabel}
+      aria-pressed={isActive}
+      className={cn(
+        'relative flex size-9 items-center justify-center rounded-md transition-colors',
+        isActive
+          ? 'bg-[var(--surface-2)] text-foreground'
+          : 'text-muted-foreground hover:bg-[var(--surface-1)] hover:text-foreground',
+      )}
+      onClick={onClick}
+      type="button"
+    >
+      <Icon className="size-4" />
+      {isActive ? (
+        <span className="absolute -right-1 inset-y-2 w-0.5 rounded-l bg-primary" />
+      ) : null}
+    </button>
   )
 }

@@ -1,11 +1,9 @@
 import { Chip, Description, Kbd, Label, ListBox, Surface } from '@heroui/react'
 import type { Key } from 'react'
-import { useMemo } from 'react'
 
 import { cn } from '@/lib/utils'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type { WorkspaceRecord } from '../../../shared/persistence'
-import { compareWorkspacesByAttentionTier } from '../../../shared/workspace-activity'
 import WorkspaceStateBadges from './WorkspaceStateBadges'
 
 interface WorkspaceSwitcherOverlayProps {
@@ -38,19 +36,6 @@ export default function WorkspaceSwitcherOverlay({
     onRequestClose?.()
   }
 
-  const sortedWorkspaces = useMemo(
-    () =>
-      [...workspaces].sort((a, b) =>
-        compareWorkspacesByAttentionTier(
-          summaries[a.id]?.activity ?? null,
-          a.updatedAt,
-          summaries[b.id]?.activity ?? null,
-          b.updatedAt,
-        ),
-      ),
-    [workspaces, summaries],
-  )
-
   const isOverviewMode = mode === 'overview'
   const overlayTitle = isOverviewMode ? 'Overview' : 'Workspace switcher'
   const overlaySubtitle = isOverviewMode
@@ -80,7 +65,7 @@ export default function WorkspaceSwitcherOverlay({
       {isOverviewMode ? (
         <div
           aria-label="Close overview"
-          className="absolute inset-0 bg-background/72 backdrop-blur-sm"
+          className="absolute inset-0 bg-black/50"
           onClick={onRequestClose}
           onKeyDown={(event) => {
             if (
@@ -99,8 +84,8 @@ export default function WorkspaceSwitcherOverlay({
 
       <Surface
         className={cn(
-          'relative rounded-2xl border border-border/90 bg-overlay/98 p-3 shadow-[var(--overlay-shadow)]',
-          isOverviewMode ? 'w-full max-w-2xl' : '',
+          'relative rounded-xl border border-border bg-surface p-3 shadow-[0_20px_60px_rgba(0,0,0,0.4)]',
+          isOverviewMode ? 'w-full max-w-4xl' : '',
         )}
         onClick={
           isOverviewMode ? (event) => event.stopPropagation() : undefined
@@ -109,32 +94,22 @@ export default function WorkspaceSwitcherOverlay({
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {overlayTitle}
-            </p>
-            <p className="mt-1 text-sm font-medium text-foreground">
+            <p className="eyebrow">{overlayTitle}</p>
+            <p className="display mt-1 text-sm text-foreground">
               {overlaySubtitle}
             </p>
           </div>
 
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="flex items-center gap-1">
             {isOverviewMode ? (
               <>
-                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
-                  Ctrl
-                </Kbd>
-                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
-                  Tab
-                </Kbd>
+                <Kbd className="keycap">Ctrl</Kbd>
+                <Kbd className="keycap">Tab</Kbd>
               </>
             ) : (
               <>
-                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
-                  Alt
-                </Kbd>
-                <Kbd className="border-border/60 bg-background/70 text-[10px] text-foreground/70">
-                  Space
-                </Kbd>
+                <Kbd className="keycap">Alt</Kbd>
+                <Kbd className="keycap">Space</Kbd>
               </>
             )}
           </div>
@@ -142,7 +117,11 @@ export default function WorkspaceSwitcherOverlay({
 
         <ListBox
           aria-label={overlayTitle}
-          className="space-y-1"
+          className={cn(
+            isOverviewMode
+              ? 'grid max-h-[60vh] grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3'
+              : 'space-y-1',
+          )}
           onAction={(key: Key) => handleWorkspaceSelection(String(key))}
           onSelectionChange={(keys) => {
             if (!isOverviewMode || keys === 'all') {
@@ -160,9 +139,13 @@ export default function WorkspaceSwitcherOverlay({
           selectedKeys={new Set(activeWorkspaceId ? [activeWorkspaceId] : [])}
           selectionMode="single"
         >
-          {sortedWorkspaces.map((workspace, index) => (
+          {workspaces.map((workspace, index) => (
             <ListBox.Item
-              className="rounded-xl border border-border/80 bg-surface px-3 py-2 text-muted-foreground transition-all data-[focused=true]:border-primary/45 data-[selected=true]:border-primary/60 data-[selected=true]:bg-surface-tertiary data-[selected=true]:text-foreground data-[selected=true]:shadow-[var(--surface-shadow)]"
+              className={cn(
+                isOverviewMode
+                  ? 'overview-card rounded-lg p-3 text-muted-foreground data-[selected=true]:is-active data-[selected=true]:text-foreground'
+                  : 'rounded-sm border border-transparent bg-transparent px-3 py-2 text-muted-foreground transition-colors hover:bg-surface-secondary data-[focused=true]:bg-surface-secondary data-[selected=true]:bg-surface-tertiary data-[selected=true]:text-foreground',
+              )}
               id={workspace.id}
               key={workspace.id}
               onPress={() => handleWorkspaceSelection(workspace.id)}
@@ -172,24 +155,48 @@ export default function WorkspaceSwitcherOverlay({
                 const summary = summaries[workspace.id]
                 const isCurrent = workspace.id === activeWorkspaceId
 
+                if (isOverviewMode) {
+                  return (
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      <span className="eyebrow truncate">
+                        {summary?.projectName ??
+                          projectName ??
+                          'Unknown project'}
+                      </span>
+                      <Label className="display truncate text-sm text-foreground">
+                        {summary?.workspaceName ?? workspace.name}
+                      </Label>
+                      <Description className="truncate font-mono text-[11px] text-muted-foreground">
+                        {summary?.branchName ?? workspace.branchName}
+                      </Description>
+                      <div className="mt-1 flex items-center justify-between gap-2 border-t border-border pt-2">
+                        {summary ? (
+                          <WorkspaceStateBadges
+                            isCurrent={isCurrent}
+                            summary={summary}
+                          />
+                        ) : (
+                          <span className="eyebrow">Idle</span>
+                        )}
+                        <span className="eyebrow shrink-0 tabular-nums">
+                          {index + 1}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                }
+
                 return (
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-center gap-2">
-                        <Label className="truncate text-sm font-medium">
+                        <Label className="truncate text-sm font-semibold">
                           {summary?.workspaceName ?? workspace.name}
                         </Label>
                       </div>
                       <Description className="truncate font-mono text-[11px] text-muted-foreground">
                         {summary?.branchName ?? workspace.branchName}
                       </Description>
-                      {isOverviewMode ? (
-                        <Description className="truncate text-[11px] text-muted-foreground/90">
-                          {summary?.projectName ??
-                            projectName ??
-                            'Unknown project'}
-                        </Description>
-                      ) : null}
                     </div>
 
                     {summary ? (
@@ -199,7 +206,7 @@ export default function WorkspaceSwitcherOverlay({
                       />
                     ) : (
                       <Chip
-                        className="ml-3 shrink-0 rounded-full border border-border px-2 text-[10px] uppercase tracking-[0.16em] text-muted-foreground"
+                        className="eyebrow ml-3 shrink-0 rounded-full border border-border bg-surface-tertiary px-2"
                         color="default"
                         size="sm"
                         variant="secondary"

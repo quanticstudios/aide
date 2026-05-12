@@ -1,18 +1,18 @@
 export function getSessionStateDotClass(state: string | null): string {
   switch (state) {
     case 'running':
-      return 'bg-sky-400 animate-pulse'
+      return 'bg-accent-blue animate-pulse'
     case 'connecting':
-      return 'bg-sky-300 animate-pulse'
+      return 'bg-accent-blue animate-pulse'
     case 'waiting':
-      return 'bg-amber-400'
+      return 'bg-accent-yellow'
     case 'ready':
-      return 'bg-muted-foreground/50'
+      return 'bg-accent-green'
     case 'error':
-      return 'bg-red-400'
+      return 'bg-accent-red'
     case 'stopped':
-      return 'bg-muted-foreground/50'
+      return 'bg-ash'
     default:
-      return 'bg-muted-foreground/30'
+      return 'bg-stone'
   }
 }

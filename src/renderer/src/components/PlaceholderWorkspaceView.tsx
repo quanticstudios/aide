@@ -36,7 +36,7 @@ export default function PlaceholderWorkspaceView({
           ))}
         </div>
 
-        <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground lg:text-3xl">
+        <h2 className="mt-4 text-2xl font-semibold tracking-[-0.374px] text-foreground lg:text-3xl">
           {pane.label}
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -46,7 +46,7 @@ export default function PlaceholderWorkspaceView({
 
       <div className="mt-6 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Surface
-          className="flex min-h-0 flex-col rounded-2xl border border-border/60 p-5"
+          className="flex min-h-0 flex-col rounded-lg border border-border p-5"
           variant="secondary"
         >
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -57,16 +57,16 @@ export default function PlaceholderWorkspaceView({
           <div className="mt-5 grid gap-3">
             {actions.map((action) => (
               <Surface
-                className="rounded-2xl border border-border/60 p-4"
+                className="rounded-lg border border-border p-4"
                 key={action.title}
                 variant="tertiary"
               >
                 <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-full border border-border/60 bg-background/60 p-1.5 text-muted-foreground">
+                  <div className="mt-0.5 rounded-full border border-border bg-surface-tertiary p-1.5 text-muted-foreground">
                     <ArrowRight className="size-3.5" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="text-sm font-semibold text-foreground">
                       {action.title}
                     </p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -81,7 +81,7 @@ export default function PlaceholderWorkspaceView({
 
         <div className="flex min-h-0 flex-col gap-3">
           <Surface
-            className="rounded-2xl border border-border/60 p-4"
+            className="rounded-lg border border-border p-4"
             variant="tertiary"
           >
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -113,7 +113,7 @@ export default function PlaceholderWorkspaceView({
           </Surface>
 
           <Surface
-            className="rounded-2xl border border-border/60 p-4"
+            className="rounded-lg border border-border p-4"
             variant="secondary"
           >
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">

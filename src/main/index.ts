@@ -3,7 +3,10 @@ import { fileURLToPath } from 'node:url'
 
 import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
 
-import type { CreateWorkspaceRequest } from '../shared/git'
+import type {
+  AttachWorkspaceRequest,
+  CreateWorkspaceRequest,
+} from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
 import type {
   ManagedSessionConfig,
@@ -193,6 +196,16 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.createWorkspace,
     (_event, input: CreateWorkspaceRequest) =>
       gitWorkspaceService.createWorkspace(input),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.attachWorkspace,
+    (_event, input: AttachWorkspaceRequest) =>
+      gitWorkspaceService.attachWorkspace(input),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.detectWorktreeBranch,
+    (_event, worktreePath: string) =>
+      gitWorkspaceService.detectWorktreeBranch(worktreePath),
   )
   ipcMain.handle(IPC_CHANNELS.editorList, () => listAvailableEditors())
   ipcMain.handle(

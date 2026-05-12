@@ -5,7 +5,9 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 
 import type {
+  AttachWorkspaceRequest,
   CreateWorkspaceRequest,
+  DetectWorktreeBranchResult,
   GitChangeKind,
   ImportProjectResult,
   ProjectRefRecord,
@@ -567,6 +569,80 @@ export class GitWorkspaceService {
     }
   }
 
+  public async detectWorktreeBranch(
+    worktreePath: string,
+  ): Promise<DetectWorktreeBranchResult> {
+    const resolved = path.resolve(worktreePath.trim())
+
+    if (!resolved || !existsSync(resolved)) {
+      throw new Error(`Folder "${resolved}" does not exist.`)
+    }
+
+    const branchName = await this.resolveCurrentBranchLabel(resolved)
+
+    return {
+      branchName: branchName.startsWith('detached-') ? null : branchName,
+      worktreePath: resolved,
+    }
+  }
+
+  public async attachWorkspace(
+    input: AttachWorkspaceRequest,
+  ): Promise<PersistenceSnapshot> {
+    const project = this.store.getProject(input.projectId)
+
+    if (!project) {
+      throw new Error('Project does not exist.')
+    }
+
+    const name = input.name.trim()
+    const worktreePath = path.resolve(input.worktreePath.trim())
+
+    if (!name || !worktreePath) {
+      throw new Error('Name and worktree path are required.')
+    }
+
+    if (!existsSync(worktreePath)) {
+      throw new Error(`Folder "${worktreePath}" does not exist.`)
+    }
+
+    const projectCommonDir = await this.resolveGitCommonDir(project.repoRoot)
+    let folderCommonDir: string
+
+    try {
+      folderCommonDir = await this.resolveGitCommonDir(worktreePath)
+    } catch {
+      throw new Error('Selected folder is not inside a Git repository.')
+    }
+
+    if (folderCommonDir !== projectCommonDir) {
+      throw new Error(
+        'Selected folder is not a worktree of this project. Pick a worktree that shares the same Git repository.',
+      )
+    }
+
+    const existing = this.store.findWorkspaceByWorktreePath(
+      project.id,
+      worktreePath,
+    )
+
+    if (existing) {
+      throw new Error('A workspace already references this folder.')
+    }
+
+    const branchName = await this.resolveCurrentBranchLabel(worktreePath)
+
+    this.store.createWorkspace({
+      branchName,
+      name,
+      projectId: project.id,
+      windowId: input.windowId,
+      worktreePath,
+    })
+
+    return this.store.getSnapshot()
+  }
+
   private ensureRootWorkspace(
     project: ProjectRecord,
     metadata: RepositoryMetadata,
@@ -798,6 +874,17 @@ export class GitWorkspaceService {
     } catch {
       return 'unknown'
     }
+  }
+
+  private async resolveGitCommonDir(repoPath: string): Promise<string> {
+    const candidatePath = path.resolve(repoPath.trim())
+
+    const commonDir = await this.runGit(
+      ['rev-parse', '--git-common-dir'],
+      candidatePath,
+    )
+
+    return path.resolve(candidatePath, commonDir)
   }
 
   private async resolveRepoRoot(repoPath: string): Promise<string> {

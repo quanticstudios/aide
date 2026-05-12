@@ -21,6 +21,18 @@ export interface CreateWorkspaceRequest {
   worktreePath: string
 }
 
+export interface AttachWorkspaceRequest {
+  name: string
+  projectId: string
+  windowId: string | null
+  worktreePath: string
+}
+
+export interface DetectWorktreeBranchResult {
+  branchName: string | null
+  worktreePath: string
+}
+
 export type GitChangeKind =
   | 'added'
   | 'copied'

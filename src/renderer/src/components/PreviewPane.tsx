@@ -40,7 +40,7 @@ export default function PreviewPane({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-black/10 p-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -72,6 +72,7 @@ export default function PreviewPane({
           variant="secondary"
         />
         <Button
+          className="rounded-pill px-[22px] py-[11px]"
           isDisabled={!isAllowedTarget}
           onPress={handleLoad}
           variant="primary"
@@ -108,7 +109,7 @@ export default function PreviewPane({
         {activeTarget?.url ?? 'No active preview target'}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60 bg-background">
+      <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background">
         <iframe
           className="h-full w-full bg-white"
           key={`${activeTarget?.url ?? 'empty'}:${reloadKey}`}

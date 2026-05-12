@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { CreateWorkspaceRequest, ProjectRefRecord } from '../../shared/git'
+import type {
+  AttachWorkspaceRequest,
+  CreateWorkspaceRequest,
+  ProjectRefRecord,
+} from '../../shared/git'
 import type { AideApi } from '../../shared/ipc'
 import {
   type PersistenceSnapshot,
@@ -28,7 +32,6 @@ import {
   resolvePaneMetadata,
   resolvePaneType,
 } from './lib/pane-catalog'
-import { resolveProjectShortcutTarget } from './lib/project-shortcuts'
 import {
   applyPaneSelection,
   applyProjectSelection,
@@ -53,6 +56,10 @@ import {
   upsertWorkspacePreviewTarget,
 } from './lib/workspace-runtime'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
+import {
+  getOrderedWorkspaces,
+  resolveWorkspaceShortcutTarget,
+} from './lib/workspace-shortcuts'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 import {
   createSinglePaneSurface,
@@ -371,6 +378,59 @@ export default function App() {
 
         if (!latestWorkspaceId) {
           return 'Workspace was created but no workspace record was returned.'
+        }
+
+        const nextState = applyWorkspaceSelection(
+          snapshot,
+          resolvedNavigationState,
+          latestWorkspaceId,
+          getSurfaceIdsForWorkspace,
+          getPaneIdsForWorkspace,
+        )
+
+        setStorageSnapshot(snapshot)
+        setSelection(nextState)
+        setActionError(null)
+        setShellError(null)
+        setIsWorkspaceCreationOpen(false)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [
+      getPaneIdsForWorkspace,
+      getSurfaceIdsForWorkspace,
+      resolvedNavigationState,
+      setSelection,
+    ],
+  )
+
+  const submitWorkspaceAttachment = useCallback(
+    async (input: Omit<AttachWorkspaceRequest, 'windowId'>) => {
+      const api = getAideApi()
+
+      if (!api) {
+        return 'Desktop bridge did not load. Reload the app window.'
+      }
+
+      try {
+        const gitValidation = await api.validateExecutableCommand('git')
+
+        if (!gitValidation.ok) {
+          return gitValidation.error
+        }
+
+        const snapshot = await api.attachWorkspace({
+          name: input.name,
+          projectId: input.projectId,
+          worktreePath: input.worktreePath,
+          windowId: null,
+        })
+        const latestWorkspaceId = snapshot.workspaces.at(-1)?.id ?? null
+
+        if (!latestWorkspaceId) {
+          return 'Workspace was attached but no workspace record was returned.'
         }
 
         const nextState = applyWorkspaceSelection(
@@ -938,13 +998,13 @@ export default function App() {
 
   const handleAppShortcut = useCallback(
     (shortcut: {
-      projectIndex?: number
+      workspaceId?: string
       type:
         | 'command-palette-open'
         | 'pane-create'
         | 'pane-next'
         | 'pane-previous'
-        | 'project-jump'
+        | 'workspace-jump'
         | 'workspace-next'
         | 'workspace-previous'
         | 'workspace-switcher-toggle'
@@ -988,34 +1048,28 @@ export default function App() {
         return
       }
 
-      if (shortcut.type === 'project-jump') {
-        const targetProject =
-          typeof shortcut.projectIndex === 'number'
-            ? (navigationSnapshot.projects[shortcut.projectIndex] ?? null)
-            : null
-
-        if (targetProject) {
-          handleProjectSelection(targetProject.id)
+      if (shortcut.type === 'workspace-jump') {
+        if (shortcut.workspaceId) {
+          handleWorkspaceSelection(shortcut.workspaceId)
         }
       }
     },
     [
-      handleProjectSelection,
       handleRelativePaneSelection,
       handleRelativeWorkspaceSelection,
-      navigationSnapshot.projects,
+      handleWorkspaceSelection,
     ],
   )
 
   const dispatchShortcut = useCallback(
     (shortcut: {
-      projectIndex?: number
+      workspaceId?: string
       type:
         | 'command-palette-open'
         | 'pane-create'
         | 'pane-next'
         | 'pane-previous'
-        | 'project-jump'
+        | 'workspace-jump'
         | 'workspace-next'
         | 'workspace-previous'
         | 'workspace-switcher-toggle'
@@ -1027,13 +1081,13 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Control') {
+      if (event.key === 'Control' || event.key === 'Meta') {
         setShowProjectHints(true)
       }
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Control') {
+      if (event.key === 'Control' || event.key === 'Meta') {
         setShowProjectHints(false)
       }
     }
@@ -1159,17 +1213,19 @@ export default function App() {
         return
       }
 
-      const shortcutProject = event.ctrlKey
-        ? resolveProjectShortcutTarget(navigationSnapshot.projects, event.key)
-        : null
+      const shortcutWorkspace =
+        event.ctrlKey || event.metaKey
+          ? resolveWorkspaceShortcutTarget(
+              orderedWorkspacesRef.current,
+              event.key,
+            )
+          : null
 
-      if (shortcutProject) {
+      if (shortcutWorkspace) {
         event.preventDefault()
         dispatchShortcut({
-          projectIndex: navigationSnapshot.projects.findIndex(
-            (project) => project.id === shortcutProject.id,
-          ),
-          type: 'project-jump',
+          workspaceId: shortcutWorkspace.id,
+          type: 'workspace-jump',
         })
         return
       }
@@ -1224,12 +1280,7 @@ export default function App() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true)
     }
-  }, [
-    dispatchShortcut,
-    isOverviewVisible,
-    isWorkspaceSwitcherVisible,
-    navigationSnapshot.projects,
-  ])
+  }, [dispatchShortcut, isOverviewVisible, isWorkspaceSwitcherVisible])
 
   useEffect(() => {
     let openedByHold = false
@@ -1340,17 +1391,6 @@ export default function App() {
         (workspace) => workspace.projectId === activeProject.id,
       )
     : []
-  const allWorkspacesOrdered = useMemo(() => {
-    const result: typeof allWorkspaces = []
-    for (const project of projects) {
-      for (const ws of allWorkspaces) {
-        if (ws.projectId === project.id) {
-          result.push(ws)
-        }
-      }
-    }
-    return result
-  }, [projects, allWorkspaces])
   const activeWorkspaceSurfaces = activeWorkspace
     ? resolveWorkspaceSurfaces(navigationSnapshot, activeWorkspace.id)
     : []
@@ -1390,6 +1430,21 @@ export default function App() {
       buildWorkspaceSummaryMap(projects, allWorkspaces, workspaceActivities),
     [allWorkspaces, projects, workspaceActivities],
   )
+  const orderedWorkspaces = useMemo(
+    () =>
+      getOrderedWorkspaces(
+        navigationSnapshot.projects,
+        navigationSnapshot.workspaces,
+        (workspaceId) => workspaceSummaries[workspaceId]?.activity ?? null,
+      ),
+    [
+      navigationSnapshot.projects,
+      navigationSnapshot.workspaces,
+      workspaceSummaries,
+    ],
+  )
+  const orderedWorkspacesRef = useRef(orderedWorkspaces)
+  orderedWorkspacesRef.current = orderedWorkspaces
   const paletteCommands = useMemo(
     () =>
       buildCommandList({
@@ -1440,12 +1495,24 @@ export default function App() {
 
   return (
     <AppShell
+      activePaneId={resolvedNavigationState.activePaneId}
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
+      onClosePane={handleClosePane}
+      onResizePane={handleResizePane}
+      onSplitPane={handleSplitPane}
       surfaces={activeWorkspaceSurfaces}
       surfaceManagedSessionIds={surfaceManagedSessionIds}
       showProjectHints={showProjectHints}
+      onSelectHome={() =>
+        setSelection({
+          activePaneId: null,
+          activeProjectId: null,
+          activeSurfaceId: null,
+          activeWorkspaceId: null,
+        })
+      }
       onSelectPane={(paneId: string) =>
         setSelection(
           applySurfaceSelection(
@@ -1463,7 +1530,7 @@ export default function App() {
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
       projects={projects}
-      workspaces={allWorkspaces}
+      workspaces={orderedWorkspaces}
       workspaceSummaries={workspaceSummaries}
     >
       <>
@@ -1478,8 +1545,17 @@ export default function App() {
           onOpenChange={setIsPaneCreationOpen}
         />
         <WorkspaceCreationModal
+          existingRootWorkspaceName={
+            activeProject
+              ? (projectWorkspaces.find(
+                  (workspace) =>
+                    workspace.worktreePath === activeProject.repoRoot,
+                )?.name ?? null)
+              : null
+          }
           isOpen={isWorkspaceCreationOpen}
           loadProjectRefs={listProjectRefs}
+          onAttach={submitWorkspaceAttachment}
           onOpenChange={setIsWorkspaceCreationOpen}
           onSubmit={submitWorkspaceCreation}
           project={activeProject}
@@ -1493,7 +1569,7 @@ export default function App() {
           projectName={activeProject?.name ?? null}
           summaries={workspaceSummaries}
           visible={isWorkspaceSwitcherVisible}
-          workspaces={allWorkspaces}
+          workspaces={orderedWorkspaces}
         />
         <WorkspaceSwitcherOverlay
           activeWorkspaceId={activeWorkspace?.id ?? null}
@@ -1503,7 +1579,7 @@ export default function App() {
           projectName={activeProject?.name ?? null}
           summaries={workspaceSummaries}
           visible={isOverviewVisible}
-          workspaces={allWorkspaces}
+          workspaces={orderedWorkspaces}
         />
         <WorkspaceCanvas
           activeProject={activeProject}
@@ -1516,7 +1592,6 @@ export default function App() {
           onClosePane={handleClosePane}
           onLoadPreviewTarget={handleLoadPreviewTarget}
           onRemoveView={handleRemoveView}
-          onResizePane={handleResizePane}
           onSelectPreviewTarget={handleSelectPreviewTarget}
           onSelectPane={(paneId: string) =>
             setSelection(
@@ -1529,10 +1604,9 @@ export default function App() {
               ),
             )
           }
-          onSplitPane={handleSplitPane}
           onSwitchView={handleSwitchView}
           previewTargets={activePreviewState.targets}
-          allWorkspaces={allWorkspacesOrdered}
+          allWorkspaces={orderedWorkspaces}
           projects={projects}
           shellError={shellError}
           activePaneId={resolvedNavigationState.activePaneId}

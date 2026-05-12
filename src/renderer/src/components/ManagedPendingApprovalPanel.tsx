@@ -20,13 +20,13 @@ export default function ManagedPendingApprovalPanel({
 }: ManagedPendingApprovalPanelProps) {
   return (
     <div
-      className="mx-auto w-full max-w-3xl rounded-2xl border border-warning/30 bg-warning/5 px-4 py-3"
+      className="mx-auto w-full max-w-3xl rounded-lg border border-accent-peach bg-accent-peach-soft px-4 py-3"
       data-testid={`managed-approval-${approval.id}`}
     >
       <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent-peach" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">
+          <p className="text-sm font-semibold text-foreground">
             Approval required
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -34,6 +34,7 @@ export default function ManagedPendingApprovalPanel({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
+              className="rounded-pill px-5"
               onPress={() => onResolve(approval.id, 'accept')}
               size="sm"
               variant="primary"

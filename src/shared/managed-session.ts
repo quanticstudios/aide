@@ -24,6 +24,22 @@ export type ManagedSessionContentKind =
   | 'user-prompt'
 
 export type ManagedSessionEffort = 'high' | 'low' | 'max' | 'medium'
+
+/**
+ * Claude-only: an extra thinking budget on top of the base `effort` tier.
+ * - `default` → no override, SDK uses the effort tier as-is.
+ * - `extra` → enables thinking with a ~16K token budget (UI label "Max").
+ * - `ultra` → enables thinking with a ~32K token budget (UI label "Ultrathink").
+ */
+export type ManagedSessionThinkingBudget = 'default' | 'extra' | 'ultra'
+
+/**
+ * Claude-only: UI hint for which context window to request. Not yet forwarded
+ * to the Agent SDK — no first-class option in the SDK surface today. Stored to
+ * persist user intent; runtime treats it as informational.
+ */
+export type ManagedSessionContextWindow = '200k' | '1m'
+
 export type ManagedSessionPermissionMode =
   | 'acceptEdits'
   | 'bypassPermissions'
@@ -31,13 +47,30 @@ export type ManagedSessionPermissionMode =
   | 'plan'
 
 export interface ManagedSessionConfig {
+  /**
+   * Claude-only: UI-stored context window preference. Currently informational —
+   * the Claude Agent SDK does not expose a 1M-context flag in `Options`, so
+   * this is persisted but not forwarded to the runtime.
+   */
+  contextWindow?: ManagedSessionContextWindow
   cwd: string
   effort?: ManagedSessionEffort
+  /**
+   * Codex-only: UI-stored "fast mode" toggle. Currently not forwarded — Codex
+   * CLI's JSON-RPC `thread/start` schema does not expose a service tier knob.
+   */
+  fastMode?: boolean
   mode: ManagedSessionMode
   model?: string
   paneId: string
   permissionMode?: ManagedSessionPermissionMode
   sessionId: string
+  /**
+   * Claude-only: extra thinking-budget tier above the base effort level.
+   * `default` is the no-op state. `extra` and `ultra` enable Claude SDK
+   * `thinking: { type: 'enabled', budgetTokens }` on top of the effort tier.
+   */
+  thinkingBudget?: ManagedSessionThinkingBudget
   workspaceId: string
 }
 

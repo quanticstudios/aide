@@ -136,30 +136,30 @@ export default function TerminalPane({
       convertEol: true,
       cursorBlink: true,
       fontFamily:
-        'JetBrainsMono Nerd Font, MesloLGS NF, Symbols Nerd Font Mono, IBM Plex Mono, monospace',
+        'JetBrains Mono, JetBrainsMono Nerd Font, MesloLGS NF, Symbols Nerd Font Mono, monospace',
       fontSize: 13,
       theme: {
-        background: '#111114',
-        black: '#16161a',
-        blue: '#7aa2f7',
-        brightBlack: '#2a2a31',
-        brightBlue: '#7aa2f7',
+        background: '#07080a',
+        black: '#0d0d0d',
+        blue: '#57c1ff',
+        brightBlack: '#242728',
+        brightBlue: '#57c1ff',
         brightCyan: '#7dcfff',
-        brightGreen: '#5cb89a',
+        brightGreen: '#59d499',
         brightMagenta: '#bb9af7',
-        brightRed: '#f87171',
-        brightWhite: '#f4f4f5',
-        brightYellow: '#e0af68',
-        cursor: '#5cb89a',
-        cursorAccent: '#111114',
+        brightRed: '#ff6161',
+        brightWhite: '#ffffff',
+        brightYellow: '#ffc533',
+        cursor: '#ffffff',
+        cursorAccent: '#07080a',
         cyan: '#7dcfff',
-        foreground: '#f4f4f5',
-        green: '#5cb89a',
+        foreground: '#f4f4f6',
+        green: '#59d499',
         magenta: '#bb9af7',
-        red: '#f87171',
-        selectionBackground: '#5cb89a33',
-        white: '#a1a1aa',
-        yellow: '#e0af68',
+        red: '#ff6161',
+        selectionBackground: 'rgba(255,255,255,0.16)',
+        white: '#cdcdcd',
+        yellow: '#ffc533',
       },
     })
     const fitAddon = new FitAddon()
@@ -253,9 +253,9 @@ export default function TerminalPane({
   }, [sessionId, startSession])
 
   return (
-    <div className="terminal-pane relative flex h-full min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-background">
+    <div className="terminal-pane relative flex h-full min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
       {error ? (
-        <div className="absolute left-3 right-3 top-3 z-10 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="absolute left-3 right-3 top-3 z-10 rounded-md border border-accent-red bg-accent-red-soft px-3 py-2 text-sm text-accent-red">
           {error}
         </div>
       ) : null}

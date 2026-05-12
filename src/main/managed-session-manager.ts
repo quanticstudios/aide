@@ -15,10 +15,12 @@ import type {
   ManagedSessionConfig,
   ManagedSessionContentItem,
   ManagedSessionDecision,
+  ManagedSessionEffort,
   ManagedSessionEvent,
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
   ManagedSessionSnapshot,
+  ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
   ManagedSessionUsage,
   ManagedSessionUserQuestion,
@@ -32,6 +34,42 @@ import type {
 } from '../shared/provider-runtime'
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 import { resolveTerminalWorkingDirectory } from './terminal-shell'
+
+/**
+ * Map a Claude `thinkingBudget` tier to the SDK's `ThinkingConfig`. Returns
+ * `null` when no override is needed (the SDK uses the base `effort` tier).
+ */
+function resolveClaudeThinkingOption(
+  budget: ManagedSessionThinkingBudget | undefined,
+): { type: 'enabled'; budgetTokens: number } | null {
+  if (!budget || budget === 'default') {
+    return null
+  }
+
+  if (budget === 'extra') {
+    return { type: 'enabled', budgetTokens: 16_000 }
+  }
+
+  return { type: 'enabled', budgetTokens: 32_000 }
+}
+
+/**
+ * Map a Codex `effort` tier to the value expected by the Codex CLI's
+ * `model_reasoning_effort` config key.
+ */
+function resolveCodexReasoningEffort(
+  effort: ManagedSessionEffort | undefined,
+): string | null {
+  if (!effort) {
+    return null
+  }
+
+  if (effort === 'max') {
+    return 'high'
+  }
+
+  return effort
+}
 
 interface ManagedSessionManagerOptions {
   getNow?: () => string
@@ -403,6 +441,8 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       })
     }
 
+    const thinking = resolveClaudeThinkingOption(this.config.thinkingBudget)
+
     this.queryRuntime = query({
       options: {
         canUseTool,
@@ -414,6 +454,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         pathToClaudeCodeExecutable: cliPath,
         permissionMode: this.config.permissionMode,
         settingSources: ['user', 'project', 'local'],
+        ...(thinking ? { thinking } : {}),
       },
       prompt: this.promptQueue,
     })
@@ -809,7 +850,14 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       this.config.cwd,
       process.env.HOME ?? process.cwd(),
     )
-    const child = spawn(command, ['app-server'], {
+    const args = ['app-server']
+    const reasoningEffort = resolveCodexReasoningEffort(this.config.effort)
+
+    if (reasoningEffort) {
+      args.unshift('--config', `model_reasoning_effort=${reasoningEffort}`)
+    }
+
+    const child = spawn(command, args, {
       cwd,
       env: process.env,
       shell: process.platform === 'win32',

@@ -109,7 +109,7 @@ export default function OpenInEditorButton({ cwd }: OpenInEditorButtonProps) {
         <ExternalLink className="size-3.5" />
       </Button>
       {isOpen ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-border/70 bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+        <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
           <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             Open in…
           </div>
@@ -117,7 +117,7 @@ export default function OpenInEditorButton({ cwd }: OpenInEditorButtonProps) {
             {editors.map((editor) => (
               <li key={editor.id}>
                 <button
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-foreground/80 transition-colors hover:bg-surface-secondary hover:text-foreground"
+                  className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-secondary"
                   onClick={() => void launch(editor.id)}
                   type="button"
                 >

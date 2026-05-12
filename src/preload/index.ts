@@ -17,12 +17,16 @@ import type {
 import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 
 const aideApi: AideApi = {
+  attachWorkspace: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.attachWorkspace, input),
   createTerminalSession: (input: TerminalSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
   createManagedSession: (input: ManagedSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionCreate, input),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
+  detectWorktreeBranch: (worktreePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
   closeManagedSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),

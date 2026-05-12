@@ -23,7 +23,7 @@ export default function ManagedPendingUserInputPanel({
 
   return (
     <div
-      className="mx-auto w-full max-w-3xl rounded-2xl border border-border/60 bg-surface p-4"
+      className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-surface p-4"
       data-testid={`managed-input-${request.id}`}
     >
       {request.questions.map((question) => (
@@ -43,10 +43,10 @@ export default function ManagedPendingUserInputPanel({
                 return (
                   <button
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                      'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
                       selected
-                        ? 'bg-primary/10 text-foreground'
-                        : 'text-foreground/70 hover:bg-surface-secondary',
+                        ? 'bg-surface-tertiary text-foreground'
+                        : 'text-foreground hover:bg-surface-secondary',
                     )}
                     key={option.id}
                     onClick={() => onAnswerChange(question.id, option.label)}
@@ -55,7 +55,7 @@ export default function ManagedPendingUserInputPanel({
                     <span className="shrink-0 text-muted-foreground">
                       {optionIndex + 1}
                     </span>
-                    <span className="font-medium">{option.label}</span>
+                    <span className="font-semibold">{option.label}</span>
                   </button>
                 )
               })}
@@ -77,9 +77,9 @@ export default function ManagedPendingUserInputPanel({
 
       <div className="mt-4 flex justify-end">
         <Button
+          className="rounded-pill px-[22px] py-[11px]"
           isDisabled={isIncomplete}
           onPress={() => onSubmit(request.id)}
-          size="sm"
           variant="primary"
         >
           Submit answer

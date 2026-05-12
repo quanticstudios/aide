@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { AideApi } from '../../shared/ipc'
 
 declare global {

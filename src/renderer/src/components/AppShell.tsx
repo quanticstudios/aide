@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
+  PersistedSplitLayoutNode,
   ProjectRecord,
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
@@ -14,15 +15,24 @@ const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
 const SIDEBAR_COLLAPSE_DELAY_MS = 140
 
 interface AppShellProps {
+  readonly activePaneId: string | null
   readonly activeSurfaceId: string | null
   readonly projects: readonly ProjectRecord[]
   readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
+  readonly onResizePane: (paneId: string, delta: number) => void
+  readonly onSplitPane: (
+    paneId: string,
+    splitType: PersistedSplitLayoutNode['type'],
+    targetPaneType?: string,
+  ) => void
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly showProjectHints: boolean
+  readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
@@ -33,15 +43,20 @@ interface AppShellProps {
 }
 
 export default function AppShell({
+  activePaneId,
   activeSurfaceId,
   projects,
   workspaces,
   activeProject,
   activeWorkspace,
+  onClosePane,
   onCreatePane,
+  onResizePane,
+  onSplitPane,
   surfaces,
   surfaceManagedSessionIds,
   showProjectHints,
+  onSelectHome,
   onSelectPane,
   onSelectProject,
   onSelectWorkspace,
@@ -247,6 +262,7 @@ export default function AppShell({
           isPinnedOpen={isSidebarPinnedOpen}
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
+          onSelectHome={onSelectHome}
           onSelectProject={onSelectProject}
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
@@ -262,10 +278,14 @@ export default function AppShell({
 
       <div className="flex min-w-0 w-full flex-1 flex-col overflow-hidden">
         <TopBar
+          activePaneId={activePaneId}
           activeSurfaceId={activeSurfaceId}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
+          onClosePane={onClosePane}
           onCreatePane={onCreatePane}
+          onResizePane={onResizePane}
+          onSplitPane={onSplitPane}
           surfaces={surfaces}
           surfaceManagedSessionIds={surfaceManagedSessionIds}
           onSelectPane={onSelectPane}

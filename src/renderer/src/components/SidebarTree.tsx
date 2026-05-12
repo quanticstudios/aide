@@ -1,18 +1,24 @@
-import { Button, Chip, ScrollShadow, Tooltip } from '@heroui/react'
+import { Button, Kbd, ScrollShadow, Tooltip } from '@heroui/react'
 import {
+  Archive,
   ChevronRight,
   CircleAlert,
   CircleCheck,
   CircleHelp,
   FolderKanban,
   GitBranch,
+  Home,
   Loader2,
+  MessageSquare,
+  MoreHorizontal,
   PanelLeftClose,
   Plus,
+  Settings,
   Terminal,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { formatWorkspaceShortcutLabel } from '@/lib/platform'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
 import {
@@ -26,11 +32,9 @@ import type {
 } from '../../../shared/persistence'
 import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
 import {
-  compareWorkspacesByAttentionTier,
   formatWorkspaceActivityLabel,
   formatWorkspaceActivityPillLabel,
   resolveWorkspaceActivityAccentClassName,
-  resolveWorkspaceActivityBorderColorClassName,
   resolveWorkspaceActivityDotClassName,
   resolveWorkspaceActivityPillClassName,
   resolveWorkspaceAttentionTier,
@@ -47,6 +51,7 @@ interface SidebarTreeProps {
   readonly isPinnedOpen: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
@@ -87,23 +92,25 @@ function renderWorkspaceStateIcon(input: {
 
   switch (activity.state) {
     case 'error':
-      return <CircleAlert className="size-3 shrink-0 text-red-400" />
+      return <CircleAlert className="size-3 shrink-0 text-accent-red" />
     case 'pending-approval':
-      return <CircleAlert className="size-3 shrink-0 text-amber-400" />
+      return <CircleAlert className="size-3 shrink-0 text-accent-yellow" />
     case 'awaiting-input':
-      return <CircleHelp className="size-3 shrink-0 text-indigo-300" />
+      return <CircleHelp className="size-3 shrink-0 text-accent-yellow" />
     case 'working':
       return (
-        <span className="flex size-3 shrink-0 items-center justify-center text-amber-400">
+        <span className="flex size-3 shrink-0 items-center justify-center text-accent-blue">
           <span className="size-1.5 animate-pulse rounded-full bg-current" />
         </span>
       )
     case 'connecting':
-      return <Loader2 className="size-3 shrink-0 animate-spin text-sky-300" />
+      return (
+        <Loader2 className="size-3 shrink-0 animate-spin text-accent-blue" />
+      )
     case 'completed':
-      return <CircleCheck className="size-3 shrink-0 text-emerald-300" />
+      return <CircleCheck className="size-3 shrink-0 text-accent-green" />
     case 'terminal-running':
-      return <Terminal className="size-3 shrink-0 text-emerald-300" />
+      return <Terminal className="size-3 shrink-0 text-accent-green" />
     default:
       return (
         <GitBranch
@@ -138,11 +145,11 @@ function getMergeStatusClassName(
   mergeStatus: WorktreeBranchStats['mergeStatus'],
 ): string {
   if (mergeStatus === 'clean') {
-    return 'text-primary'
+    return 'text-accent-green'
   }
 
   if (mergeStatus === 'conflicts') {
-    return 'text-red-400'
+    return 'text-accent-red'
   }
 
   return 'text-muted-foreground/70'
@@ -152,11 +159,11 @@ function getWorkspaceBackgroundClassName(
   activity: WorkspaceActivitySnapshot | null | undefined,
   isActive: boolean,
 ): string {
-  if (activity?.state === 'error') return 'bg-red-400/[0.03]'
-  if (activity?.state === 'pending-approval') return 'bg-amber-400/[0.03]'
-  if (activity?.state === 'awaiting-input') return 'bg-indigo-300/[0.03]'
+  if (activity?.state === 'error') return 'bg-accent-red/[0.03]'
+  if (activity?.state === 'pending-approval') return 'bg-accent-yellow/[0.03]'
+  if (activity?.state === 'awaiting-input') return 'bg-accent-yellow/[0.03]'
   if (activity?.state === 'working') return 'sidebar-working-shimmer'
-  if (isActive) return 'bg-primary/8'
+  if (isActive) return 'bg-surface-elevated'
   return ''
 }
 
@@ -171,7 +178,7 @@ function ActivityPill({
     // biome-ignore lint/a11y/useKeyWithClickEvents: pill is inside a <button> row — keyboard access provided by parent
     <span
       className={cn(
-        'flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-medium leading-tight',
+        'flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold leading-tight',
         resolveWorkspaceActivityPillClassName(activity),
       )}
       onClick={(event) => {
@@ -187,6 +194,81 @@ function ActivityPill({
   )
 }
 
+function ProjectOverflowMenu({
+  projectName,
+}: { readonly projectName: string }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    function handleClickOutside(event: MouseEvent): void {
+      if (
+        event.target instanceof Node &&
+        !triggerRef.current?.contains(event.target) &&
+        !popoverRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false)
+      }
+    }
+
+    function handleKey(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKey)
+    }
+  }, [isOpen])
+
+  return (
+    <div className="relative">
+      <button
+        aria-label={`More options for ${projectName}`}
+        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-surface-secondary hover:text-foreground group-hover/project:opacity-100"
+        onClick={() => setIsOpen((current) => !current)}
+        ref={triggerRef}
+        type="button"
+      >
+        <MoreHorizontal className="size-3.5" />
+      </button>
+      {isOpen ? (
+        <div
+          className="absolute right-0 top-full z-30 mt-1 w-44 rounded-md border border-border bg-surface py-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          ref={popoverRef}
+        >
+          {(
+            [
+              { id: 'rename', label: 'Rename project' },
+              { id: 'archive', label: 'Archive project' },
+              { id: 'delete', label: 'Delete project' },
+            ] as const
+          ).map((option) => (
+            <button
+              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground opacity-60"
+              disabled
+              key={option.id}
+              type="button"
+            >
+              {option.label}
+              <span className="text-[10px] text-muted-foreground/60">Soon</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
@@ -194,6 +276,7 @@ export default function SidebarTree({
   isPinnedOpen,
   onCreateProject,
   onCreateWorkspace,
+  onSelectHome,
   onSelectPane,
   onSelectProject,
   onSelectWorkspace,
@@ -305,39 +388,38 @@ export default function SidebarTree({
     }
   }, [fetchBranchStatsForVisibleWorkspaces])
 
-  const sortedWorkspacesByProject = useMemo(() => {
+  const workspacesByProject = useMemo(() => {
     const result: Record<string, WorkspaceRecord[]> = {}
 
-    for (const project of projects) {
-      const projectWorkspaces = workspaces.filter(
-        (ws) => ws.projectId === project.id,
-      )
-
-      result[project.id] = [...projectWorkspaces].sort((a, b) =>
-        compareWorkspacesByAttentionTier(
-          summaries[a.id]?.activity ?? null,
-          a.updatedAt,
-          summaries[b.id]?.activity ?? null,
-          b.updatedAt,
-        ),
-      )
+    for (const workspace of workspaces) {
+      const list = result[workspace.projectId] ?? []
+      list.push(workspace)
+      result[workspace.projectId] = list
     }
 
     return result
-  }, [projects, workspaces, summaries])
+  }, [workspaces])
+
+  const workspaceShortcutIndex = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    workspaces.forEach((workspace, index) => {
+      map[workspace.id] = index
+    })
+    return map
+  }, [workspaces])
 
   // ── Collapsed rail ──────────────────────────────
 
   if (!isExpanded) {
     return (
       <aside
-        className="flex h-full w-12 flex-col items-center border-r border-border bg-card/70 px-1 py-3"
+        className="flex h-full w-12 flex-col items-center border-r border-border bg-sidebar px-1 py-3"
         data-expanded="false"
         data-testid="workspace-tree-panel"
       >
         <button
           aria-label="Workspace sidebar"
-          className="flex size-8 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground"
+          className="flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground"
           tabIndex={0}
           type="button"
         >
@@ -365,10 +447,10 @@ export default function SidebarTree({
               <button
                 aria-label={`Project ${project.name}`}
                 className={cn(
-                  'relative flex size-9 items-center justify-center rounded-xl border text-[10px] font-semibold tracking-[0.1em] transition-all',
+                  'relative flex size-9 items-center justify-center rounded-md border text-[10px] font-semibold tracking-[0.1em] transition-colors',
                   isActive
-                    ? 'border-primary/60 bg-primary/12 text-primary'
-                    : 'border-border bg-background text-muted-foreground hover:border-primary/35 hover:text-foreground',
+                    ? 'border-border bg-surface-elevated text-foreground'
+                    : 'border-border bg-surface text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
                 )}
                 data-testid={`project-rail-button-${project.id}`}
                 key={project.id}
@@ -377,7 +459,7 @@ export default function SidebarTree({
               >
                 {getProjectGlyph(project.name)}
                 {attentionCount > 0 ? (
-                  <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full border border-amber-400/40 bg-amber-400/20 text-[9px] font-semibold text-amber-400">
+                  <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
                     {attentionCount}
                   </span>
                 ) : projectActivity ? (
@@ -391,7 +473,7 @@ export default function SidebarTree({
                   />
                 ) : null}
                 {showProjectHints ? (
-                  <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-background text-[8px] font-medium text-muted-foreground">
+                  <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-surface-tertiary text-[8px] font-semibold text-muted-foreground">
                     {index + 1}
                   </span>
                 ) : null}
@@ -402,7 +484,7 @@ export default function SidebarTree({
 
         <Button
           aria-label="Open project"
-          className="size-8 rounded-xl"
+          className="size-8 rounded-md"
           isIconOnly
           onPress={onCreateProject}
           size="sm"
@@ -418,61 +500,46 @@ export default function SidebarTree({
 
   return (
     <aside
-      className="flex h-full w-72 flex-col overflow-hidden border-r border-border bg-card/55 transition-[width,opacity] duration-180 ease-out opacity-100"
+      className="flex h-full w-72 flex-col overflow-hidden border-r border-border bg-sidebar transition-[width,opacity] duration-180 ease-out opacity-100"
       data-expanded="true"
       data-testid="workspace-tree-panel"
     >
-      <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-          Projects
-        </p>
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
+        <button
+          aria-current={activeProjectId === null ? 'true' : undefined}
+          className={cn(
+            'project-row flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left',
+            activeProjectId === null && 'is-active',
+          )}
+          data-testid="sidebar-home-button"
+          onClick={onSelectHome}
+          type="button"
+        >
+          <Home className="size-3.5 text-muted-foreground" />
+          <span className="truncate text-sm font-semibold text-foreground">
+            Home
+          </span>
+        </button>
 
-        <div className="flex items-center gap-0.5">
-          {activeProjectId ? (
-            <Button
-              aria-label="Create workspace"
-              className="size-7 rounded-lg"
-              isIconOnly
-              onPress={onCreateWorkspace}
-              size="sm"
-              variant="ghost"
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          ) : null}
-
-          <Button
-            aria-label="Open project"
-            className="size-7 rounded-lg"
-            isIconOnly
-            onPress={onCreateProject}
-            size="sm"
-            variant="ghost"
-          >
-            <FolderKanban className="size-3.5" />
-          </Button>
-
-          <Button
-            aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
-            className={cn(
-              'size-7 rounded-lg',
-              isPinnedOpen && 'border-primary/50 bg-primary/10 text-primary',
-            )}
-            isIconOnly
-            onPress={onTogglePinnedOpen}
-            size="sm"
-            variant="ghost"
-          >
-            <PanelLeftClose className="size-3.5" />
-          </Button>
-        </div>
+        <Button
+          aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
+          className={cn(
+            'size-7 rounded-md',
+            isPinnedOpen && 'border-border bg-surface-elevated text-foreground',
+          )}
+          isIconOnly
+          onPress={onTogglePinnedOpen}
+          size="sm"
+          variant="ghost"
+        >
+          <PanelLeftClose className="size-3.5" />
+        </Button>
       </div>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
         <div className="py-1.5">
           {projects.map((project, projectIndex) => {
-            const projectWorkspaces =
-              sortedWorkspacesByProject[project.id] ?? []
+            const projectWorkspaces = workspacesByProject[project.id] ?? []
             const isActiveProject = project.id === activeProjectId
             const attentionCount = projectWorkspaces.filter(
               (ws) =>
@@ -491,12 +558,17 @@ export default function SidebarTree({
             }
 
             return (
-              <div key={project.id}>
+              <div
+                className={cn(
+                  projectIndex > 0 && 'mt-1.5 border-t border-border/60 pt-1.5',
+                )}
+                key={project.id}
+              >
                 <div className="group/project flex items-center gap-1 px-2 py-1">
                   <button
                     aria-expanded={isProjectExpanded}
                     aria-label={`Toggle ${project.name} workspaces`}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover/project:text-foreground"
                     onClick={toggleProject}
                     type="button"
                   >
@@ -511,7 +583,7 @@ export default function SidebarTree({
                   <button
                     aria-current={isActiveProject ? 'true' : undefined}
                     className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary',
+                      'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary',
                       isActiveProject
                         ? 'text-foreground'
                         : 'text-foreground/80',
@@ -520,42 +592,32 @@ export default function SidebarTree({
                     onClick={toggleProject}
                     type="button"
                   >
-                    <span className="truncate text-sm font-medium">
+                    <span className="truncate text-sm font-semibold">
                       {project.name}
                     </span>
                     {attentionCount > 0 ? (
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-400/15 text-[9px] font-semibold text-amber-400">
+                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
                         {attentionCount}
                       </span>
                     ) : null}
                   </button>
-
-                  <button
-                    aria-label={`New workspace in ${project.name}`}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:text-foreground group-hover/project:opacity-100"
-                    onClick={() => {
-                      onSelectProject(project.id)
-                      onCreateWorkspace()
-                    }}
-                    type="button"
-                  >
-                    <Plus className="size-3.5" />
-                  </button>
-
-                  {showProjectHints ? (
-                    <Chip
-                      className="h-4 min-w-4 border border-border bg-background px-1 text-[9px] font-medium text-muted-foreground"
-                      color="default"
-                      size="sm"
-                      variant="secondary"
-                    >
-                      {projectIndex + 1}
-                    </Chip>
-                  ) : null}
+                  <ProjectOverflowMenu projectName={project.name} />
                 </div>
 
-                {isProjectExpanded && projectWorkspaces.length > 0 ? (
-                  <div className="sidebar-tree-indent mx-3 pb-1">
+                {isProjectExpanded ? (
+                  <div className="mx-3 pb-1">
+                    <button
+                      aria-label={`New workspace in ${project.name}`}
+                      className="row-hover flex w-full items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        onSelectProject(project.id)
+                        onCreateWorkspace()
+                      }}
+                      type="button"
+                    >
+                      <Plus className="size-3.5" />
+                      <span>New workspace</span>
+                    </button>
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
@@ -571,21 +633,10 @@ export default function SidebarTree({
                         : ''
                       const attentionTier =
                         resolveWorkspaceAttentionTier(activity)
-                      const borderColorClass = activity
-                        ? resolveWorkspaceActivityBorderColorClassName(activity)
-                        : isActiveWorkspace
-                          ? 'border-l-primary'
-                          : 'border-l-transparent'
                       const bgClass = getWorkspaceBackgroundClassName(
                         activity,
                         isActiveWorkspace,
                       )
-                      const showGitStatsRow =
-                        stats != null &&
-                        (stats.additions > 0 ||
-                          stats.deletions > 0 ||
-                          (mergeLabel !== '' && mergeLabel !== 'Up to date'))
-
                       const tooltipContent = summary?.activities.length ? (
                         <div className="flex flex-col gap-1">
                           {summary.activities.map((entry) => (
@@ -616,9 +667,10 @@ export default function SidebarTree({
                       const rowElement = (
                         <button
                           className={cn(
-                            'group flex w-full flex-col gap-1 rounded-r-lg border-l-2 pl-2.5 pr-3 py-2 text-left transition-colors',
-                            borderColorClass,
+                            'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-3 text-left transition-colors',
                             bgClass,
+                            isActiveWorkspace &&
+                              'bg-primary/10 ring-1 ring-inset ring-primary/40',
                             !activity &&
                               !isActiveWorkspace &&
                               'hover:bg-surface-secondary',
@@ -633,20 +685,19 @@ export default function SidebarTree({
                             })}
                             <span
                               className={cn(
-                                'truncate text-[13px]',
-                                attentionTier === 'attention'
-                                  ? 'font-semibold text-foreground'
-                                  : isActiveWorkspace
-                                    ? 'font-medium text-foreground'
-                                    : 'font-medium text-foreground/80',
+                                'truncate text-[13px] font-semibold',
+                                attentionTier === 'attention' ||
+                                  isActiveWorkspace
+                                  ? 'text-foreground'
+                                  : 'text-foreground/95',
                               )}
                             >
                               {summary?.workspaceName ?? workspace.name}
                             </span>
 
-                            {visibleActivities.length > 0 ? (
-                              <span className="ml-auto flex shrink-0 items-center gap-1">
-                                {visibleActivities.map((entry) => (
+                            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                              {visibleActivities.length > 0 ? (
+                                visibleActivities.map((entry) => (
                                   <ActivityPill
                                     activity={entry}
                                     key={entry.sessionId}
@@ -655,51 +706,59 @@ export default function SidebarTree({
                                       onSelectPane(entry.paneId)
                                     }}
                                   />
-                                ))}
-                              </span>
-                            ) : null}
+                                ))
+                              ) : stats &&
+                                (stats.additions > 0 || stats.deletions > 0) ? (
+                                <span className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-elevated px-1.5 py-px text-[10px] font-semibold tabular-nums">
+                                  <span className="text-accent-green">
+                                    +{stats.additions}
+                                  </span>
+                                  <span className="text-accent-red">
+                                    -{stats.deletions}
+                                  </span>
+                                </span>
+                              ) : null}
+                            </span>
                           </div>
 
                           <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
                             <span className="truncate font-mono">
                               {summary?.branchName ?? workspace.branchName}
                             </span>
-                            <span className="ml-auto shrink-0 tabular-nums">
-                              {formatRelativeTime(workspace.updatedAt)}
-                            </span>
-                          </div>
-
-                          {showGitStatsRow && stats ? (
-                            <div className="flex items-center gap-1.5 pl-5 text-[11px]">
-                              {stats.additions > 0 || stats.deletions > 0 ? (
-                                <span className="flex items-center gap-1.5 tabular-nums">
-                                  <span className="text-green-400">
-                                    +{stats.additions}
-                                  </span>
-                                  <span className="text-red-400">
-                                    -{stats.deletions}
-                                  </span>
+                            {mergeLabel && mergeLabel !== 'Up to date' ? (
+                              <>
+                                <span className="text-muted-foreground/50">
+                                  ·
                                 </span>
-                              ) : null}
-                              {mergeLabel && mergeLabel !== 'Up to date' ? (
-                                <>
-                                  {stats.additions > 0 ||
-                                  stats.deletions > 0 ? (
-                                    <span className="text-muted-foreground/50">
-                                      ·
-                                    </span>
-                                  ) : null}
-                                  <span
-                                    className={getMergeStatusClassName(
-                                      stats.mergeStatus,
-                                    )}
-                                  >
-                                    {mergeLabel}
-                                  </span>
-                                </>
-                              ) : null}
-                            </div>
-                          ) : null}
+                                <span
+                                  className={cn(
+                                    'truncate',
+                                    stats
+                                      ? getMergeStatusClassName(
+                                          stats.mergeStatus,
+                                        )
+                                      : '',
+                                  )}
+                                >
+                                  {mergeLabel}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="ml-1 shrink-0 tabular-nums">
+                                {formatRelativeTime(workspace.updatedAt)}
+                              </span>
+                            )}
+                            {showProjectHints &&
+                            workspaceShortcutIndex[workspace.id] !==
+                              undefined &&
+                            workspaceShortcutIndex[workspace.id] < 9 ? (
+                              <Kbd className="keycap ml-auto !h-4 !min-w-4 !px-1.5 !text-[9px] tabular-nums">
+                                {formatWorkspaceShortcutLabel(
+                                  workspaceShortcutIndex[workspace.id] + 1,
+                                )}
+                              </Kbd>
+                            ) : null}
+                          </div>
                         </button>
                       )
 
@@ -713,7 +772,7 @@ export default function SidebarTree({
                             {rowElement}
                           </Tooltip.Trigger>
                           <Tooltip.Content
-                            className="rounded-xl border border-[#3a3a44] bg-[#28282f] px-2.5 py-1.5 text-xs text-foreground shadow-[var(--overlay-shadow)]"
+                            className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
                             placement="right"
                           >
                             {tooltipContent}
@@ -728,6 +787,41 @@ export default function SidebarTree({
           })}
         </div>
       </ScrollShadow>
+
+      <div className="flex items-center gap-1 border-t border-border px-2 py-2">
+        <Button
+          className="flex h-7 flex-1 items-center justify-start gap-2 rounded-md px-2 text-[12.5px] font-medium text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+          onPress={onCreateProject}
+          variant="ghost"
+        >
+          <FolderKanban className="size-3.5" />
+          Add repository
+        </Button>
+        <button
+          aria-label="Archive view (coming soon)"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
+          disabled
+          type="button"
+        >
+          <Archive className="size-3.5" />
+        </button>
+        <button
+          aria-label="Comments (coming soon)"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
+          disabled
+          type="button"
+        >
+          <MessageSquare className="size-3.5" />
+        </button>
+        <button
+          aria-label="Settings (coming soon)"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
+          disabled
+          type="button"
+        >
+          <Settings className="size-3.5" />
+        </button>
+      </div>
     </aside>
   )
 }

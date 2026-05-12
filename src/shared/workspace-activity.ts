@@ -78,56 +78,56 @@ export function resolveWorkspaceActivityAccentClassName(
   }
 
   if (activity.state === 'pending-approval') {
-    return 'text-amber-400'
+    return 'text-accent-yellow'
   }
 
   if (activity.state === 'error') {
-    return 'text-red-400'
+    return 'text-accent-red'
   }
 
   if (activity.state === 'working') {
-    return 'text-sky-400'
+    return 'text-accent-blue'
   }
 
   if (activity.state === 'connecting') {
-    return 'text-sky-300'
+    return 'text-accent-blue'
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'text-amber-400'
+    return 'text-accent-yellow'
   }
 
-  return 'text-emerald-300'
+  return 'text-accent-green'
 }
 
 export function resolveWorkspaceActivityDotClassName(
   activity: WorkspaceActivitySnapshot | null | undefined,
 ): string {
   if (!activity) {
-    return 'bg-muted-foreground/35'
+    return 'bg-stone'
   }
 
   if (activity.state === 'pending-approval') {
-    return 'bg-amber-400'
+    return 'bg-accent-yellow'
   }
 
   if (activity.state === 'error') {
-    return 'bg-red-400'
+    return 'bg-accent-red'
   }
 
   if (activity.state === 'working') {
-    return 'bg-sky-400'
+    return 'bg-accent-blue'
   }
 
   if (activity.state === 'connecting') {
-    return 'bg-sky-300'
+    return 'bg-accent-blue'
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'bg-amber-400'
+    return 'bg-accent-yellow'
   }
 
-  return 'bg-emerald-300'
+  return 'bg-accent-green'
 }
 
 export function shouldPulseWorkspaceActivity(
@@ -226,26 +226,26 @@ export function resolveWorkspaceActivityPillClassName(
   activity: WorkspaceActivitySnapshot,
 ): string {
   if (activity.state === 'error') {
-    return 'border-red-400/30 bg-red-400/[0.12] text-red-400'
+    return 'border-transparent bg-accent-red-soft text-accent-red'
   }
 
   if (activity.state === 'pending-approval') {
-    return 'border-amber-400/30 bg-amber-400/[0.12] text-amber-400'
+    return 'border-transparent bg-accent-yellow-soft text-accent-yellow'
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'border-amber-400/30 bg-amber-400/[0.12] text-amber-400'
+    return 'border-transparent bg-accent-yellow-soft text-accent-yellow'
   }
 
   if (activity.state === 'working') {
-    return 'border-sky-400/30 bg-sky-400/[0.12] text-sky-400'
+    return 'border-transparent bg-accent-blue-soft text-accent-blue'
   }
 
   if (activity.state === 'connecting') {
-    return 'border-sky-300/30 bg-sky-300/[0.12] text-sky-300'
+    return 'border-transparent bg-accent-blue-soft text-accent-blue'
   }
 
-  return 'border-emerald-300/30 bg-emerald-300/[0.12] text-emerald-300'
+  return 'border-transparent bg-accent-green-soft text-accent-green'
 }
 
 export function resolveWorkspaceActivityBorderColorClassName(
@@ -256,24 +256,24 @@ export function resolveWorkspaceActivityBorderColorClassName(
   }
 
   if (activity.state === 'error') {
-    return 'border-l-red-400'
+    return 'border-l-accent-red'
   }
 
   if (activity.state === 'pending-approval') {
-    return 'border-l-amber-400'
+    return 'border-l-accent-yellow'
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'border-l-amber-400'
+    return 'border-l-accent-yellow'
   }
 
   if (activity.state === 'working') {
-    return 'border-l-sky-400'
+    return 'border-l-accent-blue'
   }
 
   if (activity.state === 'connecting') {
-    return 'border-l-sky-300'
+    return 'border-l-accent-blue'
   }
 
-  return 'border-l-emerald-300'
+  return 'border-l-accent-green'
 }

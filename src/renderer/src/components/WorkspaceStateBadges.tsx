@@ -12,26 +12,26 @@ function getActivityChipClassName(
   activity: WorkspaceSummary['activity'] | null | undefined,
 ): string {
   if (!activity) {
-    return 'border-border bg-background text-muted-foreground'
+    return 'border-border bg-surface-elevated text-muted-foreground'
   }
 
   if (activity.state === 'pending-approval') {
-    return 'border-warning/40 bg-warning/10 text-warning'
+    return 'border-transparent bg-accent-yellow-soft text-accent-yellow'
   }
 
   if (activity.state === 'error') {
-    return 'border-danger/40 bg-danger/10 text-danger'
+    return 'border-transparent bg-accent-red-soft text-accent-red'
   }
 
   if (activity.state === 'working' || activity.state === 'connecting') {
-    return 'border-primary/40 bg-primary/10 text-primary'
+    return 'border-transparent bg-accent-blue-soft text-accent-blue'
   }
 
   if (activity.state === 'awaiting-input') {
-    return 'border-secondary/40 bg-secondary/10 text-secondary'
+    return 'border-transparent bg-accent-yellow-soft text-accent-yellow'
   }
 
-  return 'border-success/40 bg-success/10 text-success'
+  return 'border-transparent bg-accent-green-soft text-accent-green'
 }
 
 export default function WorkspaceStateBadges({
@@ -63,7 +63,7 @@ export default function WorkspaceStateBadges({
 
       {hiddenActivityCount > 0 ? (
         <Chip
-          className="border-border bg-background text-muted-foreground"
+          className="border-border bg-surface-elevated text-muted-foreground"
           size="sm"
           title={`${hiddenActivityCount} more active sessions`}
           variant="secondary"

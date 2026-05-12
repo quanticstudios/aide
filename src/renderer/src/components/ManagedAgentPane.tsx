@@ -17,7 +17,6 @@ import {
   PenLine,
   RefreshCw,
   Terminal,
-  User,
 } from 'lucide-react'
 
 import {
@@ -34,9 +33,11 @@ import MarkdownContent from './MarkdownContent'
 import type { AideApi } from '../../../shared/ipc'
 import type {
   ManagedSessionContentItem,
+  ManagedSessionContextWindow,
   ManagedSessionEffort,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
+  ManagedSessionThinkingBudget,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import type { ManagedSessionMode } from '../../../shared/terminal'
@@ -49,11 +50,12 @@ import {
   filterSlashCommands,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { cn } from '../lib/utils'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
-import ManagedPendingUserInputPanel from './ManagedPendingUserInputPanel'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
+import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 
 interface ManagedAgentPaneProps {
   readonly paneId: string
@@ -76,15 +78,19 @@ function getErrorMessage(error: unknown): string {
   return 'Managed session failed.'
 }
 
-const EFFORT_OPTIONS: ReadonlyArray<{
-  label: string
-  value: ManagedSessionEffort
-}> = [
-  { label: 'Low', value: 'low' },
-  { label: 'Medium', value: 'medium' },
-  { label: 'High', value: 'high' },
-  { label: 'Extra High (default)', value: 'max' },
-]
+function formatMessageTime(iso: string): string {
+  const date = new Date(iso)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return date.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
 
 const PERMISSION_OPTIONS: ReadonlyArray<{
   description: string
@@ -112,19 +118,6 @@ const PERMISSION_OPTIONS: ReadonlyArray<{
   },
 ]
 
-function formatEffortTrigger(effort: ManagedSessionEffort): string {
-  switch (effort) {
-    case 'low':
-      return 'Low'
-    case 'medium':
-      return 'Medium'
-    case 'high':
-      return 'High'
-    case 'max':
-      return 'Extra High'
-  }
-}
-
 function formatPermissionTrigger(mode: ManagedSessionPermissionMode): string {
   const opt = PERMISSION_OPTIONS.find((o) => o.value === mode)
   return opt?.label ?? 'Supervised'
@@ -149,60 +142,6 @@ function useClickOutside(
   }, [active, onClose, ref])
 }
 
-function ReasoningDropdown({
-  effort,
-  onEffortChange,
-}: {
-  readonly effort: ManagedSessionEffort
-  readonly onEffortChange: (effort: ManagedSessionEffort) => void
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-        onClick={() => setIsOpen(!isOpen)}
-        type="button"
-      >
-        {formatEffortTrigger(effort)}
-        <ChevronDown className="size-3 opacity-50" />
-      </button>
-      {isOpen && (
-        <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[200px] rounded-xl border border-border bg-popover py-2 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
-          <div className="px-4 pb-1 text-xs font-medium text-muted-foreground">
-            Reasoning
-          </div>
-          {EFFORT_OPTIONS.map((opt) => (
-            <button
-              className={`flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors ${
-                opt.value === effort
-                  ? 'text-foreground'
-                  : 'text-foreground/80 hover:bg-secondary/60'
-              }`}
-              key={opt.value}
-              onClick={() => {
-                onEffortChange(opt.value)
-                setIsOpen(false)
-              }}
-              type="button"
-            >
-              {opt.value === effort ? (
-                <Check className="size-3.5" />
-              ) : (
-                <span className="size-3.5" />
-              )}
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function PermissionDropdown({
   onPermissionModeChange,
   permissionMode,
@@ -217,7 +156,7 @@ function PermissionDropdown({
   return (
     <div ref={containerRef} className="relative">
       <button
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
@@ -226,7 +165,7 @@ function PermissionDropdown({
         <ChevronDown className="size-3 opacity-50" />
       </button>
       {isOpen && (
-        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-xl border border-border bg-popover py-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.35)]">
+        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
           {PERMISSION_OPTIONS.map((opt) => {
             const Icon = opt.icon
             const isSelected = opt.value === permissionMode
@@ -251,7 +190,7 @@ function PermissionDropdown({
                   <Icon className="size-4 shrink-0 text-muted-foreground" />
                 )}
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium">{opt.label}</span>
+                  <span className="text-sm font-semibold">{opt.label}</span>
                   <span className="text-xs text-muted-foreground">
                     {opt.description}
                   </span>
@@ -299,18 +238,15 @@ function ContentItemBlock({
     return (
       <div className="flex justify-end">
         <Surface
-          className="max-w-[85%] rounded-2xl rounded-br-md border border-primary/20 bg-primary/5 px-4 py-3"
+          className="max-w-[85%] rounded-lg rounded-br-sm border border-border bg-surface-elevated px-4 py-3"
           data-testid={`managed-content-${item.kind}`}
         >
-          <div className="flex items-center gap-2 pb-2">
-            <User className="size-3 text-primary/60" />
-            <p className="text-[10px] uppercase tracking-[0.18em] text-primary/60">
-              You
-            </p>
-          </div>
           <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
             {item.text}
           </pre>
+          <p className="mt-1 text-right text-[10px] tabular-nums text-muted-foreground/70">
+            {formatMessageTime(item.updatedAt)}
+          </p>
         </Surface>
       </div>
     )
@@ -324,16 +260,16 @@ function ContentItemBlock({
 
     return (
       <Surface
-        className="rounded-xl border border-border/40 bg-[#0d0d10] px-4 py-3"
+        className="rounded-md border border-border bg-surface px-4 py-3"
         data-testid={`managed-content-${item.kind}`}
       >
         <div className="flex items-center gap-2 pb-2">
-          <Terminal className="size-3 text-emerald-500/70" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-500/70">
+          <Terminal className="size-3 text-accent-green" />
+          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-green">
             Command output
           </p>
         </div>
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-emerald-100/80">
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
           {displayText}
         </pre>
         {isLong ? (
@@ -352,12 +288,12 @@ function ContentItemBlock({
   if (item.kind === 'file-change-output') {
     return (
       <Surface
-        className="rounded-xl border border-border/40 bg-[#0d0d10] px-4 py-3"
+        className="rounded-md border border-border bg-surface px-4 py-3"
         data-testid={`managed-content-${item.kind}`}
       >
         <div className="flex items-center gap-2 pb-2">
-          <FileCode className="size-3 text-amber-500/70" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-amber-500/70">
+          <FileCode className="size-3 text-accent-yellow" />
+          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-yellow">
             File changes
           </p>
         </div>
@@ -374,7 +310,7 @@ function ContentItemBlock({
   ) {
     return (
       <Surface
-        className="rounded-xl border border-border/30 px-3 py-2"
+        className="rounded-md border border-border px-3 py-2"
         data-testid={`managed-content-${item.kind}`}
         variant="tertiary"
       >
@@ -383,8 +319,8 @@ function ContentItemBlock({
           onClick={() => setIsExpanded((prev) => !prev)}
           type="button"
         >
-          <Brain className="size-3 text-violet-400/60" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-violet-400/60">
+          <Brain className="size-3 text-accent-blue" />
+          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-blue">
             {item.kind === 'reasoning-text' ? 'Reasoning' : 'Reasoning summary'}
           </p>
           <ChevronDown
@@ -550,7 +486,12 @@ export default function ManagedAgentPane({
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build')
-  const [effort, setEffort] = useState<ManagedSessionEffort>('high')
+  const [effort, setEffort] = useState<ManagedSessionEffort>('max')
+  const [thinkingBudget, setThinkingBudget] =
+    useState<ManagedSessionThinkingBudget>('default')
+  const [contextWindow, setContextWindow] =
+    useState<ManagedSessionContextWindow>('200k')
+  const [fastMode, setFastMode] = useState<boolean>(true)
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
@@ -592,13 +533,16 @@ export default function ManagedAgentPane({
       }
 
       const created = await api.createManagedSession({
+        contextWindow,
         cwd: workspace.worktreePath || '~',
         effort,
+        fastMode,
         mode: selectedProvider,
         model: selectedModel,
         paneId,
         permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
+        thinkingBudget,
         workspaceId: workspace.id,
       })
       setSnapshot(created)
@@ -609,7 +553,9 @@ export default function ManagedAgentPane({
     }
   }, [
     agentMode,
+    contextWindow,
     effort,
+    fastMode,
     isUnifiedPane,
     paneId,
     permissionMode,
@@ -617,6 +563,7 @@ export default function ManagedAgentPane({
     selectedProvider,
     sessionId,
     terminalMode,
+    thinkingBudget,
     workspace.id,
     workspace.worktreePath,
   ])
@@ -893,6 +840,20 @@ export default function ManagedAgentPane({
   )
   const slashMenuOpen = filteredSlashCommands.length > 0 && slashQuery !== null
 
+  const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
+  const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
+  const activeAnswers = activeQuestion
+    ? (draftAnswers[activeQuestion.id] ?? {})
+    : null
+  const primaryAnswer = primaryQuestionId
+    ? (activeAnswers?.[primaryQuestionId] ?? '')
+    : ''
+  const allQuestionsAnswered = activeQuestion
+    ? activeQuestion.questions.every(
+        (question) => (activeAnswers?.[question.id] ?? '').trim().length > 0,
+      )
+    : false
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: slashQuery is an intentional trigger even though it's not read in the effect body
   useEffect(() => {
     setSlashActiveIndex(0)
@@ -912,11 +873,11 @@ export default function ManagedAgentPane({
 
   return (
     <section
-      className="managed-agent-pane flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-background"
+      className="managed-agent-pane flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
       data-testid="managed-agent-pane"
     >
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">
+        <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
           {isUnifiedPane ? 'Agent' : providerLabel}
         </h2>
 
@@ -940,7 +901,7 @@ export default function ManagedAgentPane({
       </div>
 
       {error ? (
-        <div className="border-b border-danger/30 bg-danger/10 px-4 py-2.5 text-sm text-danger">
+        <div className="border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
           {error}
         </div>
       ) : null}
@@ -1007,22 +968,15 @@ export default function ManagedAgentPane({
           />
         ))}
 
-        {snapshot?.pendingUserInputs.map((request) => (
-          <ManagedPendingUserInputPanel
-            answers={draftAnswers[request.id] ?? {}}
-            key={request.id}
-            onAnswerChange={(questionId, value) =>
-              handleDraftAnswerChange(request.id, questionId, value)
-            }
-            onSubmit={(requestId) => void handleResolveUserInput(requestId)}
-            request={request}
-          />
-        ))}
-
-        <div className="relative mx-auto w-full max-w-3xl rounded-2xl border border-border/60 bg-surface">
+        <div
+          className={cn(
+            'relative mx-auto w-full max-w-3xl rounded-lg border bg-surface transition-colors',
+            agentMode === 'plan' ? 'border-primary/60' : 'border-border',
+          )}
+        >
           {slashMenuOpen ? (
             <div
-              className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-xl border border-border/70 bg-surface shadow-[0_18px_50px_rgba(0,0,0,0.35)]"
+              className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
               data-testid="managed-slash-menu"
             >
               <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -1037,7 +991,7 @@ export default function ManagedAgentPane({
                       <button
                         className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                           isActive
-                            ? 'bg-primary/12 text-foreground'
+                            ? 'bg-surface-tertiary text-foreground'
                             : 'text-foreground/80 hover:bg-surface-secondary'
                         }`}
                         onClick={() => {
@@ -1047,7 +1001,7 @@ export default function ManagedAgentPane({
                         type="button"
                       >
                         <span className="flex min-w-0 flex-col">
-                          <span className="truncate font-medium">
+                          <span className="truncate font-semibold">
                             {command.label}
                           </span>
                           <span className="truncate text-xs text-muted-foreground">
@@ -1062,17 +1016,119 @@ export default function ManagedAgentPane({
             </div>
           ) : null}
 
+          {activeQuestion ? (
+            <div
+              className="border-b border-border/40 px-4 pb-3 pt-3"
+              data-testid={`managed-input-${activeQuestion.id}`}
+            >
+              {activeQuestion.questions.map((question) => {
+                const currentAnswer = activeAnswers?.[question.id] ?? ''
+                return (
+                  <div className="mb-2 last:mb-0" key={question.id}>
+                    <p className="eyebrow">
+                      {question.header ?? 'Input required'}
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">
+                      {question.prompt}
+                    </p>
+                    {question.options.length > 0 ? (
+                      <div className="mt-3 flex flex-col gap-1">
+                        {question.options.map((option, optionIndex) => {
+                          const selected = currentAnswer === option.label
+                          return (
+                            <button
+                              className={cn(
+                                'row-hover flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm',
+                                selected && 'is-active',
+                              )}
+                              key={option.id}
+                              onClick={() =>
+                                handleDraftAnswerChange(
+                                  activeQuestion.id,
+                                  question.id,
+                                  option.label,
+                                )
+                              }
+                              type="button"
+                            >
+                              <span
+                                className={cn(
+                                  'mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold tabular-nums',
+                                  selected
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-surface-tertiary text-muted-foreground',
+                                )}
+                              >
+                                {optionIndex + 1}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="font-semibold text-foreground">
+                                  {option.label}
+                                </span>
+                                {option.description ? (
+                                  <span className="ml-2 text-muted-foreground">
+                                    {option.description}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+
           <textarea
             ref={textareaRef}
-            aria-label={`${providerLabel} prompt`}
+            aria-label={
+              activeQuestion ? 'Free-form answer' : `${providerLabel} prompt`
+            }
             className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
             onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-              setDraftInput(event.target.value)
+              const value = event.target.value
+              if (activeQuestion && primaryQuestionId) {
+                handleDraftAnswerChange(
+                  activeQuestion.id,
+                  primaryQuestionId,
+                  value,
+                )
+              } else {
+                setDraftInput(value)
+              }
               const el = event.target
               el.style.height = 'auto'
               el.style.height = `${el.scrollHeight}px`
             }}
             onKeyDown={(event) => {
+              if (
+                activeQuestion &&
+                /^[1-9]$/.test(event.key) &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                const target = event.target as HTMLTextAreaElement
+                if (target.value === '') {
+                  const question = activeQuestion.questions[0]
+                  const optionIndex = Number.parseInt(event.key, 10) - 1
+                  const option = question?.options[optionIndex]
+                  if (option) {
+                    event.preventDefault()
+                    handleDraftAnswerChange(
+                      activeQuestion.id,
+                      question.id,
+                      option.label,
+                    )
+                    return
+                  }
+                }
+              }
+
               if (slashMenuOpen) {
                 if (event.key === 'ArrowDown') {
                   event.preventDefault()
@@ -1110,15 +1166,28 @@ export default function ManagedAgentPane({
 
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
-                if (isSubmitting || draftInput.trim().length === 0) {
+                if (isSubmitting) {
+                  return
+                }
+                if (activeQuestion) {
+                  if (allQuestionsAnswered) {
+                    void handleResolveUserInput(activeQuestion.id)
+                  }
+                  return
+                }
+                if (draftInput.trim().length === 0) {
                   return
                 }
                 void handleSendInput()
               }
             }}
-            placeholder="Ask anything, type / for commands"
+            placeholder={
+              activeQuestion
+                ? 'Type your own answer, or leave this blank to use the selected option'
+                : 'Ask anything, type / for commands'
+            }
             rows={3}
-            value={draftInput}
+            value={activeQuestion ? primaryAnswer : draftInput}
           />
 
           <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
@@ -1132,13 +1201,23 @@ export default function ManagedAgentPane({
                 provider={selectedProvider}
               />
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                 {providerLabel}
               </span>
             )}
-            <ReasoningDropdown effort={effort} onEffortChange={setEffort} />
+            <ReasoningExtrasDropdown
+              contextWindow={contextWindow}
+              effort={effort}
+              fastMode={fastMode}
+              onContextWindowChange={setContextWindow}
+              onEffortChange={setEffort}
+              onFastModeChange={setFastMode}
+              onThinkingBudgetChange={setThinkingBudget}
+              provider={selectedProvider}
+              thinkingBudget={thinkingBudget}
+            />
             <button
-              className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold transition-colors ${
                 agentMode === 'plan'
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
@@ -1159,18 +1238,32 @@ export default function ManagedAgentPane({
             {snapshot?.usage ? (
               <ContextWindowMeter usage={snapshot.usage} />
             ) : null}
-            <button
-              className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
-              disabled={isSubmitting || draftInput.trim().length === 0}
-              onClick={() => void handleSendInput()}
-              type="button"
-            >
-              {isSubmitting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <ArrowUp className="size-4" />
-              )}
-            </button>
+            {activeQuestion ? (
+              <button
+                className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+                disabled={isSubmitting || !allQuestionsAnswered}
+                onClick={() => void handleResolveUserInput(activeQuestion.id)}
+                type="button"
+              >
+                {isSubmitting ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : null}
+                Submit answer
+              </button>
+            ) : (
+              <button
+                className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
+                disabled={isSubmitting || draftInput.trim().length === 0}
+                onClick={() => void handleSendInput()}
+                type="button"
+              >
+                {isSubmitting ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <ArrowUp className="size-4" />
+                )}
+              </button>
+            )}
           </div>
         </div>
 

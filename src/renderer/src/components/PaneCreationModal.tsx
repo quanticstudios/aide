@@ -111,7 +111,7 @@ export default function PaneCreationModal({
         variant="opaque"
       >
         <Modal.Container placement="center" size="lg">
-          <Modal.Dialog className="border border-border/80 bg-surface shadow-[var(--overlay-shadow)]">
+          <Modal.Dialog className="rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
             <Modal.Header>
               <Modal.Heading>Add pane</Modal.Heading>
             </Modal.Header>
@@ -131,18 +131,16 @@ export default function PaneCreationModal({
                       type="button"
                     >
                       <Surface
-                        className={`rounded-2xl border p-4 transition-colors ${
-                          isFocused
-                            ? 'border-primary/60 bg-surface-secondary'
-                            : 'border-border/70 hover:border-primary/45 hover:bg-surface-secondary'
+                        className={`overview-card rounded-lg p-4 ${
+                          isFocused ? 'is-active' : ''
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          <div className="rounded-xl border border-border/70 bg-background/70 p-2 text-muted-foreground">
+                          <div className="rounded-md border border-border bg-surface-tertiary p-2 text-muted-foreground">
                             <Icon className="size-4" />
                           </div>
                           <div className="space-y-1">
-                            <p className="text-sm font-medium text-foreground">
+                            <p className="text-sm font-semibold text-foreground">
                               {pane.defaultMetadata.type}
                             </p>
                             <p className="text-sm text-muted-foreground">

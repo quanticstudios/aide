@@ -80,10 +80,10 @@ describe('workspace activity helpers', () => {
       resolveWorkspaceActivityAccentClassName(
         createActivity('pending-approval'),
       ),
-    ).toBe('text-amber-400')
+    ).toBe('text-accent-yellow')
     expect(
       resolveWorkspaceActivityDotClassName(createActivity('connecting')),
-    ).toBe('bg-sky-300')
+    ).toBe('bg-accent-blue')
   })
 
   it('only pulses for live connecting and working states', () => {
@@ -148,52 +148,52 @@ describe('workspace activity helpers', () => {
   it('returns pill class triples matching activity state', () => {
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('error')),
-    ).toContain('text-red-400')
+    ).toContain('text-accent-red')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('pending-approval')),
-    ).toContain('text-amber-400')
+    ).toContain('text-accent-yellow')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('working')),
-    ).toContain('text-sky-400')
+    ).toContain('text-accent-blue')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('completed')),
-    ).toContain('text-emerald-300')
+    ).toContain('text-accent-green')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('awaiting-input')),
-    ).toContain('text-amber-400')
+    ).toContain('text-accent-yellow')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('connecting')),
-    ).toContain('text-sky-300')
+    ).toContain('text-accent-blue')
     expect(
       resolveWorkspaceActivityPillClassName(createActivity('terminal-running')),
-    ).toContain('text-emerald-300')
+    ).toContain('text-accent-green')
   })
 
   it('returns border-l color classes per activity state', () => {
     expect(
       resolveWorkspaceActivityBorderColorClassName(createActivity('error')),
-    ).toBe('border-l-red-400')
+    ).toBe('border-l-accent-red')
     expect(
       resolveWorkspaceActivityBorderColorClassName(
         createActivity('pending-approval'),
       ),
-    ).toBe('border-l-amber-400')
+    ).toBe('border-l-accent-yellow')
     expect(
       resolveWorkspaceActivityBorderColorClassName(createActivity('working')),
-    ).toBe('border-l-sky-400')
+    ).toBe('border-l-accent-blue')
     expect(
       resolveWorkspaceActivityBorderColorClassName(
         createActivity('connecting'),
       ),
-    ).toBe('border-l-sky-300')
+    ).toBe('border-l-accent-blue')
     expect(
       resolveWorkspaceActivityBorderColorClassName(
         createActivity('awaiting-input'),
       ),
-    ).toBe('border-l-amber-400')
+    ).toBe('border-l-accent-yellow')
     expect(
       resolveWorkspaceActivityBorderColorClassName(createActivity('completed')),
-    ).toBe('border-l-emerald-300')
+    ).toBe('border-l-accent-green')
     expect(resolveWorkspaceActivityBorderColorClassName(null)).toBe(
       'border-l-transparent',
     )

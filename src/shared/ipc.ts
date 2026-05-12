@@ -5,7 +5,9 @@ import type {
   ExecutableValidationResult,
 } from './executable'
 import type {
+  AttachWorkspaceRequest,
   CreateWorkspaceRequest,
+  DetectWorktreeBranchResult,
   ImportProjectResult,
   ProjectRefRecord,
   WorkspaceGitDiffResult,
@@ -39,7 +41,9 @@ import type {
 } from './workspace-activity'
 
 export const IPC_CHANNELS = {
+  attachWorkspace: 'storage:attach-workspace',
   createWorkspace: 'storage:create-workspace',
+  detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
   executableProbe: 'executables:probe',
@@ -82,9 +86,15 @@ export interface AvailableEditorDescriptor {
 }
 
 export interface AideApi {
+  attachWorkspace: (
+    input: AttachWorkspaceRequest,
+  ) => Promise<PersistenceSnapshot>
   createWorkspace: (
     input: CreateWorkspaceRequest,
   ) => Promise<PersistenceSnapshot>
+  detectWorktreeBranch: (
+    worktreePath: string,
+  ) => Promise<DetectWorktreeBranchResult>
   importProject: (repoPath: string) => Promise<ImportProjectResult>
   listAvailableEditors: () => Promise<AvailableEditorDescriptor[]>
   launchEditor: (editorId: string, cwd: string) => Promise<void>

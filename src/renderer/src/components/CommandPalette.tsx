@@ -69,7 +69,7 @@ export default function CommandPalette({
         type="button"
       />
       <Command
-        className="relative w-full max-w-lg rounded-2xl border border-border/80 bg-surface shadow-[0_24px_80px_rgba(0,0,0,0.5)] backdrop-blur-xl"
+        className="relative w-full max-w-lg rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
         label="Command palette"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -79,7 +79,7 @@ export default function CommandPalette({
         }}
       >
         <CommandInput
-          className="w-full border-b border-border/60 bg-transparent px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          className="w-full border-b border-border bg-transparent px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
           placeholder="Type a command..."
           ref={inputRef}
         />
@@ -98,14 +98,14 @@ export default function CommandPalette({
               <CommandGroup
                 heading={GROUP_LABELS[group]}
                 key={group}
-                className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.18em] [&_[cmdk-group-heading]]:text-muted-foreground"
+                className="[&_[cmdk-group-heading]]:eyebrow [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
               >
                 {items.map((cmd) => {
                   const Icon = cmd.icon
 
                   return (
                     <CommandItem
-                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground/80 transition-colors data-[selected=true]:bg-primary/10 data-[selected=true]:text-foreground"
+                      className="flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 text-sm text-foreground transition-colors data-[selected=true]:bg-surface-tertiary data-[selected=true]:text-foreground"
                       key={cmd.id}
                       keywords={cmd.keywords as string[] | undefined}
                       onSelect={() => {
@@ -119,10 +119,7 @@ export default function CommandPalette({
                       {cmd.shortcut ? (
                         <span className="ml-auto flex shrink-0 items-center gap-1">
                           {cmd.shortcut.split(' ').map((part) => (
-                            <Kbd
-                              className="min-w-5 border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                              key={part}
-                            >
+                            <Kbd className="keycap" key={part}>
                               {part}
                             </Kbd>
                           ))}
