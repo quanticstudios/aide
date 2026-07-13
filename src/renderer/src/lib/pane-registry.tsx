@@ -47,11 +47,7 @@ const placeholderRenderer = (args: PaneRenderArgs): ReactNode => (
 
 const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
   resolveTerminalLaunchModeForPaneId(args.pane.id) === 'shell' ? (
-    <TerminalPane
-      onClose={() => args.onClosePane(args.pane.id)}
-      paneId={args.pane.id}
-      workspace={args.workspace}
-    />
+    <TerminalPane paneId={args.pane.id} workspace={args.workspace} />
   ) : (
     <ManagedAgentPane paneId={args.pane.id} workspace={args.workspace} />
   )

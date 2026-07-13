@@ -9,7 +9,6 @@ import type { TerminalEvent } from '../../../shared/terminal'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 
 interface TerminalPaneProps {
-  readonly onClose: () => void
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -70,11 +69,7 @@ function scheduleTerminalFocus(
   })
 }
 
-export default function TerminalPane({
-  onClose,
-  paneId,
-  workspace,
-}: TerminalPaneProps) {
+export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
   const sessionId = useMemo(
     () => `${workspace.id}:${paneId}`,
     [paneId, workspace.id],
@@ -86,9 +81,8 @@ export default function TerminalPane({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
   const [error, setError] = useState<string | null>(null)
+  const [exitCode, setExitCode] = useState<number | null>(null)
 
   const startSession = useCallback(async () => {
     const terminal = terminalRef.current
@@ -103,6 +97,7 @@ export default function TerminalPane({
     }
 
     setError(null)
+    setExitCode(null)
     terminal.clear()
 
     const snapshot = await aideApi.createTerminalSession({
@@ -120,7 +115,7 @@ export default function TerminalPane({
     }
 
     if (!snapshot.running) {
-      terminal.writeln('\r\n[Shell exited]')
+      setExitCode(snapshot.exitCode)
     }
   }, [paneId, sessionId, terminalMode, workspace.id, workspace.worktreePath])
 
@@ -207,7 +202,7 @@ export default function TerminalPane({
       }
 
       if (event.type === 'exit') {
-        onCloseRef.current()
+        setExitCode(event.exitCode)
       }
     })
 
@@ -257,6 +252,26 @@ export default function TerminalPane({
       {error ? (
         <div className="absolute left-3 right-3 top-3 z-10 rounded-md border border-accent-red bg-accent-red-soft px-3 py-2 text-sm text-accent-red">
           {error}
+        </div>
+      ) : null}
+
+      {exitCode !== null ? (
+        <div
+          aria-live="polite"
+          className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between gap-3 rounded-md border border-border bg-surface/95 px-3 py-2 text-sm text-muted-foreground shadow-lg backdrop-blur"
+        >
+          <span>Shell exited with code {exitCode}.</span>
+          <button
+            className="rounded-md border border-border bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:border-primary/60"
+            onClick={() => {
+              void startSession().catch((startError) => {
+                setError(getErrorMessage(startError))
+              })
+            }}
+            type="button"
+          >
+            Restart terminal
+          </button>
         </div>
       ) : null}
 

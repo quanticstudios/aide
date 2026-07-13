@@ -602,6 +602,43 @@ test.describe('electron spatial navigation', () => {
     ).toBeFocused()
   })
 
+  test('keeps a terminal pane after shell exit and can restart it', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+
+    const terminalInput = page.locator(
+      '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
+    )
+    await expect(terminalInput).toBeFocused()
+    await page.keyboard.type('exit')
+    await page.keyboard.press('Enter')
+
+    await expect(
+      page.getByRole('button', { name: /restart terminal/i }),
+    ).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+
+    await page.getByRole('button', { name: /restart terminal/i }).click()
+    await expect(
+      page.getByRole('button', { name: /restart terminal/i }),
+    ).not.toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+  })
+
   test('shows an empty workspace after closing the last pane and keeps it empty after reload', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
