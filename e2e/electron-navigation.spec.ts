@@ -362,6 +362,7 @@ test.describe('electron spatial navigation', () => {
       name: 'Alpha Feature',
     })
 
+    await expandSidebar(page)
     await page.getByRole('button', { name: /add repository/i }).click()
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
