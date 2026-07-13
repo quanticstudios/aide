@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { AideApi } from '../../../shared/ipc'
+import { isCurrentWorkspaceRequest } from '../lib/prop-change-state'
 
 const DEFAULT_POLL_INTERVAL_MS = 15_000
 
@@ -38,10 +39,22 @@ export function useWorkspaceGitStatus(
 ): WorkspaceGitInfo {
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
   const [info, setInfo] = useState<WorkspaceGitInfo>(EMPTY_INFO)
+  const [previousWorkspaceId, setPreviousWorkspaceId] = useState(workspaceId)
+  const currentWorkspaceIdRef = useRef(workspaceId)
+  const requestIdRef = useRef(0)
+
+  if (previousWorkspaceId !== workspaceId) {
+    setPreviousWorkspaceId(workspaceId)
+    setInfo(EMPTY_INFO)
+  }
+
+  useLayoutEffect(() => {
+    currentWorkspaceIdRef.current = workspaceId
+    requestIdRef.current += 1
+  }, [workspaceId])
 
   useEffect(() => {
     if (!workspaceId) {
-      setInfo(EMPTY_INFO)
       return
     }
 
@@ -53,13 +66,23 @@ export function useWorkspaceGitStatus(
     let cancelled = false
 
     const fetchOnce = async () => {
+      const requestId = ++requestIdRef.current
+
       try {
         const [status, stats] = await Promise.all([
           api.getWorkspaceGitStatus(workspaceId),
           api.getWorktreeBranchStats(workspaceId),
         ])
 
-        if (cancelled) {
+        if (
+          cancelled ||
+          !isCurrentWorkspaceRequest(
+            currentWorkspaceIdRef.current,
+            workspaceId,
+            requestIdRef.current,
+            requestId,
+          )
+        ) {
           return
         }
 
@@ -78,7 +101,15 @@ export function useWorkspaceGitStatus(
           error,
         })
       } catch (unknownError) {
-        if (!cancelled) {
+        if (
+          !cancelled &&
+          isCurrentWorkspaceRequest(
+            currentWorkspaceIdRef.current,
+            workspaceId,
+            requestIdRef.current,
+            requestId,
+          )
+        ) {
           setInfo({
             ...EMPTY_INFO,
             error:

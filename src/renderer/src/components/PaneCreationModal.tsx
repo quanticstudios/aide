@@ -18,12 +18,15 @@ export default function PaneCreationModal({
 }: PaneCreationModalProps) {
   const paneOptions = listCreatablePaneCatalogEntries()
   const [focusedIndex, setFocusedIndex] = useState(0)
+  const [previousIsOpen, setPreviousIsOpen] = useState(isOpen)
 
-  useEffect(() => {
-    if (isOpen) {
+  // Reset before commit when reopening, rather than briefly showing old keyboard focus.
+  if (isOpen !== previousIsOpen) {
+    setPreviousIsOpen(isOpen)
+    if (isOpen && !previousIsOpen) {
       setFocusedIndex(0)
     }
-  }, [isOpen])
+  }
 
   const handleSelect = useCallback(
     (index: number) => {

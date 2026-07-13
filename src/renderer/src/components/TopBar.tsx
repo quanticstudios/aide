@@ -14,8 +14,8 @@ import { useEffect, useRef, useState } from 'react'
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
 import { cn } from '@/lib/utils'
-import type { PersistedSplitLayoutNode } from '../../../shared/persistence'
 import type {
+  PersistedSplitLayoutNode,
   ProjectRecord,
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
@@ -101,6 +101,11 @@ function PaneActionBar({
   >(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
+  // The picker cannot outlive its target pane, including for the current commit.
+  if (activePaneId === null && pickerMode !== null) {
+    setPickerMode(null)
+  }
+
   useEffect(() => {
     if (!pickerMode) {
       return
@@ -116,12 +121,6 @@ function PaneActionBar({
 
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [pickerMode])
-
-  useEffect(() => {
-    if (!activePaneId) {
-      setPickerMode(null)
-    }
-  }, [activePaneId])
 
   const viewOptions = listCreatablePaneCatalogEntries()
 

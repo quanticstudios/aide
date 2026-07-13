@@ -10,7 +10,14 @@ import {
   RefreshCcw,
   TriangleAlert,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import type {
   WorkspaceGitDiffSnapshot,
@@ -18,21 +25,31 @@ import type {
 } from '../../../shared/git'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
-  type GitTreeNode,
   buildGitFileTree,
   dominantGitChangeKind,
   formatGitChangeKind,
+  type GitTreeNode,
   gitChangeKindColorClass,
   iconForGitFile,
   letterForGitChangeKind,
   resolveSelectedGitFilePath,
 } from '../lib/git-pane-state'
 import { materialIconUrlForFile } from '../lib/material-file-icon'
+import {
+  isCurrentWorkspaceDiff,
+  isCurrentWorkspaceRequest,
+} from '../lib/prop-change-state'
 import { cn } from '../lib/utils'
 
 type DiffHighlighter = Awaited<ReturnType<typeof getDiffViewHighlighter>>
 
 type DiffLayout = 'line-by-line' | 'side-by-side'
+
+interface DiffLoadError {
+  readonly message: string
+  readonly path: string
+  readonly workspaceId: string
+}
 
 const DIFF_LAYOUT_STORAGE_KEY = 'aide.gitPane.diffLayout'
 
@@ -299,12 +316,33 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isDiffLoading, setIsDiffLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [diffError, setDiffError] = useState<string | null>(null)
+  const [diffError, setDiffError] = useState<DiffLoadError | null>(null)
   const [status, setStatus] = useState<WorkspaceGitStatusSnapshot | null>(null)
   const [diff, setDiff] = useState<WorkspaceGitDiffSnapshot | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [diffLayout, setDiffLayout] = useState<DiffLayout>(readStoredDiffLayout)
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
+  const [previousWorkspaceId, setPreviousWorkspaceId] = useState(workspace.id)
+  const currentWorkspaceIdRef = useRef(workspace.id)
+  const statusRequestIdRef = useRef(0)
+
+  // Reset all workspace-owned data before commit and invalidate old responses.
+  if (previousWorkspaceId !== workspace.id) {
+    setPreviousWorkspaceId(workspace.id)
+    setIsLoading(false)
+    setIsDiffLoading(false)
+    setError(null)
+    setDiffError(null)
+    setStatus(null)
+    setDiff(null)
+    setSelectedPath(null)
+    setCollapsedDirs(new Set())
+  }
+
+  useLayoutEffect(() => {
+    currentWorkspaceIdRef.current = workspace.id
+    statusRequestIdRef.current += 1
+  }, [workspace.id])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -312,11 +350,6 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     }
     window.localStorage.setItem(DIFF_LAYOUT_STORAGE_KEY, diffLayout)
   }, [diffLayout])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset tree state when switching workspaces
-  useEffect(() => {
-    setCollapsedDirs(new Set())
-  }, [workspace.id])
 
   const toggleDir = useCallback((path: string) => {
     setCollapsedDirs((prev) => {
@@ -332,17 +365,33 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
   const refreshStatus = useCallback(async () => {
     const api = getAideApi()
+    const requestWorkspaceId = workspace.id
+    const requestId = ++statusRequestIdRef.current
+
+    const isCurrentRequest = () =>
+      isCurrentWorkspaceRequest(
+        currentWorkspaceIdRef.current,
+        requestWorkspaceId,
+        statusRequestIdRef.current,
+        requestId,
+      )
 
     if (!api) {
-      setError('Desktop bridge did not load. Reload the app window.')
-      setStatus(null)
+      if (isCurrentRequest()) {
+        setError('Desktop bridge did not load. Reload the app window.')
+        setStatus(null)
+      }
       return
     }
 
     setIsLoading(true)
 
     try {
-      const result = await api.getWorkspaceGitStatus(workspace.id)
+      const result = await api.getWorkspaceGitStatus(requestWorkspaceId)
+
+      if (!isCurrentRequest()) {
+        return
+      }
 
       if (!result.ok) {
         setError(result.error)
@@ -356,10 +405,14 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
         resolveSelectedGitFilePath(result.status.files, current),
       )
     } catch (loadError) {
-      setError(getErrorMessage(loadError))
-      setStatus(null)
+      if (isCurrentRequest()) {
+        setError(getErrorMessage(loadError))
+        setStatus(null)
+      }
     } finally {
-      setIsLoading(false)
+      if (isCurrentRequest()) {
+        setIsLoading(false)
+      }
     }
   }, [workspace.id])
 
@@ -392,6 +445,16 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
     return status.files.find((file) => file.path === nextSelectedPath) ?? null
   }, [selectedPath, status])
+  const visibleDiff =
+    diff &&
+    isCurrentWorkspaceDiff(diff, workspace.id, selectedFile?.path ?? null)
+      ? diff
+      : null
+  const visibleDiffError =
+    diffError &&
+    isCurrentWorkspaceDiff(diffError, workspace.id, selectedFile?.path ?? null)
+      ? diffError.message
+      : null
 
   useEffect(() => {
     const api = getAideApi()
@@ -404,40 +467,55 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
     if (!api) {
       setDiff(null)
-      setDiffError('Desktop bridge did not load. Reload the app window.')
+      setDiffError({
+        message: 'Desktop bridge did not load. Reload the app window.',
+        path: selectedFile.path,
+        workspaceId: workspace.id,
+      })
       return
     }
 
     let cancelled = false
+    const requestWorkspaceId = workspace.id
+    const isCurrentRequest = () =>
+      !cancelled && currentWorkspaceIdRef.current === requestWorkspaceId
 
     void (async () => {
       setIsDiffLoading(true)
 
       try {
         const result = await api.getWorkspaceGitDiff(
-          workspace.id,
+          requestWorkspaceId,
           selectedFile.path,
         )
 
-        if (cancelled) {
+        if (!isCurrentRequest()) {
           return
         }
 
         if (!result.ok) {
           setDiff(null)
-          setDiffError(result.error)
+          setDiffError({
+            message: result.error,
+            path: selectedFile.path,
+            workspaceId: requestWorkspaceId,
+          })
           return
         }
 
         setDiff(result.diff)
         setDiffError(null)
       } catch (loadError) {
-        if (!cancelled) {
+        if (isCurrentRequest()) {
           setDiff(null)
-          setDiffError(getErrorMessage(loadError))
+          setDiffError({
+            message: getErrorMessage(loadError),
+            path: selectedFile.path,
+            workspaceId: requestWorkspaceId,
+          })
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrentRequest()) {
           setIsDiffLoading(false)
         }
       }
@@ -642,7 +720,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                   className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-3"
                   data-testid="git-pane-diff-surface"
                 >
-                  {diffError ? (
+                  {visibleDiffError ? (
                     <Surface
                       className="rounded-md border border-accent-red p-3"
                       variant="tertiary"
@@ -651,21 +729,21 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                         Diff unavailable
                       </p>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        {diffError}
+                        {visibleDiffError}
                       </p>
                     </Surface>
                   ) : null}
 
-                  {isDiffLoading && !diff ? (
+                  {isDiffLoading && !visibleDiff ? (
                     <p className="text-sm text-muted-foreground">
                       Loading file diff…
                     </p>
                   ) : null}
 
-                  {diff?.sections.map((section) => (
+                  {visibleDiff?.sections.map((section) => (
                     <div
                       className="flex min-h-0 min-w-0 flex-1 flex-col"
-                      key={`${diff.path}:${section.kind}`}
+                      key={`${visibleDiff.path}:${section.kind}`}
                     >
                       {section.isTruncated ? (
                         <div className="mb-1 flex items-center gap-2">
@@ -679,7 +757,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                         data-testid={`git-pane-diff-${section.kind}`}
                       >
                         <GitDiffView
-                          filePath={diff.path}
+                          filePath={visibleDiff.path}
                           outputFormat={diffLayout}
                           patch={section.patch}
                         />
