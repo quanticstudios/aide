@@ -2,8 +2,13 @@ import { ChevronDown, Search, Star } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { cn } from '@/lib/utils'
+import { resolveProviderSelection } from '../../../shared/provider-capabilities'
+import type {
+  ProviderCapabilitiesSnapshot,
+  ProviderModelCapability,
+} from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { cn } from '@/lib/utils'
 import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>
@@ -21,66 +26,59 @@ interface ProviderGroup {
   readonly provider: ManagedSessionMode
 }
 
-const PROVIDER_GROUPS: readonly ProviderGroup[] = [
-  {
-    icon: AnthropicIcon,
-    label: 'Claude',
-    models: [
-      { id: 'claude-opus-4-7', label: 'Claude Opus 4.7', provider: 'claude' },
-      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6', provider: 'claude' },
-      {
-        id: 'claude-sonnet-4-6',
-        label: 'Claude Sonnet 4.6',
-        provider: 'claude',
-      },
-      {
-        id: 'claude-haiku-4-5-20251001',
-        label: 'Claude Haiku 4.5',
-        provider: 'claude',
-      },
-    ],
-    provider: 'claude',
-  },
-  {
-    icon: OpenAIIcon,
-    label: 'Codex',
-    models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5', provider: 'codex' },
-      { id: 'gpt-5.4', label: 'GPT-5.4', provider: 'codex' },
-      { id: 'gpt-5.4-mini', label: 'GPT-5.4-Mini', provider: 'codex' },
-      { id: 'gpt-5.3-codex', label: 'GPT-5.3-Codex', provider: 'codex' },
-      {
-        id: 'gpt-5.3-codex-spark',
-        label: 'GPT-5.3-Codex-Spark',
-        provider: 'codex',
-      },
-      { id: 'gpt-5.2', label: 'GPT-5.2', provider: 'codex' },
-    ],
-    provider: 'codex',
-  },
-]
-
-const ALL_MODELS = PROVIDER_GROUPS.flatMap((g) => g.models)
-
-const DEFAULT_MODELS: Record<ManagedSessionMode, string> = {
-  claude: 'claude-sonnet-4-6',
-  codex: 'gpt-5.4',
-}
-
 const FAVORITES_STORAGE_KEY = 'aide.favoriteModels'
 
 type TabId = 'favorites' | ManagedSessionMode
 
+function getProviderLabel(provider: ManagedSessionMode): string {
+  return provider === 'claude' ? 'Claude' : 'Codex'
+}
+
+function getProviderIcon(provider: ManagedSessionMode): SvgIcon {
+  return provider === 'claude' ? AnthropicIcon : OpenAIIcon
+}
+
+function toModelOption(
+  provider: ManagedSessionMode,
+  model: ProviderModelCapability,
+): ModelOption {
+  return { id: model.id, label: model.label, provider }
+}
+
+function getProviderGroups(
+  capabilities: ProviderCapabilitiesSnapshot | null,
+): readonly ProviderGroup[] {
+  if (!capabilities) {
+    return []
+  }
+
+  return (['claude', 'codex'] as const).map((provider) => ({
+    icon: getProviderIcon(provider),
+    label: getProviderLabel(provider),
+    models: capabilities.providers[provider].models.map((model) =>
+      toModelOption(provider, model),
+    ),
+    provider,
+  }))
+}
+
 export function resolveModelOption(
   modelId: string | undefined,
   provider: ManagedSessionMode,
-): ModelOption {
-  if (modelId) {
-    const found = ALL_MODELS.find((m) => m.id === modelId)
-    if (found) return found
+  capabilities: ProviderCapabilitiesSnapshot | null,
+): ModelOption | null {
+  const providerCapabilities = capabilities?.providers[provider]
+
+  if (!providerCapabilities) {
+    return null
   }
-  const fallbackId = DEFAULT_MODELS[provider]
-  return ALL_MODELS.find((m) => m.id === fallbackId) ?? ALL_MODELS[0]
+
+  const selection = resolveProviderSelection(providerCapabilities, { modelId })
+  const model = providerCapabilities.models.find(
+    (candidate) => candidate.id === selection.modelId,
+  )
+
+  return model ? toModelOption(provider, model) : null
 }
 
 function loadFavorites(): Set<string> {
@@ -101,7 +99,9 @@ function loadFavorites(): Set<string> {
       return new Set()
     }
 
-    return new Set(parsed.filter((v): v is string => typeof v === 'string'))
+    return new Set(
+      parsed.filter((value): value is string => typeof value === 'string'),
+    )
   } catch {
     return new Set()
   }
@@ -123,6 +123,7 @@ function persistFavorites(favorites: Set<string>): void {
 }
 
 interface ModelSelectorProps {
+  readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly isDisabled?: boolean
   readonly model: string | undefined
   readonly onChange: (provider: ManagedSessionMode, modelId: string) => void
@@ -130,6 +131,7 @@ interface ModelSelectorProps {
 }
 
 export default function ModelSelector({
+  capabilities,
   isDisabled,
   model,
   onChange,
@@ -141,12 +143,17 @@ export default function ModelSelector({
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites())
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-
-  const activeModel = resolveModelOption(model, provider)
-  const activeGroup = PROVIDER_GROUPS.find(
-    (g) => g.provider === activeModel.provider,
+  const providerGroups = useMemo(
+    () => getProviderGroups(capabilities),
+    [capabilities],
   )
-  const ActiveProviderIcon = activeGroup?.icon ?? AnthropicIcon
+  const allModels = useMemo(
+    () => providerGroups.flatMap((group) => group.models),
+    [providerGroups],
+  )
+  const activeModel = resolveModelOption(model, provider, capabilities)
+  const ActiveProviderIcon = getProviderIcon(provider)
+  const providerError = capabilities?.providers[provider].error ?? null
 
   const toggleFavorite = useCallback((modelId: string) => {
     setFavorites((current) => {
@@ -166,23 +173,25 @@ export default function ModelSelector({
   const visibleModels = useMemo<readonly ModelOption[]>(() => {
     const pool =
       activeTab === 'favorites'
-        ? ALL_MODELS.filter((m) => favorites.has(m.id))
-        : (PROVIDER_GROUPS.find((g) => g.provider === activeTab)?.models ?? [])
+        ? allModels.filter((candidate) => favorites.has(candidate.id))
+        : (providerGroups.find((group) => group.provider === activeTab)
+            ?.models ?? [])
 
     if (!search) {
       return pool
     }
 
-    const q = search.toLowerCase()
+    const query = search.toLowerCase()
     return pool.filter(
-      (m) =>
-        m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
+      (candidate) =>
+        candidate.label.toLowerCase().includes(query) ||
+        candidate.id.toLowerCase().includes(query),
     )
-  }, [activeTab, favorites, search])
+  }, [activeTab, allModels, favorites, providerGroups, search])
 
   const handleSelect = useCallback(
-    (opt: ModelOption) => {
-      onChange(opt.provider, opt.id)
+    (option: ModelOption) => {
+      onChange(option.provider, option.id)
       setIsOpen(false)
       setSearch('')
     },
@@ -190,7 +199,9 @@ export default function ModelSelector({
   )
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      return
+    }
 
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -219,7 +230,9 @@ export default function ModelSelector({
   }, [isOpen, provider])
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      return
+    }
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -230,12 +243,11 @@ export default function ModelSelector({
       }
 
       if ((event.ctrlKey || event.metaKey) && /^[1-9]$/.test(event.key)) {
-        const index = Number.parseInt(event.key, 10) - 1
-        const target = visibleModels[index]
+        const option = visibleModels[Number.parseInt(event.key, 10) - 1]
 
-        if (target) {
+        if (option) {
           event.preventDefault()
-          handleSelect(target)
+          handleSelect(option)
         }
       }
     }
@@ -248,18 +260,18 @@ export default function ModelSelector({
     <div ref={containerRef} className="relative">
       <button
         className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-        disabled={isDisabled}
+        disabled={isDisabled || !capabilities || Boolean(providerError)}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
         <ActiveProviderIcon className="size-3.5" />
-        {activeModel.label}
+        {activeModel?.label ??
+          (providerError ? 'Models unavailable' : 'Loading models…')}
         <ChevronDown className="size-3 opacity-50" />
       </button>
 
       {isOpen ? (
         <div className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
-          {/* Provider rail */}
           <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-[var(--surface-1)] py-2">
             <ProviderRailButton
               ariaLabel="Favorites"
@@ -267,7 +279,7 @@ export default function ModelSelector({
               isActive={activeTab === 'favorites'}
               onClick={() => setActiveTab('favorites')}
             />
-            {PROVIDER_GROUPS.map((group) => (
+            {providerGroups.map((group) => (
               <ProviderRailButton
                 ariaLabel={group.label}
                 icon={group.icon}
@@ -278,7 +290,6 @@ export default function ModelSelector({
             ))}
           </div>
 
-          {/* Right column: search + model list */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="border-b border-border px-3 pb-2 pt-2.5">
               <div className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface-2)] px-3 py-1.5">
@@ -299,18 +310,14 @@ export default function ModelSelector({
                 <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {activeTab === 'favorites'
                     ? 'No starred models yet. Click ★ on any row to add it.'
-                    : 'No models found'}
+                    : 'No models available from this provider.'}
                 </p>
               ) : (
-                visibleModels.map((opt, index) => {
-                  const isSelected = opt.id === activeModel.id
-                  const providerLabel =
-                    PROVIDER_GROUPS.find((g) => g.provider === opt.provider)
-                      ?.label ?? ''
-                  const ProviderIcon =
-                    PROVIDER_GROUPS.find((g) => g.provider === opt.provider)
-                      ?.icon ?? AnthropicIcon
-                  const isFavorite = favorites.has(opt.id)
+                visibleModels.map((option, index) => {
+                  const isSelected = option.id === activeModel?.id
+                  const providerIcon = getProviderIcon(option.provider)
+                  const ProviderIcon = providerIcon
+                  const isFavorite = favorites.has(option.id)
                   const keycapLabel = index < 9 ? `Ctrl+${index + 1}` : null
 
                   return (
@@ -321,10 +328,10 @@ export default function ModelSelector({
                           ? 'bg-[var(--surface-2)] text-foreground'
                           : 'text-foreground hover:bg-[var(--surface-1)]',
                       )}
-                      key={opt.id}
+                      key={`${option.provider}:${option.id}`}
                     >
                       {isSelected ? (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
+                        <span className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded-r bg-primary" />
                       ) : null}
                       <button
                         aria-label={
@@ -336,7 +343,7 @@ export default function ModelSelector({
                             ? 'text-accent-yellow'
                             : 'text-muted-foreground/60 hover:text-foreground',
                         )}
-                        onClick={() => toggleFavorite(opt.id)}
+                        onClick={() => toggleFavorite(option.id)}
                         type="button"
                       >
                         <Star
@@ -349,15 +356,15 @@ export default function ModelSelector({
                       <button
                         aria-pressed={isSelected}
                         className="flex min-w-0 flex-1 flex-col text-left"
-                        onClick={() => handleSelect(opt)}
+                        onClick={() => handleSelect(option)}
                         type="button"
                       >
                         <span className="display truncate text-sm">
-                          {opt.label}
+                          {option.label}
                         </span>
                         <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
                           <ProviderIcon className="size-3" />
-                          {providerLabel}
+                          {getProviderLabel(option.provider)}
                         </span>
                       </button>
                       {keycapLabel ? (

@@ -169,13 +169,18 @@ describe('ManagedSessionManager', () => {
     const config = createConfig('claude')
 
     await manager.createSession(config)
-    const switched = await manager.switchSessionProvider(
-      config.sessionId,
-      'codex',
-    )
+    const switched = await manager.switchSessionProvider(config.sessionId, {
+      effort: 'high',
+      mode: 'codex',
+      model: 'gpt-test',
+      serviceTier: 'priority',
+    })
 
     expect(switched.runtimeGeneration).toBe(2)
     expect(switched.provider).toBe('codex')
+    expect(switched.effort).toBe('high')
+    expect(switched.model).toBe('gpt-test')
+    expect(switched.serviceTier).toBe('priority')
   })
 
   it('owns session cleanup independently from renderer subscriptions', async () => {

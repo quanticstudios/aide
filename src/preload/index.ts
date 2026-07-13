@@ -6,12 +6,12 @@ import type {
   ManagedSessionConfig,
   ManagedSessionDecision,
   ManagedSessionEvent,
+  ManagedSessionProviderSelection,
 } from '../shared/managed-session'
 import type { WorkspacePersistenceEvent } from '../shared/persistence'
 import type { PreviewNavigationReport } from '../shared/preview'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
-  ManagedSessionMode,
   TerminalEvent,
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -35,6 +35,8 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
+  getProviderCapabilities: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getProviderCapabilities),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
   getWorkspacePreviewSnapshots: () =>
@@ -176,14 +178,12 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
   switchManagedSessionProvider: (
     sessionId: string,
-    mode: ManagedSessionMode,
-    model?: string,
+    selection: ManagedSessionProviderSelection,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.managedSessionSwitchProvider,
       sessionId,
-      mode,
-      model,
+      selection,
     ),
   validateExecutableCommand: (command: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),

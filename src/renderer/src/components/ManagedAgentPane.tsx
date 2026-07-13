@@ -31,6 +31,10 @@ import type { ChangeEvent } from 'react'
 import MarkdownContent from './MarkdownContent'
 
 import type { AideApi } from '../../../shared/ipc'
+import {
+  resolveProviderSelection,
+  type ProviderCapabilitiesSnapshot,
+} from '../../../shared/provider-capabilities'
 import type {
   ManagedSessionContentItem,
   ManagedSessionContextWindow,
@@ -76,6 +80,74 @@ function getErrorMessage(error: unknown): string {
   }
 
   return 'Managed session failed.'
+}
+
+interface PersistedProviderSelection {
+  readonly effort?: string
+  readonly modelId?: string
+  readonly serviceTier?: string | null
+}
+
+function providerSelectionStorageKey(
+  workspaceId: string,
+  provider: ManagedSessionMode,
+): string {
+  return `aide:workspace:${workspaceId}:provider-selection:${provider}`
+}
+
+function loadPersistedProviderSelection(
+  workspaceId: string,
+  provider: ManagedSessionMode,
+): PersistedProviderSelection {
+  const legacyModel = localStorage.getItem(
+    `aide:workspace:${workspaceId}:model:${provider}`,
+  )
+
+  try {
+    const raw = localStorage.getItem(
+      providerSelectionStorageKey(workspaceId, provider),
+    )
+
+    if (!raw) {
+      return legacyModel ? { modelId: legacyModel } : {}
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+
+    if (!parsed || typeof parsed !== 'object') {
+      return legacyModel ? { modelId: legacyModel } : {}
+    }
+
+    const record = parsed as Record<string, unknown>
+    return {
+      ...(typeof record.effort === 'string' ? { effort: record.effort } : {}),
+      ...(typeof record.modelId === 'string'
+        ? { modelId: record.modelId }
+        : legacyModel
+          ? { modelId: legacyModel }
+          : {}),
+      ...(typeof record.serviceTier === 'string' || record.serviceTier === null
+        ? { serviceTier: record.serviceTier }
+        : {}),
+    }
+  } catch {
+    return legacyModel ? { modelId: legacyModel } : {}
+  }
+}
+
+function persistProviderSelection(
+  workspaceId: string,
+  provider: ManagedSessionMode,
+  selection: PersistedProviderSelection,
+): void {
+  try {
+    localStorage.setItem(
+      providerSelectionStorageKey(workspaceId, provider),
+      JSON.stringify(selection),
+    )
+  } catch {
+    // Storage failures should not prevent an available provider from running.
+  }
 }
 
 function formatMessageTime(iso: string): string {
@@ -480,18 +552,23 @@ export default function ManagedAgentPane({
   const [selectedModel, setSelectedModel] = useState<string | undefined>(
     undefined,
   )
+  const [capabilities, setCapabilities] =
+    useState<ProviderCapabilitiesSnapshot | null>(null)
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build')
-  const [effort, setEffort] = useState<ManagedSessionEffort>('max')
+  const [effort, setEffort] = useState<ManagedSessionEffort | undefined>(
+    undefined,
+  )
   const [thinkingBudget, setThinkingBudget] =
     useState<ManagedSessionThinkingBudget>('default')
   const [contextWindow, setContextWindow] =
     useState<ManagedSessionContextWindow>('200k')
-  const [fastMode, setFastMode] = useState<boolean>(true)
+  const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
@@ -503,6 +580,64 @@ export default function ManagedAgentPane({
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
+
+  useEffect(() => {
+    const api = getAideApi()
+
+    if (!api || terminalMode === 'shell') {
+      return
+    }
+
+    void api
+      .getProviderCapabilities()
+      .then((nextCapabilities) => {
+        setCapabilities(nextCapabilities)
+      })
+      .catch((capabilityError) => {
+        setError(getErrorMessage(capabilityError))
+      })
+  }, [terminalMode])
+
+  useEffect(() => {
+    const providerCapabilities = capabilities?.providers[selectedProvider]
+
+    if (!providerCapabilities) {
+      return
+    }
+
+    const persisted = loadPersistedProviderSelection(
+      workspace.id,
+      selectedProvider,
+    )
+    const resolution = resolveProviderSelection(providerCapabilities, persisted)
+
+    if (!resolution.modelId || !resolution.effort) {
+      setSelectionNotice(resolution.explanation)
+      return
+    }
+
+    setSelectedModel(resolution.modelId)
+    setEffort(resolution.effort)
+    setServiceTier(resolution.serviceTier)
+    setSelectionNotice(resolution.explanation)
+    persistProviderSelection(workspace.id, selectedProvider, {
+      effort: resolution.effort,
+      modelId: resolution.modelId,
+      serviceTier: resolution.serviceTier,
+    })
+  }, [capabilities, selectedProvider, workspace.id])
+
+  useEffect(() => {
+    if (!selectedModel) {
+      return
+    }
+
+    persistProviderSelection(workspace.id, selectedProvider, {
+      effort,
+      modelId: selectedModel,
+      serviceTier,
+    })
+  }, [effort, selectedModel, selectedProvider, serviceTier, workspace.id])
 
   useEffect(() => {
     if (draftInput === '' && textareaRef.current) {
@@ -526,6 +661,10 @@ export default function ManagedAgentPane({
 
       if (existing) {
         setSnapshot(existing)
+        setSelectedModel(existing.model ?? undefined)
+        setEffort(existing.effort ?? effort)
+        setServiceTier(existing.serviceTier)
+        setSelectionNotice(existing.selectionNotice)
         if (isUnifiedPane) {
           setSelectedProvider(existing.provider as ManagedSessionMode)
         }
@@ -537,17 +676,21 @@ export default function ManagedAgentPane({
         contextWindow,
         cwd: workspace.worktreePath || '~',
         effort,
-        fastMode,
         interactionMode: agentMode,
         mode: selectedProvider,
         model: selectedModel,
         paneId,
         permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
+        ...(serviceTier ? { serviceTier } : {}),
         thinkingBudget,
         workspaceId: workspace.id,
       })
       setSnapshot(created)
+      setSelectedModel(created.model ?? undefined)
+      setEffort(created.effort ?? effort)
+      setServiceTier(created.serviceTier)
+      setSelectionNotice(created.selectionNotice)
       startedSessionRef.current = true
       setError(null)
     } catch (sessionError) {
@@ -557,13 +700,13 @@ export default function ManagedAgentPane({
     agentMode,
     contextWindow,
     effort,
-    fastMode,
     isUnifiedPane,
     paneId,
     permissionMode,
     selectedModel,
     selectedProvider,
     sessionId,
+    serviceTier,
     terminalMode,
     thinkingBudget,
     workspace.id,
@@ -591,6 +734,10 @@ export default function ManagedAgentPane({
         runtimeGeneration: nextSnapshot.runtimeGeneration,
       }
       setSnapshot(nextSnapshot)
+      setSelectedModel(nextSnapshot.model ?? undefined)
+      setEffort(nextSnapshot.effort ?? effort)
+      setServiceTier(nextSnapshot.serviceTier)
+      setSelectionNotice(nextSnapshot.selectionNotice)
       if (isUnifiedPane) {
         setSelectedProvider(nextSnapshot.provider as ManagedSessionMode)
       }
@@ -622,7 +769,7 @@ export default function ManagedAgentPane({
     })
 
     return unsubscribe
-  }, [isUnifiedPane, sessionId, terminalMode])
+  }, [effort, isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
   const pendingApprovalCount = snapshot?.pendingApprovals.length ?? 0
@@ -695,7 +842,33 @@ export default function ManagedAgentPane({
 
   const handleModelSwitch = useCallback(
     async (newMode: ManagedSessionMode, newModelId: string) => {
-      setSelectedModel(newModelId)
+      const providerCapabilities = capabilities?.providers[newMode]
+
+      if (!providerCapabilities) {
+        setError('Provider capabilities have not loaded yet.')
+        return
+      }
+
+      const resolution = resolveProviderSelection(providerCapabilities, {
+        effort: newMode === selectedProvider ? effort : undefined,
+        modelId: newModelId,
+        serviceTier: newMode === selectedProvider ? serviceTier : undefined,
+      })
+
+      if (!resolution.modelId || !resolution.effort) {
+        setError(resolution.explanation ?? 'No compatible model is available.')
+        return
+      }
+
+      setSelectedModel(resolution.modelId)
+      setEffort(resolution.effort)
+      setServiceTier(resolution.serviceTier)
+      setSelectionNotice(resolution.explanation)
+      persistProviderSelection(workspace.id, newMode, {
+        effort: resolution.effort,
+        modelId: resolution.modelId,
+        serviceTier: resolution.serviceTier,
+      })
       if (newMode !== selectedProvider) {
         setSelectedProvider(newMode)
         localStorage.setItem(`aide:workspace:${workspace.id}:provider`, newMode)
@@ -705,17 +878,28 @@ export default function ManagedAgentPane({
       if (!api || !startedSessionRef.current) return
 
       try {
-        const updated = await api.switchManagedSessionProvider(
-          sessionId,
-          newMode,
-          newModelId,
-        )
+        const updated = await api.switchManagedSessionProvider(sessionId, {
+          effort: resolution.effort,
+          mode: newMode,
+          model: resolution.modelId,
+          ...(resolution.serviceTier
+            ? { serviceTier: resolution.serviceTier }
+            : {}),
+        })
         setSnapshot(updated)
+        setSelectionNotice(updated.selectionNotice)
       } catch (switchError) {
         setError(getErrorMessage(switchError))
       }
     },
-    [selectedProvider, sessionId, workspace.id],
+    [
+      capabilities,
+      effort,
+      selectedProvider,
+      serviceTier,
+      sessionId,
+      workspace.id,
+    ],
   )
 
   const handleResolveApproval = useCallback(
@@ -884,7 +1068,7 @@ export default function ManagedAgentPane({
         <div className="flex items-center gap-2">
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
-            isDisabled={!snapshot || snapshot.sessionState !== 'running'}
+            isDisabled={snapshot?.sessionState !== 'running'}
             onPress={() => {
               const api = getAideApi()
               if (api) {
@@ -903,6 +1087,15 @@ export default function ManagedAgentPane({
       {error ? (
         <div className="border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
           {error}
+        </div>
+      ) : null}
+
+      {selectionNotice ? (
+        <div
+          className="border-b border-border bg-surface-secondary px-4 py-2 text-sm text-muted-foreground"
+          role="status"
+        >
+          {selectionNotice}
         </div>
       ) : null}
 
@@ -1193,6 +1386,7 @@ export default function ManagedAgentPane({
           <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
             {isUnifiedPane ? (
               <ModelSelector
+                capabilities={capabilities}
                 isDisabled={snapshot?.sessionState === 'running'}
                 model={selectedModel}
                 onChange={(mode, modelId) =>
@@ -1206,14 +1400,16 @@ export default function ManagedAgentPane({
               </span>
             )}
             <ReasoningExtrasDropdown
+              capabilities={capabilities}
               contextWindow={contextWindow}
               effort={effort}
-              fastMode={fastMode}
+              model={selectedModel}
               onContextWindowChange={setContextWindow}
               onEffortChange={setEffort}
-              onFastModeChange={setFastMode}
+              onServiceTierChange={setServiceTier}
               onThinkingBudgetChange={setThinkingBudget}
               provider={selectedProvider}
+              serviceTier={serviceTier}
               thinkingBudget={thinkingBudget}
             />
             <button

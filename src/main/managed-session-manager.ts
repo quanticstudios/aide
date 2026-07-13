@@ -16,11 +16,11 @@ import type {
   ManagedSessionConfig,
   ManagedSessionContentItem,
   ManagedSessionDecision,
-  ManagedSessionEffort,
   ManagedSessionEvent,
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
   ManagedSessionPlanApproval,
+  ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
@@ -53,24 +53,6 @@ function resolveClaudeThinkingOption(
   }
 
   return { type: 'enabled', budgetTokens: 32_000 }
-}
-
-/**
- * Map a Codex `effort` tier to the value expected by the Codex CLI's
- * `model_reasoning_effort` config key.
- */
-function resolveCodexReasoningEffort(
-  effort: ManagedSessionEffort | undefined,
-): string | null {
-  if (!effort) {
-    return null
-  }
-
-  if (effort === 'max') {
-    return 'high'
-  }
-
-  return effort
 }
 
 interface ManagedSessionManagerOptions {
@@ -182,10 +164,12 @@ function buildEmptySnapshot(
   return {
     content: [],
     detail: null,
+    effort: config.effort ?? null,
     interactionMode: config.interactionMode ?? 'build',
     lastCompletedAt: null,
     lastError: null,
     lastErrorAt: null,
+    model: config.model ?? null,
     paneId: config.paneId,
     pendingApprovals: [],
     pendingUserInputs: [],
@@ -194,6 +178,8 @@ function buildEmptySnapshot(
     revision: 0,
     running: true,
     runtimeGeneration: 1,
+    selectionNotice: config.selectionNotice ?? null,
+    serviceTier: config.serviceTier ?? null,
     sessionId: config.sessionId,
     sessionState: 'connecting',
     turns: [],
@@ -461,7 +447,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       options: {
         canUseTool,
         cwd,
-        effort: this.config.effort,
+        effort: this.config.effort as
+          | 'high'
+          | 'low'
+          | 'max'
+          | 'medium'
+          | undefined,
         env: process.env,
         includePartialMessages: true,
         ...(this.config.model ? { model: this.config.model } : {}),
@@ -865,11 +856,6 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       process.env.HOME ?? process.cwd(),
     )
     const args = ['app-server']
-    const reasoningEffort = resolveCodexReasoningEffort(this.config.effort)
-
-    if (reasoningEffort) {
-      args.unshift('--config', `model_reasoning_effort=${reasoningEffort}`)
-    }
 
     const child = spawn(command, args, {
       cwd,
@@ -925,8 +911,12 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     const response = (await this.sendRequest('thread/start', {
       approvalPolicy: 'on-request',
       cwd,
+      ...(this.config.effort ? { reasoningEffort: this.config.effort } : {}),
       ...(this.config.model ? { model: this.config.model } : {}),
       sandbox: 'workspace-write',
+      ...(this.config.serviceTier
+        ? { serviceTier: this.config.serviceTier }
+        : {}),
     })) as Record<string, unknown>
 
     const providerThreadId =
@@ -1809,12 +1799,11 @@ export class ManagedSessionManager {
 
   public async switchSessionProvider(
     sessionId: string,
-    newMode: 'claude' | 'codex',
-    newModel?: string,
+    selection: ManagedSessionProviderSelection & {
+      selectionNotice?: string | null
+    },
   ): Promise<ManagedSessionSnapshot> {
-    if (newMode !== 'claude' && newMode !== 'codex') {
-      throw new Error(`Invalid provider mode: ${String(newMode)}`)
-    }
+    const newMode = selection.mode
 
     const state = this.sessions.get(sessionId)
 
@@ -1843,7 +1832,14 @@ export class ManagedSessionManager {
     state.activeTurnId = null
     state.usage = null
 
-    state.config = { ...state.config, mode: newMode, model: newModel }
+    state.config = {
+      ...state.config,
+      effort: selection.effort,
+      mode: newMode,
+      model: selection.model,
+      selectionNotice: selection.selectionNotice ?? null,
+      serviceTier: selection.serviceTier,
+    }
     state.projector = new ManagedTerminalProviderProjector(newMode)
     state.runtimeGeneration += 1
 
@@ -2091,12 +2087,14 @@ export class ManagedSessionManager {
         .map((key) => state.contentByKey.get(key) ?? null)
         .filter((item): item is ManagedSessionContentItem => item !== null),
       detail: runtime.detail,
+      effort: state.config.effort ?? null,
       interactionMode:
         state.config.interactionMode ??
         (state.config.permissionMode === 'plan' ? 'plan' : 'build'),
       lastCompletedAt: runtime.lastCompletedAt,
       lastError: runtime.lastError,
       lastErrorAt: runtime.lastErrorAt,
+      model: state.config.model ?? null,
       paneId: state.config.paneId,
       pendingApprovals: [...state.pendingApprovals.values()],
       pendingUserInputs: [...state.pendingUserInputs.values()],
@@ -2116,6 +2114,8 @@ export class ManagedSessionManager {
       workspaceId: state.config.workspaceId,
       revision: state.revision,
       runtimeGeneration: state.runtimeGeneration,
+      selectionNotice: state.config.selectionNotice ?? null,
+      serviceTier: state.config.serviceTier ?? null,
     }
 
     this.options.onUpdate({

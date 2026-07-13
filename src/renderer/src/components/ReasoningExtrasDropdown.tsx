@@ -1,118 +1,108 @@
 import { Check, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
-import { cn } from '@/lib/utils'
+import { resolveProviderSelection } from '../../../shared/provider-capabilities'
+import type {
+  ProviderCapabilitiesSnapshot,
+  ProviderModelCapability,
+} from '../../../shared/provider-capabilities'
 import type {
   ManagedSessionContextWindow,
   ManagedSessionEffort,
   ManagedSessionThinkingBudget,
 } from '../../../shared/managed-session'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { cn } from '@/lib/utils'
 
 interface ReasoningExtrasDropdownProps {
+  readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly contextWindow: ManagedSessionContextWindow
-  readonly effort: ManagedSessionEffort
-  readonly fastMode: boolean
+  readonly effort: ManagedSessionEffort | undefined
+  readonly model: string | undefined
   readonly onContextWindowChange: (value: ManagedSessionContextWindow) => void
   readonly onEffortChange: (value: ManagedSessionEffort) => void
-  readonly onFastModeChange: (value: boolean) => void
+  readonly onServiceTierChange: (value: string | null) => void
   readonly onThinkingBudgetChange: (value: ManagedSessionThinkingBudget) => void
   readonly provider: ManagedSessionMode
+  readonly serviceTier: string | null
   readonly thinkingBudget: ManagedSessionThinkingBudget
 }
 
-interface ClaudeTier {
-  readonly id: string
-  readonly label: string
-  readonly effort: ManagedSessionEffort
-  readonly thinkingBudget: ManagedSessionThinkingBudget
-}
+function getModelCapability(
+  capabilities: ProviderCapabilitiesSnapshot | null,
+  provider: ManagedSessionMode,
+  model: string | undefined,
+): ProviderModelCapability | null {
+  const providerCapabilities = capabilities?.providers[provider]
 
-interface CodexTier {
-  readonly id: string
-  readonly label: string
-  readonly effort: ManagedSessionEffort
-}
+  if (!providerCapabilities) {
+    return null
+  }
 
-const CLAUDE_TIERS: readonly ClaudeTier[] = [
-  { id: 'low', label: 'Low', effort: 'low', thinkingBudget: 'default' },
-  {
-    id: 'medium',
-    label: 'Medium',
-    effort: 'medium',
-    thinkingBudget: 'default',
-  },
-  { id: 'high', label: 'High', effort: 'high', thinkingBudget: 'default' },
-  {
-    id: 'extra-high',
-    label: 'Extra High (default)',
-    effort: 'max',
-    thinkingBudget: 'default',
-  },
-  { id: 'max', label: 'Max', effort: 'max', thinkingBudget: 'extra' },
-  {
-    id: 'ultrathink',
-    label: 'Ultrathink',
-    effort: 'max',
-    thinkingBudget: 'ultra',
-  },
-]
+  const selection = resolveProviderSelection(providerCapabilities, {
+    modelId: model,
+  })
 
-const CODEX_TIERS: readonly CodexTier[] = [
-  { id: 'low', label: 'Low', effort: 'low' },
-  { id: 'medium', label: 'Medium (default)', effort: 'medium' },
-  { id: 'high', label: 'High', effort: 'high' },
-  { id: 'extra-high', label: 'Extra High', effort: 'max' },
-]
-
-function getClaudeTier(
-  effort: ManagedSessionEffort,
-  thinkingBudget: ManagedSessionThinkingBudget,
-): ClaudeTier {
   return (
-    CLAUDE_TIERS.find(
-      (t) => t.effort === effort && t.thinkingBudget === thinkingBudget,
-    ) ?? CLAUDE_TIERS[3]
+    providerCapabilities.models.find(
+      (candidate) => candidate.id === selection.modelId,
+    ) ?? null
   )
 }
 
-function getCodexTier(effort: ManagedSessionEffort): CodexTier {
-  return CODEX_TIERS.find((t) => t.effort === effort) ?? CODEX_TIERS[1]
-}
-
-function getEffortChipLabel({
-  effort,
-  provider,
-  thinkingBudget,
-}: {
-  readonly effort: ManagedSessionEffort
-  readonly provider: ManagedSessionMode
-  readonly thinkingBudget: ManagedSessionThinkingBudget
-}): string {
-  if (provider === 'claude') {
-    const tier = getClaudeTier(effort, thinkingBudget)
-    return tier.label.replace(/ \(default\)$/, '')
+function getThinkingLabel(
+  effort: ManagedSessionEffort | undefined,
+  thinkingBudget: ManagedSessionThinkingBudget,
+): string {
+  if (thinkingBudget === 'ultra') {
+    return 'Ultrathink'
   }
 
-  return getCodexTier(effort).label.replace(/ \(default\)$/, '')
+  if (thinkingBudget === 'extra') {
+    return 'Max'
+  }
+
+  return effort ?? 'Default'
 }
 
 export default function ReasoningExtrasDropdown({
+  capabilities,
   contextWindow,
   effort,
-  fastMode,
+  model,
   onContextWindowChange,
   onEffortChange,
-  onFastModeChange,
+  onServiceTierChange,
   onThinkingBudgetChange,
   provider,
+  serviceTier,
   thinkingBudget,
 }: ReasoningExtrasDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const modelCapability = getModelCapability(capabilities, provider, model)
+  const effortOption = modelCapability?.reasoningEfforts.find(
+    (candidate) => candidate.id === effort,
+  )
+  const serviceTierOption = modelCapability?.serviceTiers.find(
+    (candidate) => candidate.id === serviceTier,
+  )
+  const effortLabel =
+    provider === 'claude'
+      ? getThinkingLabel(effort, thinkingBudget)
+      : (effortOption?.label ?? effort)
+  const extraLabel =
+    serviceTierOption?.label ??
+    (provider === 'claude'
+      ? contextWindow === '1m'
+        ? '1M'
+        : '200k'
+      : 'Default')
 
   useEffect(() => {
-    if (!isOpen) return
+    if (!isOpen) {
+      return
+    }
 
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -138,20 +128,11 @@ export default function ReasoningExtrasDropdown({
     }
   }, [isOpen])
 
-  const effortLabel = getEffortChipLabel({ effort, provider, thinkingBudget })
-  const extraLabel =
-    provider === 'claude'
-      ? contextWindow === '1m'
-        ? '1M'
-        : '200k'
-      : fastMode
-        ? 'Fast'
-        : 'Slow'
-
   return (
     <div ref={containerRef} className="relative">
       <button
-        className="composer-pill flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+        className="composer-pill flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold disabled:pointer-events-none disabled:opacity-30"
+        disabled={!modelCapability}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
@@ -159,15 +140,46 @@ export default function ReasoningExtrasDropdown({
         <ChevronDown className="size-3 opacity-50" />
       </button>
 
-      {isOpen ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-[210px] rounded-md border border-border bg-surface py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+      {isOpen && modelCapability ? (
+        <div className="absolute bottom-full left-0 z-50 mb-1 w-[250px] rounded-md border border-border bg-surface py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
           <p className="eyebrow px-4 pb-1.5">Reasoning</p>
+          {modelCapability.reasoningEfforts.map((option) => {
+            const isSelected = option.id === effort
 
-          {provider === 'claude'
-            ? CLAUDE_TIERS.map((tier) => {
-                const isSelected =
-                  tier.effort === effort &&
-                  tier.thinkingBudget === thinkingBudget
+            return (
+              <button
+                className={cn(
+                  'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
+                  isSelected ? 'text-foreground' : 'text-foreground/80',
+                )}
+                key={option.id}
+                onClick={() => {
+                  onEffortChange(option.id)
+                  setIsOpen(false)
+                }}
+                type="button"
+              >
+                {isSelected ? (
+                  <Check className="size-3.5" />
+                ) : (
+                  <span className="size-3.5" />
+                )}
+                <span className="flex flex-col text-left">
+                  {option.label}
+                  <span className="text-xs text-muted-foreground">
+                    {option.description}
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+
+          {modelCapability.serviceTiers.length > 0 ? (
+            <>
+              <div className="my-2 border-t border-border" />
+              <p className="eyebrow px-4 pb-1.5">Service Tier</p>
+              {modelCapability.serviceTiers.map((option) => {
+                const isSelected = option.id === serviceTier
 
                 return (
                   <button
@@ -175,10 +187,9 @@ export default function ReasoningExtrasDropdown({
                       'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
                       isSelected ? 'text-foreground' : 'text-foreground/80',
                     )}
-                    key={tier.id}
+                    key={option.id}
                     onClick={() => {
-                      onEffortChange(tier.effort)
-                      onThinkingBudgetChange(tier.thinkingBudget)
+                      onServiceTierChange(option.id)
                       setIsOpen(false)
                     }}
                     type="button"
@@ -188,12 +199,30 @@ export default function ReasoningExtrasDropdown({
                     ) : (
                       <span className="size-3.5" />
                     )}
-                    {tier.label}
+                    <span className="flex flex-col text-left">
+                      {option.label}
+                      <span className="text-xs text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
                   </button>
                 )
-              })
-            : CODEX_TIERS.map((tier) => {
-                const isSelected = tier.effort === effort
+              })}
+            </>
+          ) : null}
+
+          {provider === 'claude' ? (
+            <>
+              <div className="my-2 border-t border-border" />
+              <p className="eyebrow px-4 pb-1.5">Thinking Budget</p>
+              {(
+                [
+                  { id: 'default', label: 'Default' },
+                  { id: 'extra', label: 'Max' },
+                  { id: 'ultra', label: 'Ultrathink' },
+                ] as const
+              ).map((option) => {
+                const isSelected = option.id === thinkingBudget
 
                 return (
                   <button
@@ -201,9 +230,9 @@ export default function ReasoningExtrasDropdown({
                       'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
                       isSelected ? 'text-foreground' : 'text-foreground/80',
                     )}
-                    key={tier.id}
+                    key={option.id}
                     onClick={() => {
-                      onEffortChange(tier.effort)
+                      onThinkingBudgetChange(option.id)
                       setIsOpen(false)
                     }}
                     type="button"
@@ -213,15 +242,12 @@ export default function ReasoningExtrasDropdown({
                     ) : (
                       <span className="size-3.5" />
                     )}
-                    {tier.label}
+                    {option.label}
                   </button>
                 )
               })}
 
-          <div className="my-2 border-t border-border" />
-
-          {provider === 'claude' ? (
-            <>
+              <div className="my-2 border-t border-border" />
               <p className="eyebrow px-4 pb-1.5">Context Window</p>
               {(
                 [
@@ -254,41 +280,7 @@ export default function ReasoningExtrasDropdown({
                 )
               })}
             </>
-          ) : (
-            <>
-              <p className="eyebrow px-4 pb-1.5">Fast Mode</p>
-              {(
-                [
-                  { id: true, label: 'On' },
-                  { id: false, label: 'Off' },
-                ] as const
-              ).map((option) => {
-                const isSelected = option.id === fastMode
-
-                return (
-                  <button
-                    className={cn(
-                      'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
-                      isSelected ? 'text-foreground' : 'text-foreground/80',
-                    )}
-                    key={String(option.id)}
-                    onClick={() => {
-                      onFastModeChange(option.id)
-                      setIsOpen(false)
-                    }}
-                    type="button"
-                  >
-                    {isSelected ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <span className="size-3.5" />
-                    )}
-                    {option.label}
-                  </button>
-                )
-              })}
-            </>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>
