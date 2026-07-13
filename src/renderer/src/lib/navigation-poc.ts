@@ -449,6 +449,7 @@ for (const [workspaceId, scene] of Object.entries(workspaceScenes)) {
 }
 
 export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
+  catalogRevision: 0,
   databasePath: 'demo://navigation-poc',
   lastActivePaneIdsBySurface: {},
   lastActivePaneIdsByWorkspace: {},
@@ -460,8 +461,10 @@ export const NAVIGATION_POC_SNAPSHOT: PersistenceSnapshot = {
   schemaVersion: 0,
   projects: demoProjects,
   surfaceLayouts: demoSurfaceLayouts,
+  workspaceLayoutRevisions: {},
   workspaceLayouts: demoWorkspaceLayouts,
   workspaceSurfaces: demoWorkspaceSurfaces,
+  workspaceSurfaceRevisions: {},
   workspaces: demoWorkspaces,
 }
 
@@ -587,6 +590,7 @@ export function resolveNavigationSnapshot(
   }
 
   return {
+    catalogRevision: 0,
     databasePath: '.aide.sqlite3',
     lastActivePaneIdsBySurface: {},
     lastActivePaneIdsByWorkspace: {},
@@ -598,8 +602,10 @@ export function resolveNavigationSnapshot(
     schemaVersion: 0,
     projects: [],
     surfaceLayouts: {},
+    workspaceLayoutRevisions: {},
     workspaceLayouts: {},
     workspaceSurfaces: {},
+    workspaceSurfaceRevisions: {},
     workspaces: [],
   }
 }

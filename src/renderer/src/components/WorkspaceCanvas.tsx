@@ -440,6 +440,7 @@ export default function WorkspaceCanvas({
   )
   const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
   const surfaceSnapshot: PersistenceSnapshot = {
+    catalogRevision: 0,
     databasePath: '',
     lastActivePaneIdsBySurface: {},
     lastActivePaneIdsByWorkspace: {},
@@ -451,8 +452,10 @@ export default function WorkspaceCanvas({
     projects: [],
     schemaVersion: 0,
     surfaceLayouts,
+    workspaceLayoutRevisions: {},
     workspaceLayouts,
     workspaceSurfaces,
+    workspaceSurfaceRevisions: {},
     workspaces: [],
   }
   const activePaneLabel =

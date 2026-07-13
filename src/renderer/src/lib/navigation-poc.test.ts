@@ -15,6 +15,7 @@ import {
 describe('resolveNavigationSnapshot', () => {
   it('keeps the real empty snapshot by default when storage is empty', () => {
     const emptySnapshot: PersistenceSnapshot = {
+      catalogRevision: 0,
       databasePath: '.aide.sqlite3',
       lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: null,
@@ -23,7 +24,9 @@ describe('resolveNavigationSnapshot', () => {
       migrationStrategy: 'test',
       schemaVersion: 3,
       projects: [],
+      workspaceLayoutRevisions: {},
       workspaceLayouts: {},
+      workspaceSurfaceRevisions: {},
       workspaces: [],
     }
 
@@ -32,6 +35,7 @@ describe('resolveNavigationSnapshot', () => {
 
   it('falls back to the navigation POC snapshot only when explicitly enabled', () => {
     const emptySnapshot: PersistenceSnapshot = {
+      catalogRevision: 0,
       databasePath: '.aide.sqlite3',
       lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: null,
@@ -40,7 +44,9 @@ describe('resolveNavigationSnapshot', () => {
       migrationStrategy: 'test',
       schemaVersion: 3,
       projects: [],
+      workspaceLayoutRevisions: {},
       workspaceLayouts: {},
+      workspaceSurfaceRevisions: {},
       workspaces: [],
     }
 
@@ -51,6 +57,7 @@ describe('resolveNavigationSnapshot', () => {
 
   it('keeps the real snapshot when persisted projects exist', () => {
     const realSnapshot: PersistenceSnapshot = {
+      catalogRevision: 0,
       databasePath: '.aide.sqlite3',
       lastActivePaneIdsByWorkspace: {},
       lastActiveProjectId: 'project-1',
@@ -69,7 +76,9 @@ describe('resolveNavigationSnapshot', () => {
           updatedAt: '2026-03-22T00:00:00Z',
         },
       ],
+      workspaceLayoutRevisions: {},
       workspaceLayouts: {},
+      workspaceSurfaceRevisions: {},
       workspaces: [
         {
           id: 'workspace-1',

@@ -14,6 +14,7 @@ import type {
 } from '../shared/managed-session'
 import type {
   SaveWorkspaceLayoutInput,
+  SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import { isAllowedPreviewUrl } from '../shared/preview'
@@ -263,6 +264,16 @@ function createMainWindow(): BrowserWindow {
 }
 
 function registerIpcHandlers(): void {
+  const publishPersistenceSnapshot = () => {
+    const snapshot = database.getSnapshot()
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.workspacePersistenceEvent, {
+        snapshot,
+      })
+    }
+    return snapshot
+  }
+
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.getWorkspaceActivitySnapshot, () =>
     workspaceActivityService.getSnapshot(),
@@ -306,13 +317,19 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.createWorkspace,
-    (_event, input: CreateWorkspaceRequest) =>
-      gitWorkspaceService.createWorkspace(input),
+    async (_event, input: CreateWorkspaceRequest) => {
+      const snapshot = await gitWorkspaceService.createWorkspace(input)
+      publishPersistenceSnapshot()
+      return snapshot
+    },
   )
   ipcMain.handle(
     IPC_CHANNELS.attachWorkspace,
-    (_event, input: AttachWorkspaceRequest) =>
-      gitWorkspaceService.attachWorkspace(input),
+    async (_event, input: AttachWorkspaceRequest) => {
+      const snapshot = await gitWorkspaceService.attachWorkspace(input)
+      publishPersistenceSnapshot()
+      return snapshot
+    },
   )
   ipcMain.handle(
     IPC_CHANNELS.detectWorktreeBranch,
@@ -324,8 +341,13 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.editorLaunch,
     (_event, editorId: string, cwd: string) => launchEditor(editorId, cwd),
   )
-  ipcMain.handle(IPC_CHANNELS.importProject, (_event, repoPath: string) =>
-    gitWorkspaceService.importProject(repoPath),
+  ipcMain.handle(
+    IPC_CHANNELS.importProject,
+    async (_event, repoPath: string) => {
+      const result = await gitWorkspaceService.importProject(repoPath)
+      publishPersistenceSnapshot()
+      return result
+    },
   )
   ipcMain.handle(IPC_CHANNELS.listProjectRefs, (_event, projectId: string) =>
     gitWorkspaceService.listProjectRefs(projectId),
@@ -360,15 +382,61 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.saveWorkspaceLayout,
     (_event, workspaceId: string, input: SaveWorkspaceLayoutInput) => {
+      const snapshot = database.getSnapshot()
+      const currentRevision =
+        snapshot.workspaceLayoutRevisions?.[workspaceId] ?? 0
+      if (
+        input.expectedRevision !== undefined &&
+        input.expectedRevision !== currentRevision
+      ) {
+        return {
+          code: 'stale-workspace-revision' as const,
+          currentRevision,
+          ok: false as const,
+          snapshot,
+          workspaceId,
+        }
+      }
       database.saveWorkspaceLayout(workspaceId, input)
-      return database.getSnapshot()
+      const nextSnapshot = publishPersistenceSnapshot()
+      return {
+        ok: true as const,
+        snapshot: nextSnapshot,
+        workspaceId,
+        workspaceRevision:
+          nextSnapshot.workspaceLayoutRevisions?.[workspaceId] ??
+          currentRevision + 1,
+      }
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.saveWorkspaceSurfaceState,
-    (_event, workspaceId: string, input) => {
+    (_event, workspaceId: string, input: SaveWorkspaceSurfaceStateInput) => {
+      const snapshot = database.getSnapshot()
+      const currentRevision =
+        snapshot.workspaceSurfaceRevisions?.[workspaceId] ?? 0
+      if (
+        input.expectedRevision !== undefined &&
+        input.expectedRevision !== currentRevision
+      ) {
+        return {
+          code: 'stale-workspace-revision' as const,
+          currentRevision,
+          ok: false as const,
+          snapshot,
+          workspaceId,
+        }
+      }
       database.saveWorkspaceSurfaceState(workspaceId, input)
-      return database.getSnapshot()
+      const nextSnapshot = publishPersistenceSnapshot()
+      return {
+        ok: true as const,
+        snapshot: nextSnapshot,
+        workspaceId,
+        workspaceRevision:
+          nextSnapshot.workspaceSurfaceRevisions?.[workspaceId] ??
+          currentRevision + 1,
+      }
     },
   )
   ipcMain.handle(

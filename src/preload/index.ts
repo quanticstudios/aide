@@ -8,6 +8,7 @@ import type {
   ManagedSessionEvent,
 } from '../shared/managed-session'
 import type { PreviewNavigationReport } from '../shared/preview'
+import type { WorkspacePersistenceEvent } from '../shared/persistence'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   ManagedSessionMode,
@@ -107,6 +108,18 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.workspaceActivityEvent, listener)
+    }
+  },
+  onWorkspacePersistence: (
+    callback: (event: WorkspacePersistenceEvent) => void,
+  ) => {
+    const listener = (_event: unknown, payload: WorkspacePersistenceEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.workspacePersistenceEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.workspacePersistenceEvent, listener)
     }
   },
   probeExecutableCommand: (input: ExecutableProbeInput) =>

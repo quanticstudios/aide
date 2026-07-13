@@ -397,14 +397,6 @@ export default function SidebarTree({
     return result
   }, [workspaces])
 
-  const workspaceShortcutIndex = useMemo<Record<string, number>>(() => {
-    const map: Record<string, number> = {}
-    workspaces.forEach((workspace, index) => {
-      map[workspace.id] = index
-    })
-    return map
-  }, [workspaces])
-
   // ── Collapsed rail ──────────────────────────────
 
   if (!isExpanded) {
@@ -566,7 +558,7 @@ export default function SidebarTree({
                     aria-expanded={isProjectExpanded}
                     aria-label={`Toggle ${project.name} workspaces`}
                     className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover/project:text-foreground"
-                    onClick={toggleProject}
+                    onClick={() => onSelectProject(project.id)}
                     type="button"
                   >
                     <ChevronRight
@@ -592,6 +584,11 @@ export default function SidebarTree({
                     <span className="truncate text-sm font-semibold">
                       {project.name}
                     </span>
+                    {showProjectHints && projectIndex < 9 ? (
+                      <Kbd className="keycap ml-auto !h-4 !min-w-4 !px-1.5 !text-[9px] tabular-nums">
+                        {formatWorkspaceShortcutLabel(projectIndex + 1)}
+                      </Kbd>
+                    ) : null}
                     {attentionCount > 0 ? (
                       <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
                         {attentionCount}
@@ -744,16 +741,6 @@ export default function SidebarTree({
                                 {formatRelativeTime(workspace.updatedAt)}
                               </span>
                             )}
-                            {showProjectHints &&
-                            workspaceShortcutIndex[workspace.id] !==
-                              undefined &&
-                            workspaceShortcutIndex[workspace.id] < 9 ? (
-                              <Kbd className="keycap ml-auto !h-4 !min-w-4 !px-1.5 !text-[9px] tabular-nums">
-                                {formatWorkspaceShortcutLabel(
-                                  workspaceShortcutIndex[workspace.id] + 1,
-                                )}
-                              </Kbd>
-                            ) : null}
                           </div>
                         </button>
                       )

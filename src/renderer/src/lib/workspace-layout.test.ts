@@ -14,6 +14,7 @@ function createSnapshot(
   workspaceLayouts: Record<string, WorkspaceLayoutRecord>,
 ): PersistenceSnapshot {
   return {
+    catalogRevision: 0,
     databasePath: '.aide.sqlite3',
     lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: null,
@@ -22,7 +23,9 @@ function createSnapshot(
     migrationStrategy: 'test',
     schemaVersion: 4,
     projects: [],
+    workspaceLayoutRevisions: {},
     workspaceLayouts,
+    workspaceSurfaceRevisions: {},
     workspaces: [],
   }
 }

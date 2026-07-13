@@ -48,6 +48,7 @@ function createSnapshot(
   workspaces: WorkspaceRecord[],
 ): PersistenceSnapshot {
   return {
+    catalogRevision: 0,
     databasePath: '.aide.sqlite3',
     lastActivePaneIdsByWorkspace: {},
     lastActiveProjectId: null,
@@ -56,7 +57,9 @@ function createSnapshot(
     migrationStrategy: 'test',
     schemaVersion: 3,
     projects,
+    workspaceLayoutRevisions: {},
     workspaceLayouts: {},
+    workspaceSurfaceRevisions: {},
     workspaces,
   }
 }

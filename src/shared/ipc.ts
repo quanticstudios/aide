@@ -25,6 +25,8 @@ import type {
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
+  WorkspacePersistenceEvent,
+  WorkspacePersistenceResult,
 } from './persistence'
 import type {
   PreviewEvent,
@@ -70,6 +72,7 @@ export const IPC_CHANNELS = {
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
+  workspacePersistenceEvent: 'storage:persistence-event',
   managedSessionCreate: 'managed-session:create',
   managedSessionClose: 'managed-session:close',
   managedSessionEvent: 'managed-session:event',
@@ -143,11 +146,11 @@ export interface AideApi {
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
-  ) => Promise<PersistenceSnapshot>
+  ) => Promise<WorkspacePersistenceResult>
   saveWorkspaceSurfaceState: (
     workspaceId: string,
     input: SaveWorkspaceSurfaceStateInput,
-  ) => Promise<PersistenceSnapshot>
+  ) => Promise<WorkspacePersistenceResult>
   createTerminalSession: (
     input: TerminalSessionConfig,
   ) => Promise<TerminalSessionSnapshot>
@@ -164,6 +167,9 @@ export interface AideApi {
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   onWorkspaceActivity: (
     callback: (event: WorkspaceActivityEvent) => void,
+  ) => () => void
+  onWorkspacePersistence: (
+    callback: (event: WorkspacePersistenceEvent) => void,
   ) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
   closePreviewTab: (

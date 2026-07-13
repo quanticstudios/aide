@@ -47,6 +47,7 @@ function createWorkspace(
 
 function createSnapshot(): PersistenceSnapshot {
   return {
+    catalogRevision: 0,
     databasePath: '.aide.sqlite3',
     lastActivePaneIdsBySurface: {
       'workspace-b2:surface:terminal': 'terminal',
@@ -68,6 +69,7 @@ function createSnapshot(): PersistenceSnapshot {
       createProject('project-b', 'storefront'),
     ],
     surfaceLayouts: {},
+    workspaceLayoutRevisions: {},
     workspaceLayouts: {},
     workspaceSurfaces: {
       'workspace-a1': [
@@ -135,6 +137,7 @@ function createSnapshot(): PersistenceSnapshot {
         },
       ],
     },
+    workspaceSurfaceRevisions: {},
     workspaces: [
       createWorkspace('workspace-a1', 'project-a', 'nav'),
       createWorkspace('workspace-a2', 'project-a', 'review'),

@@ -2,33 +2,22 @@ import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
-import type { WorkspaceActivitySnapshot } from '../../../shared/workspace-activity'
-import { compareWorkspacesByAttentionTier } from '../../../shared/workspace-activity'
 
 /**
- * Compute the flat, ordered workspace list as displayed in the sidebar: for
- * each project (in project order), workspaces of that project sorted by
- * attention tier. This is the canonical order used for `Ctrl+1..Ctrl+9`
- * keycaps and the `workspace-jump` shortcut.
+ * Compute the persisted navigation order: project order followed by each
+ * project's workspace order. Runtime activity is display metadata and must
+ * never alter the spatial camera or shortcut sequence.
  */
 export function getOrderedWorkspaces(
   projects: readonly ProjectRecord[],
   workspaces: readonly WorkspaceRecord[],
-  resolveActivity: (workspaceId: string) => WorkspaceActivitySnapshot | null,
 ): WorkspaceRecord[] {
   const ordered: WorkspaceRecord[] = []
 
   for (const project of projects) {
-    const projectWorkspaces = workspaces
-      .filter((workspace) => workspace.projectId === project.id)
-      .sort((a, b) =>
-        compareWorkspacesByAttentionTier(
-          resolveActivity(a.id),
-          a.updatedAt,
-          resolveActivity(b.id),
-          b.updatedAt,
-        ),
-      )
+    const projectWorkspaces = workspaces.filter(
+      (workspace) => workspace.projectId === project.id,
+    )
 
     for (const workspace of projectWorkspaces) {
       ordered.push(workspace)
@@ -45,19 +34,18 @@ export function getOrderedWorkspaces(
 }
 
 /**
- * Resolve a `Ctrl/Cmd + digit` keypress to the nth workspace in the global
- * sidebar order. Mirrors what the sidebar tree shows: the first 9 workspaces
- * across projects get a `Ctrl+N` keycap.
+ * Resolve a Ctrl/Cmd + digit keypress to the nth persisted project. Selecting
+ * a project restores its remembered workspace, surface, and pane path.
  */
-export function resolveWorkspaceShortcutTarget(
-  workspaces: readonly WorkspaceRecord[],
+export function resolveProjectShortcutTarget(
+  projects: readonly ProjectRecord[],
   key: string,
-): WorkspaceRecord | null {
+): ProjectRecord | null {
   if (!/^[1-9]$/.test(key)) {
     return null
   }
 
   const index = Number(key) - 1
 
-  return workspaces[index] ?? null
+  return projects[index] ?? null
 }

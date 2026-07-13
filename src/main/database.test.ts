@@ -471,4 +471,33 @@ describe('createAideDatabase', () => {
     expect(database.getWorkspacePreviewState(workspace.id)).toBeNull()
     database.close()
   })
+
+  it('tracks catalog and per-workspace surface revisions', () => {
+    const database = createAideDatabase(':memory:')
+    const initialRevision = database.getSnapshot().catalogRevision
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+
+    database.saveWorkspaceSurfaceState(workspace.id, {
+      layouts: {},
+      surfaces: [],
+    })
+
+    const snapshot = database.getSnapshot()
+    expect(snapshot.catalogRevision).toBeGreaterThan(initialRevision ?? 0)
+    expect(snapshot.workspaceLayoutRevisions?.[workspace.id]).toBe(1)
+    expect(snapshot.workspaceSurfaceRevisions?.[workspace.id]).toBe(1)
+    database.close()
+  })
 })

@@ -41,6 +41,7 @@ interface SqlWorkspaceRow {
 }
 
 interface SqlAppStateRow {
+  catalog_revision: number
   last_active_project_id: string | null
   last_active_pane_ids_by_surface: string
   last_active_workspace_ids_by_project: string
@@ -51,12 +52,14 @@ interface SqlAppStateRow {
 
 interface SqlWorkspaceLayoutRow {
   nodes_json: string
+  revision: number
   root_node_id: string
   workspace_id: string
 }
 
 interface SqlWorkspaceSurfaceStateRow {
   layouts_json: string
+  revision: number
   surfaces_json: string
   workspace_id: string
 }
@@ -158,6 +161,10 @@ const MIGRATIONS = [
   {
     version: 6,
     sql: `
+      ALTER TABLE app_state ADD COLUMN catalog_revision INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE workspace_layouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE workspace_surface_states ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+
       CREATE TABLE IF NOT EXISTS workspace_preview_states (
         workspace_id TEXT PRIMARY KEY,
         active_tab_id TEXT,
@@ -256,6 +263,8 @@ export class AideDatabase {
         project.updatedAt,
       )
 
+    this.incrementCatalogRevision()
+
     return project
   }
 
@@ -269,7 +278,12 @@ export class AideDatabase {
       )
       .run(projectId) as { changes: number }
 
-    return result.changes > 0
+    if (result.changes > 0) {
+      this.incrementCatalogRevision()
+      return true
+    }
+
+    return false
   }
 
   public getProject(projectId: string): ProjectRecord | null {
@@ -292,7 +306,7 @@ export class AideDatabase {
         `
           SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
           FROM projects
-          ORDER BY created_at ASC
+          ORDER BY created_at ASC, id ASC
         `,
       )
       .all() as unknown as SqlProjectRow[]
@@ -354,6 +368,8 @@ export class AideDatabase {
         projectId,
       )
 
+    this.incrementCatalogRevision()
+
     return this.getProject(projectId)
   }
 
@@ -388,6 +404,8 @@ export class AideDatabase {
         workspace.updatedAt,
       )
 
+    this.incrementCatalogRevision()
+
     return workspace
   }
 
@@ -401,7 +419,12 @@ export class AideDatabase {
       )
       .run(workspaceId) as { changes: number }
 
-    return result.changes > 0
+    if (result.changes > 0) {
+      this.incrementCatalogRevision()
+      return true
+    }
+
+    return false
   }
 
   public getWorkspace(workspaceId: string): WorkspaceRecord | null {
@@ -424,7 +447,7 @@ export class AideDatabase {
         `
           SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
           FROM workspaces
-          ORDER BY created_at ASC
+          ORDER BY created_at ASC, id ASC
         `,
       )
       .all() as unknown as SqlWorkspaceRow[]
@@ -506,6 +529,8 @@ export class AideDatabase {
         workspaceId,
       )
 
+    this.incrementCatalogRevision()
+
     return this.getWorkspace(workspaceId)
   }
 
@@ -525,6 +550,8 @@ export class AideDatabase {
       ]),
     )
     const workspaceSurfaces: Record<string, WorkspaceSurfaceRecord[]> = {}
+    const workspaceLayoutRevisions: Record<string, number> = {}
+    const workspaceSurfaceRevisions: Record<string, number> = {}
     const surfaceLayouts: Record<string, SurfaceLayoutRecord> = {}
 
     for (const workspace of workspaces) {
@@ -533,6 +560,8 @@ export class AideDatabase {
 
       if (surfaceState) {
         workspaceSurfaces[workspace.id] = surfaceState.surfaces
+        workspaceLayoutRevisions[workspace.id] = surfaceState.revision
+        workspaceSurfaceRevisions[workspace.id] = surfaceState.revision
 
         for (const layout of Object.values(surfaceState.layouts)) {
           surfaceLayouts[layout.surfaceId] = layout
@@ -542,6 +571,9 @@ export class AideDatabase {
       }
 
       const legacyLayout = legacyWorkspaceLayouts[workspace.id]
+      workspaceLayoutRevisions[workspace.id] = this.getWorkspaceLayoutRevision(
+        workspace.id,
+      )
 
       if (
         !legacyLayout ||
@@ -569,6 +601,7 @@ export class AideDatabase {
     }
 
     return {
+      catalogRevision: this.getCatalogRevision(),
       databasePath: this.databasePath,
       lastActivePaneIdsBySurface: activeSelection.paneIdsBySurface ?? {},
       lastActivePaneIdsByWorkspace: activeSelection.paneIdsByWorkspace ?? {},
@@ -582,8 +615,10 @@ export class AideDatabase {
       schemaVersion: this.getSchemaVersion(),
       projects: this.listProjects(),
       surfaceLayouts,
+      workspaceLayoutRevisions,
       workspaceLayouts: legacyWorkspaceLayouts,
       workspaceSurfaces,
+      workspaceSurfaceRevisions,
       workspaces,
     }
   }
@@ -592,7 +627,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT workspace_id, root_node_id, nodes_json
+          SELECT workspace_id, root_node_id, nodes_json, revision
           FROM workspace_layouts
           WHERE workspace_id = ?
         `,
@@ -606,7 +641,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT workspace_id, root_node_id, nodes_json
+          SELECT workspace_id, root_node_id, nodes_json, revision
           FROM workspace_layouts
           ORDER BY workspace_id ASC
         `,
@@ -629,11 +664,12 @@ export class AideDatabase {
     this.database
       .prepare(
         `
-          INSERT INTO workspace_layouts (workspace_id, root_node_id, nodes_json, updated_at)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO workspace_layouts (workspace_id, root_node_id, nodes_json, revision, updated_at)
+          VALUES (?, ?, ?, 1, ?)
           ON CONFLICT(workspace_id) DO UPDATE SET
             root_node_id = excluded.root_node_id,
             nodes_json = excluded.nodes_json,
+            revision = workspace_layouts.revision + 1,
             updated_at = excluded.updated_at
         `,
       )
@@ -644,6 +680,7 @@ export class AideDatabase {
         new Date().toISOString(),
       )
 
+    this.incrementCatalogRevision()
     return this.getWorkspaceLayout(workspaceId)
   }
 
@@ -652,6 +689,7 @@ export class AideDatabase {
     input: SaveWorkspaceSurfaceStateInput,
   ): {
     layouts: Record<string, SurfaceLayoutRecord>
+    revision: number
     surfaces: WorkspaceSurfaceRecord[]
     workspaceId: string
   } | null {
@@ -690,11 +728,12 @@ export class AideDatabase {
     this.database
       .prepare(
         `
-          INSERT INTO workspace_surface_states (workspace_id, surfaces_json, layouts_json, updated_at)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO workspace_surface_states (workspace_id, surfaces_json, layouts_json, revision, updated_at)
+          VALUES (?, ?, ?, 1, ?)
           ON CONFLICT(workspace_id) DO UPDATE SET
             surfaces_json = excluded.surfaces_json,
             layouts_json = excluded.layouts_json,
+            revision = workspace_surface_states.revision + 1,
             updated_at = excluded.updated_at
         `,
       )
@@ -705,6 +744,7 @@ export class AideDatabase {
         new Date().toISOString(),
       )
 
+    this.incrementCatalogRevision()
     return this.getWorkspaceSurfaceState(workspaceId)
   }
 
@@ -784,6 +824,22 @@ export class AideDatabase {
     return row.user_version
   }
 
+  private getCatalogRevision(): number {
+    const row = this.database
+      .prepare('SELECT catalog_revision FROM app_state WHERE id = 1')
+      .get() as Pick<SqlAppStateRow, 'catalog_revision'> | undefined
+
+    return row?.catalog_revision ?? 0
+  }
+
+  private incrementCatalogRevision(): void {
+    this.database
+      .prepare(
+        'UPDATE app_state SET catalog_revision = catalog_revision + 1 WHERE id = 1',
+      )
+      .run()
+  }
+
   private getActiveSelection(): SetActiveSelectionInput {
     const row = this.database
       .prepare(
@@ -855,13 +911,14 @@ export class AideDatabase {
 
   private getWorkspaceSurfaceState(workspaceId: string): {
     layouts: Record<string, SurfaceLayoutRecord>
+    revision: number
     surfaces: WorkspaceSurfaceRecord[]
     workspaceId: string
   } | null {
     const row = this.database
       .prepare(
         `
-          SELECT workspace_id, surfaces_json, layouts_json
+          SELECT workspace_id, surfaces_json, layouts_json, revision
           FROM workspace_surface_states
           WHERE workspace_id = ?
         `,
@@ -871,15 +928,24 @@ export class AideDatabase {
     return row ? this.mapWorkspaceSurfaceStateRow(row) : null
   }
 
+  private getWorkspaceLayoutRevision(workspaceId: string): number {
+    const row = this.database
+      .prepare('SELECT revision FROM workspace_layouts WHERE workspace_id = ?')
+      .get(workspaceId) as Pick<SqlWorkspaceLayoutRow, 'revision'> | undefined
+
+    return row?.revision ?? 0
+  }
+
   private listWorkspaceSurfaceStates(): Array<{
     layouts: Record<string, SurfaceLayoutRecord>
+    revision: number
     surfaces: WorkspaceSurfaceRecord[]
     workspaceId: string
   }> {
     const rows = this.database
       .prepare(
         `
-          SELECT workspace_id, surfaces_json, layouts_json
+          SELECT workspace_id, surfaces_json, layouts_json, revision
           FROM workspace_surface_states
           ORDER BY workspace_id ASC
         `,
@@ -891,6 +957,7 @@ export class AideDatabase {
 
   private mapWorkspaceSurfaceStateRow(row: SqlWorkspaceSurfaceStateRow): {
     layouts: Record<string, SurfaceLayoutRecord>
+    revision: number
     surfaces: WorkspaceSurfaceRecord[]
     workspaceId: string
   } {
@@ -912,6 +979,7 @@ export class AideDatabase {
         }
         return acc
       }, {}),
+      revision: row.revision,
       surfaces: parsedSurfaces.map((surface) =>
         this.normalizeWorkspaceSurface(row.workspace_id, surface),
       ),

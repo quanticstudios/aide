@@ -69,6 +69,7 @@ export interface SurfaceLayoutRecord extends WorkspaceLayoutRecord {
 }
 
 export interface PersistenceSnapshot {
+  catalogRevision: number
   databasePath: string
   lastActivePaneIdsByWorkspace: Record<string, string | null>
   lastActivePaneIdsBySurface?: Record<string, string | null>
@@ -80,7 +81,9 @@ export interface PersistenceSnapshot {
   schemaVersion: number
   projects: ProjectRecord[]
   surfaceLayouts?: Record<string, SurfaceLayoutRecord>
+  workspaceLayoutRevisions: Record<string, number>
   workspaceLayouts: Record<string, WorkspaceLayoutRecord>
+  workspaceSurfaceRevisions: Record<string, number>
   workspaceSurfaces?: Record<string, WorkspaceSurfaceRecord[]>
   workspaces: WorkspaceRecord[]
 }
@@ -125,19 +128,45 @@ export interface UpdateWorkspaceInput {
 }
 
 export interface SaveWorkspaceLayoutInput {
+  expectedRevision?: number
   nodes: PersistedLayoutNode[]
   rootNodeId: string
 }
 
 export interface SaveWorkspaceSurfaceStateInput {
+  expectedRevision?: number
   layouts: Record<string, SaveWorkspaceLayoutInput>
   surfaces: WorkspaceSurfaceRecord[]
+}
+
+export interface WorkspacePersistenceSuccess {
+  ok: true
+  snapshot: PersistenceSnapshot
+  workspaceId: string
+  workspaceRevision: number
+}
+
+export interface WorkspacePersistenceConflict {
+  code: 'stale-workspace-revision'
+  currentRevision: number
+  ok: false
+  snapshot: PersistenceSnapshot
+  workspaceId: string
+}
+
+export type WorkspacePersistenceResult =
+  | WorkspacePersistenceConflict
+  | WorkspacePersistenceSuccess
+
+export interface WorkspacePersistenceEvent {
+  snapshot: PersistenceSnapshot
 }
 
 export function createEmptyPersistenceSnapshot(
   databasePath = '.aide.sqlite3',
 ): PersistenceSnapshot {
   return {
+    catalogRevision: 0,
     databasePath,
     lastActivePaneIdsBySurface: {},
     lastActivePaneIdsByWorkspace: {},
@@ -149,8 +178,10 @@ export function createEmptyPersistenceSnapshot(
     schemaVersion: 0,
     projects: [],
     surfaceLayouts: {},
+    workspaceLayoutRevisions: {},
     workspaceLayouts: {},
     workspaceSurfaces: {},
+    workspaceSurfaceRevisions: {},
     workspaces: [],
   }
 }
