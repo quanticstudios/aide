@@ -125,7 +125,10 @@ async function createWorkspace(
   },
 ): Promise<void> {
   await expandSidebar(page)
-  await page.getByRole('button', { name: /new workspace/i }).click()
+  await page
+    .getByRole('button', { name: /new workspace/i })
+    .last()
+    .click()
   await page.getByLabel('Workspace name').fill(input.name)
   await page.getByLabel('Branch name').fill(input.branchName)
   await page
@@ -176,6 +179,7 @@ async function expectRestingViewportClean(page: Page): Promise<void> {
 
 test.describe('electron spatial navigation', () => {
   let app: ElectronApplication | null = null
+  let additionalRepoRoots: string[] = []
   let importedRepoRoot: string | null = null
   let tempDirectory: string | null = null
 
@@ -184,10 +188,14 @@ test.describe('electron spatial navigation', () => {
     if (importedRepoRoot) {
       rmSync(importedRepoRoot, { force: true, recursive: true })
     }
+    for (const repoRoot of additionalRepoRoots) {
+      rmSync(repoRoot, { force: true, recursive: true })
+    }
     if (tempDirectory) {
       rmSync(tempDirectory, { force: true, recursive: true })
     }
     app = null
+    additionalRepoRoots = []
     importedRepoRoot = null
     tempDirectory = null
   })
@@ -333,6 +341,81 @@ test.describe('electron spatial navigation', () => {
       'Workspace 2',
     )
     await expectRestingViewportClean(page)
+  })
+
+  test('keeps camera navigation project-scoped and restores project selections', async () => {
+    const firstProjectRoot = createGitRepository()
+    const secondProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATHS: [firstProjectRoot, secondProjectRoot].join(
+        path.delimiter,
+      ),
+    })
+    app = launched.app
+    importedRepoRoot = firstProjectRoot
+    additionalRepoRoots.push(secondProjectRoot)
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    await importProject(page)
+    await createWorkspace(page, {
+      branchName: 'alpha-feature',
+      name: 'Alpha Feature',
+    })
+
+    await page.getByRole('button', { name: /add repository/i }).click()
+    await expect(
+      page.locator('[data-testid^="project-rail-button-"]'),
+    ).toHaveCount(2)
+    await createWorkspace(page, {
+      branchName: 'beta-feature',
+      name: 'Beta Feature',
+    })
+
+    await page.keyboard.press('Control+1')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Alpha Feature',
+    )
+    await page.keyboard.press('Alt+j')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+
+    await page.keyboard.press('Control+2')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Beta Feature',
+    )
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          altKey: true,
+          bubbles: true,
+          code: 'Space',
+          key: ' ',
+        }),
+      )
+    })
+    const switcher = page.locator(
+      '[data-testid="workspace-switcher-overlay"][data-mode="workspace-switcher"]',
+    )
+    await expect(switcher).toBeVisible()
+    await expect(
+      switcher.getByRole('option', { name: /beta feature/i }),
+    ).toBeVisible()
+    await expect(
+      switcher.getByRole('option', { name: /alpha feature/i }),
+    ).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    await page.keyboard.press('Control+Tab')
+    const overview = page.locator(
+      '[data-testid="workspace-switcher-overlay"][data-mode="overview"]',
+    )
+    await expect(
+      overview.getByRole('option', { name: /alpha feature/i }),
+    ).toBeVisible()
+    await expect(
+      overview.getByRole('option', { name: /beta feature/i }),
+    ).toBeVisible()
   })
 
   test('opens overview with Ctrl+Tab and jumps to another workspace', async () => {

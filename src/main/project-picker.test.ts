@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import { pickProjectRoot } from './project-picker'
@@ -24,6 +26,33 @@ describe('pickProjectRoot', () => {
         delete process.env.AIDE_TEST_PROJECT_PICK_PATH
       } else {
         process.env.AIDE_TEST_PROJECT_PICK_PATH = previousTestPath
+      }
+    }
+  })
+
+  it('consumes configured test paths in order', async () => {
+    const browserWindow = {} as never
+    const dialogModule = { showOpenDialog: vi.fn() }
+    const previousTestPaths = process.env.AIDE_TEST_PROJECT_PICK_PATHS
+    process.env.AIDE_TEST_PROJECT_PICK_PATHS = [
+      '/tmp/aide-first',
+      '/tmp/aide-second',
+    ].join(path.delimiter)
+
+    try {
+      await expect(pickProjectRoot(browserWindow, dialogModule)).resolves.toBe(
+        '/tmp/aide-first',
+      )
+      await expect(pickProjectRoot(browserWindow, dialogModule)).resolves.toBe(
+        '/tmp/aide-second',
+      )
+      expect(dialogModule.showOpenDialog).not.toHaveBeenCalled()
+    } finally {
+      if (previousTestPaths === undefined) {
+        // biome-ignore lint/performance/noDelete: process.env keys must be removed rather than assigned the string "undefined"
+        delete process.env.AIDE_TEST_PROJECT_PICK_PATHS
+      } else {
+        process.env.AIDE_TEST_PROJECT_PICK_PATHS = previousTestPaths
       }
     }
   })

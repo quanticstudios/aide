@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 
 interface OpenDialogResult {
@@ -17,6 +19,18 @@ export async function pickProjectRoot(
   dialogModule: DialogModuleLike,
   defaultPath?: string | null,
 ): Promise<string | null> {
+  const testPaths = process.env.AIDE_TEST_PROJECT_PICK_PATHS?.split(
+    path.delimiter,
+  ).filter(Boolean)
+
+  if (testPaths?.length) {
+    const [testPath, ...remainingPaths] = testPaths
+    process.env.AIDE_TEST_PROJECT_PICK_PATHS = remainingPaths.join(
+      path.delimiter,
+    )
+    return testPath ?? null
+  }
+
   const testPath = process.env.AIDE_TEST_PROJECT_PICK_PATH?.trim()
 
   if (testPath) {
