@@ -19,7 +19,16 @@ This repo uses multiple test entrypoints on purpose.
 
 - `xvfb-run -a bun run test:e2e`
   - Runs the headless Electron Playwright suite.
+  - The Electron launch helper sets `AIDE_SOFTWARE_RENDERING=1` so headless CI
+    uses the same explicit software fallback available to support.
   - Use this for desktop navigation behavior and Electron-only regressions.
+
+## Linux software-rendering fallback
+
+Linux desktop launches use hardware acceleration and Electron's GPU sandbox by
+default. To collect a deterministic software-rendering diagnostic run, start
+Aide with `AIDE_SOFTWARE_RENDERING=1` or pass `--aide-software-rendering`.
+The runtime snapshot reports the selected rendering mode and its source.
 
 ## Expected usage
 

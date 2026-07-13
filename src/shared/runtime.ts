@@ -6,6 +6,8 @@ export interface RuntimeSnapshot {
   nodeVersion: string
   platform: NodeJS.Platform
   arch: NodeJS.Architecture
+  renderingMode: 'hardware' | 'software'
+  renderingModeSource: 'command-line' | 'default' | 'environment'
   workingDirectory: string
 }
 
@@ -39,5 +41,5 @@ export function formatPlatformLabel(
 }
 
 export function formatRuntimeSummary(snapshot: RuntimeSnapshot): string {
-  return `${snapshot.appName} ${snapshot.appVersion} on ${formatPlatformLabel(snapshot.platform, snapshot.arch)} using Electron ${snapshot.electronVersion}`
+  return `${snapshot.appName} ${snapshot.appVersion} on ${formatPlatformLabel(snapshot.platform, snapshot.arch)} using Electron ${snapshot.electronVersion} with ${snapshot.renderingMode} rendering (${snapshot.renderingModeSource})`
 }

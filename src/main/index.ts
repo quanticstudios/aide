@@ -36,6 +36,10 @@ import { ManagedSessionManager } from './managed-session-manager'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
+import {
+  applyRenderingConfiguration,
+  resolveRenderingConfiguration,
+} from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 
@@ -127,16 +131,12 @@ async function shutdownRuntime(): Promise<void> {
 app.setName('aide')
 app.setAppUserModelId('aide')
 
-if (process.platform === 'linux') {
-  process.env.LIBGL_ALWAYS_SOFTWARE ??= '1'
-  process.env.MESA_LOADER_DRIVER_OVERRIDE ??= 'llvmpipe'
-  app.disableHardwareAcceleration()
-  app.commandLine.appendSwitch('disable-gpu')
-  app.commandLine.appendSwitch('disable-gpu-compositing')
-  app.commandLine.appendSwitch('disable-gpu-sandbox')
-  app.commandLine.appendSwitch('use-angle', 'swiftshader')
-  app.commandLine.appendSwitch('use-gl', 'swiftshader')
-}
+const renderingConfiguration = resolveRenderingConfiguration({
+  argv: process.argv,
+  env: process.env,
+  platform: process.platform,
+})
+applyRenderingConfiguration(app, renderingConfiguration, process.env)
 
 function createRuntimeSnapshot(): RuntimeSnapshot {
   return {
@@ -146,6 +146,8 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
     electronVersion: process.versions.electron,
     nodeVersion: process.versions.node,
     platform: process.platform,
+    renderingMode: renderingConfiguration.mode,
+    renderingModeSource: renderingConfiguration.source,
     arch: process.arch,
     workingDirectory: process.cwd(),
   }

@@ -80,8 +80,7 @@ async function launchAideApp(
       XDG_SESSION_TYPE: 'x11',
       ELECTRON_OZONE_PLATFORM_HINT: 'x11',
       OZONE_PLATFORM: 'x11',
-      LIBGL_ALWAYS_SOFTWARE: '1',
-      MESA_LOADER_DRIVER_OVERRIDE: 'llvmpipe',
+      AIDE_SOFTWARE_RENDERING: '1',
     },
   })
 
