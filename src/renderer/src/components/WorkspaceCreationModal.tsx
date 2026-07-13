@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import type { ProjectRefRecord } from '../../../shared/git'
 import type { ProjectRecord } from '../../../shared/persistence'
+import { shouldResetWorkspaceCreationDraft } from '../lib/prop-change-state'
 import { cn } from '../lib/utils'
 import {
   buildDefaultWorktreePath,
@@ -81,12 +82,20 @@ export default function WorkspaceCreationModal({
   const [rootName, setRootName] = useState('')
   const [rootBranch, setRootBranch] = useState<string | null>(null)
   const [isDetectingRoot, setIsDetectingRoot] = useState(false)
+  const [previousOpenProjectId, setPreviousOpenProjectId] = useState<
+    string | null
+  >(null)
 
-  useEffect(() => {
-    if (!defaults || !isOpen || !project) {
-      return
-    }
-
+  if (!isOpen && previousOpenProjectId !== null) {
+    setPreviousOpenProjectId(null)
+  } else if (
+    project &&
+    defaults &&
+    shouldResetWorkspaceCreationDraft(previousOpenProjectId, project.id, isOpen)
+  ) {
+    // Reset during render so a newly opened or switched project never commits
+    // the previous project's draft before the replacement state is applied.
+    setPreviousOpenProjectId(project.id)
     setMode('create')
     setName(defaults.name)
     setBranchName(defaults.branchName)
@@ -97,7 +106,7 @@ export default function WorkspaceCreationModal({
     setWorktreeDirty(false)
     setRootName(basenameOf(project.repoRoot))
     setRootBranch(null)
-  }, [defaults, isOpen, project])
+  }
 
   useEffect(() => {
     if (!isOpen || !project || mode !== 'create') {
