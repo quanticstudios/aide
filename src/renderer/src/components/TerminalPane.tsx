@@ -2,6 +2,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from 'xterm'
 
+import 'xterm/css/xterm.css'
+
 import type { AideApi } from '../../../shared/ipc'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import { shouldBlockTerminalShortcutInput } from '../../../shared/shortcuts'

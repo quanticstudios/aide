@@ -19,6 +19,7 @@
     "test:e2e": "bun run build && env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK XDG_SESSION_TYPE=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 OZONE_PLATFORM=x11 xvfb-run -a playwright test --config=playwright.electron.config.ts",
     "test:watch": "vitest",
     "check": "biome check . --assist-enabled=false",
+    "check:bundle": "node scripts/renderer-bundle-budget.mjs out/renderer",
     "format": "biome format --write .",
     "doctor": "react-doctor .",
     "rebuild:native": "node scripts/rebuild-native.mjs",

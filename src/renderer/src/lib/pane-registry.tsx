@@ -1,19 +1,16 @@
-import type { ReactNode } from 'react'
+import { lazy, type ReactNode } from 'react'
 
 import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
-import GitPane from '../components/GitPane'
-import ManagedAgentPane from '../components/ManagedAgentPane'
+import { PaneLoadBoundary } from '../components/PaneLoadBoundary'
 import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
 import type {
   PreviewBrowserControl,
   PreviewPresentation,
 } from '../components/PreviewBrowserHost'
-import PreviewPane from '../components/PreviewPane'
-import TerminalPane from '../components/TerminalPane'
 import {
   type ResolvedPaneMetadata,
   createFallbackPaneMetadata,
@@ -23,6 +20,13 @@ import {
   resolvePaneType,
   resolveTerminalLaunchModeForPaneId,
 } from './pane-catalog'
+
+const LazyGitPane = lazy(() => import('../components/GitPane'))
+const LazyManagedAgentPane = lazy(
+  () => import('../components/ManagedAgentPane'),
+)
+const LazyPreviewPane = lazy(() => import('../components/PreviewPane'))
+const LazyTerminalPane = lazy(() => import('../components/TerminalPane'))
 
 interface PaneRenderArgs {
   activePaneId: string | null
@@ -60,33 +64,57 @@ const placeholderRenderer = (args: PaneRenderArgs): ReactNode => (
 
 const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
   resolveTerminalLaunchModeForPaneId(args.pane.id) === 'shell' ? (
-    <TerminalPane paneId={args.pane.id} workspace={args.workspace} />
+    <PaneLoadBoundary
+      key={args.pane.id}
+      paneId={args.pane.id}
+      paneName={args.pane.label}
+    >
+      <LazyTerminalPane paneId={args.pane.id} workspace={args.workspace} />
+    </PaneLoadBoundary>
   ) : (
-    <ManagedAgentPane paneId={args.pane.id} workspace={args.workspace} />
+    <PaneLoadBoundary
+      key={args.pane.id}
+      paneId={args.pane.id}
+      paneName={args.pane.label}
+    >
+      <LazyManagedAgentPane paneId={args.pane.id} workspace={args.workspace} />
+    </PaneLoadBoundary>
   )
 
 const previewRenderer = (args: PaneRenderArgs): ReactNode =>
   args.pane.id === args.activePaneId ? (
-    <PreviewPane
-      onBrowserControl={args.onPreviewBrowserControl}
-      onCloseTab={(tabId) => args.onPreviewCloseTab(args.workspace, tabId)}
-      onNavigate={(tabId, url) =>
-        args.onPreviewNavigate(args.workspace, tabId, url)
-      }
-      onOpenTab={(url) => args.onPreviewOpenTab(args.workspace, url)}
-      onPresentationChange={args.onPreviewPresentationChange}
-      onSelectTab={(tabId) => args.onPreviewSelectTab(args.workspace, tabId)}
-      snapshot={args.previewSnapshot}
-    />
+    <PaneLoadBoundary
+      key={args.pane.id}
+      paneId={args.pane.id}
+      paneName={args.pane.label}
+    >
+      <LazyPreviewPane
+        onBrowserControl={args.onPreviewBrowserControl}
+        onCloseTab={(tabId) => args.onPreviewCloseTab(args.workspace, tabId)}
+        onNavigate={(tabId, url) =>
+          args.onPreviewNavigate(args.workspace, tabId, url)
+        }
+        onOpenTab={(url) => args.onPreviewOpenTab(args.workspace, url)}
+        onPresentationChange={args.onPreviewPresentationChange}
+        onSelectTab={(tabId) => args.onPreviewSelectTab(args.workspace, tabId)}
+        snapshot={args.previewSnapshot}
+      />
+    </PaneLoadBoundary>
   ) : (
     placeholderRenderer(args)
   )
 
 const gitRenderer = (args: PaneRenderArgs): ReactNode => (
-  <GitPane
-    isActive={args.pane.id === args.activePaneId}
-    workspace={args.workspace}
-  />
+  <PaneLoadBoundary
+    key={args.pane.id}
+    paneId={args.pane.id}
+    paneName={args.pane.label}
+  >
+    <LazyGitPane
+      isActive={args.pane.id === args.activePaneId}
+      workspace={args.workspace}
+    />
+  </PaneLoadBoundary>
 )
 
 const paneRegistryEntries = listAllPaneCatalogEntries().map((entry) => ({
