@@ -7,8 +7,8 @@ import type {
   ManagedSessionDecision,
   ManagedSessionEvent,
 } from '../shared/managed-session'
-import type { PreviewNavigationReport } from '../shared/preview'
 import type { WorkspacePersistenceEvent } from '../shared/persistence'
+import type { PreviewNavigationReport } from '../shared/preview'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   ManagedSessionMode,
@@ -37,6 +37,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
+  getWorkspacePreviewSnapshots: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshots),
   getWorkspaceActivitySnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceActivitySnapshot),
   importProject: (repoPath: string) =>

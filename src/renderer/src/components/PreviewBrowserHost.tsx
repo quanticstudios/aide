@@ -36,6 +36,7 @@ interface PreviewWebviewElement extends HTMLElement {
 interface PreviewGuestProps {
   readonly isVisible: boolean
   readonly presentation: PreviewPresentation | null
+  readonly revision: number
   readonly setWebview: (webview: PreviewWebviewElement | null) => void
   readonly tab: WorkspacePreviewSnapshot['tabs'][number]
   readonly workspaceId: string
@@ -68,6 +69,7 @@ function getPresentationStyle(
 function PreviewGuest({
   isVisible,
   presentation,
+  revision,
   setWebview,
   tab,
   workspaceId,
@@ -86,6 +88,7 @@ function PreviewGuest({
         canGoBack: webview?.canGoBack() ?? false,
         canGoForward: webview?.canGoForward() ?? false,
         error,
+        expectedRevision: revision,
         status,
         tabId: tab.id,
         title: webview?.getTitle() || null,
@@ -93,7 +96,7 @@ function PreviewGuest({
         workspaceId,
       })
     },
-    [tab.id, tab.url, workspaceId],
+    [revision, tab.id, tab.url, workspaceId],
   )
 
   useEffect(() => {
@@ -106,10 +109,13 @@ function PreviewGuest({
         errorDescription?: string
       }
       if (detail.errorCode !== -3) {
-        report('failed', detail.errorDescription ?? 'Preview failed to load.')
+        report(
+          'load-failed',
+          detail.errorDescription ?? 'Preview failed to load.',
+        )
       }
     }
-    const reportReady = () => report('ready')
+    const reportReady = () => report('success')
     const reportLoading = () => report('loading')
 
     webview.addEventListener('did-fail-load', reportFailure)
@@ -188,6 +194,7 @@ export default function PreviewBrowserHost({
               key={key}
               isVisible={isVisible}
               presentation={presentation}
+              revision={snapshot.revision}
               setWebview={(node) => {
                 if (node) {
                   webviewsRef.current.set(key, node)

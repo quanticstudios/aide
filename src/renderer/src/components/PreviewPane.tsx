@@ -193,9 +193,15 @@ export default function PreviewPane({
 
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md border border-border bg-background">
         <div className="h-full w-full" ref={browserSlotRef} />
-        {activeTab?.navStatus === 'failed' ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/90 p-6 text-center text-sm text-muted-foreground">
-            {activeTab.error || 'The local preview could not be loaded.'}
+        {activeTab?.navStatus === 'loading' ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 animate-pulse bg-accent-blue" />
+        ) : null}
+        {activeTab?.navStatus === 'load-failed' ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/90 p-6 text-center text-sm text-muted-foreground">
+            <p>{activeTab.error || 'The local preview could not be loaded.'}</p>
+            <Button onPress={() => onBrowserControl('reload')} size="sm">
+              Retry
+            </Button>
           </div>
         ) : null}
       </div>

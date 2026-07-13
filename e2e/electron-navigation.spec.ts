@@ -55,13 +55,15 @@ async function launchAideApp(
   envOverrides: Record<string, string> = {},
   options: {
     expectActivePane?: boolean
+    tempDirectory?: string
   } = {},
 ): Promise<{
   app: ElectronApplication
   page: Page
   tempDirectory: string
 }> {
-  const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-electron-'))
+  const tempDirectory =
+    options.tempDirectory ?? mkdtempSync(path.join(tmpdir(), 'aide-electron-'))
   const app = await electron.launch({
     args: [workspaceDir],
     executablePath: path.join(
@@ -200,12 +202,27 @@ test.describe('electron spatial navigation', () => {
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
+    const consoleErrors: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        consoleErrors.push(message.text())
+      }
+    })
 
     await importProject(page)
 
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
     ).toHaveCount(1)
+    await expect(
+      page.locator(
+        ':is(button, a[href], input, select, textarea, [role="button"], [role="link"]) :is(button, a[href], input, select, textarea, [role="button"], [role="link"])',
+      ),
+    ).toHaveCount(0)
+    await expect(
+      page.locator('button:not([aria-label])').filter({ hasText: /^\s*$/ }),
+    ).toHaveCount(0)
+    expect(consoleErrors).toEqual([])
   })
 
   test('adds panes as full-size destinations and keeps siblings off-screen', async () => {
@@ -523,7 +540,7 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
-  test('stores multiple preview targets per workspace and switches the active target', async () => {
+  test('restores durable preview tabs and active selection after app relaunch', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
@@ -543,24 +560,36 @@ test.describe('electron spatial navigation', () => {
 
     const targetInput = page.getByRole('textbox', { name: 'Preview target' })
     await targetInput.fill('localhost:3000')
-    await page.getByRole('button', { name: /load preview/i }).click()
+    await page
+      .getByRole('button', { name: 'Load preview', exact: true })
+      .click()
 
     await expect(page.getByTestId('preview-active-target')).toHaveText(
       'http://localhost:3000',
     )
-    await expect(
-      page.getByTestId('preview-target-preview:http://127.0.0.1:4173'),
-    ).toBeVisible()
-    await expect(
-      page.getByTestId('preview-target-preview:http://localhost:3000'),
-    ).toBeVisible()
+    const previewTabs = page.locator('[data-testid^="preview-target-"]')
+    await expect(previewTabs).toHaveCount(2)
 
-    await page
-      .getByTestId('preview-target-preview:http://127.0.0.1:4173')
-      .click()
+    await previewTabs.first().click()
     await expect(page.getByTestId('preview-active-target')).toHaveText(
       'http://127.0.0.1:4173',
     )
+
+    await app.close()
+    app = null
+
+    const relaunched = await launchAideApp(
+      {},
+      { expectActivePane: true, tempDirectory: launched.tempDirectory },
+    )
+    app = relaunched.app
+
+    await expect(
+      relaunched.page.locator('[data-testid^="preview-target-"]'),
+    ).toHaveCount(2)
+    await expect(
+      relaunched.page.getByTestId('preview-active-target'),
+    ).toHaveText('http://127.0.0.1:4173')
   })
 
   test('shows an inline error when the chosen folder is not a git repo', async () => {

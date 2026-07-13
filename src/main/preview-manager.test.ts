@@ -32,11 +32,20 @@ function createWorkspaceDatabase() {
 describe('PreviewManager', () => {
   it('creates the default tab once and preserves an initialized empty state', () => {
     const { database, firstWorkspace } = createWorkspaceDatabase()
-    const manager = new PreviewManager(database)
+    const manager = new PreviewManager(database, {
+      getNow: () => '2026-07-13T10:00:00.000Z',
+    })
 
     const initial = manager.ensure(firstWorkspace.id)
     expect(initial.tabs).toHaveLength(1)
-    expect(initial.tabs[0]?.url).toBe('http://127.0.0.1:4173')
+    expect(initial.tabs[0]).toMatchObject({
+      updatedAt: '2026-07-13T10:00:00.000Z',
+      url: 'http://127.0.0.1:4173',
+      workspaceId: firstWorkspace.id,
+    })
+    expect(initial.tabs[0]?.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
 
     manager.closeTab(firstWorkspace.id, initial.tabs[0]?.id ?? '')
     const empty = manager.ensure(firstWorkspace.id)
@@ -85,13 +94,43 @@ describe('PreviewManager', () => {
       manager.reportNavigation({
         canGoBack: false,
         canGoForward: false,
-        status: 'ready',
+        expectedRevision: snapshot.revision,
+        status: 'success',
         tabId,
         url: 'https://example.com',
         workspaceId: firstWorkspace.id,
       }),
     ).toThrow(/loopback/)
     expect(manager.ensure(firstWorkspace.id).revision).toBe(snapshot.revision)
+    database.close()
+  })
+
+  it('lists durable workspace snapshots and ignores stale guest navigation', () => {
+    const { database, firstWorkspace, secondWorkspace } =
+      createWorkspaceDatabase()
+    const manager = new PreviewManager(database)
+    const initial = manager.ensure(firstWorkspace.id)
+    const tabId = initial.tabs[0]?.id ?? ''
+    const navigated = manager.navigate(
+      firstWorkspace.id,
+      tabId,
+      'http://localhost:3000/current',
+    )
+
+    const stale = manager.reportNavigation({
+      canGoBack: false,
+      canGoForward: false,
+      expectedRevision: initial.revision,
+      status: 'success',
+      tabId,
+      url: initial.tabs[0]?.url ?? '',
+      workspaceId: firstWorkspace.id,
+    })
+    const restored = new PreviewManager(database).list()
+
+    expect(stale).toEqual(navigated)
+    expect(restored[firstWorkspace.id]).toEqual(navigated)
+    expect(restored[secondWorkspace.id]).toBeUndefined()
     database.close()
   })
 })

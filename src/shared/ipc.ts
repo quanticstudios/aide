@@ -29,8 +29,8 @@ import type {
   WorkspacePersistenceResult,
 } from './persistence'
 import type {
-  PreviewEvent,
   PreviewNavigationReport,
+  WorkspacePreviewEvent,
   WorkspacePreviewSnapshot,
 } from './preview'
 import type { RuntimeSnapshot } from './runtime'
@@ -69,6 +69,7 @@ export const IPC_CHANNELS = {
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
+  getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
@@ -134,15 +135,16 @@ export interface AideApi {
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
-  getWorkspaceActivitySnapshot: () => Promise<
-    Record<string, WorkspaceActivityCollectionSnapshot>
-  >
+  getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
   getWorkspacePreviewSnapshot: (
     workspaceId: string,
   ) => Promise<WorkspacePreviewSnapshot>
+  getWorkspacePreviewSnapshots: () => Promise<
+    Record<string, WorkspacePreviewSnapshot>
+  >
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
@@ -163,7 +165,9 @@ export interface AideApi {
   onManagedSessionEvent: (
     callback: (event: ManagedSessionEvent) => void,
   ) => () => void
-  onPreviewEvent: (callback: (event: PreviewEvent) => void) => () => void
+  onPreviewEvent: (
+    callback: (event: WorkspacePreviewEvent) => void,
+  ) => () => void
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   onWorkspaceActivity: (
     callback: (event: WorkspaceActivityEvent) => void,

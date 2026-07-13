@@ -40,6 +40,7 @@ import { TerminalSessionManager } from './terminal-session-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PREVIEW_PARTITION = 'persist:aide-preview'
 
 let database: ReturnType<typeof createAideDatabase>
 let gitWorkspaceService: GitWorkspaceService
@@ -115,8 +116,8 @@ async function shutdownRuntime(): Promise<void> {
   shutdownInProgress = true
   try {
     await managedSessionManager.closeAll(2_000)
+    await terminalSessionManager.closeAll(1_000)
   } finally {
-    terminalSessionManager.killAll()
     database.close()
     shutdownComplete = true
     shutdownInProgress = false
@@ -171,14 +172,21 @@ function createMainWindow(): BrowserWindow {
   window.webContents.on(
     'will-attach-webview',
     (event, webPreferences, params) => {
-      if (!params.src || !isAllowedPreviewUrl(params.src)) {
+      if (
+        !params.src ||
+        !isAllowedPreviewUrl(params.src) ||
+        (params.partition !== undefined &&
+          params.partition !== PREVIEW_PARTITION)
+      ) {
         event.preventDefault()
         return
       }
 
       // biome-ignore lint/performance/noDelete: remove untrusted renderer preload
       delete params.preload
-      params.partition = 'persist:aide-preview'
+      // biome-ignore lint/performance/noDelete: remove untrusted guest preload
+      delete webPreferences.preload
+      params.partition = PREVIEW_PARTITION
       params.allowpopups = 'false'
       webPreferences.contextIsolation = true
       webPreferences.nodeIntegration = false
@@ -268,6 +276,7 @@ function registerIpcHandlers(): void {
     const snapshot = database.getSnapshot()
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.workspacePersistenceEvent, {
+        revision: snapshot.catalogRevision,
         snapshot,
       })
     }
@@ -284,6 +293,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.getWorkspacePreviewSnapshot,
     (_event, workspaceId) => previewManager.ensure(workspaceId),
+  )
+  ipcMain.handle(IPC_CHANNELS.getWorkspacePreviewSnapshots, () =>
+    previewManager.list(),
   )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
   ipcMain.handle(
@@ -374,9 +386,7 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.setActiveSelection,
     (_event, input: SetActiveSelectionInput) => {
       database.setActiveSelection(input)
-      if (input.workspaceId) {
-        workspaceActivityService.markWorkspaceVisited(input.workspaceId)
-      }
+      workspaceActivityService.setVisibleWorkspace(input.workspaceId)
     },
   )
   ipcMain.handle(

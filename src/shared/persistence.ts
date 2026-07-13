@@ -159,6 +159,7 @@ export type WorkspacePersistenceResult =
   | WorkspacePersistenceSuccess
 
 export interface WorkspacePersistenceEvent {
+  revision: number
   snapshot: PersistenceSnapshot
 }
 

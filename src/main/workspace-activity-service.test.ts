@@ -46,7 +46,9 @@ describe('WorkspaceActivityService', () => {
       }),
     )
 
-    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1']?.[0],
+    ).toMatchObject({
       source: 'managed',
       state: 'pending-approval',
     })
@@ -65,7 +67,9 @@ describe('WorkspaceActivityService', () => {
       snapshot({ revision: 99, runtimeGeneration: 0, sessionState: 'ready' }),
     )
 
-    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1']?.[0],
+    ).toMatchObject({
       state: 'working',
     })
   })
@@ -81,7 +85,9 @@ describe('WorkspaceActivityService', () => {
       }),
     )
 
-    expect(service.getSnapshot()['workspace-1']?.activities).toEqual([])
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1'],
+    ).toBeUndefined()
   })
 
   it('surfaces errors newer than the persisted visit watermark', () => {
@@ -100,7 +106,9 @@ describe('WorkspaceActivityService', () => {
       }),
     )
 
-    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1']?.[0],
+    ).toMatchObject({
       state: 'error',
     })
   })
@@ -126,7 +134,9 @@ describe('WorkspaceActivityService', () => {
       'workspace-1',
       '2026-04-06T12:01:00.000Z',
     )
-    expect(service.getSnapshot()['workspace-1']?.activities).toEqual([])
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1'],
+    ).toBeUndefined()
   })
 
   it('publishes revisioned collections and gives plan-ready its own state', () => {
@@ -136,15 +146,76 @@ describe('WorkspaceActivityService', () => {
     })
 
     service.handleManagedSessionSnapshot(
-      snapshot({ interactionMode: 'plan', revision: 3 }),
+      snapshot({
+        interactionMode: 'plan',
+        planApproval: { detail: 'Apply the plan', id: 'plan-1' },
+        revision: 3,
+      }),
     )
 
-    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+    expect(service.getSnapshot()).toMatchObject({
       revision: 1,
-      activities: [{ state: 'plan-ready' }],
+      activitiesByWorkspace: {
+        'workspace-1': [{ state: 'plan-ready' }],
+      },
     })
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ revision: 1 })
+  })
+
+  it('does not infer plan readiness from plan mode without a structured request', () => {
+    const service = new WorkspaceActivityService({ onUpdate: () => undefined })
+
+    service.handleManagedSessionSnapshot(
+      snapshot({ interactionMode: 'plan', running: false }),
+    )
+
+    expect(service.getSnapshot().activitiesByWorkspace).toEqual({})
+  })
+
+  it('uses a single collection revision across workspaces', () => {
+    const events: number[] = []
+    const service = new WorkspaceActivityService({
+      onUpdate: (event) => events.push(event.revision),
+    })
+
+    service.handleManagedSessionSnapshot(
+      snapshot({ sessionState: 'running', workspaceId: 'workspace-1' }),
+    )
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        sessionId: 'session-2',
+        sessionState: 'connecting',
+        workspaceId: 'workspace-2',
+      }),
+    )
+
+    expect(events).toEqual([1, 2])
+    expect(service.getSnapshot().revision).toBe(2)
+  })
+
+  it('acknowledges terminal activity emitted while a workspace is visible', () => {
+    const persisted = vi.fn()
+    const service = new WorkspaceActivityService({
+      onUpdate: () => undefined,
+      onWorkspaceVisited: persisted,
+    })
+    service.setVisibleWorkspace('workspace-1')
+
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        lastCompletedAt: '2026-04-06T12:01:00.000Z',
+        running: false,
+        sessionState: 'stopped',
+        updatedAt: '2026-04-06T12:01:00.000Z',
+      }),
+    )
+
+    expect(persisted).toHaveBeenLastCalledWith(
+      'workspace-1',
+      '2026-04-06T12:01:00.000Z',
+    )
+    expect(service.getSnapshot().activitiesByWorkspace).toEqual({})
   })
 
   it('keeps fallback activity terminal-only and coarse', () => {
@@ -159,7 +230,9 @@ describe('WorkspaceActivityService', () => {
       workspaceId: 'workspace-1',
     })
 
-    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+    expect(
+      service.getSnapshot().activitiesByWorkspace['workspace-1']?.[0],
+    ).toMatchObject({
       provider: 'terminal',
       source: 'fallback',
       state: 'terminal-running',

@@ -69,22 +69,12 @@ function deriveManagedActivity(
     })
   }
 
-  if (snapshot.planApproval) {
+  const pendingApproval = snapshot.pendingApprovals.find(
+    (approval) => approval.requestType !== 'plan-approval',
+  )
+  if (pendingApproval) {
     return createActivity({
-      detail: snapshot.planApproval.detail,
-      paneId: snapshot.paneId,
-      provider: snapshot.provider,
-      sessionId: snapshot.sessionId,
-      source: 'managed',
-      state: 'pending-approval',
-      updatedAt: snapshot.updatedAt,
-      workspaceId: snapshot.workspaceId,
-    })
-  }
-
-  if (snapshot.pendingApprovals.length > 0) {
-    return createActivity({
-      detail: snapshot.pendingApprovals[0]?.detail ?? snapshot.detail,
+      detail: pendingApproval.detail ?? snapshot.detail,
       paneId: snapshot.paneId,
       provider: snapshot.provider,
       sessionId: snapshot.sessionId,
@@ -136,12 +126,9 @@ function deriveManagedActivity(
     })
   }
 
-  if (
-    snapshot.interactionMode === 'plan' &&
-    snapshot.sessionState === 'ready'
-  ) {
+  if (snapshot.planApproval) {
     return createActivity({
-      detail: snapshot.detail,
+      detail: snapshot.planApproval.detail,
       paneId: snapshot.paneId,
       provider: snapshot.provider,
       sessionId: snapshot.sessionId,
@@ -172,15 +159,17 @@ function deriveManagedActivity(
 }
 
 export class WorkspaceActivityService {
-  private readonly collections = new Map<
+  private readonly activitiesByWorkspace = new Map<
     string,
-    WorkspaceActivityCollectionSnapshot
+    WorkspaceActivitySnapshot[]
   >()
   private readonly fallbackSessions = new Map<string, FallbackTerminalSession>()
   private readonly getNow: () => string
   private readonly managedSnapshots = new Map<string, ManagedSessionSnapshot>()
   private readonly processedThroughByWorkspace = new Map<string, string>()
   private readonly visitWatermarks = new Map<string, string>()
+  private revision = 0
+  private visibleWorkspaceId: string | null = null
 
   public constructor(
     private readonly options: WorkspaceActivityServiceOptions,
@@ -193,8 +182,11 @@ export class WorkspaceActivityService {
     }
   }
 
-  public getSnapshot(): Record<string, WorkspaceActivityCollectionSnapshot> {
-    return Object.fromEntries(this.collections)
+  public getSnapshot(): WorkspaceActivityCollectionSnapshot {
+    return {
+      activitiesByWorkspace: Object.fromEntries(this.activitiesByWorkspace),
+      revision: this.revision,
+    }
   }
 
   public handleManagedSessionSnapshot(snapshot: ManagedSessionSnapshot): void {
@@ -210,6 +202,9 @@ export class WorkspaceActivityService {
 
     this.managedSnapshots.set(snapshot.sessionId, snapshot)
     this.recordProcessed(snapshot.workspaceId, snapshot.updatedAt)
+    if (this.visibleWorkspaceId === snapshot.workspaceId) {
+      this.acknowledgeProcessed(snapshot.workspaceId)
+    }
     this.publish(snapshot.workspaceId)
   }
 
@@ -235,15 +230,24 @@ export class WorkspaceActivityService {
       session.running = false
     }
     this.recordProcessed(session.workspaceId, session.updatedAt)
+    if (this.visibleWorkspaceId === session.workspaceId) {
+      this.acknowledgeProcessed(session.workspaceId)
+    }
     this.publish(session.workspaceId)
   }
 
   public markWorkspaceVisited(workspaceId: string): void {
-    const processedThrough =
-      this.processedThroughByWorkspace.get(workspaceId) ?? this.getNow()
-    this.visitWatermarks.set(workspaceId, processedThrough)
-    this.options.onWorkspaceVisited?.(workspaceId, processedThrough)
+    this.visibleWorkspaceId = workspaceId
+    this.acknowledgeProcessed(workspaceId)
     this.publish(workspaceId)
+  }
+
+  public setVisibleWorkspace(workspaceId: string | null): void {
+    this.visibleWorkspaceId = workspaceId
+    if (workspaceId) {
+      this.acknowledgeProcessed(workspaceId)
+      this.publish(workspaceId)
+    }
   }
 
   public trackSession(config: TerminalSessionConfig): void {
@@ -261,6 +265,9 @@ export class WorkspaceActivityService {
       workspaceId: config.workspaceId,
     })
     this.recordProcessed(config.workspaceId, updatedAt)
+    if (this.visibleWorkspaceId === config.workspaceId) {
+      this.acknowledgeProcessed(config.workspaceId)
+    }
     this.publish(config.workspaceId)
   }
 
@@ -282,6 +289,9 @@ export class WorkspaceActivityService {
       workspaceId: config.workspaceId,
     })
     this.recordProcessed(config.workspaceId, updatedAt)
+    if (this.visibleWorkspaceId === config.workspaceId) {
+      this.acknowledgeProcessed(config.workspaceId)
+    }
     this.publish(
       config.workspaceId,
       error instanceof Error ? error.message : 'Launch failed',
@@ -337,20 +347,30 @@ export class WorkspaceActivityService {
           }),
         ),
     ])
-    const previous = this.collections.get(workspaceId)
-    const collection: WorkspaceActivityCollectionSnapshot = {
-      activities,
-      revision: (previous?.revision ?? 0) + 1,
-      workspaceId,
+    if (activities.length === 0) {
+      this.activitiesByWorkspace.delete(workspaceId)
+    } else {
+      this.activitiesByWorkspace.set(workspaceId, activities)
     }
-
-    this.collections.set(workspaceId, collection)
+    this.revision += 1
     this.options.onUpdate({
       activities,
-      collection,
-      revision: collection.revision,
+      revision: this.revision,
       workspaceId,
     })
+  }
+
+  private acknowledgeProcessed(workspaceId: string): void {
+    const processedThrough = this.processedThroughByWorkspace.get(workspaceId)
+    if (!processedThrough) {
+      return
+    }
+    const current = this.visitWatermarks.get(workspaceId)
+    if (current && current >= processedThrough) {
+      return
+    }
+    this.visitWatermarks.set(workspaceId, processedThrough)
+    this.options.onWorkspaceVisited?.(workspaceId, processedThrough)
   }
 
   private recordProcessed(workspaceId: string, updatedAt: string): void {

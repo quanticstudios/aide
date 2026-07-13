@@ -154,10 +154,11 @@ export default function App() {
     id: number
     type: PreviewBrowserControl
   } | null>(null)
-  const workspaceActivityRevisionsRef = useRef<Record<string, number>>({})
+  const previewRevisionsRef = useRef<Record<string, number>>({})
+  const workspaceActivityRevisionRef = useRef(-1)
   const storageSnapshotRef = useRef<PersistenceSnapshot | null>(null)
   const resolvedNavigationStateRef = useRef<SpatialNavigationState | null>(null)
-  const workspaceMutationQueueRef = useRef(new WorkspaceMutationQueue())
+  const [workspaceMutationQueue] = useState(() => new WorkspaceMutationQueue())
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -181,11 +182,20 @@ export default function App() {
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = storageSnapshot ?? createEmptyPersistenceSnapshot()
   const updatePreviewSnapshot = useCallback(
-    (snapshot: WorkspacePreviewSnapshot) =>
+    (snapshot: WorkspacePreviewSnapshot) => {
+      if (
+        (previewRevisionsRef.current[snapshot.workspaceId] ?? -1) >=
+        snapshot.revision
+      ) {
+        return
+      }
+
+      previewRevisionsRef.current[snapshot.workspaceId] = snapshot.revision
       setPreviewSnapshots((current) => ({
         ...current,
         [snapshot.workspaceId]: snapshot,
-      })),
+      }))
+    },
     [],
   )
   const getSurfaceIdsForSnapshot = useCallback(
@@ -501,34 +511,40 @@ export default function App() {
     }
 
     let isHydrating = true
-    let bufferedSnapshots: PersistenceSnapshot[] = []
-    const unsubscribe = api.onWorkspacePersistence((event) => {
-      if (isHydrating) {
-        bufferedSnapshots.push(event.snapshot)
+    let bufferedEvents: Array<{
+      revision: number
+      snapshot: PersistenceSnapshot
+    }> = []
+    const applySnapshot = (snapshot: PersistenceSnapshot) => {
+      if (
+        (storageSnapshotRef.current?.catalogRevision ?? -1) >=
+        snapshot.catalogRevision
+      ) {
         return
       }
-
-      storageSnapshotRef.current = event.snapshot
-      setStorageSnapshot(event.snapshot)
+      storageSnapshotRef.current = snapshot
+      setStorageSnapshot(snapshot)
+    }
+    const unsubscribe = api.onWorkspacePersistence((event) => {
+      if (isHydrating) {
+        bufferedEvents.push(event)
+        return
+      }
+      applySnapshot(event.snapshot)
     })
 
     void (async () => {
       try {
-        const [snapshot, activitySnapshot] = await Promise.all([
-          api.getStorageSnapshot(),
-          api.getWorkspaceActivitySnapshot(),
-        ])
-        const replayedSnapshot = bufferedSnapshots.reduce(
-          (latest, candidate) =>
-            (candidate.catalogRevision ?? 0) > (latest.catalogRevision ?? 0)
-              ? candidate
-              : latest,
-          snapshot,
-        )
-        bufferedSnapshots = []
-        storageSnapshotRef.current = replayedSnapshot
-        setStorageSnapshot(replayedSnapshot)
-        setWorkspaceActivities(activitySnapshot)
+        const snapshot = await api.getStorageSnapshot()
+        storageSnapshotRef.current = snapshot
+        setStorageSnapshot(snapshot)
+        isHydrating = false
+        for (const event of bufferedEvents.sort(
+          (left, right) => left.revision - right.revision,
+        )) {
+          applySnapshot(event.snapshot)
+        }
+        bufferedEvents = []
         setShellError(null)
       } catch (error) {
         setShellError(getErrorMessage(error))
@@ -539,6 +555,42 @@ export default function App() {
 
     return unsubscribe
   }, [refreshStorage])
+
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) return
+
+    let isHydrating = true
+    let bufferedEvents: WorkspacePreviewSnapshot[] = []
+    const unsubscribe = api.onPreviewEvent((event) => {
+      if (isHydrating) {
+        bufferedEvents.push(event.snapshot)
+        return
+      }
+      updatePreviewSnapshot(event.snapshot)
+    })
+
+    void api
+      .getWorkspacePreviewSnapshots()
+      .then((snapshots) => {
+        for (const snapshot of Object.values(snapshots)) {
+          updatePreviewSnapshot(snapshot)
+        }
+        isHydrating = false
+        for (const snapshot of bufferedEvents.sort(
+          (left, right) => left.revision - right.revision,
+        )) {
+          updatePreviewSnapshot(snapshot)
+        }
+        bufferedEvents = []
+      })
+      .catch((error) => {
+        isHydrating = false
+        setShellError(getErrorMessage(error))
+      })
+
+    return unsubscribe
+  }, [updatePreviewSnapshot])
 
   useEffect(() => {
     const resolvedSignature = JSON.stringify(resolvedNavigationState)
@@ -878,7 +930,7 @@ export default function App() {
         return
       }
 
-      const closeRemovedManagedSessions = async (
+      const closeRemovedSessions = async (
         nextLayout: WorkspaceLayoutRecord | null,
       ) => {
         const api = getAideApi()
@@ -895,9 +947,16 @@ export default function App() {
         ).filter((paneId) => !nextPaneIds.has(paneId))
 
         await Promise.all(
-          removedPaneIds.map((paneId) =>
-            api.closeManagedSession(`${workspaceId}:${paneId}`),
-          ),
+          removedPaneIds.map(async (paneId) => {
+            const sessionId = `${workspaceId}:${paneId}`
+            await api.closeManagedSession(sessionId)
+            if (
+              getPaneCatalogEntryForTemplate(getPaneTemplateId(paneId))
+                ?.type === 'terminal'
+            ) {
+              await api.killTerminalSession(sessionId)
+            }
+          }),
         )
       }
 
@@ -934,7 +993,7 @@ export default function App() {
                 : null
               : null,
           )
-          await closeRemovedManagedSessions(null)
+          await closeRemovedSessions(null)
           return
         }
 
@@ -954,7 +1013,7 @@ export default function App() {
           surfaceId,
           result.nextActivePaneId,
         )
-        await closeRemovedManagedSessions(result.layout)
+        await closeRemovedSessions(result.layout)
       } catch (error) {
         setShellError(getErrorMessage(error))
       }
@@ -971,51 +1030,48 @@ export default function App() {
       }
 
       try {
-        await workspaceMutationQueueRef.current.enqueue(
-          workspaceId,
-          async () => {
-            const currentSnapshot =
-              storageSnapshotRef.current ?? navigationSnapshot
-            const surfaces = resolveWorkspaceSurfaces(
+        await workspaceMutationQueue.enqueue(workspaceId, async () => {
+          const currentSnapshot =
+            storageSnapshotRef.current ?? navigationSnapshot
+          const surfaces = resolveWorkspaceSurfaces(
+            currentSnapshot,
+            workspaceId,
+          )
+          const { layout, surface } = createSinglePaneSurface({
+            orderIndex: surfaces.length,
+            paneId: templatePaneId,
+            title:
+              resolvePaneMetadata(templatePaneId).label ??
+              getPaneCatalogEntryForTemplate(templatePaneId)?.defaultMetadata
+                .type ??
+              'Pane',
+            workspaceId,
+          })
+          const nextLayouts = surfaces.reduce<
+            Record<string, SurfaceLayoutRecord>
+          >((acc, existingSurface) => {
+            const existingLayout = resolveSurfaceLayout(
               currentSnapshot,
               workspaceId,
+              existingSurface.id,
             )
-            const { layout, surface } = createSinglePaneSurface({
-              orderIndex: surfaces.length,
-              paneId: templatePaneId,
-              title:
-                resolvePaneMetadata(templatePaneId).label ??
-                getPaneCatalogEntryForTemplate(templatePaneId)?.defaultMetadata
-                  .type ??
-                'Pane',
-              workspaceId,
-            })
-            const nextLayouts = surfaces.reduce<
-              Record<string, SurfaceLayoutRecord>
-            >((acc, existingSurface) => {
-              const existingLayout = resolveSurfaceLayout(
-                currentSnapshot,
-                workspaceId,
-                existingSurface.id,
-              )
 
-              if (existingLayout) {
-                acc[existingSurface.id] = existingLayout
-              }
+            if (existingLayout) {
+              acc[existingSurface.id] = existingLayout
+            }
 
-              return acc
-            }, {})
-            nextLayouts[surface.id] = layout
+            return acc
+          }, {})
+          nextLayouts[surface.id] = layout
 
-            await persistWorkspaceSurfaceStateChange(
-              workspaceId,
-              [...surfaces, surface],
-              nextLayouts,
-              surface.id,
-              layout.nodes[0]?.type === 'pane' ? layout.nodes[0].paneId : null,
-            )
-          },
-        )
+          await persistWorkspaceSurfaceStateChange(
+            workspaceId,
+            [...surfaces, surface],
+            nextLayouts,
+            surface.id,
+            layout.nodes[0]?.type === 'pane' ? layout.nodes[0].paneId : null,
+          )
+        })
         setIsPaneCreationOpen(false)
       } catch (error) {
         setShellError(getErrorMessage(error))
@@ -1025,6 +1081,7 @@ export default function App() {
       navigationSnapshot,
       persistWorkspaceSurfaceStateChange,
       resolvedNavigationState.activeWorkspaceId,
+      workspaceMutationQueue,
     ],
   )
 
@@ -1036,7 +1093,7 @@ export default function App() {
     ) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1045,14 +1102,18 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleClosePane = useCallback(
     (paneId: string) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1060,14 +1121,18 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleResizePane = useCallback(
     (paneId: string, delta: number) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1075,14 +1140,18 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleAddView = useCallback(
     (paneId: string, templateViewId: string) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1090,14 +1159,18 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleRemoveView = useCallback(
     (paneId: string, viewIndex: number) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1105,14 +1178,18 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleSwitchView = useCallback(
     (paneId: string, viewIndex: number) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueueRef.current.enqueue(activeWorkspaceId, () =>
+      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
         applyWorkspaceLayoutChange(
           activeWorkspaceId,
           activeSurfaceId,
@@ -1120,7 +1197,11 @@ export default function App() {
         ),
       )
     },
-    [applyWorkspaceLayoutChange, resolvedNavigationState],
+    [
+      applyWorkspaceLayoutChange,
+      resolvedNavigationState,
+      workspaceMutationQueue,
+    ],
   )
 
   const handleAppShortcut = useCallback(
@@ -1260,14 +1341,19 @@ export default function App() {
       return
     }
 
-    const unsubscribe = api.onWorkspaceActivity((event) => {
-      if (
-        (workspaceActivityRevisionsRef.current[event.workspaceId] ?? -1) >=
-        event.revision
-      ) {
-        return
-      }
-      workspaceActivityRevisionsRef.current[event.workspaceId] = event.revision
+    let isHydrating = true
+    let bufferedEvents: Array<{
+      activities: WorkspaceActivitySnapshot[]
+      revision: number
+      workspaceId: string
+    }> = []
+    const applyEvent = (event: {
+      activities: WorkspaceActivitySnapshot[]
+      revision: number
+      workspaceId: string
+    }) => {
+      if (workspaceActivityRevisionRef.current >= event.revision) return
+      workspaceActivityRevisionRef.current = event.revision
       setWorkspaceActivities((current) => {
         if (event.activities.length === 0) {
           if (!(event.workspaceId in current)) {
@@ -1284,29 +1370,34 @@ export default function App() {
           [event.workspaceId]: event.activities,
         }
       })
+    }
+    const unsubscribe = api.onWorkspaceActivity((event) => {
+      if (isHydrating) {
+        bufferedEvents.push(event)
+        return
+      }
+      applyEvent(event)
     })
 
-    void api.getWorkspaceActivitySnapshot().then((snapshot) => {
-      setWorkspaceActivities((current) => {
-        const next = { ...current }
-        for (const [workspaceId, collection] of Object.entries(snapshot)) {
-          if (
-            (workspaceActivityRevisionsRef.current[workspaceId] ?? -1) >
-            collection.revision
-          ) {
-            continue
-          }
-          workspaceActivityRevisionsRef.current[workspaceId] =
-            collection.revision
-          if (collection.activities.length === 0) {
-            delete next[workspaceId]
-          } else {
-            next[workspaceId] = collection.activities
-          }
+    void api
+      .getWorkspaceActivitySnapshot()
+      .then((snapshot) => {
+        if (workspaceActivityRevisionRef.current <= snapshot.revision) {
+          workspaceActivityRevisionRef.current = snapshot.revision
+          setWorkspaceActivities(snapshot.activitiesByWorkspace)
         }
-        return next
+        isHydrating = false
+        for (const event of bufferedEvents.sort(
+          (left, right) => left.revision - right.revision,
+        )) {
+          applyEvent(event)
+        }
+        bufferedEvents = []
       })
-    })
+      .catch((error) => {
+        isHydrating = false
+        setShellError(getErrorMessage(error))
+      })
 
     return unsubscribe
   }, [])
@@ -1541,14 +1632,22 @@ export default function App() {
   const activePreviewSnapshot = activeWorkspace
     ? (previewSnapshots[activeWorkspace.id] ?? null)
     : null
-  const projectWorkspaces = activeProject
-    ? allWorkspaces.filter(
-        (workspace) => workspace.projectId === activeProject.id,
-      )
-    : []
-  const activeWorkspaceSurfaces = activeWorkspace
-    ? resolveWorkspaceSurfaces(navigationSnapshot, activeWorkspace.id)
-    : []
+  const projectWorkspaces = useMemo(
+    () =>
+      activeProject
+        ? allWorkspaces.filter(
+            (workspace) => workspace.projectId === activeProject.id,
+          )
+        : [],
+    [activeProject, allWorkspaces],
+  )
+  const activeWorkspaceSurfaces = useMemo(
+    () =>
+      activeWorkspace
+        ? resolveWorkspaceSurfaces(navigationSnapshot, activeWorkspace.id)
+        : [],
+    [activeWorkspace, navigationSnapshot],
+  )
   const surfaceManagedSessionIds = useMemo(() => {
     if (!activeWorkspace) return {}
     const map: Record<string, string | null> = {}
@@ -1620,13 +1719,6 @@ export default function App() {
     activePaneId !== null &&
     getPaneCatalogEntryForTemplate(getPaneTemplateId(activePaneId))?.type ===
       'preview'
-
-  useEffect(() => {
-    const aide = getAideApi()
-    if (!aide) return
-
-    return aide.onPreviewEvent((event) => updatePreviewSnapshot(event.snapshot))
-  }, [updatePreviewSnapshot])
 
   useEffect(() => {
     const aide = getAideApi()

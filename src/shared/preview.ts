@@ -1,4 +1,4 @@
-export type PreviewNavStatus = 'failed' | 'idle' | 'loading' | 'ready'
+export type PreviewNavStatus = 'idle' | 'loading' | 'success' | 'load-failed'
 
 export interface PreviewTabSnapshot {
   canGoBack: boolean
@@ -8,7 +8,9 @@ export interface PreviewTabSnapshot {
   label: string
   navStatus: PreviewNavStatus
   title: string | null
+  updatedAt: string
   url: string
+  workspaceId: string
 }
 
 export interface WorkspacePreviewSnapshot {
@@ -19,15 +21,16 @@ export interface WorkspacePreviewSnapshot {
   workspaceId: string
 }
 
-export interface PreviewEvent {
+export interface WorkspacePreviewEvent {
+  revision: number
   snapshot: WorkspacePreviewSnapshot
-  type: 'changed'
 }
 
 export interface PreviewNavigationReport {
   canGoBack: boolean
   canGoForward: boolean
   error?: string | null
+  expectedRevision: number
   status: PreviewNavStatus
   tabId: string
   title?: string | null
@@ -75,6 +78,10 @@ export function isAllowedPreviewUrl(value: string): boolean {
 }
 
 export function normalizeAllowedPreviewUrl(value: string): string {
+  if (value.length > 2048) {
+    throw new Error('Preview URLs cannot exceed 2,048 characters.')
+  }
+
   const normalizedUrl = normalizePreviewUrl(value)
 
   if (!isAllowedPreviewUrl(normalizedUrl)) {

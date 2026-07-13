@@ -764,6 +764,25 @@ export class AideDatabase {
     return row ? this.mapWorkspacePreviewStateRow(row) : null
   }
 
+  public getWorkspacePreviewStates(): Record<string, WorkspacePreviewSnapshot> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT workspace_id, active_tab_id, initialized, revision, tabs_json
+          FROM workspace_preview_states
+          ORDER BY updated_at ASC, workspace_id ASC
+        `,
+      )
+      .all() as unknown as SqlWorkspacePreviewStateRow[]
+
+    return Object.fromEntries(
+      rows.map((row) => {
+        const snapshot = this.mapWorkspacePreviewStateRow(row)
+        return [snapshot.workspaceId, snapshot]
+      }),
+    )
+  }
+
   public saveWorkspacePreviewState(
     input: WorkspacePreviewSnapshot,
   ): WorkspacePreviewSnapshot | null {

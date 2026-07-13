@@ -231,6 +231,10 @@ function classifyToolRequestType(
 ): ManagedProviderRuntimeRequestType {
   const normalized = toolName.toLowerCase()
 
+  if (normalized === 'exitplanmode') {
+    return 'plan-approval'
+  }
+
   if (normalized.includes('read')) {
     return 'file-read-approval'
   }
@@ -1938,7 +1942,8 @@ export class ManagedSessionManager {
         return
       }
 
-      this.applyRuntimeEvent(state, event)
+      const currentEvent = { ...event, runtimeGeneration }
+      this.applyRuntimeEvent(state, currentEvent)
       this.options.onRuntimeEvent(
         {
           mode: state.config.mode,
@@ -1947,7 +1952,7 @@ export class ManagedSessionManager {
           sessionId: state.config.sessionId,
           workspaceId: state.config.workspaceId,
         },
-        event,
+        currentEvent,
       )
     }
   }

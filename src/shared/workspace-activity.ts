@@ -24,16 +24,14 @@ export interface WorkspaceActivitySnapshot {
 }
 
 export interface WorkspaceActivityEvent {
-  collection: WorkspaceActivityCollectionSnapshot
   activities: WorkspaceActivitySnapshot[]
   revision: number
   workspaceId: string
 }
 
 export interface WorkspaceActivityCollectionSnapshot {
-  activities: WorkspaceActivitySnapshot[]
+  activitiesByWorkspace: Record<string, WorkspaceActivitySnapshot[]>
   revision: number
-  workspaceId: string
 }
 
 const STATE_PRIORITY: Record<WorkspaceActivityState, number> = {
@@ -41,10 +39,10 @@ const STATE_PRIORITY: Record<WorkspaceActivityState, number> = {
   'pending-approval': 6,
   'awaiting-input': 5,
   working: 4,
-  connecting: 3,
-  'plan-ready': 2,
-  completed: 1,
-  'terminal-running': 0,
+  connecting: 4,
+  'plan-ready': 3,
+  completed: 2,
+  'terminal-running': 1,
 }
 
 const STATE_LABELS: Record<WorkspaceActivityState, string> = {

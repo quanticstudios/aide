@@ -1,4 +1,4 @@
-import { Button, Toolbar, Tooltip } from '@heroui/react'
+import { Button, Toolbar } from '@heroui/react'
 import {
   Columns2,
   Expand,
@@ -181,30 +181,21 @@ function PaneActionBar({
               : 'text-muted-foreground hover:bg-surface-tertiary hover:text-foreground'
 
           return (
-            <Tooltip delay={550} key={action.label}>
-              <Tooltip.Trigger>
-                <Button
-                  aria-label={action.label}
-                  className={cn(
-                    'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40',
-                    toneClass,
-                  )}
-                  isDisabled={isDisabled}
-                  isIconOnly
-                  onPress={action.onPress}
-                  size="sm"
-                  variant="ghost"
-                >
-                  <Icon className="size-4" />
-                </Button>
-              </Tooltip.Trigger>
-              <Tooltip.Content
-                className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
-                placement="bottom"
-              >
-                {action.label}
-              </Tooltip.Content>
-            </Tooltip>
+            <Button
+              aria-label={action.label}
+              className={cn(
+                'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40',
+                toneClass,
+              )}
+              isDisabled={isDisabled}
+              isIconOnly
+              key={action.label}
+              onPress={action.onPress}
+              size="sm"
+              variant="ghost"
+            >
+              <Icon className="size-4" />
+            </Button>
           )
         })}
       </div>

@@ -91,6 +91,37 @@ export class TerminalSessionManager {
     }
   }
 
+  public async closeAll(timeoutMs = 1_000): Promise<void> {
+    const exits = [...this.sessions.values()].flatMap((session) => {
+      const pty = session.pty
+      if (!pty) {
+        return []
+      }
+
+      return [
+        new Promise<void>((resolve) => {
+          const disposable = pty.onExit(() => {
+            disposable.dispose()
+            resolve()
+          })
+          pty.kill()
+        }),
+      ]
+    })
+
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      Promise.allSettled(exits).then(() => undefined),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+    this.sessions.clear()
+  }
+
   public killSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
 

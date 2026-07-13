@@ -52,6 +52,7 @@ export interface ManagedProviderRuntimeUserQuestion {
 interface ManagedProviderRuntimeEventBase {
   createdAt: string
   provider: ManagedProviderRuntimeProvider
+  runtimeGeneration?: number
 }
 
 export type ManagedProviderRuntimeEvent =
