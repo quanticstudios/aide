@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import type {
   AttachWorkspaceRequest,
@@ -16,15 +24,11 @@ import {
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
 import AppShell from './components/AppShell'
-import CommandPalette from './components/CommandPalette'
-import PaneCreationModal from './components/PaneCreationModal'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
   type PreviewPresentation,
 } from './components/PreviewBrowserHost'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
-import WorkspaceCreationModal from './components/WorkspaceCreationModal'
-import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
 import { buildCommandList } from './lib/command-registry'
 import {
   getPaneCatalogEntryForTemplate,
@@ -64,6 +68,17 @@ import {
   resolveWorkspaceSurfaces,
 } from './lib/workspace-surfaces'
 
+const LazyCommandPalette = lazy(() => import('./components/CommandPalette'))
+const LazyPaneCreationModal = lazy(
+  () => import('./components/PaneCreationModal'),
+)
+const LazyWorkspaceCreationModal = lazy(
+  () => import('./components/WorkspaceCreationModal'),
+)
+const LazyWorkspaceSwitcherOverlay = lazy(
+  () => import('./components/WorkspaceSwitcherOverlay'),
+)
+
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
     return null
@@ -78,6 +93,14 @@ function getErrorMessage(error: unknown): string {
   }
 
   return 'Unknown renderer error'
+}
+
+function OverlayLoadFallback() {
+  return (
+    <div aria-live="polite" className="sr-only">
+      Opening workspace controls…
+    </div>
+  )
 }
 
 function shouldIgnoreGlobalNavigation(target: EventTarget | null): boolean {
@@ -1788,53 +1811,73 @@ export default function App() {
       workspaceSummaries={workspaceSummaries}
     >
       <>
-        <CommandPalette
-          commands={paletteCommands}
-          isOpen={isCommandPaletteOpen}
-          onClose={() => setIsCommandPaletteOpen(false)}
-        />
-        <PaneCreationModal
-          isOpen={isPaneCreationOpen}
-          onCreatePane={(paneId) => void handleCreatePane(paneId)}
-          onOpenChange={setIsPaneCreationOpen}
-        />
-        <WorkspaceCreationModal
-          existingRootWorkspaceName={
-            activeProject
-              ? (projectWorkspaces.find(
-                  (workspace) =>
-                    workspace.worktreePath === activeProject.repoRoot,
-                )?.name ?? null)
-              : null
-          }
-          isOpen={isWorkspaceCreationOpen}
-          loadProjectRefs={listProjectRefs}
-          onAttach={submitWorkspaceAttachment}
-          onOpenChange={setIsWorkspaceCreationOpen}
-          onSubmit={submitWorkspaceCreation}
-          project={activeProject}
-          workspaceCount={projectWorkspaces.length}
-        />
-        <WorkspaceSwitcherOverlay
-          activeWorkspaceId={activeWorkspace?.id ?? null}
-          mode="workspace-switcher"
-          onRequestClose={() => setIsWorkspaceSwitcherVisible(false)}
-          onSelectWorkspace={handleWorkspaceSelection}
-          projectName={activeProject?.name ?? null}
-          summaries={workspaceSummaries}
-          visible={isWorkspaceSwitcherVisible}
-          workspaces={projectWorkspaces}
-        />
-        <WorkspaceSwitcherOverlay
-          activeWorkspaceId={activeWorkspace?.id ?? null}
-          mode="overview"
-          onRequestClose={() => setIsOverviewVisible(false)}
-          onSelectWorkspace={handleWorkspaceSelection}
-          projectName={activeProject?.name ?? null}
-          summaries={workspaceSummaries}
-          visible={isOverviewVisible}
-          workspaces={orderedWorkspaces}
-        />
+        {isCommandPaletteOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyCommandPalette
+              commands={paletteCommands}
+              isOpen
+              onClose={() => setIsCommandPaletteOpen(false)}
+            />
+          </Suspense>
+        ) : null}
+        {isPaneCreationOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyPaneCreationModal
+              isOpen
+              onCreatePane={(paneId) => void handleCreatePane(paneId)}
+              onOpenChange={setIsPaneCreationOpen}
+            />
+          </Suspense>
+        ) : null}
+        {isWorkspaceCreationOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyWorkspaceCreationModal
+              existingRootWorkspaceName={
+                activeProject
+                  ? (projectWorkspaces.find(
+                      (workspace) =>
+                        workspace.worktreePath === activeProject.repoRoot,
+                    )?.name ?? null)
+                  : null
+              }
+              isOpen
+              loadProjectRefs={listProjectRefs}
+              onAttach={submitWorkspaceAttachment}
+              onOpenChange={setIsWorkspaceCreationOpen}
+              onSubmit={submitWorkspaceCreation}
+              project={activeProject}
+              workspaceCount={projectWorkspaces.length}
+            />
+          </Suspense>
+        ) : null}
+        {isWorkspaceSwitcherVisible ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyWorkspaceSwitcherOverlay
+              activeWorkspaceId={activeWorkspace?.id ?? null}
+              mode="workspace-switcher"
+              onRequestClose={() => setIsWorkspaceSwitcherVisible(false)}
+              onSelectWorkspace={handleWorkspaceSelection}
+              projectName={activeProject?.name ?? null}
+              summaries={workspaceSummaries}
+              visible
+              workspaces={projectWorkspaces}
+            />
+          </Suspense>
+        ) : null}
+        {isOverviewVisible ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyWorkspaceSwitcherOverlay
+              activeWorkspaceId={activeWorkspace?.id ?? null}
+              mode="overview"
+              onRequestClose={() => setIsOverviewVisible(false)}
+              onSelectWorkspace={handleWorkspaceSelection}
+              projectName={activeProject?.name ?? null}
+              summaries={workspaceSummaries}
+              visible
+              workspaces={orderedWorkspaces}
+            />
+          </Suspense>
+        ) : null}
         <WorkspaceCanvas
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
