@@ -14,6 +14,8 @@ const snapshot: RuntimeSnapshot = {
   nodeVersion: '22.0.0',
   platform: 'darwin',
   arch: 'arm64',
+  renderingMode: 'hardware',
+  renderingModeSource: 'default',
   workingDirectory: '/workspace/aide',
 }
 
@@ -30,7 +32,7 @@ describe('formatPlatformLabel', () => {
 describe('formatRuntimeSummary', () => {
   it('builds a user-facing runtime summary', () => {
     expect(formatRuntimeSummary(snapshot)).toBe(
-      'aide 0.1.0 on macOS (ARM64) using Electron 35.0.0',
+      'aide 0.1.0 on macOS (ARM64) using Electron 35.0.0 with hardware rendering (default)',
     )
   })
 })
