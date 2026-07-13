@@ -26,6 +26,7 @@ describe('ManagedSessionManager', () => {
 
   afterEach(() => {
     process.env.AIDE_FAKE_MANAGED_PROVIDERS = undefined
+    process.env.AIDE_CODEX_COMMAND = undefined
   })
 
   it('creates a fake managed Claude session and reports ready state', async () => {
@@ -45,6 +46,55 @@ describe('ManagedSessionManager', () => {
       'session.state.changed',
     ])
   })
+
+  it('drops a session whose provider fails to start so the user can retry', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    process.env.AIDE_FAKE_MANAGED_PROVIDERS = 'fail-start'
+
+    await expect(manager.createSession(config)).rejects.toThrow(
+      'Fake managed provider failed to start',
+    )
+    expect(manager.getSnapshots()[config.sessionId]).toBeUndefined()
+
+    process.env.AIDE_FAKE_MANAGED_PROVIDERS = '1'
+
+    await expect(manager.createSession(config)).resolves.toMatchObject({
+      sessionState: 'ready',
+    })
+  })
+
+  const nonWindowsIt = process.platform === 'win32' ? it.skip : it
+
+  nonWindowsIt(
+    'reports a missing Codex executable without crashing and allows retry',
+    async () => {
+      const manager = new ManagedSessionManager({
+        getNow: () => '2026-04-11T10:00:00.000Z',
+        onRuntimeEvent: () => undefined,
+        onUpdate: () => undefined,
+      })
+      const config = createConfig('codex')
+
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS = undefined
+      process.env.AIDE_CODEX_COMMAND = '/missing/aide-codex-command'
+
+      await expect(manager.createSession(config)).rejects.toThrow()
+      expect(manager.getSnapshots()[config.sessionId]).toBeUndefined()
+
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS = '1'
+      process.env.AIDE_CODEX_COMMAND = undefined
+
+      await expect(manager.createSession(config)).resolves.toMatchObject({
+        sessionState: 'ready',
+      })
+    },
+  )
 
   it('tracks fake approvals and input prompts through the managed snapshot', async () => {
     const manager = new ManagedSessionManager({

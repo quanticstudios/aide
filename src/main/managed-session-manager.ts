@@ -886,7 +886,18 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       })
     })
 
+    child.on('error', (error) => {
+      this.rejectPendingRequests(error)
+    })
+
     child.on('exit', (code) => {
+      this.rejectPendingRequests(
+        new Error(
+          code === null
+            ? 'Codex app-server exited before responding.'
+            : `Codex app-server exited with code ${code} before responding.`,
+        ),
+      )
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         exitCode: code,
@@ -1006,6 +1017,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
 
   public async close(): Promise<void> {
     this.output?.close()
+    this.rejectPendingRequests(new Error('Codex app-server session closed.'))
 
     if (this.child && !this.child.killed) {
       this.child.kill()
@@ -1252,12 +1264,31 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
         timeout,
       })
 
-      this.writeMessage({
-        id,
-        method,
-        params,
-      })
+      try {
+        this.writeMessage({
+          id,
+          method,
+          params,
+        })
+      } catch (error) {
+        clearTimeout(timeout)
+        this.pendingRequests.delete(String(id))
+        reject(
+          error instanceof Error
+            ? error
+            : new Error(`Unable to send Codex request: ${method}`),
+        )
+      }
     })
+  }
+
+  private rejectPendingRequests(error: Error): void {
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timeout)
+      pending.reject(error)
+    }
+
+    this.pendingRequests.clear()
   }
 
   private writeMessage(message: unknown): void {
@@ -1439,6 +1470,10 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
   ) {}
 
   public async start(): Promise<void> {
+    if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start') {
+      throw new Error('Fake managed provider failed to start')
+    }
+
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       provider: this.provider,
@@ -1650,6 +1685,18 @@ export class ManagedSessionManager {
         state: 'error',
         type: 'session.state.changed',
       })
+
+      try {
+        await state.backend.close()
+      } catch {
+        // Preserve the original startup error; the backend may be only
+        // partially initialized and unable to perform a clean shutdown.
+      }
+
+      if (this.sessions.get(config.sessionId) === state) {
+        this.sessions.delete(config.sessionId)
+      }
+
       throw error
     }
 
@@ -1808,7 +1855,10 @@ export class ManagedSessionManager {
   private createBackend(
     state: ManagedSessionMutableState,
   ): ManagedSessionBackend {
-    if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1') {
+    if (
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
+    ) {
       return new FakeManagedSessionBackend(
         state.config.mode,
         state.emitRuntimeEvent,
