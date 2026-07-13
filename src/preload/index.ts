@@ -10,6 +10,7 @@ import type {
 } from '../shared/managed-session'
 import type { WorkspacePersistenceEvent } from '../shared/persistence'
 import type { PreviewNavigationReport } from '../shared/preview'
+import type { PersistedStateRecovery } from '../shared/recovery'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   TerminalEvent,
@@ -32,6 +33,8 @@ const aideApi: AideApi = {
   closeManagedSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
+  getPersistedStateRecovery: (): Promise<PersistedStateRecovery | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.getPersistedStateRecovery),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
@@ -136,8 +139,14 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.previewNavigate, workspaceId, tabId, url),
   openPreviewTab: (workspaceId: string, url: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewOpenTab, workspaceId, url),
+  openPersistedStateDataFolder: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.openPersistedStateDataFolder),
+  quitPersistedStateRecovery: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.quitPersistedStateRecovery),
   reportPreviewNavigation: (report: PreviewNavigationReport) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewReportNavigation, report),
+  resetPersistedState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.resetPersistedState),
   resizeTerminalSession: (sessionId: string, size: TerminalResizeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   saveWorkspaceLayout: (workspaceId, input) =>
@@ -174,6 +183,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
   selectPreviewTab: (workspaceId: string, tabId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewSelectTab, workspaceId, tabId),
+  restoreKnownGoodPersistedState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.restoreKnownGoodPersistedState),
   sendManagedSessionInput: (sessionId: string, text: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
   switchManagedSessionProvider: (

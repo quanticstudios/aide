@@ -21,7 +21,6 @@ import type {
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from './managed-session'
-import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
@@ -35,6 +34,8 @@ import type {
   WorkspacePreviewEvent,
   WorkspacePreviewSnapshot,
 } from './preview'
+import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
+import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
@@ -58,6 +59,7 @@ export const IPC_CHANNELS = {
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
+  getPersistedStateRecovery: 'app:get-persisted-state-recovery',
   pickProjectRoot: 'app:pick-project-root',
   importProject: 'app:import-project',
   listProjectRefs: 'app:list-project-refs',
@@ -73,6 +75,10 @@ export const IPC_CHANNELS = {
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
   readProjectFile: 'editor:read-project-file',
+  openPersistedStateDataFolder: 'app:open-persisted-state-data-folder',
+  quitPersistedStateRecovery: 'app:quit-persisted-state-recovery',
+  resetPersistedState: 'app:reset-persisted-state',
+  restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
   workspacePersistenceEvent: 'storage:persistence-event',
@@ -136,6 +142,7 @@ export interface AideApi {
     command: string,
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
+  getPersistedStateRecovery: () => Promise<PersistedStateRecovery | null>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
   getManagedSessionSnapshots: () => Promise<
@@ -192,9 +199,12 @@ export interface AideApi {
     workspaceId: string,
     url: string,
   ) => Promise<WorkspacePreviewSnapshot>
+  openPersistedStateDataFolder: () => Promise<void>
+  quitPersistedStateRecovery: () => Promise<void>
   reportPreviewNavigation: (
     report: PreviewNavigationReport,
   ) => Promise<WorkspacePreviewSnapshot>
+  resetPersistedState: () => Promise<void>
   resizeTerminalSession: (
     sessionId: string,
     size: TerminalResizeInput,
@@ -204,6 +214,7 @@ export interface AideApi {
     workspaceId: string,
     tabId: string,
   ) => Promise<WorkspacePreviewSnapshot>
+  restoreKnownGoodPersistedState: () => Promise<void>
   resolveManagedSessionRequest: (
     sessionId: string,
     requestId: string,

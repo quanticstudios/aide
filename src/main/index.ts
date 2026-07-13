@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 
 import type {
   AttachWorkspaceRequest,
@@ -15,6 +15,7 @@ import type {
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import { isAllowedPreviewUrl } from '../shared/preview'
+import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
@@ -22,7 +23,7 @@ import type {
 } from '../shared/terminal'
 import { mapInputToShortcutEvent } from './app-shortcuts'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
-import { createAideDatabase } from './database'
+import type { AideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
   probeExecutable,
@@ -30,10 +31,15 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
-import { ProviderCapabilityService } from './provider-capability-service'
+import {
+  preparePersistedState,
+  resetPersistedState,
+  restoreKnownGoodPersistedState,
+} from './persistence-recovery'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
+import { ProviderCapabilityService } from './provider-capability-service'
 import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
@@ -44,15 +50,19 @@ import { WorkspaceActivityService } from './workspace-activity-service'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PREVIEW_PARTITION = 'persist:aide-preview'
 
-let database: ReturnType<typeof createAideDatabase>
+let database: AideDatabase
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
+let persistedStateRecovery: PersistedStateRecovery | null = null
+let runtimeInitialized = false
+let ipcHandlersRegistered = false
+let sessionReaperStarted = false
 
-function initializeServices(): void {
+function initializeServices(): boolean {
   const databasePath = getAideDatabasePath({
     databasePathOverride: process.env.AIDE_DATABASE_PATH,
     userDataPath: app.getPath('userData'),
@@ -65,7 +75,14 @@ function initializeServices(): void {
     })
   }
 
-  database = createAideDatabase(databasePath)
+  const preparedState = preparePersistedState(databasePath)
+  if (preparedState.status === 'recovery') {
+    persistedStateRecovery = preparedState.recovery
+    return false
+  }
+
+  database = preparedState.database
+  persistedStateRecovery = null
   gitWorkspaceService = new GitWorkspaceService(database)
   workspaceActivityService = new WorkspaceActivityService({
     onWorkspaceVisited: (workspaceId, processedThrough) => {
@@ -107,6 +124,8 @@ function initializeServices(): void {
       }
     },
   })
+  runtimeInitialized = true
+  return true
 }
 
 let shutdownInProgress = false
@@ -119,10 +138,17 @@ async function shutdownRuntime(): Promise<void> {
 
   shutdownInProgress = true
   try {
+    if (!runtimeInitialized) {
+      return
+    }
+
     await managedSessionManager.closeAll(2_000)
     await terminalSessionManager.closeAll(1_000)
   } finally {
-    database.close()
+    if (runtimeInitialized) {
+      database.close()
+      runtimeInitialized = false
+    }
     shutdownComplete = true
     shutdownInProgress = false
   }
@@ -274,6 +300,11 @@ function createMainWindow(): BrowserWindow {
 }
 
 function registerIpcHandlers(): void {
+  if (ipcHandlersRegistered) {
+    return
+  }
+
+  ipcHandlersRegistered = true
   const publishPersistenceSnapshot = () => {
     const snapshot = database.getSnapshot()
     for (const window of BrowserWindow.getAllWindows()) {
@@ -552,18 +583,84 @@ function registerIpcHandlers(): void {
   )
 }
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null)
-  initializeServices()
-  registerIpcHandlers()
-  createMainWindow()
+function startSessionReaper(): void {
+  if (sessionReaperStarted) {
+    return
+  }
 
+  sessionReaperStarted = true
   const reaper = setInterval(() => {
     void managedSessionManager.reapSessions(
       (snapshot) => snapshot.sessionState === 'stopped',
     )
   }, 5 * 60_000)
   reaper.unref()
+}
+
+function reloadOpenWindows(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.reload()
+  }
+}
+
+function resumeFromPersistedStateRecovery(): void {
+  if (!initializeServices()) {
+    throw new Error(
+      persistedStateRecovery?.message ??
+        'The database is still unavailable after the recovery action.',
+    )
+  }
+
+  registerIpcHandlers()
+  startSessionReaper()
+  reloadOpenWindows()
+}
+
+function registerPersistedStateRecoveryIpcHandlers(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.getPersistedStateRecovery,
+    () => persistedStateRecovery,
+  )
+  ipcMain.handle(IPC_CHANNELS.openPersistedStateDataFolder, async () => {
+    if (!persistedStateRecovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    const error = await shell.openPath(persistedStateRecovery.dataDirectory)
+    if (error) {
+      throw new Error(error)
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.quitPersistedStateRecovery, () => {
+    app.quit()
+  })
+  ipcMain.handle(IPC_CHANNELS.restoreKnownGoodPersistedState, () => {
+    if (!persistedStateRecovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    restoreKnownGoodPersistedState(persistedStateRecovery.databasePath)
+    resumeFromPersistedStateRecovery()
+  })
+  ipcMain.handle(IPC_CHANNELS.resetPersistedState, () => {
+    if (!persistedStateRecovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    resetPersistedState(persistedStateRecovery.databasePath)
+    resumeFromPersistedStateRecovery()
+  })
+}
+
+app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
+  const servicesInitialized = initializeServices()
+  registerPersistedStateRecoveryIpcHandlers()
+  if (servicesInitialized) {
+    registerIpcHandlers()
+    startSessionReaper()
+  }
+  createMainWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
