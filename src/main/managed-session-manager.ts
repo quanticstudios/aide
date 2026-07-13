@@ -4,6 +4,7 @@ import readline from 'node:readline'
 
 import {
   type CanUseTool,
+  type ModelUsage,
   type PermissionResult,
   type PermissionUpdate,
   type SDKMessage,
@@ -760,7 +761,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       }
 
       if (message.subtype === 'success') {
-        const usages = Object.values(message.modelUsage ?? {})
+        const usages: ModelUsage[] = Object.values(message.modelUsage ?? {})
         const aggregate = usages.reduce<{
           cacheReadInputTokens: number
           contextWindow: number
