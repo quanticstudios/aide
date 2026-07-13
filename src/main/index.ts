@@ -20,6 +20,7 @@ import type {
   TerminalSessionConfig,
 } from '../shared/terminal'
 import { ApplicationRuntime } from './application-runtime'
+import { DiagnosticsService } from './diagnostics-service'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { createAideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
@@ -38,6 +39,7 @@ import {
   resolveRenderingConfiguration,
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
+import { isTrustedRendererUrl } from './trusted-renderer'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WindowManager } from './window-manager'
 
@@ -49,6 +51,12 @@ let managedSessionManager: ManagedSessionManager
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
+let diagnosticsService: DiagnosticsService
+const rendererLocation = {
+  loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
+  rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
+}
+const lastRendererFaultAt = new Map<string, number>()
 
 function initializeServices(): void {
   const databasePath = getAideDatabasePath({
@@ -97,6 +105,46 @@ function initializeServices(): void {
       windowManager.broadcast(IPC_CHANNELS.terminalEvent, event)
     },
   })
+  diagnosticsService = new DiagnosticsService({
+    logDirectory: path.join(app.getPath('logs'), 'aide'),
+    onUpdate: (snapshot) =>
+      windowManager.broadcast(IPC_CHANNELS.diagnosticsEvent, snapshot),
+    runtime: {
+      appName: app.getName(),
+      appVersion: app.getVersion(),
+      arch: process.arch,
+      chromeVersion: process.versions.chrome,
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      platform: process.platform,
+    },
+  })
+}
+
+function recordDiagnosticEvent(
+  type:
+    | 'main-uncaught-exception'
+    | 'main-unhandled-rejection'
+    | 'renderer-crashed',
+): void {
+  try {
+    diagnosticsService.record(type)
+  } catch {
+    // Diagnostics must never replace or suppress the failure being observed.
+  }
+}
+
+function registerDiagnosticsHandlers(): void {
+  process.on('uncaughtExceptionMonitor', (_error, origin) => {
+    recordDiagnosticEvent(
+      origin === 'unhandledRejection'
+        ? 'main-unhandled-rejection'
+        : 'main-uncaught-exception',
+    )
+  })
+  app.on('render-process-gone', () => {
+    recordDiagnosticEvent('renderer-crashed')
+  })
 }
 
 app.setName('aide')
@@ -115,7 +163,7 @@ const windowManager = new WindowManager({
   getAllWindows: () => BrowserWindow.getAllWindows(),
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   mainPreloadPath: path.join(__dirname, '../preload/index.js'),
-  rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
+  rendererHtmlPath: rendererLocation.rendererHtmlPath,
   setTimeout,
 })
 
@@ -145,6 +193,44 @@ function registerIpcHandlers(): void {
   }
 
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
+  ipcMain.handle(IPC_CHANNELS.getDiagnosticsSnapshot, () =>
+    diagnosticsService.getSnapshot(),
+  )
+  ipcMain.handle(IPC_CHANNELS.reportRendererFault, (_event, type: unknown) => {
+    if (
+      type !== 'renderer-exception' &&
+      type !== 'renderer-unhandled-rejection'
+    ) {
+      throw new Error('Invalid renderer diagnostics event.')
+    }
+
+    const now = Date.now()
+    if (now - (lastRendererFaultAt.get(type) ?? 0) < 250) return
+    lastRendererFaultAt.set(type, now)
+    diagnosticsService.record(type)
+  })
+  ipcMain.handle(IPC_CHANNELS.exportSupportBundle, async (event) => {
+    const window = windowManager.getWindowForWebContents(event.sender)
+    if (
+      !window ||
+      event.senderFrame !== event.sender.mainFrame ||
+      !isTrustedRendererUrl(event.senderFrame.url, rendererLocation)
+    ) {
+      return { status: 'cancelled' as const }
+    }
+
+    const result = await dialog.showSaveDialog(window, {
+      defaultPath: `aide-support-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [{ extensions: ['zip'], name: 'Support bundle' }],
+      properties: ['showOverwriteConfirmation'],
+    })
+    if (result.canceled || !result.filePath) {
+      return { status: 'cancelled' as const }
+    }
+
+    diagnosticsService.exportSupportBundle(result.filePath)
+    return { status: 'exported' as const }
+  })
   ipcMain.handle(IPC_CHANNELS.getWorkspaceActivitySnapshot, () =>
     workspaceActivityService.getSnapshot(),
   )
@@ -435,6 +521,7 @@ const applicationRuntime = new ApplicationRuntime({
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   applicationRuntime.start()
+  registerDiagnosticsHandlers()
 
   app.on('activate', () => {
     applicationRuntime.ensureMainWindow()

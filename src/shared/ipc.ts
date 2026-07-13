@@ -1,5 +1,10 @@
 import type { ProjectTextFile } from './editor'
 import type {
+  DiagnosticEventType,
+  DiagnosticsSnapshot,
+  SupportBundleExportResult,
+} from './diagnostics'
+import type {
   ExecutableProbeInput,
   ExecutableProbeResult,
   ExecutableValidationResult,
@@ -50,6 +55,10 @@ import type {
 
 export const IPC_CHANNELS = {
   attachWorkspace: 'storage:attach-workspace',
+  diagnosticsEvent: 'diagnostics:event',
+  exportSupportBundle: 'diagnostics:export-support-bundle',
+  getDiagnosticsSnapshot: 'diagnostics:get-snapshot',
+  reportRendererFault: 'diagnostics:report-renderer-fault',
   createWorkspace: 'storage:create-workspace',
   detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
@@ -129,6 +138,9 @@ export interface AideApi {
   ) => Promise<WorktreeBranchStatsResult>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
+  onDiagnosticsEvent: (
+    callback: (snapshot: DiagnosticsSnapshot) => void,
+  ) => () => void
   probeExecutableCommand: (
     input: ExecutableProbeInput,
   ) => Promise<ExecutableProbeResult>
@@ -136,6 +148,14 @@ export interface AideApi {
     command: string,
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
+  getDiagnosticsSnapshot: () => Promise<DiagnosticsSnapshot>
+  exportSupportBundle: () => Promise<SupportBundleExportResult>
+  reportRendererFault: (
+    type: Extract<
+      DiagnosticEventType,
+      'renderer-exception' | 'renderer-unhandled-rejection'
+    >,
+  ) => Promise<void>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
   getManagedSessionSnapshots: () => Promise<

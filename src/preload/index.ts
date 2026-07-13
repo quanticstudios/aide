@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
 import type {
@@ -31,6 +32,10 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
   closeManagedSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
+  exportSupportBundle: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.exportSupportBundle),
+  getDiagnosticsSnapshot: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticsSnapshot),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
@@ -70,6 +75,16 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.appShortcut, listener)
+    }
+  },
+  onDiagnosticsEvent: (callback: (snapshot: DiagnosticsSnapshot) => void) => {
+    const listener = (_event: unknown, payload: DiagnosticsSnapshot) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.diagnosticsEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.diagnosticsEvent, listener)
     }
   },
   onManagedSessionEvent: (callback: (event: ManagedSessionEvent) => void) => {
@@ -138,6 +153,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.previewOpenTab, workspaceId, url),
   reportPreviewNavigation: (report: PreviewNavigationReport) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewReportNavigation, report),
+  reportRendererFault: (type) =>
+    ipcRenderer.invoke(IPC_CHANNELS.reportRendererFault, type),
   resizeTerminalSession: (sessionId: string, size: TerminalResizeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   saveWorkspaceLayout: (workspaceId, input) =>

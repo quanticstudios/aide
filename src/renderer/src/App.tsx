@@ -69,6 +69,7 @@ import {
 } from './lib/workspace-surfaces'
 
 const LazyCommandPalette = lazy(() => import('./components/CommandPalette'))
+const LazyDiagnosticsModal = lazy(() => import('./components/DiagnosticsModal'))
 const LazyPaneCreationModal = lazy(
   () => import('./components/PaneCreationModal'),
 )
@@ -162,6 +163,7 @@ export default function App() {
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [showProjectHints, setShowProjectHints] = useState(false)
@@ -1804,6 +1806,7 @@ export default function App() {
       onCreateProject={openProject}
       onCreatePane={createPane}
       onCreateWorkspace={createWorkspace}
+      onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
       projects={projects}
@@ -1811,6 +1814,11 @@ export default function App() {
       workspaceSummaries={workspaceSummaries}
     >
       <>
+        {isDiagnosticsOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyDiagnosticsModal isOpen onOpenChange={setIsDiagnosticsOpen} />
+          </Suspense>
+        ) : null}
         {isCommandPaletteOpen ? (
           <Suspense fallback={<OverlayLoadFallback />}>
             <LazyCommandPalette
