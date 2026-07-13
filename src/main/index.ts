@@ -8,10 +8,7 @@ import type {
   CreateWorkspaceRequest,
 } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
-import type {
-  ManagedSessionConfig,
-  ManagedSessionDecision,
-} from '../shared/managed-session'
+import type { ManagedSessionDecision } from '../shared/managed-session'
 import type {
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
@@ -33,6 +30,7 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
+import { ProviderCapabilityService } from './provider-capability-service'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
@@ -50,6 +48,7 @@ let database: ReturnType<typeof createAideDatabase>
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
+let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
 
@@ -92,6 +91,7 @@ function initializeServices(): void {
       }
     },
   })
+  providerCapabilityService = new ProviderCapabilityService()
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
@@ -292,6 +292,9 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
     managedSessionManager.getSnapshots(),
   )
+  ipcMain.handle(IPC_CHANNELS.getProviderCapabilities, () =>
+    providerCapabilityService.getSnapshot(),
+  )
   ipcMain.handle(
     IPC_CHANNELS.getWorkspacePreviewSnapshot,
     (_event, workspaceId) => previewManager.ensure(workspaceId),
@@ -487,8 +490,10 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionCreate,
-    (_event, input: ManagedSessionConfig) => {
-      return managedSessionManager.createSession(input)
+    async (_event, input: unknown) => {
+      const config =
+        await providerCapabilityService.resolveManagedSessionConfig(input)
+      return managedSessionManager.createSession(config)
     },
   )
   ipcMain.handle(
@@ -526,11 +531,15 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSwitchProvider,
-    (_event, sessionId: string, mode: string, model?: string) => {
-      if (mode !== 'claude' && mode !== 'codex') {
-        throw new Error(`Invalid provider mode: ${mode}`)
+    async (_event, sessionId: unknown, input: unknown) => {
+      if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
+        throw new Error('Invalid managed-session id.')
       }
-      return managedSessionManager.switchSessionProvider(sessionId, mode, model)
+      const selection =
+        await providerCapabilityService.resolveManagedSessionProviderSelection(
+          input,
+        )
+      return managedSessionManager.switchSessionProvider(sessionId, selection)
     },
   )
   ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>

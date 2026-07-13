@@ -18,8 +18,10 @@ import type {
   ManagedSessionConfig,
   ManagedSessionDecision,
   ManagedSessionEvent,
+  ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from './managed-session'
+import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
@@ -36,7 +38,6 @@ import type {
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
-  ManagedSessionMode,
   TerminalEvent,
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -68,6 +69,7 @@ export const IPC_CHANNELS = {
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
+  getProviderCapabilities: 'app:get-provider-capabilities',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
   readProjectFile: 'editor:read-project-file',
@@ -139,6 +141,7 @@ export interface AideApi {
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
+  getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,
   ) => Promise<WorkspacePreviewSnapshot>
@@ -214,8 +217,7 @@ export interface AideApi {
   sendManagedSessionInput: (sessionId: string, text: string) => Promise<void>
   switchManagedSessionProvider: (
     sessionId: string,
-    mode: ManagedSessionMode,
-    model?: string,
+    selection: ManagedSessionProviderSelection,
   ) => Promise<ManagedSessionSnapshot>
   writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }

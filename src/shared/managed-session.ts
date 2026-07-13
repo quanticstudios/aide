@@ -24,7 +24,8 @@ export type ManagedSessionContentKind =
   | 'system'
   | 'user-prompt'
 
-export type ManagedSessionEffort = 'high' | 'low' | 'max' | 'medium'
+/** A provider-advertised reasoning effort identifier. */
+export type ManagedSessionEffort = string
 
 /**
  * Claude-only: an extra thinking budget on top of the base `effort` tier.
@@ -58,17 +59,16 @@ export interface ManagedSessionConfig {
   contextWindow?: ManagedSessionContextWindow
   cwd: string
   effort?: ManagedSessionEffort
-  /**
-   * Codex-only: UI-stored "fast mode" toggle. Currently not forwarded — Codex
-   * CLI's JSON-RPC `thread/start` schema does not expose a service tier knob.
-   */
-  fastMode?: boolean
   interactionMode?: ManagedSessionInteractionMode
   mode: ManagedSessionMode
   model?: string
   paneId: string
   permissionMode?: ManagedSessionPermissionMode
+  /** Codex app-server `model/list` service tier identifier. */
+  serviceTier?: string
   sessionId: string
+  /** A safe fallback explanation prepared by the main-process capability gate. */
+  selectionNotice?: string | null
   /**
    * Claude-only: extra thinking-budget tier above the base effort level.
    * `default` is the no-op state. `extra` and `ultra` enable Claude SDK
@@ -76,6 +76,13 @@ export interface ManagedSessionConfig {
    */
   thinkingBudget?: ManagedSessionThinkingBudget
   workspaceId: string
+}
+
+export interface ManagedSessionProviderSelection {
+  effort?: ManagedSessionEffort
+  mode: ManagedSessionMode
+  model?: string
+  serviceTier?: string
 }
 
 export type ManagedSessionTurnState =
@@ -142,10 +149,12 @@ export interface ManagedSessionUsage {
 export interface ManagedSessionSnapshot {
   content: ManagedSessionContentItem[]
   detail: string | null
+  effort: ManagedSessionEffort | null
   interactionMode: ManagedSessionInteractionMode
   lastCompletedAt: string | null
   lastError: string | null
   lastErrorAt: string | null
+  model: string | null
   paneId: string
   pendingApprovals: ManagedSessionPendingApproval[]
   pendingUserInputs: ManagedSessionPendingUserInput[]
@@ -154,6 +163,8 @@ export interface ManagedSessionSnapshot {
   revision: number
   running: boolean
   runtimeGeneration: number
+  selectionNotice: string | null
+  serviceTier: string | null
   sessionId: string
   sessionState: ManagedProviderRuntimeSessionState
   turns: ManagedSessionTurnSummary[]
