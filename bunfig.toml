@@ -1,0 +1,6 @@
+[test]
+pathIgnorePatterns = [
+  "e2e/**",
+  "src/main/database.test.ts",
+  "src/main/git-service.test.ts",
+]

@@ -123,7 +123,7 @@ async function createWorkspace(
   },
 ): Promise<void> {
   await expandSidebar(page)
-  await page.getByRole('button', { name: /create workspace/i }).click()
+  await page.getByRole('button', { name: /new workspace/i }).click()
   await page.getByLabel('Workspace name').fill(input.name)
   await page.getByLabel('Branch name').fill(input.branchName)
   await page
@@ -406,39 +406,65 @@ test.describe('electron spatial navigation', () => {
     const { page } = launched
 
     await importProject(page)
-    await addPane(page, /claude/i)
+    await addPane(page, /^agent\b/i)
     await expandSidebar(page)
     const workspaceSidebarRow = page
       .getByTestId('workspace-tree-panel')
       .getByRole('button', { name: /main/i })
 
-    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
-
     const promptInput = page.getByRole('textbox', { name: /claude prompt/i })
     await promptInput.fill('input')
-    await page.getByRole('button', { name: /^Send$/i }).click()
-    await expect(page.getByTestId('managed-session-state')).toHaveText(
-      'Awaiting Input',
-    )
+    await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(
-      workspaceSidebarRow.getByText('Claude Awaiting Input'),
+      page.getByRole('button', { name: /submit answer/i }),
     ).toBeVisible()
-    await page.getByRole('button', { name: /^Continue$/i }).click()
-    await page.getByRole('button', { name: /submit answers/i }).click()
-    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
+    await expect(workspaceSidebarRow.getByText('Agent Input')).toBeVisible()
+    await page.getByRole('button', { name: /Continue the task/i }).click()
+    await page.getByRole('button', { name: /submit answer/i }).click()
+    await expect(
+      page.getByRole('button', { name: /submit answer/i }),
+    ).not.toBeVisible()
 
     await promptInput.fill('approval')
-    await page.getByRole('button', { name: /^Send$/i }).click()
-    await expect(
-      workspaceSidebarRow.getByText('Claude Pending Approval'),
-    ).toBeVisible()
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(workspaceSidebarRow.getByText('Agent Approval')).toBeVisible()
     await page.getByRole('button', { name: /allow once/i }).click()
 
     await promptInput.fill('ship it')
-    await page.getByRole('button', { name: /^Send$/i }).click()
-    await expect(page.getByTestId('managed-session-state')).toHaveText('Ready')
+    await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: ship it',
+    )
+  })
+
+  test('reattaches a managed agent after renderer reload without ending its session', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_FAKE_MANAGED_PROVIDERS: '1',
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /^agent\b/i)
+
+    const promptInput = page.getByRole('textbox', { name: /claude prompt/i })
+    await promptInput.fill('keep this session alive')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: keep this session alive',
+    )
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: keep this session alive',
     )
   })
 
@@ -470,22 +496,22 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('git-pane-file-list')).toContainText(
       'notes.txt',
     )
-    await expect(page.getByTestId('git-pane-file-list')).toContainText(
-      'Staged: Modified',
-    )
-    await expect(page.getByTestId('git-pane-file-list')).toContainText(
-      'Unstaged: Untracked',
-    )
+    await expect(
+      page.getByTestId('git-pane-file-README.md'),
+    ).toHaveAccessibleName(/README\.md Modified/i)
+    await expect(
+      page.getByTestId('git-pane-file-notes.txt'),
+    ).toHaveAccessibleName(/notes\.txt Untracked/i)
 
     await page.getByTestId('git-pane-file-README.md').click()
     await expect(page.getByTestId('git-pane-selected-file')).toHaveText(
       'README.md',
     )
     await expect(page.getByTestId('git-pane-diff-staged')).toContainText(
-      '+++ b/README.md',
+      'staged',
     )
     await expect(page.getByTestId('git-pane-diff-unstaged')).toContainText(
-      '+++ b/README.md',
+      'unstaged',
     )
 
     await page.getByTestId('git-pane-file-notes.txt').click()
@@ -493,7 +519,7 @@ test.describe('electron spatial navigation', () => {
       'notes.txt',
     )
     await expect(page.getByTestId('git-pane-diff-untracked')).toContainText(
-      '+++ b/notes.txt',
+      'local notes',
     )
   })
 

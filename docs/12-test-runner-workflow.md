@@ -4,9 +4,14 @@ This repo uses multiple test entrypoints on purpose.
 
 ## Commands
 
-- `bun test` or `bun run test:unit`
-  - Runs the default Vitest suite that works cleanly under Bun.
-  - Excludes `src/main/database.test.ts` because Bun does not provide `node:sqlite`.
+- `bun run test`
+  - Runs the full Vitest suite under Node, including SQLite-backed tests.
+  - This is the authoritative default unit/integration gate.
+
+- `bun test`
+  - Runs the fast Bun-compatible subset.
+  - `bunfig.toml` excludes Playwright and the database/Git integration tests
+    because Bun does not provide `node:sqlite`.
 
 - `bun run test:node`
   - Runs the full Vitest suite under Node.
@@ -18,12 +23,14 @@ This repo uses multiple test entrypoints on purpose.
 
 ## Expected usage
 
-- Most UI or renderer work: `bun test`
+- Before every completed change: `bun run test`
+- During fast UI or renderer iteration: `bun test`
 - Database and persistence work: `bun run test:node`
 - Desktop navigation and Electron work: `xvfb-run -a bun run test:e2e`
 
 ## Why this split exists
 
-- Bun is fast and is the default package/script runner for the repo.
-- Node is still required for `node:sqlite` tests.
+- Bun is fast for the compatible unit subset.
+- Vitest under Node is the authoritative gate because Node provides
+  `node:sqlite` and the full Vitest API.
 - Playwright must stay isolated from the default unit runner.

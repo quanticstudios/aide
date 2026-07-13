@@ -1252,9 +1252,11 @@ export default function ManagedAgentPane({
               </button>
             ) : (
               <button
+                aria-label="Send prompt"
                 className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
                 disabled={isSubmitting || draftInput.trim().length === 0}
                 onClick={() => void handleSendInput()}
+                title="Send prompt"
                 type="button"
               >
                 {isSubmitting ? (

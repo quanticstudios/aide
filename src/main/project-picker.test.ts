@@ -9,15 +9,23 @@ describe('pickProjectRoot', () => {
       showOpenDialog: vi.fn(),
     }
 
-    vi.stubEnv('AIDE_TEST_PROJECT_PICK_PATH', '/tmp/aide-project')
+    const previousTestPath = process.env.AIDE_TEST_PROJECT_PICK_PATH
+    process.env.AIDE_TEST_PROJECT_PICK_PATH = '/tmp/aide-project'
 
-    await expect(
-      pickProjectRoot(browserWindow, dialogModule, '/work/aide'),
-    ).resolves.toBe('/tmp/aide-project')
+    try {
+      await expect(
+        pickProjectRoot(browserWindow, dialogModule, '/work/aide'),
+      ).resolves.toBe('/tmp/aide-project')
 
-    expect(dialogModule.showOpenDialog).not.toHaveBeenCalled()
-
-    vi.unstubAllEnvs()
+      expect(dialogModule.showOpenDialog).not.toHaveBeenCalled()
+    } finally {
+      if (previousTestPath === undefined) {
+        // biome-ignore lint/performance/noDelete: process.env keys must be removed rather than assigned the string "undefined"
+        delete process.env.AIDE_TEST_PROJECT_PICK_PATH
+      } else {
+        process.env.AIDE_TEST_PROJECT_PICK_PATH = previousTestPath
+      }
+    }
   })
 
   it('returns the selected directory from the dialog', async () => {

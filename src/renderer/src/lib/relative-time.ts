@@ -1,6 +1,9 @@
-export function formatRelativeTime(isoString: string): string {
+export function formatRelativeTime(
+  isoString: string,
+  nowMilliseconds = Date.now(),
+): string {
   const seconds = Math.floor(
-    (Date.now() - new Date(isoString).getTime()) / 1000,
+    (nowMilliseconds - new Date(isoString).getTime()) / 1000,
   )
 
   if (seconds < 0) {
