@@ -1,13 +1,14 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.2/schema.json",
   "files": {
-    "ignore": [
-      ".beads/**",
-      "node_modules/**",
-      "out/**",
-      "dist/**",
-      "coverage/**",
-      "test-results/**"
+    "includes": [
+      "**",
+      "!!**/.beads",
+      "!!**/node_modules",
+      "!!**/out",
+      "!!**/dist",
+      "!!**/coverage",
+      "!!**/test-results"
     ]
   },
   "formatter": {
@@ -17,7 +18,12 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "preset": "recommended",
+      "a11y": {
+        "noStaticElementInteractions": "off",
+        "useAriaPropsSupportedByRole": "off",
+        "useSemanticElements": "off"
+      }
     }
   },
   "javascript": {
@@ -29,6 +35,11 @@
   "json": {
     "formatter": {
       "indentStyle": "space"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

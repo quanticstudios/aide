@@ -275,7 +275,8 @@ body {
   margin: 0;
   min-width: 320px;
   overflow: hidden;
-  font-family: "SF Pro Display", "SF Pro Text", system-ui, -apple-system,
+  font-family:
+    "SF Pro Display", "SF Pro Text", system-ui, -apple-system,
     BlinkMacSystemFont, "Inter", "Inter Fallback", "Segoe UI", sans-serif;
   font-feature-settings: "calt", "kern", "liga", "ss03";
   font-size: 17px;
@@ -439,8 +440,8 @@ button:active:not(:disabled),
 }
 
 .prose code {
-  font-family: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
-    monospace;
+  font-family:
+    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   font-size: 0.85em;
   background: var(--surface-secondary);
   padding: 0.15em 0.35em;
@@ -569,8 +570,12 @@ button:active:not(:disabled),
 .project-row,
 .workspace-row,
 .pane-tool {
-  transition: background-color var(--t-fast), color var(--t-fast), border-color
-    var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast),
+    border-color var(--t-fast),
+    box-shadow var(--t-fast),
+    transform var(--t-fast);
 }
 
 .btn-ghost {

@@ -193,7 +193,9 @@ function ActivityPill({
 
 function ProjectOverflowMenu({
   projectName,
-}: { readonly projectName: string }) {
+}: {
+  readonly projectName: string
+}) {
   const [isOpen, setIsOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const popoverRef = useRef<HTMLDivElement | null>(null)

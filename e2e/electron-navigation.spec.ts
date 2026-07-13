@@ -11,7 +11,7 @@ import {
   test,
 } from '@playwright/test'
 
-const workspaceDir = '/home/pho7on/Work/aide'
+const workspaceDir = path.resolve(import.meta.dirname, '..')
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_EMAIL: 'aide@example.com',
