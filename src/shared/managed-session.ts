@@ -10,6 +10,7 @@ export type ManagedSessionRequestType =
   | 'command-execution-approval'
   | 'file-change-approval'
   | 'file-read-approval'
+  | 'plan-approval'
   | 'dynamic-tool-call'
   | 'tool-user-input'
   | 'unknown'
@@ -46,6 +47,8 @@ export type ManagedSessionPermissionMode =
   | 'default'
   | 'plan'
 
+export type ManagedSessionInteractionMode = 'build' | 'plan'
+
 export interface ManagedSessionConfig {
   /**
    * Claude-only: UI-stored context window preference. Currently informational —
@@ -60,6 +63,7 @@ export interface ManagedSessionConfig {
    * CLI's JSON-RPC `thread/start` schema does not expose a service tier knob.
    */
   fastMode?: boolean
+  interactionMode?: ManagedSessionInteractionMode
   mode: ManagedSessionMode
   model?: string
   paneId: string
@@ -104,6 +108,11 @@ export interface ManagedSessionPendingApproval {
   requestType: ManagedSessionRequestType
 }
 
+export interface ManagedSessionPlanApproval {
+  detail: string | null
+  id: string
+}
+
 export interface ManagedSessionPromptOption {
   description?: string
   id: string
@@ -133,13 +142,18 @@ export interface ManagedSessionUsage {
 export interface ManagedSessionSnapshot {
   content: ManagedSessionContentItem[]
   detail: string | null
+  interactionMode: ManagedSessionInteractionMode
   lastCompletedAt: string | null
   lastError: string | null
+  lastErrorAt: string | null
   paneId: string
   pendingApprovals: ManagedSessionPendingApproval[]
   pendingUserInputs: ManagedSessionPendingUserInput[]
+  planApproval: ManagedSessionPlanApproval | null
   provider: ManagedSessionProvider
+  revision: number
   running: boolean
+  runtimeGeneration: number
   sessionId: string
   sessionState: ManagedProviderRuntimeSessionState
   turns: ManagedSessionTurnSummary[]
@@ -152,10 +166,12 @@ export type ManagedSessionDecision = 'accept' | 'accept-for-session' | 'deny'
 
 export type ManagedSessionEvent =
   | {
+      revision: number
       snapshot: ManagedSessionSnapshot
       type: 'snapshot'
     }
   | {
+      revision: number
       sessionId: string
       type: 'removed'
     }

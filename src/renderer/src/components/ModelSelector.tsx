@@ -314,7 +314,7 @@ export default function ModelSelector({
                   const keycapLabel = index < 9 ? `Ctrl+${index + 1}` : null
 
                   return (
-                    <button
+                    <div
                       className={cn(
                         'group/row relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors',
                         isSelected
@@ -322,8 +322,6 @@ export default function ModelSelector({
                           : 'text-foreground hover:bg-[var(--surface-1)]',
                       )}
                       key={opt.id}
-                      onClick={() => handleSelect(opt)}
-                      type="button"
                     >
                       {isSelected ? (
                         <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-primary" />
@@ -338,10 +336,7 @@ export default function ModelSelector({
                             ? 'text-accent-yellow'
                             : 'text-muted-foreground/60 hover:text-foreground',
                         )}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          toggleFavorite(opt.id)
-                        }}
+                        onClick={() => toggleFavorite(opt.id)}
                         type="button"
                       >
                         <Star
@@ -351,7 +346,12 @@ export default function ModelSelector({
                           )}
                         />
                       </button>
-                      <div className="flex min-w-0 flex-1 flex-col">
+                      <button
+                        aria-pressed={isSelected}
+                        className="flex min-w-0 flex-1 flex-col text-left"
+                        onClick={() => handleSelect(opt)}
+                        type="button"
+                      >
                         <span className="display truncate text-sm">
                           {opt.label}
                         </span>
@@ -359,11 +359,11 @@ export default function ModelSelector({
                           <ProviderIcon className="size-3" />
                           {providerLabel}
                         </span>
-                      </div>
+                      </button>
                       {keycapLabel ? (
                         <span className="keycap shrink-0">{keycapLabel}</span>
                       ) : null}
-                    </button>
+                    </div>
                   )
                 })
               )}

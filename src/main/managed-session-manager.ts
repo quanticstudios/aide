@@ -19,6 +19,7 @@ import type {
   ManagedSessionEvent,
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
+  ManagedSessionPlanApproval,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
@@ -77,6 +78,7 @@ interface ManagedSessionManagerOptions {
     meta: {
       mode: ManagedProviderRuntimeProvider
       paneId: string
+      runtimeGeneration: number
       sessionId: string
       workspaceId: string
     },
@@ -96,6 +98,8 @@ interface ManagedSessionMutableState {
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
   pendingUserPromptText: string | null
   projector: ManagedTerminalProviderProjector
+  revision: number
+  runtimeGeneration: number
   snapshot: ManagedSessionSnapshot
   turns: Map<string, ManagedSessionTurnSummary>
   usage: ManagedSessionUsage | null
@@ -177,13 +181,18 @@ function buildEmptySnapshot(
   return {
     content: [],
     detail: null,
+    interactionMode: config.interactionMode ?? 'build',
     lastCompletedAt: null,
     lastError: null,
+    lastErrorAt: null,
     paneId: config.paneId,
     pendingApprovals: [],
     pendingUserInputs: [],
+    planApproval: null,
     provider: config.mode,
+    revision: 0,
     running: true,
+    runtimeGeneration: 1,
     sessionId: config.sessionId,
     sessionState: 'connecting',
     turns: [],
@@ -1502,6 +1511,19 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (trimmed === 'plan approval') {
+      this.activeRequestId = randomUUID()
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        detail: `${this.provider} is ready to apply its plan`,
+        provider: this.provider,
+        requestId: this.activeRequestId,
+        requestType: 'plan-approval',
+        type: 'request.opened',
+      })
+      return
+    }
+
     if (trimmed === 'input') {
       this.activeRequestId = randomUUID()
       this.emitRuntimeEvent({
@@ -1630,25 +1652,19 @@ export class ManagedSessionManager {
       pendingUserInputs: new Map(),
       pendingUserPromptText: null,
       projector: new ManagedTerminalProviderProjector(config.mode),
+      revision: 0,
+      runtimeGeneration: 1,
       snapshot: buildEmptySnapshot(config, updatedAt),
       turns: new Map(),
       usage: null,
     }
 
-    state.emitRuntimeEvent = (event: ManagedProviderRuntimeEvent) => {
-      this.applyRuntimeEvent(state, event)
-      this.options.onRuntimeEvent(
-        {
-          mode: state.config.mode,
-          paneId: state.config.paneId,
-          sessionId: state.config.sessionId,
-          workspaceId: state.config.workspaceId,
-        },
-        event,
-      )
-    }
+    state.emitRuntimeEvent = this.createRuntimeEventEmitter(
+      state,
+      state.runtimeGeneration,
+    )
 
-    state.backend = this.createBackend(state)
+    state.backend = this.createBackend(state, state.emitRuntimeEvent)
 
     this.sessions.set(config.sessionId, state)
     state.emitRuntimeEvent({
@@ -1712,7 +1728,9 @@ export class ManagedSessionManager {
 
     await state.backend.close()
     this.sessions.delete(sessionId)
+    state.revision += 1
     this.options.onUpdate({
+      revision: state.revision,
       sessionId,
       type: 'removed',
     })
@@ -1753,11 +1771,34 @@ export class ManagedSessionManager {
       ?.backend.resolveUserInput(requestId, answers)
   }
 
-  public async closeAll(): Promise<void> {
-    await Promise.all(
+  public async closeAll(timeoutMs = 2_000): Promise<void> {
+    const close = Promise.allSettled(
       [...this.sessions.keys()].map((sessionId) =>
         this.closeSession(sessionId),
       ),
+    ).then(() => undefined)
+
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      close,
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs)
+      }),
+    ])
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+
+    this.sessions.clear()
+  }
+
+  public async reapSessions(
+    predicate: (snapshot: ManagedSessionSnapshot) => boolean,
+  ): Promise<void> {
+    await Promise.all(
+      [...this.sessions.values()]
+        .filter((state) => predicate(state.snapshot))
+        .map((state) => this.closeSession(state.config.sessionId)),
     )
   }
 
@@ -1799,6 +1840,7 @@ export class ManagedSessionManager {
 
     state.config = { ...state.config, mode: newMode, model: newModel }
     state.projector = new ManagedTerminalProviderProjector(newMode)
+    state.runtimeGeneration += 1
 
     const switchKey = createContentKey('system', `provider-switch:${now}`)
     state.contentByKey.set(switchKey, {
@@ -1811,7 +1853,11 @@ export class ManagedSessionManager {
     })
     state.orderedContentKeys.push(switchKey)
 
-    state.backend = this.createBackend(state)
+    state.emitRuntimeEvent = this.createRuntimeEventEmitter(
+      state,
+      state.runtimeGeneration,
+    )
+    state.backend = this.createBackend(state, state.emitRuntimeEvent)
 
     state.emitRuntimeEvent({
       createdAt: now,
@@ -1854,6 +1900,7 @@ export class ManagedSessionManager {
 
   private createBackend(
     state: ManagedSessionMutableState,
+    emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
   ): ManagedSessionBackend {
     if (
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
@@ -1861,7 +1908,7 @@ export class ManagedSessionManager {
     ) {
       return new FakeManagedSessionBackend(
         state.config.mode,
-        state.emitRuntimeEvent,
+        emitRuntimeEvent,
         this.getNow,
       )
     }
@@ -1869,14 +1916,40 @@ export class ManagedSessionManager {
     return state.config.mode === 'claude'
       ? new ClaudeManagedSessionBackend(
           state.config,
-          state.emitRuntimeEvent,
+          emitRuntimeEvent,
           this.getNow,
         )
       : new CodexManagedSessionBackend(
           state.config,
-          state.emitRuntimeEvent,
+          emitRuntimeEvent,
           this.getNow,
         )
+  }
+
+  private createRuntimeEventEmitter(
+    state: ManagedSessionMutableState,
+    runtimeGeneration: number,
+  ): (event: ManagedProviderRuntimeEvent) => void {
+    return (event) => {
+      if (
+        this.sessions.get(state.config.sessionId) !== state ||
+        state.runtimeGeneration !== runtimeGeneration
+      ) {
+        return
+      }
+
+      this.applyRuntimeEvent(state, event)
+      this.options.onRuntimeEvent(
+        {
+          mode: state.config.mode,
+          paneId: state.config.paneId,
+          runtimeGeneration,
+          sessionId: state.config.sessionId,
+          workspaceId: state.config.workspaceId,
+        },
+        event,
+      )
+    }
   }
 
   private applyRuntimeEvent(
@@ -2003,16 +2076,30 @@ export class ManagedSessionManager {
     ) {
       state.pendingUserPromptText = null
     }
+    state.revision += 1
+    const planApproval = [...state.pendingApprovals.values()].find(
+      (approval) => approval.requestType === 'plan-approval',
+    )
     state.snapshot = {
       content: state.orderedContentKeys
         .map((key) => state.contentByKey.get(key) ?? null)
         .filter((item): item is ManagedSessionContentItem => item !== null),
       detail: runtime.detail,
+      interactionMode:
+        state.config.interactionMode ??
+        (state.config.permissionMode === 'plan' ? 'plan' : 'build'),
       lastCompletedAt: runtime.lastCompletedAt,
       lastError: runtime.lastError,
+      lastErrorAt: runtime.lastErrorAt,
       paneId: state.config.paneId,
       pendingApprovals: [...state.pendingApprovals.values()],
       pendingUserInputs: [...state.pendingUserInputs.values()],
+      planApproval: planApproval
+        ? ({
+            detail: planApproval.detail,
+            id: planApproval.id,
+          } satisfies ManagedSessionPlanApproval)
+        : null,
       provider: state.config.mode,
       running: runtime.sessionState !== 'stopped',
       sessionId: state.config.sessionId,
@@ -2021,9 +2108,12 @@ export class ManagedSessionManager {
       updatedAt: event.createdAt,
       ...(state.usage !== null ? { usage: state.usage } : {}),
       workspaceId: state.config.workspaceId,
+      revision: state.revision,
+      runtimeGeneration: state.runtimeGeneration,
     }
 
     this.options.onUpdate({
+      revision: state.snapshot.revision,
       snapshot: state.snapshot,
       type: 'snapshot',
     })

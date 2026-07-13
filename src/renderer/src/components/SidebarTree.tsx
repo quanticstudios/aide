@@ -109,6 +109,8 @@ function renderWorkspaceStateIcon(input: {
       )
     case 'completed':
       return <CircleCheck className="size-3 shrink-0 text-accent-green" />
+    case 'plan-ready':
+      return <CircleCheck className="size-3 shrink-0 text-accent-purple" />
     case 'terminal-running':
       return <Terminal className="size-3 shrink-0 text-accent-green" />
     default:
@@ -163,28 +165,23 @@ function getWorkspaceBackgroundClassName(
   if (activity?.state === 'pending-approval') return 'bg-accent-yellow/[0.03]'
   if (activity?.state === 'awaiting-input') return 'bg-accent-yellow/[0.03]'
   if (activity?.state === 'working') return 'sidebar-working-shimmer'
+  if (activity?.state === 'connecting') return 'sidebar-working-shimmer'
+  if (activity?.state === 'plan-ready') return 'bg-accent-purple-soft'
   if (isActive) return 'bg-surface-elevated'
   return ''
 }
 
 function ActivityPill({
   activity,
-  onSelect,
 }: {
   readonly activity: WorkspaceActivitySnapshot
-  readonly onSelect: () => void
 }) {
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: pill is inside a <button> row — keyboard access provided by parent
     <span
       className={cn(
-        'flex shrink-0 cursor-pointer items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold leading-tight',
+        'flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-semibold leading-tight',
         resolveWorkspaceActivityPillClassName(activity),
       )}
-      onClick={(event) => {
-        event.stopPropagation()
-        onSelect()
-      }}
     >
       {shouldPulseWorkspaceActivity(activity) ? (
         <span className="size-1.5 animate-pulse rounded-full bg-current" />
@@ -624,9 +621,7 @@ export default function SidebarTree({
                       const summary = summaries[workspace.id]
                       const activity = summary?.activity ?? null
                       const visibleActivities =
-                        summary?.activities
-                          .filter((a) => a.state !== 'connecting')
-                          .slice(0, 1) ?? []
+                        summary?.activities.slice(0, 1) ?? []
                       const stats = branchStats[workspace.id]
                       const mergeLabel = stats
                         ? getMergeStatusLabel(stats.mergeStatus)
@@ -675,7 +670,12 @@ export default function SidebarTree({
                               !isActiveWorkspace &&
                               'hover:bg-surface-secondary',
                           )}
-                          onClick={() => onSelectWorkspace(workspace.id)}
+                          onClick={() => {
+                            onSelectWorkspace(workspace.id)
+                            if (activity) {
+                              onSelectPane(activity.paneId)
+                            }
+                          }}
                           type="button"
                         >
                           <div className="flex items-center gap-2 min-w-0">
@@ -701,10 +701,6 @@ export default function SidebarTree({
                                   <ActivityPill
                                     activity={entry}
                                     key={entry.sessionId}
-                                    onSelect={() => {
-                                      onSelectWorkspace(workspace.id)
-                                      onSelectPane(entry.paneId)
-                                    }}
                                   />
                                 ))
                               ) : stats &&

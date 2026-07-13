@@ -61,6 +61,19 @@ describe('workspace activity helpers', () => {
     ).toBeGreaterThan(0)
   })
 
+  it('orders plan-ready ahead of completed and terminal fallback activity', () => {
+    expect(
+      resolveAggregateWorkspaceActivity([
+        createActivity('completed'),
+        createActivity('terminal-running', { provider: 'terminal' }),
+        createActivity('plan-ready'),
+      ]),
+    ).toMatchObject({ state: 'plan-ready' })
+    expect(
+      resolveWorkspaceActivityAccentClassName(createActivity('plan-ready')),
+    ).toBe('text-accent-purple')
+  })
+
   it('resolves aggregate activity by status priority', () => {
     expect(
       resolveAggregateWorkspaceActivity([

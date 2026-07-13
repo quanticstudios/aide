@@ -7,6 +7,7 @@ export type WorkspaceActivityState =
   | 'awaiting-input'
   | 'working'
   | 'connecting'
+  | 'plan-ready'
   | 'completed'
   | 'error'
   | 'terminal-running'
@@ -23,7 +24,15 @@ export interface WorkspaceActivitySnapshot {
 }
 
 export interface WorkspaceActivityEvent {
+  collection: WorkspaceActivityCollectionSnapshot
   activities: WorkspaceActivitySnapshot[]
+  revision: number
+  workspaceId: string
+}
+
+export interface WorkspaceActivityCollectionSnapshot {
+  activities: WorkspaceActivitySnapshot[]
+  revision: number
   workspaceId: string
 }
 
@@ -33,8 +42,9 @@ const STATE_PRIORITY: Record<WorkspaceActivityState, number> = {
   'awaiting-input': 5,
   working: 4,
   connecting: 3,
-  completed: 2,
-  'terminal-running': 1,
+  'plan-ready': 2,
+  completed: 1,
+  'terminal-running': 0,
 }
 
 const STATE_LABELS: Record<WorkspaceActivityState, string> = {
@@ -43,6 +53,7 @@ const STATE_LABELS: Record<WorkspaceActivityState, string> = {
   connecting: 'Connecting',
   error: 'Error',
   'pending-approval': 'Pending Approval',
+  'plan-ready': 'Plan Ready',
   'terminal-running': 'Running',
   working: 'Working',
 }
@@ -97,6 +108,10 @@ export function resolveWorkspaceActivityAccentClassName(
     return 'text-accent-yellow'
   }
 
+  if (activity.state === 'plan-ready') {
+    return 'text-accent-purple'
+  }
+
   return 'text-accent-green'
 }
 
@@ -125,6 +140,10 @@ export function resolveWorkspaceActivityDotClassName(
 
   if (activity.state === 'awaiting-input') {
     return 'bg-accent-yellow'
+  }
+
+  if (activity.state === 'plan-ready') {
+    return 'bg-accent-purple'
   }
 
   return 'bg-accent-green'
@@ -208,6 +227,7 @@ const SHORT_STATE_LABELS: Record<WorkspaceActivityState, string> = {
   connecting: 'Connecting',
   error: 'Error',
   'pending-approval': 'Approval',
+  'plan-ready': 'Plan Ready',
   'terminal-running': 'Running',
   working: 'Working',
 }
@@ -245,6 +265,10 @@ export function resolveWorkspaceActivityPillClassName(
     return 'border-transparent bg-accent-blue-soft text-accent-blue'
   }
 
+  if (activity.state === 'plan-ready') {
+    return 'border-transparent bg-accent-purple-soft text-accent-purple'
+  }
+
   return 'border-transparent bg-accent-green-soft text-accent-green'
 }
 
@@ -273,6 +297,10 @@ export function resolveWorkspaceActivityBorderColorClassName(
 
   if (activity.state === 'connecting') {
     return 'border-l-accent-blue'
+  }
+
+  if (activity.state === 'plan-ready') {
+    return 'border-l-accent-purple'
   }
 
   return 'border-l-accent-green'

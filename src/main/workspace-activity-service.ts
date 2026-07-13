@@ -1,90 +1,37 @@
-import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
-import type {
-  TerminalEvent,
-  TerminalLaunchMode,
-  TerminalSessionConfig,
-} from '../shared/terminal'
+import type { ManagedSessionSnapshot } from '../shared/managed-session'
+import type { TerminalEvent, TerminalSessionConfig } from '../shared/terminal'
 import {
+  type WorkspaceActivityCollectionSnapshot,
   type WorkspaceActivityEvent,
-  type WorkspaceActivityProvider,
   type WorkspaceActivitySnapshot,
-  resolveAggregateWorkspaceActivity,
+  resolveWorkspaceActivityList,
 } from '../shared/workspace-activity'
-import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 
 interface WorkspaceActivityServiceOptions {
   readonly getNow?: () => string
   readonly onUpdate: (event: WorkspaceActivityEvent) => void
+  readonly onWorkspaceVisited?: (
+    workspaceId: string,
+    processedThrough: string,
+  ) => void
+  readonly visitWatermarks?: Record<string, string>
 }
 
-type WorkspaceActivitySource = 'managed' | 'fallback'
-type FallbackSessionState = 'ready' | 'running' | 'stopped' | 'error'
-
-interface SessionActivityState {
-  buffer: string
+interface FallbackTerminalSession {
   exitCode: number | null
-  lastSeenAt: string | null
-  mode: TerminalLaunchMode
   paneId: string
-  provider: WorkspaceActivityProvider
-  runtimeProjector: ManagedTerminalProviderProjector | null
   running: boolean
   sessionId: string
-  sessionState: FallbackSessionState
-  source: WorkspaceActivitySource
+  updatedAt: string
   workspaceId: string
 }
 
-const MAX_BUFFER_LENGTH = 24_000
-const SHELL_PROMPT_PATTERN = /(^|\n)[^\n]*[>$#]\s$/m
-const CLAUDE_READY_PATTERN =
-  /(^|\n)\s*(?:>\s*$|how can i help you today\?\s*$)/im
-const CODEX_READY_PATTERN = /(^|\n)\s*(?:›\s*$|>\s*$)/im
-
-function detectFallbackProvider(buffer: string): WorkspaceActivityProvider {
-  if (/claude code/i.test(buffer)) {
-    return 'claude'
-  }
-
-  if (/\b(?:openai\s+)?codex\b/i.test(buffer)) {
-    return 'codex'
-  }
-
-  return 'terminal'
-}
-
-function resolveProvider(mode: TerminalLaunchMode): WorkspaceActivityProvider {
-  if (mode === 'claude' || mode === 'codex') {
-    return mode
-  }
-
-  return 'terminal'
-}
-
-function resolveSource(mode: TerminalLaunchMode): WorkspaceActivitySource {
-  return mode === 'shell' ? 'fallback' : 'managed'
-}
-
-function resolveReadyPattern(
-  provider: WorkspaceActivityProvider,
-): RegExp | null {
-  if (provider === 'claude') {
-    return CLAUDE_READY_PATTERN
-  }
-
-  if (provider === 'codex') {
-    return CODEX_READY_PATTERN
-  }
-
-  return SHELL_PROMPT_PATTERN
-}
-
-function createActivitySnapshot(input: {
+function createActivity(input: {
   detail?: string | null
   paneId: string
-  provider: WorkspaceActivityProvider
+  provider: WorkspaceActivitySnapshot['provider']
   sessionId: string
-  source: WorkspaceActivitySource
+  source: WorkspaceActivitySnapshot['source']
   state: WorkspaceActivitySnapshot['state']
   updatedAt: string
   workspaceId: string
@@ -101,396 +48,315 @@ function createActivitySnapshot(input: {
   }
 }
 
-function createSessionState(
-  config: TerminalSessionConfig,
-  updatedAt: string,
-): SessionActivityState {
-  const runtimeProjector =
-    config.mode === 'claude' || config.mode === 'codex'
-      ? new ManagedTerminalProviderProjector(config.mode)
-      : null
-
-  return {
-    buffer: '',
-    exitCode: null,
-    lastSeenAt: updatedAt,
-    mode: config.mode,
-    paneId: config.paneId,
-    provider: resolveProvider(config.mode),
-    runtimeProjector,
-    running: true,
-    sessionId: config.sessionId,
-    sessionState: 'ready',
-    source: resolveSource(config.mode),
-    workspaceId: config.workspaceId,
-  }
-}
-
-function updateFallbackSessionState(session: SessionActivityState): void {
-  session.provider = detectFallbackProvider(session.buffer)
-  const readyPattern = resolveReadyPattern(session.provider)
-
-  if (readyPattern?.test(session.buffer)) {
-    session.sessionState = 'ready'
-    return
-  }
-
-  session.sessionState = session.running ? 'running' : 'ready'
-}
-
-function deriveLiveSessionActivity(
-  session: SessionActivityState,
-  lastVisitedAt: string | null,
+function deriveManagedActivity(
+  snapshot: ManagedSessionSnapshot,
+  visitedThrough: string | null,
 ): WorkspaceActivitySnapshot | null {
-  if (session.source === 'managed') {
-    const runtime = session.runtimeProjector?.getSnapshot()
-
-    if (!runtime) {
-      return null
-    }
-
-    if (
-      runtime.lastErrorAt &&
-      (!lastVisitedAt || runtime.lastErrorAt > lastVisitedAt)
-    ) {
-      return createActivitySnapshot({
-        detail: runtime.lastError,
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'error',
-        updatedAt: runtime.lastErrorAt,
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    if (runtime.hasPendingApproval) {
-      return createActivitySnapshot({
-        detail: runtime.detail,
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'pending-approval',
-        updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    if (runtime.hasPendingUserInput) {
-      return createActivitySnapshot({
-        detail: runtime.detail,
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'awaiting-input',
-        updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    if (runtime.sessionState === 'connecting') {
-      return createActivitySnapshot({
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'connecting',
-        updatedAt: runtime.lastSeenAt ?? new Date(0).toISOString(),
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    if (runtime.sessionState === 'running' || runtime.activeTurnStartedAt) {
-      return createActivitySnapshot({
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'working',
-        updatedAt:
-          runtime.lastSeenAt ??
-          runtime.activeTurnStartedAt ??
-          new Date(0).toISOString(),
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    if (
-      runtime.lastCompletedAt &&
-      (!lastVisitedAt || runtime.lastCompletedAt > lastVisitedAt)
-    ) {
-      return createActivitySnapshot({
-        paneId: session.paneId,
-        provider: runtime.provider,
-        sessionId: session.sessionId,
-        source: session.source,
-        state: 'completed',
-        updatedAt: runtime.lastCompletedAt,
-        workspaceId: session.workspaceId,
-      })
-    }
-
-    return null
-  }
-
-  if (session.provider !== 'terminal' && session.sessionState === 'running') {
-    return createActivitySnapshot({
-      paneId: session.paneId,
-      provider: session.provider,
-      sessionId: session.sessionId,
-      source: session.source,
-      state: 'working',
-      updatedAt: session.lastSeenAt ?? new Date(0).toISOString(),
-      workspaceId: session.workspaceId,
+  if (
+    snapshot.lastErrorAt &&
+    visitedThrough &&
+    snapshot.lastErrorAt > visitedThrough
+  ) {
+    return createActivity({
+      detail: snapshot.lastError,
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'error',
+      updatedAt: snapshot.lastErrorAt,
+      workspaceId: snapshot.workspaceId,
     })
   }
 
-  if (session.provider === 'terminal' && session.sessionState === 'running') {
-    return createActivitySnapshot({
-      paneId: session.paneId,
-      provider: 'terminal',
-      sessionId: session.sessionId,
-      source: session.source,
-      state: 'terminal-running',
-      updatedAt: session.lastSeenAt ?? new Date(0).toISOString(),
-      workspaceId: session.workspaceId,
+  if (snapshot.planApproval) {
+    return createActivity({
+      detail: snapshot.planApproval.detail,
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'pending-approval',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (snapshot.pendingApprovals.length > 0) {
+    return createActivity({
+      detail: snapshot.pendingApprovals[0]?.detail ?? snapshot.detail,
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'pending-approval',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (snapshot.pendingUserInputs.length > 0) {
+    return createActivity({
+      detail: snapshot.pendingUserInputs[0]?.detail ?? snapshot.detail,
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'awaiting-input',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (snapshot.sessionState === 'connecting') {
+    return createActivity({
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'connecting',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (
+    snapshot.running &&
+    (snapshot.sessionState === 'running' ||
+      snapshot.turns.some((turn) => turn.state === 'running'))
+  ) {
+    return createActivity({
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'working',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (
+    snapshot.interactionMode === 'plan' &&
+    snapshot.sessionState === 'ready'
+  ) {
+    return createActivity({
+      detail: snapshot.detail,
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'plan-ready',
+      updatedAt: snapshot.updatedAt,
+      workspaceId: snapshot.workspaceId,
+    })
+  }
+
+  if (
+    snapshot.lastCompletedAt &&
+    visitedThrough &&
+    snapshot.lastCompletedAt > visitedThrough
+  ) {
+    return createActivity({
+      paneId: snapshot.paneId,
+      provider: snapshot.provider,
+      sessionId: snapshot.sessionId,
+      source: 'managed',
+      state: 'completed',
+      updatedAt: snapshot.lastCompletedAt,
+      workspaceId: snapshot.workspaceId,
     })
   }
 
   return null
 }
 
-function applyManagedSessionEvents(
-  session: SessionActivityState,
-  updatedAt: string,
-  applyEvents: () => readonly ManagedProviderRuntimeEvent[],
-): void {
-  session.lastSeenAt = updatedAt
-  session.runtimeProjector?.apply(applyEvents())
-}
-
 export class WorkspaceActivityService {
-  private readonly getNow: () => string
-  private readonly lastVisitedAtByWorkspace = new Map<string, string>()
-  private readonly sessions = new Map<string, SessionActivityState>()
-  private readonly snapshotByWorkspace = new Map<
+  private readonly collections = new Map<
     string,
-    WorkspaceActivitySnapshot[]
+    WorkspaceActivityCollectionSnapshot
   >()
+  private readonly fallbackSessions = new Map<string, FallbackTerminalSession>()
+  private readonly getNow: () => string
+  private readonly managedSnapshots = new Map<string, ManagedSessionSnapshot>()
+  private readonly processedThroughByWorkspace = new Map<string, string>()
+  private readonly visitWatermarks = new Map<string, string>()
 
   public constructor(
     private readonly options: WorkspaceActivityServiceOptions,
   ) {
     this.getNow = options.getNow ?? (() => new Date().toISOString())
+    for (const [workspaceId, watermark] of Object.entries(
+      options.visitWatermarks ?? {},
+    )) {
+      this.visitWatermarks.set(workspaceId, watermark)
+    }
   }
 
-  public getSnapshot(): Record<string, WorkspaceActivitySnapshot[]> {
-    return Object.fromEntries(this.snapshotByWorkspace)
+  public getSnapshot(): Record<string, WorkspaceActivityCollectionSnapshot> {
+    return Object.fromEntries(this.collections)
+  }
+
+  public handleManagedSessionSnapshot(snapshot: ManagedSessionSnapshot): void {
+    const existing = this.managedSnapshots.get(snapshot.sessionId)
+    if (
+      existing &&
+      (snapshot.runtimeGeneration < existing.runtimeGeneration ||
+        (snapshot.runtimeGeneration === existing.runtimeGeneration &&
+          snapshot.revision <= existing.revision))
+    ) {
+      return
+    }
+
+    this.managedSnapshots.set(snapshot.sessionId, snapshot)
+    this.recordProcessed(snapshot.workspaceId, snapshot.updatedAt)
+    this.publish(snapshot.workspaceId)
+  }
+
+  public handleManagedSessionRemoved(sessionId: string): void {
+    const snapshot = this.managedSnapshots.get(sessionId)
+    if (!snapshot) {
+      return
+    }
+
+    this.managedSnapshots.delete(sessionId)
+    this.publish(snapshot.workspaceId)
+  }
+
+  public handleTerminalEvent(event: TerminalEvent): void {
+    const session = this.fallbackSessions.get(event.sessionId)
+    if (!session) {
+      return
+    }
+
+    session.updatedAt = this.getNow()
+    if (event.type === 'exit') {
+      session.exitCode = event.exitCode
+      session.running = false
+    }
+    this.recordProcessed(session.workspaceId, session.updatedAt)
+    this.publish(session.workspaceId)
+  }
+
+  public markWorkspaceVisited(workspaceId: string): void {
+    const processedThrough =
+      this.processedThroughByWorkspace.get(workspaceId) ?? this.getNow()
+    this.visitWatermarks.set(workspaceId, processedThrough)
+    this.options.onWorkspaceVisited?.(workspaceId, processedThrough)
+    this.publish(workspaceId)
+  }
+
+  public trackSession(config: TerminalSessionConfig): void {
+    if (config.mode !== 'shell') {
+      return
+    }
+
+    const updatedAt = this.getNow()
+    this.fallbackSessions.set(config.sessionId, {
+      exitCode: null,
+      paneId: config.paneId,
+      running: true,
+      sessionId: config.sessionId,
+      updatedAt,
+      workspaceId: config.workspaceId,
+    })
+    this.recordProcessed(config.workspaceId, updatedAt)
+    this.publish(config.workspaceId)
   }
 
   public handleSessionLaunchFailure(
     config: TerminalSessionConfig,
     error: unknown,
   ): void {
-    const updatedAt = this.getNow()
-    const message = error instanceof Error ? error.message : 'Launch failed'
-    const session = createSessionState(config, updatedAt)
-
-    session.running = false
-    session.exitCode = 1
-
-    if (session.source === 'managed') {
-      const provider = config.mode as Exclude<
-        WorkspaceActivityProvider,
-        'terminal'
-      >
-      applyManagedSessionEvents(session, updatedAt, () => [
-        {
-          createdAt: updatedAt,
-          message,
-          provider,
-          type: 'runtime.error',
-        },
-        {
-          createdAt: updatedAt,
-          detail: message,
-          provider,
-          state: 'error',
-          type: 'session.state.changed',
-        },
-      ])
-    } else {
-      session.sessionState = 'error'
-    }
-
-    this.sessions.set(config.sessionId, session)
-    this.publishWorkspaceActivity(config.workspaceId)
-  }
-
-  public handleTerminalEvent(event: TerminalEvent): void {
-    const session = this.sessions.get(event.sessionId)
-
-    if (!session) {
+    if (config.mode !== 'shell') {
       return
     }
 
     const updatedAt = this.getNow()
-    session.lastSeenAt = updatedAt
-
-    if (event.type === 'data') {
-      if (session.source === 'managed') {
-        return
-      }
-
-      session.buffer = `${session.buffer}${event.data}`.slice(
-        -MAX_BUFFER_LENGTH,
-      )
-      session.running = true
-      session.exitCode = null
-      updateFallbackSessionState(session)
-    } else {
-      session.exitCode = event.exitCode
-      session.running = false
-
-      if (session.source === 'managed') {
-        applyManagedSessionEvents(session, updatedAt, () => [
-          {
-            createdAt: updatedAt,
-            exitCode: event.exitCode,
-            provider: session.provider as Exclude<
-              WorkspaceActivityProvider,
-              'terminal'
-            >,
-            type: 'session.exited',
-          },
-        ])
-      } else if (event.exitCode && event.exitCode !== 0) {
-        session.sessionState = 'error'
-      } else {
-        session.sessionState = 'stopped'
-      }
-    }
-
-    this.publishWorkspaceActivity(session.workspaceId)
-  }
-
-  public handleTerminalInput(sessionId: string, data: string): void {
-    const session = this.sessions.get(sessionId)
-
-    if (!session) {
-      return
-    }
-
-    const updatedAt = this.getNow()
-    session.lastSeenAt = updatedAt
-
-    if (!data.includes('\n') && !data.includes('\r')) {
-      this.publishWorkspaceActivity(session.workspaceId)
-      return
-    }
-
-    if (session.source === 'fallback') {
-      session.buffer = ''
-      session.sessionState = 'running'
-    }
-
-    this.publishWorkspaceActivity(session.workspaceId)
-  }
-
-  public markWorkspaceVisited(workspaceId: string): void {
-    this.lastVisitedAtByWorkspace.set(workspaceId, this.getNow())
-    this.publishWorkspaceActivity(workspaceId)
-  }
-
-  public trackSession(config: TerminalSessionConfig): void {
-    this.sessions.set(
-      config.sessionId,
-      createSessionState(config, this.getNow()),
+    this.fallbackSessions.set(config.sessionId, {
+      exitCode: 1,
+      paneId: config.paneId,
+      running: false,
+      sessionId: config.sessionId,
+      updatedAt,
+      workspaceId: config.workspaceId,
+    })
+    this.recordProcessed(config.workspaceId, updatedAt)
+    this.publish(
+      config.workspaceId,
+      error instanceof Error ? error.message : 'Launch failed',
     )
-    this.publishWorkspaceActivity(config.workspaceId)
   }
 
-  public handleManagedRuntimeEvent(
-    sessionId: string,
-    event: ManagedProviderRuntimeEvent,
-  ): void {
-    const session = this.sessions.get(sessionId)
-
-    if (!session || session.source !== 'managed') {
-      return
-    }
-
-    applyManagedSessionEvents(session, event.createdAt, () => [event])
-    this.publishWorkspaceActivity(session.workspaceId)
-  }
-
-  public handleManagedSessionStart(config: TerminalSessionConfig): void {
-    if (this.sessions.has(config.sessionId)) {
-      return
-    }
-
-    const updatedAt = this.getNow()
-    const session = createSessionState(config, updatedAt)
-    const provider = config.mode as Exclude<
-      WorkspaceActivityProvider,
-      'terminal'
-    >
-    this.sessions.set(config.sessionId, session)
-    applyManagedSessionEvents(session, updatedAt, () => [
-      {
-        createdAt: updatedAt,
-        provider,
-        type: 'session.started',
-      },
-      {
-        createdAt: updatedAt,
-        provider,
-        state: 'connecting',
-        type: 'session.state.changed',
-      },
-    ])
-    this.publishWorkspaceActivity(config.workspaceId)
-  }
-
-  public handleManagedSessionClosed(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-
-    if (!session) {
-      return
-    }
-
-    this.sessions.delete(sessionId)
-    this.publishWorkspaceActivity(session.workspaceId)
-  }
-
-  private publishWorkspaceActivity(workspaceId: string): void {
-    const activities = [...this.sessions.values()]
-      .filter((session) => session.workspaceId === workspaceId)
-      .map((session) =>
-        deriveLiveSessionActivity(
-          session,
-          this.lastVisitedAtByWorkspace.get(workspaceId) ?? null,
+  private publish(workspaceId: string, terminalError?: string): void {
+    const visitedThrough = this.visitWatermarks.get(workspaceId) ?? null
+    const activities = resolveWorkspaceActivityList([
+      ...[...this.managedSnapshots.values()]
+        .filter((snapshot) => snapshot.workspaceId === workspaceId)
+        .map((snapshot) => deriveManagedActivity(snapshot, visitedThrough))
+        .filter(
+          (activity): activity is WorkspaceActivitySnapshot =>
+            activity !== null,
         ),
-      )
-      .filter(
-        (snapshot): snapshot is WorkspaceActivitySnapshot => snapshot !== null,
-      )
-      .sort((left, right) =>
-        resolveAggregateWorkspaceActivity([left, right]) === left ? -1 : 1,
-      )
-
-    if (activities.length > 0) {
-      this.snapshotByWorkspace.set(workspaceId, activities)
-    } else {
-      this.snapshotByWorkspace.delete(workspaceId)
+      ...[...this.fallbackSessions.values()]
+        .filter(
+          (session) => session.workspaceId === workspaceId && session.running,
+        )
+        .map((session) =>
+          createActivity({
+            paneId: session.paneId,
+            provider: 'terminal',
+            sessionId: session.sessionId,
+            source: 'fallback',
+            state: 'terminal-running',
+            updatedAt: session.updatedAt,
+            workspaceId,
+          }),
+        ),
+      ...[...this.fallbackSessions.values()]
+        .filter(
+          (session) =>
+            session.workspaceId === workspaceId &&
+            !session.running &&
+            session.exitCode !== null &&
+            session.exitCode !== 0 &&
+            visitedThrough !== null &&
+            session.updatedAt > visitedThrough,
+        )
+        .map((session) =>
+          createActivity({
+            detail:
+              terminalError ?? `Terminal exited with code ${session.exitCode}`,
+            paneId: session.paneId,
+            provider: 'terminal',
+            sessionId: session.sessionId,
+            source: 'fallback',
+            state: 'error',
+            updatedAt: session.updatedAt,
+            workspaceId,
+          }),
+        ),
+    ])
+    const previous = this.collections.get(workspaceId)
+    const collection: WorkspaceActivityCollectionSnapshot = {
+      activities,
+      revision: (previous?.revision ?? 0) + 1,
+      workspaceId,
     }
 
+    this.collections.set(workspaceId, collection)
     this.options.onUpdate({
       activities,
+      collection,
+      revision: collection.revision,
       workspaceId,
     })
+  }
+
+  private recordProcessed(workspaceId: string, updatedAt: string): void {
+    const current = this.processedThroughByWorkspace.get(workspaceId)
+    if (!current || updatedAt > current) {
+      this.processedThroughByWorkspace.set(workspaceId, updatedAt)
+    }
   }
 }

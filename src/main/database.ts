@@ -167,6 +167,12 @@ const MIGRATIONS = [
         updated_at TEXT NOT NULL,
         FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS workspace_activity_visits (
+        workspace_id TEXT PRIMARY KEY,
+        processed_through TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
     `,
   },
 ]
@@ -186,6 +192,39 @@ export class AideDatabase {
 
   public close(): void {
     this.database.close()
+  }
+
+  public getWorkspaceActivityVisitWatermarks(): Record<string, string> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT workspace_id, processed_through
+          FROM workspace_activity_visits
+        `,
+      )
+      .all() as unknown as Array<{
+      processed_through: string
+      workspace_id: string
+    }>
+
+    return Object.fromEntries(
+      rows.map((row) => [row.workspace_id, row.processed_through]),
+    )
+  }
+
+  public setWorkspaceActivityVisitWatermark(
+    workspaceId: string,
+    processedThrough: string,
+  ): void {
+    this.database
+      .prepare(
+        `
+          INSERT INTO workspace_activity_visits (workspace_id, processed_through)
+          VALUES (?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET processed_through = excluded.processed_through
+        `,
+      )
+      .run(workspaceId, processedThrough)
   }
 
   public createProject(input: CreateProjectInput): ProjectRecord {

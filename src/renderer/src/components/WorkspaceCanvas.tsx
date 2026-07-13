@@ -196,35 +196,37 @@ function PaneTab({
   )
   const sessionState = useManagedSessionState(sessionId)
   return (
-    <button
+    <div
       className={cn(
         'group/tab flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
         isActive
           ? 'bg-surface-elevated text-foreground'
           : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
       )}
-      onClick={onSwitch}
-      type="button"
     >
-      {Icon ? <Icon className="size-3" /> : null}
-      <span className="truncate">{metadata.type}</span>
-      {isManagedPane ? (
-        <span
-          className={`size-2 rounded-full ${getSessionStateDotClass(sessionState)}`}
-        />
-      ) : null}
+      <button
+        aria-current={isActive ? 'page' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        onClick={onSwitch}
+        type="button"
+      >
+        {Icon ? <Icon className="size-3" /> : null}
+        <span className="truncate">{metadata.type}</span>
+        {isManagedPane ? (
+          <span
+            className={`size-2 rounded-full ${getSessionStateDotClass(sessionState)}`}
+          />
+        ) : null}
+      </button>
       <button
         aria-label={`Close ${metadata.type} view`}
         className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/tab:opacity-100"
-        onClick={(event) => {
-          event.stopPropagation()
-          onRemove()
-        }}
+        onClick={onRemove}
         type="button"
       >
         <X className="size-2.5" />
       </button>
-    </button>
+    </div>
   )
 }
 

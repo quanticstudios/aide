@@ -41,8 +41,8 @@ import type {
   TerminalSessionSnapshot,
 } from './terminal'
 import type {
+  WorkspaceActivityCollectionSnapshot,
   WorkspaceActivityEvent,
-  WorkspaceActivitySnapshot,
 } from './workspace-activity'
 
 export const IPC_CHANNELS = {
@@ -132,7 +132,7 @@ export interface AideApi {
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<
-    Record<string, WorkspaceActivitySnapshot[]>
+    Record<string, WorkspaceActivityCollectionSnapshot>
   >
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>

@@ -136,6 +136,63 @@ describe('ManagedSessionManager', () => {
     expect(snapshot.sessionState).toBe('ready')
   })
 
+  it('revisions snapshots and preserves structured plan approvals', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: (event) => uiEvents.push(event),
+    })
+    const config = {
+      ...createConfig('codex'),
+      interactionMode: 'plan' as const,
+    }
+
+    const created = await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'plan approval')
+    const pending = manager.getSnapshots()[config.sessionId]
+
+    expect(pending.revision).toBeGreaterThan(created.revision)
+    expect(pending.runtimeGeneration).toBe(1)
+    expect(pending.interactionMode).toBe('plan')
+    expect(pending.planApproval).toMatchObject({
+      id: pending.pendingApprovals[0]?.id,
+    })
+    expect(uiEvents.at(-1)).toMatchObject({ revision: pending.revision })
+  })
+
+  it('increments runtime generation when switching providers', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    const switched = await manager.switchSessionProvider(
+      config.sessionId,
+      'codex',
+    )
+
+    expect(switched.runtimeGeneration).toBe(2)
+    expect(switched.provider).toBe('codex')
+  })
+
+  it('owns session cleanup independently from renderer subscriptions', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    expect(manager.getSnapshots()[config.sessionId]).toBeDefined()
+
+    await manager.closeAll()
+    expect(manager.getSnapshots()).toEqual({})
+  })
+
   it('appends streamed content and completion state for fake work turns', async () => {
     const manager = new ManagedSessionManager({
       getNow: () => '2026-04-11T10:00:00.000Z',

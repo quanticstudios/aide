@@ -61,6 +61,8 @@
   --accent-green-soft: rgba(89, 212, 153, 0.15);
   --accent-yellow: #ffc533;
   --accent-yellow-soft: rgba(255, 197, 51, 0.15);
+  --accent-purple: #bd93ff;
+  --accent-purple-soft: rgba(189, 147, 255, 0.15);
 
   /* Hairlines */
   --border: #242728;
@@ -153,6 +155,8 @@
   --color-accent-green-soft: var(--accent-green-soft);
   --color-accent-yellow: var(--accent-yellow);
   --color-accent-yellow-soft: var(--accent-yellow-soft);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-purple-soft: var(--accent-purple-soft);
   --color-accent-peach: var(--accent-peach);
   --color-accent-peach-soft: var(--accent-peach-soft);
   --color-accent-ochre: var(--accent-ochre);

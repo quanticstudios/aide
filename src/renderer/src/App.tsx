@@ -156,6 +156,7 @@ export default function App() {
     id: number
     type: PreviewBrowserControl
   } | null>(null)
+  const workspaceActivityRevisionsRef = useRef<Record<string, number>>({})
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -289,12 +290,8 @@ export default function App() {
     }
 
     try {
-      const [snapshot, activitySnapshot] = await Promise.all([
-        api.getStorageSnapshot(),
-        api.getWorkspaceActivitySnapshot(),
-      ])
+      const snapshot = await api.getStorageSnapshot()
       setStorageSnapshot(snapshot)
-      setWorkspaceActivities(activitySnapshot)
       setShellError(null)
     } catch (error) {
       setShellError(getErrorMessage(error))
@@ -828,6 +825,29 @@ export default function App() {
         return
       }
 
+      const closeRemovedManagedSessions = async (
+        nextLayout: WorkspaceLayoutRecord | null,
+      ) => {
+        const api = getAideApi()
+
+        if (!api) {
+          return
+        }
+
+        const nextPaneIds = new Set(
+          nextLayout ? collectWorkspaceLayoutPaneIds(nextLayout) : [],
+        )
+        const removedPaneIds = collectWorkspaceLayoutPaneIds(
+          currentLayout,
+        ).filter((paneId) => !nextPaneIds.has(paneId))
+
+        await Promise.all(
+          removedPaneIds.map((paneId) =>
+            api.closeManagedSession(`${workspaceId}:${paneId}`),
+          ),
+        )
+      }
+
       try {
         if (!result.layout.rootNodeId || result.layout.nodes.length === 0) {
           const remainingSurfaces = surfaces
@@ -861,6 +881,7 @@ export default function App() {
                 : null
               : null,
           )
+          await closeRemovedManagedSessions(null)
           return
         }
 
@@ -880,6 +901,7 @@ export default function App() {
           surfaceId,
           result.nextActivePaneId,
         )
+        await closeRemovedManagedSessions(result.layout)
       } catch (error) {
         setShellError(getErrorMessage(error))
       }
@@ -1146,7 +1168,14 @@ export default function App() {
       return
     }
 
-    return api.onWorkspaceActivity((event) => {
+    const unsubscribe = api.onWorkspaceActivity((event) => {
+      if (
+        (workspaceActivityRevisionsRef.current[event.workspaceId] ?? -1) >=
+        event.revision
+      ) {
+        return
+      }
+      workspaceActivityRevisionsRef.current[event.workspaceId] = event.revision
       setWorkspaceActivities((current) => {
         if (event.activities.length === 0) {
           if (!(event.workspaceId in current)) {
@@ -1164,6 +1193,30 @@ export default function App() {
         }
       })
     })
+
+    void api.getWorkspaceActivitySnapshot().then((snapshot) => {
+      setWorkspaceActivities((current) => {
+        const next = { ...current }
+        for (const [workspaceId, collection] of Object.entries(snapshot)) {
+          if (
+            (workspaceActivityRevisionsRef.current[workspaceId] ?? -1) >
+            collection.revision
+          ) {
+            continue
+          }
+          workspaceActivityRevisionsRef.current[workspaceId] =
+            collection.revision
+          if (collection.activities.length === 0) {
+            delete next[workspaceId]
+          } else {
+            next[workspaceId] = collection.activities
+          }
+        }
+        return next
+      })
+    })
+
+    return unsubscribe
   }, [])
 
   useEffect(() => {

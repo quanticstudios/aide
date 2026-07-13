@@ -1,433 +1,168 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
-import type { TerminalSessionConfig } from '../shared/terminal'
+import type { ManagedSessionSnapshot } from '../shared/managed-session'
 import { WorkspaceActivityService } from './workspace-activity-service'
 
-function createConfig(
-  sessionId: string,
-  workspaceId = 'workspace-1',
-  mode: TerminalSessionConfig['mode'] = 'shell',
-): TerminalSessionConfig {
+function snapshot(
+  overrides: Partial<ManagedSessionSnapshot> = {},
+): ManagedSessionSnapshot {
   return {
-    cols: 120,
-    cwd: '/tmp/workspace-1',
-    mode,
-    paneId: `${workspaceId}:pane-terminal`,
-    rows: 40,
-    sessionId,
-    workspaceId,
+    content: [],
+    detail: null,
+    interactionMode: 'build',
+    lastCompletedAt: null,
+    lastError: null,
+    lastErrorAt: null,
+    paneId: 'pane-1',
+    pendingApprovals: [],
+    pendingUserInputs: [],
+    planApproval: null,
+    provider: 'claude',
+    revision: 1,
+    running: true,
+    runtimeGeneration: 1,
+    sessionId: 'session-1',
+    sessionState: 'ready',
+    turns: [],
+    updatedAt: '2026-04-06T12:00:00.000Z',
+    workspaceId: 'workspace-1',
+    ...overrides,
   }
 }
 
 describe('WorkspaceActivityService', () => {
-  const getNow = vi.fn(() => '2026-04-06T12:00:00.000Z')
+  it('derives managed activity only from managed snapshots', () => {
+    const service = new WorkspaceActivityService({ onUpdate: () => undefined })
 
-  function getActivity(
-    service: WorkspaceActivityService,
-    workspaceId = 'workspace-1',
-  ) {
-    return service.getSnapshot()[workspaceId]?.[0]
-  }
-
-  function emitManagedEvent(
-    service: WorkspaceActivityService,
-    sessionId: string,
-    event: ManagedProviderRuntimeEvent,
-  ) {
-    service.handleManagedRuntimeEvent(sessionId, event)
-  }
-
-  beforeEach(() => {
-    getNow.mockReset()
-    getNow.mockReturnValue('2026-04-06T12:00:00.000Z')
-  })
-
-  it('marks managed Claude sessions as connecting before the prompt appears', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        pendingApprovals: [
+          {
+            detail: 'Approve the command',
+            id: 'approval-1',
+            requestType: 'command-execution-approval',
+          },
+        ],
+      }),
     )
 
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      source: 'managed',
-      state: 'connecting',
-    })
-  })
-
-  it('marks managed Claude sessions as working after a submitted prompt', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
-    )
-
-    getNow.mockReturnValue('2026-04-06T12:01:00.000Z')
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:01:00.000Z',
-      provider: 'claude',
-      turnId: 'turn-1',
-      type: 'turn.started',
-    })
-
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      source: 'managed',
-      state: 'working',
-    })
-  })
-
-  it('surfaces managed Codex approval states above other activity', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:codex', 'workspace-1', 'codex'),
-    )
-    emitManagedEvent(service, 'workspace-1:codex', {
-      createdAt: '2026-04-06T12:00:00.000Z',
-      detail: 'Approval required to continue',
-      provider: 'codex',
-      requestId: 'approval-1',
-      requestType: 'command-execution-approval',
-      type: 'request.opened',
-    })
-
-    expect(getActivity(service)).toMatchObject({
-      detail: 'Approval required to continue',
-      provider: 'codex',
+    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
       source: 'managed',
       state: 'pending-approval',
     })
   })
 
-  it('does not treat Claude permission mode hints as pending approval', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
+  it('ignores stale managed snapshot revisions and generations', () => {
+    const service = new WorkspaceActivityService({ onUpdate: () => undefined })
 
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    service.handleManagedSessionSnapshot(
+      snapshot({ revision: 2, sessionState: 'running' }),
     )
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:00:00.000Z',
-      itemId: 'msg-1',
-      kind: 'assistant-text',
-      provider: 'claude',
-      text: 'bypass permissions on (shift+tab to cycle)',
-      type: 'content.delta',
-    })
+    service.handleManagedSessionSnapshot(
+      snapshot({ revision: 1, sessionState: 'ready' }),
+    )
+    service.handleManagedSessionSnapshot(
+      snapshot({ revision: 99, runtimeGeneration: 0, sessionState: 'ready' }),
+    )
 
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      source: 'managed',
-      state: 'connecting',
+    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+      state: 'working',
     })
   })
 
-  it('surfaces managed Claude input requests separately from approvals', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
+  it('does not surface historic completion before a workspace has been visited', () => {
+    const service = new WorkspaceActivityService({ onUpdate: () => undefined })
 
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        lastCompletedAt: '2026-04-06T12:00:00.000Z',
+        running: false,
+        sessionState: 'stopped',
+      }),
     )
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:00:00.000Z',
-      detail: 'Select an option to continue',
-      provider: 'claude',
-      questions: [],
-      requestId: 'input-1',
-      type: 'user-input.requested',
+
+    expect(service.getSnapshot()['workspace-1']?.activities).toEqual([])
+  })
+
+  it('surfaces errors newer than the persisted visit watermark', () => {
+    const service = new WorkspaceActivityService({
+      onUpdate: () => undefined,
+      visitWatermarks: { 'workspace-1': '2026-04-06T11:59:00.000Z' },
     })
 
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      source: 'managed',
-      state: 'awaiting-input',
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        lastError: 'Provider failed',
+        lastErrorAt: '2026-04-06T12:01:00.000Z',
+        revision: 2,
+        sessionState: 'error',
+        updatedAt: '2026-04-06T12:01:00.000Z',
+      }),
+    )
+
+    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
+      state: 'error',
     })
   })
 
-  it('treats Claude startup task picker prompts as awaiting input', () => {
+  it('acknowledges activity through the latest processed update on visit', () => {
+    const persisted = vi.fn()
     const service = new WorkspaceActivityService({
-      getNow,
       onUpdate: () => undefined,
+      onWorkspaceVisited: persisted,
     })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        lastCompletedAt: '2026-04-06T12:01:00.000Z',
+        running: false,
+        sessionState: 'stopped',
+        updatedAt: '2026-04-06T12:01:00.000Z',
+      }),
     )
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:00:00.000Z',
-      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
-      provider: 'claude',
-      questions: [
-        {
-          id: 'task',
-          options: [{ id: 'bug', label: 'Fix a bug' }],
-          prompt: 'What would you like to work on today?',
-        },
-      ],
-      requestId: 'input-1',
-      type: 'user-input.requested',
-    })
 
-    expect(getActivity(service)).toMatchObject({
-      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
-      provider: 'claude',
-      source: 'managed',
-      state: 'awaiting-input',
-    })
+    service.markWorkspaceVisited('workspace-1')
+
+    expect(persisted).toHaveBeenCalledWith(
+      'workspace-1',
+      '2026-04-06T12:01:00.000Z',
+    )
+    expect(service.getSnapshot()['workspace-1']?.activities).toEqual([])
   })
 
-  it('keeps managed Claude input requests sticky across passive output', () => {
+  it('publishes revisioned collections and gives plan-ready its own state', () => {
+    const events: unknown[] = []
     const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
+      onUpdate: (event) => events.push(event),
     })
 
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
+    service.handleManagedSessionSnapshot(
+      snapshot({ interactionMode: 'plan', revision: 3 }),
     )
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:01:00.000Z',
-      provider: 'claude',
-      turnId: 'turn-1',
-      type: 'turn.started',
-    })
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:02:00.000Z',
-      detail: 'Enter to select · ↑/↓ to navigate · Esc to cancel',
-      provider: 'claude',
-      questions: [
-        {
-          id: 'task',
-          options: [{ id: 'chat', label: 'Chat about this' }],
-          prompt: 'What would you like to work on today?',
-        },
-      ],
-      requestId: 'input-1',
-      type: 'user-input.requested',
-    })
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:03:00.000Z',
-      itemId: 'progress-1',
-      kind: 'assistant-text',
-      provider: 'claude',
-      text: '[ Task ]\n6. Chat about this\n',
-      type: 'content.delta',
-    })
 
-    expect(getActivity(service)).toMatchObject({
-      state: 'awaiting-input',
+    expect(service.getSnapshot()['workspace-1']).toMatchObject({
+      revision: 1,
+      activities: [{ state: 'plan-ready' }],
     })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ revision: 1 })
   })
 
-  it('keeps generic shell terminals coarse and provider-agnostic', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
+  it('keeps fallback activity terminal-only and coarse', () => {
+    const service = new WorkspaceActivityService({ onUpdate: () => undefined })
+    service.trackSession({
+      cols: 80,
+      cwd: '/tmp/workspace-1',
+      mode: 'shell',
+      paneId: 'pane-terminal',
+      rows: 24,
+      sessionId: 'terminal-1',
+      workspaceId: 'workspace-1',
     })
 
-    service.trackSession(createConfig('workspace-1:shell'))
-    service.handleTerminalEvent({
-      data: 'portalumrlice on main\n$ ',
-      sessionId: 'workspace-1:shell',
-      type: 'data',
-    })
-
-    expect(getActivity(service)).toBeUndefined()
-
-    getNow.mockReturnValue('2026-04-06T12:02:00.000Z')
-    service.handleTerminalInput('workspace-1:shell', 'npm run dev\n')
-
-    expect(getActivity(service)).toMatchObject({
+    expect(service.getSnapshot()['workspace-1']?.activities[0]).toMatchObject({
       provider: 'terminal',
       source: 'fallback',
       state: 'terminal-running',
-    })
-  })
-
-  it('limits fallback Claude detection to coarse working state only', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.trackSession(createConfig('workspace-1:shell'))
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\n> ',
-      sessionId: 'workspace-1:shell',
-      type: 'data',
-    })
-
-    expect(getActivity(service)).toBeUndefined()
-
-    getNow.mockReturnValue('2026-04-06T12:03:00.000Z')
-    service.handleTerminalInput('workspace-1:shell', 'run tests\n')
-
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      source: 'fallback',
-      state: 'working',
-    })
-  })
-
-  it('does not elevate fallback shell prompts to approval states', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.trackSession(createConfig('workspace-1:shell'))
-    service.handleTerminalEvent({
-      data: 'Claude Code v2.1.92\nbypass permissions on (shift+tab to cycle)\n> ',
-      sessionId: 'workspace-1:shell',
-      type: 'data',
-    })
-
-    expect(getActivity(service)).toBeUndefined()
-  })
-
-  it('keeps completed managed turns sticky until the workspace is visited', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
-    )
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:04:00.000Z',
-      provider: 'claude',
-      turnId: 'turn-1',
-      type: 'turn.started',
-    })
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:05:00.000Z',
-      provider: 'claude',
-      state: 'completed',
-      turnId: 'turn-1',
-      type: 'turn.completed',
-    })
-
-    expect(getActivity(service)).toMatchObject({
-      provider: 'claude',
-      state: 'completed',
-    })
-
-    getNow.mockReturnValue('2026-04-06T12:06:00.000Z')
-    service.markWorkspaceVisited('workspace-1')
-
-    expect(getActivity(service)).toBeUndefined()
-  })
-
-  it('aggregates multiple sessions in one workspace by t3code-style priority', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
-    )
-    service.handleManagedSessionStart({
-      ...createConfig('workspace-1:codex', 'workspace-1', 'codex'),
-      paneId: 'workspace-1:pane-codex',
-    })
-
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:01:00.000Z',
-      provider: 'claude',
-      turnId: 'turn-1',
-      type: 'turn.started',
-    })
-    emitManagedEvent(service, 'workspace-1:codex', {
-      createdAt: '2026-04-06T12:02:00.000Z',
-      detail: 'Approval required to continue',
-      provider: 'codex',
-      requestId: 'approval-1',
-      requestType: 'command-execution-approval',
-      type: 'request.opened',
-    })
-
-    expect(getActivity(service)).toMatchObject({
-      provider: 'codex',
-      state: 'pending-approval',
-    })
-  })
-
-  it('retains multiple live workspace activities ordered by priority', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleManagedSessionStart(
-      createConfig('workspace-1:claude', 'workspace-1', 'claude'),
-    )
-    service.handleManagedSessionStart({
-      ...createConfig('workspace-1:codex', 'workspace-1', 'codex'),
-      paneId: 'workspace-1:pane-codex',
-    })
-
-    emitManagedEvent(service, 'workspace-1:claude', {
-      createdAt: '2026-04-06T12:01:00.000Z',
-      detail: 'Enter to select',
-      provider: 'claude',
-      questions: [],
-      requestId: 'input-1',
-      type: 'user-input.requested',
-    })
-    emitManagedEvent(service, 'workspace-1:codex', {
-      createdAt: '2026-04-06T12:02:00.000Z',
-      detail: 'Approval required to continue',
-      provider: 'codex',
-      requestId: 'approval-1',
-      requestType: 'command-execution-approval',
-      type: 'request.opened',
-    })
-
-    expect(service.getSnapshot()['workspace-1']).toHaveLength(2)
-    expect(service.getSnapshot()['workspace-1']?.[0]).toMatchObject({
-      provider: 'codex',
-      state: 'pending-approval',
-    })
-    expect(service.getSnapshot()['workspace-1']?.[1]).toMatchObject({
-      provider: 'claude',
-      state: 'awaiting-input',
-    })
-  })
-
-  it('records launch failures as workspace errors', () => {
-    const service = new WorkspaceActivityService({
-      getNow,
-      onUpdate: () => undefined,
-    })
-
-    service.handleSessionLaunchFailure(
-      createConfig('workspace-1:codex', 'workspace-1', 'codex'),
-      new Error('spawn codex ENOENT'),
-    )
-
-    expect(getActivity(service)).toMatchObject({
-      detail: 'spawn codex ENOENT',
-      provider: 'codex',
-      state: 'error',
     })
   })
 })

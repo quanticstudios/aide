@@ -496,6 +496,7 @@ export default function ManagedAgentPane({
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const startedSessionRef = useRef(false)
+  const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -537,6 +538,7 @@ export default function ManagedAgentPane({
         cwd: workspace.worktreePath || '~',
         effort,
         fastMode,
+        interactionMode: agentMode,
         mode: selectedProvider,
         model: selectedModel,
         paneId,
@@ -570,35 +572,36 @@ export default function ManagedAgentPane({
 
   useEffect(() => {
     const api = getAideApi()
-    if (!api || terminalMode === 'shell' || startedSessionRef.current) return
 
-    void (async () => {
-      try {
-        const snapshots = await api.getManagedSessionSnapshots()
-        const existing = snapshots[sessionId] ?? null
-        if (existing) {
-          setSnapshot(existing)
-          if (isUnifiedPane) {
-            setSelectedProvider(existing.provider as ManagedSessionMode)
-          }
-          startedSessionRef.current = true
-        }
-      } catch {
-        /* no existing session — will create on first send */
-      }
-    })()
-  }, [isUnifiedPane, sessionId, terminalMode])
-
-  useEffect(() => {
-    const api = getAideApi()
-
-    if (!api) {
+    if (!api || terminalMode === 'shell') {
       return
     }
 
-    return api.onManagedSessionEvent((event) => {
+    const applySnapshot = (nextSnapshot: ManagedSessionSnapshot) => {
+      const current = snapshotRevisionRef.current
+      if (
+        nextSnapshot.runtimeGeneration < current.runtimeGeneration ||
+        (nextSnapshot.runtimeGeneration === current.runtimeGeneration &&
+          nextSnapshot.revision <= current.revision)
+      ) {
+        return
+      }
+      snapshotRevisionRef.current = {
+        revision: nextSnapshot.revision,
+        runtimeGeneration: nextSnapshot.runtimeGeneration,
+      }
+      setSnapshot(nextSnapshot)
+      if (isUnifiedPane) {
+        setSelectedProvider(nextSnapshot.provider as ManagedSessionMode)
+      }
+      startedSessionRef.current = true
+    }
+
+    const unsubscribe = api.onManagedSessionEvent((event) => {
       if (event.type === 'removed') {
         if (event.sessionId === sessionId) {
+          snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
+          startedSessionRef.current = false
           setSnapshot(null)
         }
         return
@@ -608,21 +611,18 @@ export default function ManagedAgentPane({
         return
       }
 
-      setSnapshot(event.snapshot)
+      applySnapshot(event.snapshot)
     })
-  }, [sessionId])
 
-  useEffect(() => {
-    return () => {
-      const api = getAideApi()
-
-      if (!api || !startedSessionRef.current) {
-        return
+    void api.getManagedSessionSnapshots().then((snapshots) => {
+      const existing = snapshots[sessionId]
+      if (existing) {
+        applySnapshot(existing)
       }
+    })
 
-      void api.closeManagedSession(sessionId).catch(() => undefined)
-    }
-  }, [sessionId])
+    return unsubscribe
+  }, [isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
   const pendingApprovalCount = snapshot?.pendingApprovals.length ?? 0

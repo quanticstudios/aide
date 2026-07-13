@@ -63,17 +63,24 @@ function initializeServices(): void {
   database = createAideDatabase(databasePath)
   gitWorkspaceService = new GitWorkspaceService(database)
   workspaceActivityService = new WorkspaceActivityService({
+    onWorkspaceVisited: (workspaceId, processedThrough) => {
+      database.setWorkspaceActivityVisitWatermark(workspaceId, processedThrough)
+    },
     onUpdate: (event) => {
       for (const window of BrowserWindow.getAllWindows()) {
         window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
       }
     },
+    visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
   })
   managedSessionManager = new ManagedSessionManager({
-    onRuntimeEvent: (meta, event) => {
-      workspaceActivityService.handleManagedRuntimeEvent(meta.sessionId, event)
-    },
+    onRuntimeEvent: () => undefined,
     onUpdate: (event) => {
+      if (event.type === 'snapshot') {
+        workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
+      } else {
+        workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
+      }
       for (const window of BrowserWindow.getAllWindows()) {
         window.webContents.send(IPC_CHANNELS.managedSessionEvent, event)
       }
@@ -94,6 +101,25 @@ function initializeServices(): void {
       }
     },
   })
+}
+
+let shutdownInProgress = false
+let shutdownComplete = false
+
+async function shutdownRuntime(): Promise<void> {
+  if (shutdownComplete || shutdownInProgress) {
+    return
+  }
+
+  shutdownInProgress = true
+  try {
+    await managedSessionManager.closeAll(2_000)
+  } finally {
+    terminalSessionManager.killAll()
+    database.close()
+    shutdownComplete = true
+    shutdownInProgress = false
+  }
 }
 
 app.setName('aide')
@@ -376,31 +402,19 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.terminalWrite,
     (_event, sessionId: string, data: string) => {
-      workspaceActivityService.handleTerminalInput(sessionId, data)
       terminalSessionManager.writeToSession(sessionId, data)
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionCreate,
     (_event, input: ManagedSessionConfig) => {
-      workspaceActivityService.handleManagedSessionStart({
-        cols: 80,
-        cwd: input.cwd,
-        mode: input.mode,
-        paneId: input.paneId,
-        rows: 24,
-        sessionId: input.sessionId,
-        workspaceId: input.workspaceId,
-      })
       return managedSessionManager.createSession(input)
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionClose,
     (_event, sessionId: string) =>
-      managedSessionManager.closeSession(sessionId).finally(() => {
-        workspaceActivityService.handleManagedSessionClosed(sessionId)
-      }),
+      managedSessionManager.closeSession(sessionId),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionInterrupt,
@@ -455,6 +469,13 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   createMainWindow()
 
+  const reaper = setInterval(() => {
+    void managedSessionManager.reapSessions(
+      (snapshot) => snapshot.sessionState === 'stopped',
+    )
+  }, 5 * 60_000)
+  reaper.unref()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow()
@@ -464,9 +485,19 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    void managedSessionManager.closeAll()
-    terminalSessionManager.killAll()
-    database.close()
     app.quit()
   }
+})
+
+app.on('before-quit', (event) => {
+  if (shutdownComplete) {
+    return
+  }
+
+  event.preventDefault()
+  if (shutdownInProgress) {
+    return
+  }
+
+  void shutdownRuntime().finally(() => app.quit())
 })

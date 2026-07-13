@@ -53,6 +53,33 @@ describe('createAideDatabase', () => {
     database.close()
   })
 
+  it('persists workspace activity visit watermarks', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'Main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+
+    database.setWorkspaceActivityVisitWatermark(
+      workspace.id,
+      '2026-07-13T12:00:00.000Z',
+    )
+
+    expect(database.getWorkspaceActivityVisitWatermarks()).toEqual({
+      [workspace.id]: '2026-07-13T12:00:00.000Z',
+    })
+    database.close()
+  })
+
   it('supports project CRUD operations', () => {
     const database = createAideDatabase(':memory:')
 

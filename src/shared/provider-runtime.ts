@@ -23,6 +23,7 @@ export type ManagedProviderRuntimeRequestType =
   | 'command-execution-approval'
   | 'file-change-approval'
   | 'file-read-approval'
+  | 'plan-approval'
   | 'dynamic-tool-call'
   | 'tool-user-input'
   | 'unknown'

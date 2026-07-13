@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AideApi } from '../../../shared/ipc'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
@@ -17,6 +17,7 @@ export function useManagedSessionState(
   const [state, setState] = useState<ManagedProviderRuntimeSessionState | null>(
     null,
   )
+  const revisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
 
   useEffect(() => {
     if (!sessionId) return
@@ -24,30 +25,48 @@ export function useManagedSessionState(
     const api = getAideApi()
     if (!api) return
 
-    void (async () => {
-      try {
-        const snapshots = await api.getManagedSessionSnapshots()
-        const existing = snapshots[sessionId]
-        if (existing) {
-          setState(existing.sessionState)
-        }
-      } catch {
-        /* no session yet */
+    const applySnapshot = (snapshot: {
+      revision: number
+      runtimeGeneration: number
+      sessionState: ManagedProviderRuntimeSessionState
+    }) => {
+      const current = revisionRef.current
+      if (
+        snapshot.runtimeGeneration < current.runtimeGeneration ||
+        (snapshot.runtimeGeneration === current.runtimeGeneration &&
+          snapshot.revision <= current.revision)
+      ) {
+        return
       }
-    })()
+      revisionRef.current = {
+        revision: snapshot.revision,
+        runtimeGeneration: snapshot.runtimeGeneration,
+      }
+      setState(snapshot.sessionState)
+    }
 
-    return api.onManagedSessionEvent((event) => {
+    const unsubscribe = api.onManagedSessionEvent((event) => {
       if (event.type === 'removed') {
         if (event.sessionId === sessionId) {
+          revisionRef.current = { revision: -1, runtimeGeneration: -1 }
           setState(null)
         }
         return
       }
 
       if (event.snapshot.sessionId === sessionId) {
-        setState(event.snapshot.sessionState)
+        applySnapshot(event.snapshot)
       }
     })
+
+    void api.getManagedSessionSnapshots().then((snapshots) => {
+      const existing = snapshots[sessionId]
+      if (existing) {
+        applySnapshot(existing)
+      }
+    })
+
+    return unsubscribe
   }, [sessionId])
 
   return state

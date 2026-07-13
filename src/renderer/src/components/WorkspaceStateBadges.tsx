@@ -31,6 +31,10 @@ function getActivityChipClassName(
     return 'border-transparent bg-accent-yellow-soft text-accent-yellow'
   }
 
+  if (activity.state === 'plan-ready') {
+    return 'border-transparent bg-accent-purple-soft text-accent-purple'
+  }
+
   return 'border-transparent bg-accent-green-soft text-accent-green'
 }
 
