@@ -14,13 +14,12 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
-import { isAllowedPreviewUrl } from '../shared/preview'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
-import { mapInputToShortcutEvent } from './app-shortcuts'
+import { ApplicationRuntime } from './application-runtime'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { createAideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
@@ -40,10 +39,9 @@ import {
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
+import { WindowManager } from './window-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PREVIEW_PARTITION = 'persist:aide-preview'
-
 let database: ReturnType<typeof createAideDatabase>
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
@@ -72,9 +70,7 @@ function initializeServices(): void {
       database.setWorkspaceActivityVisitWatermark(workspaceId, processedThrough)
     },
     onUpdate: (event) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
-      }
+      windowManager.broadcast(IPC_CHANNELS.workspaceActivityEvent, event)
     },
     visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
   })
@@ -86,46 +82,21 @@ function initializeServices(): void {
       } else {
         workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
       }
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.webContents.send(IPC_CHANNELS.managedSessionEvent, event)
-      }
+      windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
     },
   })
   providerCapabilityService = new ProviderCapabilityService()
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.webContents.send(IPC_CHANNELS.previewEvent, event)
-      }
+      windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
     },
   })
   terminalSessionManager = new TerminalSessionManager({
     onEvent: (event) => {
       workspaceActivityService.handleTerminalEvent(event)
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.webContents.send(IPC_CHANNELS.terminalEvent, event)
-      }
+      windowManager.broadcast(IPC_CHANNELS.terminalEvent, event)
     },
   })
-}
-
-let shutdownInProgress = false
-let shutdownComplete = false
-
-async function shutdownRuntime(): Promise<void> {
-  if (shutdownComplete || shutdownInProgress) {
-    return
-  }
-
-  shutdownInProgress = true
-  try {
-    await managedSessionManager.closeAll(2_000)
-    await terminalSessionManager.closeAll(1_000)
-  } finally {
-    database.close()
-    shutdownComplete = true
-    shutdownInProgress = false
-  }
 }
 
 app.setName('aide')
@@ -137,6 +108,16 @@ const renderingConfiguration = resolveRenderingConfiguration({
   platform: process.platform,
 })
 applyRenderingConfiguration(app, renderingConfiguration, process.env)
+
+const windowManager = new WindowManager({
+  createBrowserWindow: (options) => new BrowserWindow(options),
+  fromWebContents: (webContents) => BrowserWindow.fromWebContents(webContents),
+  getAllWindows: () => BrowserWindow.getAllWindows(),
+  loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
+  mainPreloadPath: path.join(__dirname, '../preload/index.js'),
+  rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
+  setTimeout,
+})
 
 function createRuntimeSnapshot(): RuntimeSnapshot {
   return {
@@ -153,135 +134,13 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
   }
 }
 
-function createMainWindow(): BrowserWindow {
-  const window = new BrowserWindow({
-    autoHideMenuBar: true,
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
-    show: false,
-    backgroundColor: '#18181b',
-    title: 'aide',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: path.join(__dirname, '../preload/index.js'),
-      webviewTag: true,
-    },
-  })
-
-  window.webContents.on(
-    'will-attach-webview',
-    (event, webPreferences, params) => {
-      if (
-        !params.src ||
-        !isAllowedPreviewUrl(params.src) ||
-        (params.partition !== undefined &&
-          params.partition !== PREVIEW_PARTITION)
-      ) {
-        event.preventDefault()
-        return
-      }
-
-      // biome-ignore lint/performance/noDelete: remove untrusted renderer preload
-      delete params.preload
-      // biome-ignore lint/performance/noDelete: remove untrusted guest preload
-      delete webPreferences.preload
-      params.partition = PREVIEW_PARTITION
-      params.allowpopups = 'false'
-      webPreferences.contextIsolation = true
-      webPreferences.nodeIntegration = false
-      webPreferences.sandbox = true
-      webPreferences.webSecurity = true
-    },
-  )
-  window.webContents.on('did-attach-webview', (_event, guestWebContents) => {
-    guestWebContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    guestWebContents.session.setPermissionRequestHandler(
-      (_webContents, _permission, callback) => callback(false),
-    )
-    guestWebContents.on('will-navigate', (event, url) => {
-      if (!isAllowedPreviewUrl(url)) {
-        event.preventDefault()
-      }
-    })
-    guestWebContents.on('will-redirect', (event, url) => {
-      if (!isAllowedPreviewUrl(url)) {
-        event.preventDefault()
-      }
-    })
-  })
-
-  let didRevealWindow = false
-
-  const revealWindow = () => {
-    if (didRevealWindow || window.isDestroyed()) {
-      return
-    }
-
-    didRevealWindow = true
-
-    if (!window.isVisible()) {
-      window.show()
-    }
-
-    window.focus()
-  }
-
-  window.once('ready-to-show', revealWindow)
-
-  window.webContents.on('did-finish-load', () => {
-    revealWindow()
-  })
-
-  window.webContents.on('before-input-event', (event, input) => {
-    const shortcut = mapInputToShortcutEvent(input)
-
-    if (
-      shortcut?.type !== 'overview-open' &&
-      shortcut?.type !== 'command-palette-open'
-    ) {
-      return
-    }
-
-    event.preventDefault()
-    window.webContents.send(IPC_CHANNELS.appShortcut, shortcut)
-  })
-
-  window.webContents.on(
-    'did-fail-load',
-    (_event, errorCode, errorDescription) => {
-      console.error('Renderer failed to load', errorCode, errorDescription)
-
-      if (!window.isVisible()) {
-        window.show()
-      }
-    },
-  )
-
-  setTimeout(() => {
-    revealWindow()
-  }, 1500)
-
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    void window.loadFile(path.join(__dirname, '../renderer/index.html'))
-  }
-
-  return window
-}
-
 function registerIpcHandlers(): void {
   const publishPersistenceSnapshot = () => {
     const snapshot = database.getSnapshot()
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.workspacePersistenceEvent, {
-        revision: snapshot.catalogRevision,
-        snapshot,
-      })
-    }
+    windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {
+      revision: snapshot.catalogRevision,
+      snapshot,
+    })
     return snapshot
   }
 
@@ -306,7 +165,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
     async (event, defaultPath: string | null) => {
-      const browserWindow = BrowserWindow.fromWebContents(event.sender)
+      const browserWindow = windowManager.getWindowForWebContents(event.sender)
 
       if (!browserWindow) {
         return null
@@ -552,23 +411,33 @@ function registerIpcHandlers(): void {
   )
 }
 
-app.whenReady().then(() => {
-  Menu.setApplicationMenu(null)
-  initializeServices()
-  registerIpcHandlers()
-  createMainWindow()
-
-  const reaper = setInterval(() => {
+const applicationRuntime = new ApplicationRuntime({
+  createMainWindow: () => windowManager.createMainWindow(),
+  hasWindows: () => windowManager.hasWindows(),
+  initializeServices,
+  reapStoppedManagedSessions: () => {
     void managedSessionManager.reapSessions(
       (snapshot) => snapshot.sessionState === 'stopped',
     )
-  }, 5 * 60_000)
-  reaper.unref()
+  },
+  registerIpcHandlers,
+  shutdownServices: async () => {
+    try {
+      await managedSessionManager.closeAll(2_000)
+      await terminalSessionManager.closeAll(1_000)
+    } finally {
+      database.close()
+    }
+  },
+  startReaper: setInterval,
+})
+
+app.whenReady().then(() => {
+  Menu.setApplicationMenu(null)
+  applicationRuntime.start()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow()
-    }
+    applicationRuntime.ensureMainWindow()
   })
 })
 
@@ -579,14 +448,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
-  if (shutdownComplete) {
+  if (applicationRuntime.isShutdownComplete()) {
     return
   }
 
   event.preventDefault()
-  if (shutdownInProgress) {
-    return
-  }
-
-  void shutdownRuntime().finally(() => app.quit())
+  void applicationRuntime.shutdown().finally(() => app.quit())
 })
