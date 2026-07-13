@@ -56,6 +56,10 @@ function resolveClaudeThinkingOption(
 }
 
 interface ManagedSessionManagerOptions {
+  createBackend?: (
+    config: ManagedSessionConfig,
+    emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
+  ) => ManagedSessionBackend
   getNow?: () => string
   onRuntimeEvent: (
     meta: {
@@ -84,6 +88,7 @@ interface ManagedSessionMutableState {
   revision: number
   runtimeGeneration: number
   snapshot: ManagedSessionSnapshot
+  switchInProgress: boolean
   turns: Map<string, ManagedSessionTurnSummary>
   usage: ManagedSessionUsage | null
 }
@@ -1650,6 +1655,7 @@ export class ManagedSessionManager {
       revision: 0,
       runtimeGeneration: 1,
       snapshot: buildEmptySnapshot(config, updatedAt),
+      switchInProgress: false,
       turns: new Map(),
       usage: null,
     }
@@ -1659,7 +1665,7 @@ export class ManagedSessionManager {
       state.runtimeGeneration,
     )
 
-    state.backend = this.createBackend(state, state.emitRuntimeEvent)
+    state.backend = this.createBackend(config, state.emitRuntimeEvent)
 
     this.sessions.set(config.sessionId, state)
     state.emitRuntimeEvent({
@@ -1811,6 +1817,12 @@ export class ManagedSessionManager {
       throw new Error(`Session ${sessionId} not found`)
     }
 
+    if (state.switchInProgress) {
+      throw new Error(
+        'A provider switch is already in progress for this session',
+      )
+    }
+
     if (
       state.activeTurnId !== null ||
       state.pendingApprovals.size > 0 ||
@@ -1822,109 +1834,224 @@ export class ManagedSessionManager {
       )
     }
 
-    const now = this.getNow()
-
-    await state.backend.close()
-
-    state.pendingApprovals.clear()
-    state.pendingUserInputs.clear()
-    state.pendingUserPromptText = null
-    state.activeTurnId = null
-    state.usage = null
-
-    state.config = {
-      ...state.config,
-      effort: selection.effort,
-      mode: newMode,
-      model: selection.model,
-      selectionNotice: selection.selectionNotice ?? null,
-      serviceTier: selection.serviceTier,
-    }
-    state.projector = new ManagedTerminalProviderProjector(newMode)
-    state.runtimeGeneration += 1
-
-    const switchKey = createContentKey('system', `provider-switch:${now}`)
-    state.contentByKey.set(switchKey, {
-      id: `provider-switch:${now}`,
-      kind: 'system',
-      provider: null,
-      text: `Switched to ${newMode === 'claude' ? 'Claude' : 'Codex'}`,
-      turnId: null,
-      updatedAt: now,
-    })
-    state.orderedContentKeys.push(switchKey)
-
-    state.emitRuntimeEvent = this.createRuntimeEventEmitter(
-      state,
-      state.runtimeGeneration,
-    )
-    state.backend = this.createBackend(state, state.emitRuntimeEvent)
-
-    state.emitRuntimeEvent({
-      createdAt: now,
-      provider: newMode,
-      type: 'session.started',
-    })
-    state.emitRuntimeEvent({
-      createdAt: now,
-      provider: newMode,
-      state: 'connecting',
-      type: 'session.state.changed',
-    })
+    state.switchInProgress = true
 
     try {
-      await state.backend.start()
-    } catch (error) {
-      state.emitRuntimeEvent({
-        createdAt: this.getNow(),
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Backend failed to start after provider switch',
-        provider: newMode,
-        type: 'runtime.error',
-      })
-      state.emitRuntimeEvent({
-        createdAt: this.getNow(),
-        detail:
-          error instanceof Error
-            ? error.message
-            : 'Backend failed to start after provider switch',
-        provider: newMode,
-        state: 'error',
-        type: 'session.state.changed',
-      })
-    }
+      if (
+        !['ready', 'stopped', 'error'].includes(state.snapshot.sessionState)
+      ) {
+        throw new Error(
+          `Cannot switch provider while session is ${state.snapshot.sessionState}`,
+        )
+      }
 
-    return state.snapshot
+      const now = this.getNow()
+      const previousConfig = state.config
+      const candidateConfig: ManagedSessionConfig = {
+        ...previousConfig,
+        effort: selection.effort,
+        mode: newMode,
+        model: selection.model,
+        selectionNotice: selection.selectionNotice ?? null,
+        serviceTier: selection.serviceTier,
+      }
+
+      await state.backend.close()
+
+      state.runtimeGeneration += 1
+
+      const createStagedEmitter = () => {
+        const bufferedEvents: ManagedProviderRuntimeEvent[] = []
+        let discarded = false
+        let publishedEmitter:
+          | ((event: ManagedProviderRuntimeEvent) => void)
+          | null = null
+
+        return {
+          discard: () => {
+            discarded = true
+            bufferedEvents.length = 0
+          },
+          emit: (event: ManagedProviderRuntimeEvent) => {
+            if (publishedEmitter) {
+              publishedEmitter(event)
+            } else if (!discarded) {
+              bufferedEvents.push(event)
+            }
+          },
+          publish: (
+            emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
+          ) => {
+            if (discarded) {
+              return
+            }
+
+            publishedEmitter = emitRuntimeEvent
+            for (const event of bufferedEvents) {
+              emitRuntimeEvent(event)
+            }
+            bufferedEvents.length = 0
+          },
+        }
+      }
+
+      const activateBackend = (
+        config: ManagedSessionConfig,
+        backend: ManagedSessionBackend,
+        stagedEmitter: ReturnType<typeof createStagedEmitter>,
+        includeSwitchNotice: boolean,
+      ) => {
+        state.activeTurnId = null
+        state.backend = backend
+        state.config = config
+        state.pendingApprovals.clear()
+        state.pendingUserInputs.clear()
+        state.pendingUserPromptText = null
+        state.projector = new ManagedTerminalProviderProjector(config.mode)
+        state.usage = null
+        const emitRuntimeEvent = this.createRuntimeEventEmitter(
+          state,
+          state.runtimeGeneration,
+        )
+        state.emitRuntimeEvent = emitRuntimeEvent
+
+        if (includeSwitchNotice) {
+          const switchKey = createContentKey('system', `provider-switch:${now}`)
+          state.contentByKey.set(switchKey, {
+            id: `provider-switch:${now}`,
+            kind: 'system',
+            provider: null,
+            text: `Switched to ${config.mode === 'claude' ? 'Claude' : 'Codex'}`,
+            turnId: null,
+            updatedAt: now,
+          })
+          state.orderedContentKeys.push(switchKey)
+        }
+
+        state.emitRuntimeEvent({
+          createdAt: now,
+          provider: config.mode,
+          type: 'session.started',
+        })
+        state.emitRuntimeEvent({
+          createdAt: now,
+          provider: config.mode,
+          state: 'connecting',
+          type: 'session.state.changed',
+        })
+        stagedEmitter.publish(emitRuntimeEvent)
+      }
+
+      const candidateEmitter = createStagedEmitter()
+      const candidateBackend = this.createBackend(
+        candidateConfig,
+        candidateEmitter.emit,
+      )
+
+      try {
+        await candidateBackend.start()
+      } catch (error) {
+        const candidateError =
+          error instanceof Error
+            ? error
+            : new Error('Backend failed to start after provider switch')
+
+        candidateEmitter.discard()
+        try {
+          await candidateBackend.close()
+        } catch {
+          // The candidate may have only partially initialized. Its staged
+          // events are discarded, so a cleanup failure cannot change state.
+        }
+
+        // The rollback creates a second replacement backend. Give it its own
+        // generation so every backend restart remains distinguishable and
+        // late events from the failed candidate can never be current.
+        state.runtimeGeneration += 1
+
+        const rollbackEmitter = createStagedEmitter()
+        const rollbackBackend = this.createBackend(
+          previousConfig,
+          rollbackEmitter.emit,
+        )
+
+        try {
+          await rollbackBackend.start()
+        } catch (rollbackError) {
+          rollbackEmitter.discard()
+          try {
+            await rollbackBackend.close()
+          } catch {
+            // The terminal error snapshot below is the recoverable state.
+          }
+
+          activateBackend(
+            previousConfig,
+            rollbackBackend,
+            rollbackEmitter,
+            false,
+          )
+          const rollbackMessage =
+            rollbackError instanceof Error
+              ? rollbackError.message
+              : 'Previous provider failed to restart'
+          const message = `Provider switch failed: ${candidateError.message}; rollback failed: ${rollbackMessage}`
+
+          state.emitRuntimeEvent({
+            createdAt: this.getNow(),
+            message,
+            provider: previousConfig.mode,
+            type: 'runtime.error',
+          })
+          state.emitRuntimeEvent({
+            createdAt: this.getNow(),
+            detail: message,
+            provider: previousConfig.mode,
+            state: 'error',
+            type: 'session.state.changed',
+          })
+
+          throw new Error(message)
+        }
+
+        activateBackend(previousConfig, rollbackBackend, rollbackEmitter, false)
+        throw candidateError
+      }
+
+      activateBackend(candidateConfig, candidateBackend, candidateEmitter, true)
+      return state.snapshot
+    } finally {
+      state.switchInProgress = false
+    }
   }
 
   private createBackend(
-    state: ManagedSessionMutableState,
+    config: ManagedSessionConfig,
     emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
   ): ManagedSessionBackend {
+    const injectedBackend = this.options.createBackend?.(
+      config,
+      emitRuntimeEvent,
+    )
+
+    if (injectedBackend) {
+      return injectedBackend
+    }
+
     if (
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
     ) {
       return new FakeManagedSessionBackend(
-        state.config.mode,
+        config.mode,
         emitRuntimeEvent,
         this.getNow,
       )
     }
 
-    return state.config.mode === 'claude'
-      ? new ClaudeManagedSessionBackend(
-          state.config,
-          emitRuntimeEvent,
-          this.getNow,
-        )
-      : new CodexManagedSessionBackend(
-          state.config,
-          emitRuntimeEvent,
-          this.getNow,
-        )
+    return config.mode === 'claude'
+      ? new ClaudeManagedSessionBackend(config, emitRuntimeEvent, this.getNow)
+      : new CodexManagedSessionBackend(config, emitRuntimeEvent, this.getNow)
   }
 
   private createRuntimeEventEmitter(
@@ -1954,11 +2081,48 @@ export class ManagedSessionManager {
     }
   }
 
+  private terminalizeRuntimeState(
+    state: ManagedSessionMutableState,
+    completedAt: string,
+    turnState: 'failed' | 'interrupted',
+  ): void {
+    if (state.activeTurnId) {
+      const turn = state.turns.get(state.activeTurnId)
+
+      if (turn?.state === 'running') {
+        turn.completedAt = completedAt
+        turn.state = turnState
+      }
+    }
+
+    state.activeTurnId = null
+    state.pendingApprovals.clear()
+    state.pendingUserInputs.clear()
+    state.pendingUserPromptText = null
+  }
+
   private applyRuntimeEvent(
     state: ManagedSessionMutableState,
     event: ManagedProviderRuntimeEvent,
   ): void {
     state.projector.apply([event])
+
+    const terminalTurnState =
+      event.type === 'runtime.error' ||
+      (event.type === 'session.state.changed' && event.state === 'error') ||
+      (event.type === 'session.exited' &&
+        event.exitCode !== null &&
+        event.exitCode !== 0)
+        ? 'failed'
+        : event.type === 'session.exited' ||
+            (event.type === 'session.state.changed' &&
+              event.state === 'stopped')
+          ? 'interrupted'
+          : null
+
+    if (terminalTurnState) {
+      this.terminalizeRuntimeState(state, event.createdAt, terminalTurnState)
+    }
 
     if (event.type === 'turn.started') {
       state.activeTurnId = event.turnId
@@ -2047,11 +2211,6 @@ export class ManagedSessionManager {
       state.pendingUserInputs.delete(event.requestId)
     }
 
-    if (event.type === 'session.exited') {
-      state.snapshot.running = false
-      state.pendingUserPromptText = null
-    }
-
     if (event.type === 'session.usage.updated') {
       const nextUsage: ManagedSessionUsage = {
         inputTokens: event.inputTokens,
@@ -2071,13 +2230,6 @@ export class ManagedSessionManager {
 
     const runtime = state.projector.getSnapshot()
 
-    if (
-      (runtime.sessionState === 'stopped' ||
-        runtime.sessionState === 'error') &&
-      state.pendingUserPromptText !== null
-    ) {
-      state.pendingUserPromptText = null
-    }
     state.revision += 1
     const planApproval = [...state.pendingApprovals.values()].find(
       (approval) => approval.requestType === 'plan-approval',
@@ -2105,7 +2257,8 @@ export class ManagedSessionManager {
           } satisfies ManagedSessionPlanApproval)
         : null,
       provider: state.config.mode,
-      running: runtime.sessionState !== 'stopped',
+      running:
+        runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
       sessionId: state.config.sessionId,
       sessionState: runtime.sessionState,
       turns: [...state.turns.values()],

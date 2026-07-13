@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Terminal,
 } from 'lucide-react'
-
+import type { ChangeEvent } from 'react'
 import {
   useCallback,
   useEffect,
@@ -27,14 +27,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChangeEvent } from 'react'
-import MarkdownContent from './MarkdownContent'
-
 import type { AideApi } from '../../../shared/ipc'
-import {
-  resolveProviderSelection,
-  type ProviderCapabilitiesSnapshot,
-} from '../../../shared/provider-capabilities'
 import type {
   ManagedSessionContentItem,
   ManagedSessionContextWindow,
@@ -44,19 +37,31 @@ import type {
   ManagedSessionThinkingBudget,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import {
+  type ProviderCapabilitiesSnapshot,
+  type ProviderSelectionInput,
+  resolveProviderSelection,
+} from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import {
+  canChangeManagedSessionSelection,
+  isProviderSelectionHydrated,
+  planManagedSessionSelectionChange,
+  providerSelectionHydrationKey,
+} from '../lib/managed-session-selection'
+import {
+  extractSlashQuery,
+  filterSlashCommands,
   SLASH_COMMANDS,
   type SlashCommand,
   type SlashCommandContext,
-  extractSlashQuery,
-  filterSlashCommands,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { cn } from '../lib/utils'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
@@ -573,6 +578,7 @@ export default function ManagedAgentPane({
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const startedSessionRef = useRef(false)
+  const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -580,6 +586,15 @@ export default function ManagedAgentPane({
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
+  const selectionHydrationKey = providerSelectionHydrationKey(
+    workspace.id,
+    selectedProvider,
+  )
+  const isSelectionHydrated = isProviderSelectionHydrated(
+    hydratedProviderSelectionKeyRef.current,
+    workspace.id,
+    selectedProvider,
+  )
 
   useEffect(() => {
     const api = getAideApi()
@@ -601,6 +616,8 @@ export default function ManagedAgentPane({
   useEffect(() => {
     const providerCapabilities = capabilities?.providers[selectedProvider]
 
+    hydratedProviderSelectionKeyRef.current = null
+
     if (!providerCapabilities) {
       return
     }
@@ -612,6 +629,7 @@ export default function ManagedAgentPane({
     const resolution = resolveProviderSelection(providerCapabilities, persisted)
 
     if (!resolution.modelId || !resolution.effort) {
+      setError(resolution.explanation)
       setSelectionNotice(resolution.explanation)
       return
     }
@@ -625,7 +643,8 @@ export default function ManagedAgentPane({
       modelId: resolution.modelId,
       serviceTier: resolution.serviceTier,
     })
-  }, [capabilities, selectedProvider, workspace.id])
+    hydratedProviderSelectionKeyRef.current = selectionHydrationKey
+  }, [capabilities, selectedProvider, selectionHydrationKey, workspace.id])
 
   useEffect(() => {
     if (!selectedModel) {
@@ -646,13 +665,13 @@ export default function ManagedAgentPane({
   }, [draftInput])
 
   const ensureSession = useCallback(async () => {
-    if (startedSessionRef.current) return
+    if (startedSessionRef.current) return true
 
     const api = getAideApi()
 
     if (!api || terminalMode === 'shell') {
       setError('Managed provider bridge did not load.')
-      return
+      return false
     }
 
     try {
@@ -669,7 +688,15 @@ export default function ManagedAgentPane({
           setSelectedProvider(existing.provider as ManagedSessionMode)
         }
         startedSessionRef.current = true
-        return
+        return true
+      }
+
+      if (!isSelectionHydrated) {
+        throw new Error(
+          selectionNotice ??
+            error ??
+            'Provider capabilities are still loading. Please try again.',
+        )
       }
 
       const created = await api.createManagedSession({
@@ -693,18 +720,23 @@ export default function ManagedAgentPane({
       setSelectionNotice(created.selectionNotice)
       startedSessionRef.current = true
       setError(null)
+      return true
     } catch (sessionError) {
       setError(getErrorMessage(sessionError))
+      return false
     }
   }, [
     agentMode,
     contextWindow,
+    error,
     effort,
+    isSelectionHydrated,
     isUnifiedPane,
     paneId,
     permissionMode,
     selectedModel,
     selectedProvider,
+    selectionNotice,
     sessionId,
     serviceTier,
     terminalMode,
@@ -808,19 +840,23 @@ export default function ManagedAgentPane({
       const trimmed = text.trim()
 
       if (!api || !trimmed) {
-        return
+        return false
       }
 
       setIsSubmitting(true)
 
       try {
         if (!startedSessionRef.current) {
-          await ensureSession()
+          if (!(await ensureSession())) {
+            return false
+          }
         }
         await api.sendManagedSessionInput(sessionId, trimmed)
         setError(null)
+        return true
       } catch (sendError) {
         setError(getErrorMessage(sendError))
+        return false
       } finally {
         setIsSubmitting(false)
       }
@@ -829,8 +865,9 @@ export default function ManagedAgentPane({
   )
 
   const handleSendInput = useCallback(async () => {
-    await sendPromptText(draftInput)
-    setDraftInput('')
+    if (await sendPromptText(draftInput)) {
+      setDraftInput('')
+    }
   }, [draftInput, sendPromptText])
 
   const handleRetryTurn = useCallback(
@@ -840,8 +877,11 @@ export default function ManagedAgentPane({
     [sendPromptText],
   )
 
-  const handleModelSwitch = useCallback(
-    async (newMode: ManagedSessionMode, newModelId: string) => {
+  const handleProviderSelectionChange = useCallback(
+    async (
+      newMode: ManagedSessionMode,
+      requestedSelection: ProviderSelectionInput,
+    ) => {
       const providerCapabilities = capabilities?.providers[newMode]
 
       if (!providerCapabilities) {
@@ -849,57 +889,114 @@ export default function ManagedAgentPane({
         return
       }
 
-      const resolution = resolveProviderSelection(providerCapabilities, {
-        effort: newMode === selectedProvider ? effort : undefined,
-        modelId: newModelId,
-        serviceTier: newMode === selectedProvider ? serviceTier : undefined,
-      })
+      const resolution = resolveProviderSelection(
+        providerCapabilities,
+        requestedSelection,
+      )
+      const change = planManagedSessionSelectionChange(
+        startedSessionRef.current,
+        newMode,
+        resolution,
+      )
 
-      if (!resolution.modelId || !resolution.effort) {
+      if (change.kind === 'unavailable') {
         setError(resolution.explanation ?? 'No compatible model is available.')
         return
       }
 
-      setSelectedModel(resolution.modelId)
-      setEffort(resolution.effort)
-      setServiceTier(resolution.serviceTier)
-      setSelectionNotice(resolution.explanation)
-      persistProviderSelection(workspace.id, newMode, {
-        effort: resolution.effort,
-        modelId: resolution.modelId,
-        serviceTier: resolution.serviceTier,
-      })
-      if (newMode !== selectedProvider) {
-        setSelectedProvider(newMode)
-        localStorage.setItem(`aide:workspace:${workspace.id}:provider`, newMode)
+      if (change.kind === 'local') {
+        hydratedProviderSelectionKeyRef.current = providerSelectionHydrationKey(
+          workspace.id,
+          newMode,
+        )
+        setSelectedModel(change.selection.model)
+        setEffort(change.selection.effort)
+        setServiceTier(change.selection.serviceTier ?? null)
+        setSelectionNotice(resolution.explanation)
+        persistProviderSelection(workspace.id, newMode, {
+          effort: change.selection.effort,
+          modelId: change.selection.model,
+          serviceTier: change.selection.serviceTier ?? null,
+        })
+        if (newMode !== selectedProvider) {
+          setSelectedProvider(newMode)
+          localStorage.setItem(
+            `aide:workspace:${workspace.id}:provider`,
+            newMode,
+          )
+        }
+        return
       }
 
       const api = getAideApi()
-      if (!api || !startedSessionRef.current) return
+      if (!api) {
+        setError('Managed provider bridge did not load.')
+        return
+      }
 
       try {
-        const updated = await api.switchManagedSessionProvider(sessionId, {
-          effort: resolution.effort,
-          mode: newMode,
-          model: resolution.modelId,
-          ...(resolution.serviceTier
-            ? { serviceTier: resolution.serviceTier }
-            : {}),
-        })
+        const updated = await api.switchManagedSessionProvider(
+          sessionId,
+          change.selection,
+        )
         setSnapshot(updated)
+        setSelectedModel(updated.model ?? undefined)
+        setEffort(updated.effort ?? undefined)
+        setServiceTier(updated.serviceTier)
         setSelectionNotice(updated.selectionNotice)
+        persistProviderSelection(workspace.id, updated.provider, {
+          effort: updated.effort ?? undefined,
+          modelId: updated.model ?? undefined,
+          serviceTier: updated.serviceTier,
+        })
+        if (isUnifiedPane) {
+          setSelectedProvider(updated.provider)
+          localStorage.setItem(
+            `aide:workspace:${workspace.id}:provider`,
+            updated.provider,
+          )
+        }
+        setError(null)
       } catch (switchError) {
         setError(getErrorMessage(switchError))
       }
     },
+    [capabilities, isUnifiedPane, selectedProvider, sessionId, workspace.id],
+  )
+
+  const handleModelSwitch = useCallback(
+    (newMode: ManagedSessionMode, newModelId: string) =>
+      handleProviderSelectionChange(newMode, {
+        effort: newMode === selectedProvider ? effort : undefined,
+        modelId: newModelId,
+        serviceTier: newMode === selectedProvider ? serviceTier : undefined,
+      }),
+    [effort, handleProviderSelectionChange, selectedProvider, serviceTier],
+  )
+
+  const handleEffortChange = useCallback(
+    (nextEffort: ManagedSessionEffort) =>
+      handleProviderSelectionChange(selectedProvider, {
+        effort: nextEffort,
+        modelId: selectedModel,
+        serviceTier,
+      }),
     [
-      capabilities,
-      effort,
+      handleProviderSelectionChange,
+      selectedModel,
       selectedProvider,
       serviceTier,
-      sessionId,
-      workspace.id,
     ],
+  )
+
+  const handleServiceTierChange = useCallback(
+    (nextServiceTier: string | null) =>
+      handleProviderSelectionChange(selectedProvider, {
+        effort,
+        modelId: selectedModel,
+        serviceTier: nextServiceTier,
+      }),
+    [effort, handleProviderSelectionChange, selectedModel, selectedProvider],
   )
 
   const handleResolveApproval = useCallback(
@@ -1054,6 +1151,7 @@ export default function ManagedAgentPane({
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
   )
+  const canChangeProviderSelection = canChangeManagedSessionSelection(snapshot)
 
   return (
     <section
@@ -1387,7 +1485,7 @@ export default function ManagedAgentPane({
             {isUnifiedPane ? (
               <ModelSelector
                 capabilities={capabilities}
-                isDisabled={snapshot?.sessionState === 'running'}
+                isDisabled={!canChangeProviderSelection}
                 model={selectedModel}
                 onChange={(mode, modelId) =>
                   void handleModelSwitch(mode, modelId)
@@ -1403,10 +1501,15 @@ export default function ManagedAgentPane({
               capabilities={capabilities}
               contextWindow={contextWindow}
               effort={effort}
+              isDisabled={!canChangeProviderSelection}
               model={selectedModel}
               onContextWindowChange={setContextWindow}
-              onEffortChange={setEffort}
-              onServiceTierChange={setServiceTier}
+              onEffortChange={(nextEffort) =>
+                void handleEffortChange(nextEffort)
+              }
+              onServiceTierChange={(nextServiceTier) =>
+                void handleServiceTierChange(nextServiceTier)
+              }
               onThinkingBudgetChange={setThinkingBudget}
               provider={selectedProvider}
               serviceTier={serviceTier}
@@ -1450,7 +1553,11 @@ export default function ManagedAgentPane({
               <button
                 aria-label="Send prompt"
                 className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
-                disabled={isSubmitting || draftInput.trim().length === 0}
+                disabled={
+                  isSubmitting ||
+                  draftInput.trim().length === 0 ||
+                  (!startedSessionRef.current && !isSelectionHydrated)
+                }
                 onClick={() => void handleSendInput()}
                 title="Send prompt"
                 type="button"

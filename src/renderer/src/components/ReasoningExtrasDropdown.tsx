@@ -1,23 +1,23 @@
 import { Check, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-
-import { resolveProviderSelection } from '../../../shared/provider-capabilities'
-import type {
-  ProviderCapabilitiesSnapshot,
-  ProviderModelCapability,
-} from '../../../shared/provider-capabilities'
+import { cn } from '@/lib/utils'
 import type {
   ManagedSessionContextWindow,
   ManagedSessionEffort,
   ManagedSessionThinkingBudget,
 } from '../../../shared/managed-session'
+import type {
+  ProviderCapabilitiesSnapshot,
+  ProviderModelCapability,
+} from '../../../shared/provider-capabilities'
+import { resolveProviderSelection } from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
-import { cn } from '@/lib/utils'
 
 interface ReasoningExtrasDropdownProps {
   readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly contextWindow: ManagedSessionContextWindow
   readonly effort: ManagedSessionEffort | undefined
+  readonly isDisabled?: boolean
   readonly model: string | undefined
   readonly onContextWindowChange: (value: ManagedSessionContextWindow) => void
   readonly onEffortChange: (value: ManagedSessionEffort) => void
@@ -69,6 +69,7 @@ export default function ReasoningExtrasDropdown({
   capabilities,
   contextWindow,
   effort,
+  isDisabled,
   model,
   onContextWindowChange,
   onEffortChange,
@@ -132,7 +133,7 @@ export default function ReasoningExtrasDropdown({
     <div ref={containerRef} className="relative">
       <button
         className="composer-pill flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold disabled:pointer-events-none disabled:opacity-30"
-        disabled={!modelCapability}
+        disabled={isDisabled || !modelCapability}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >

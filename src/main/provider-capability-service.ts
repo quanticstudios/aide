@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
-import { promisify } from 'node:util'
 import readline from 'node:readline'
+import { promisify } from 'node:util'
 
 import type {
   ManagedSessionConfig,
@@ -9,11 +9,11 @@ import type {
 import {
   buildClaudeProviderCapabilities,
   normalizeCodexModelList,
-  resolveProviderSelection,
-  unavailableProviderCapabilities,
   type ProviderCapabilitiesSnapshot,
   type ProviderSelectionInput,
   type ProviderSelectionResolution,
+  resolveProviderSelection,
+  unavailableProviderCapabilities,
 } from '../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../shared/terminal'
 
@@ -369,6 +369,7 @@ export class ProviderCapabilityService {
     input: unknown,
   ): Promise<ManagedSessionConfig> {
     const config = validateManagedSessionConfig(input)
+    const { serviceTier: _serviceTier, ...configWithoutServiceTier } = config
     const resolution = await this.resolveSelection(config.mode, {
       effort: config.effort,
       modelId: config.model,
@@ -382,7 +383,7 @@ export class ProviderCapabilityService {
     }
 
     return {
-      ...config,
+      ...configWithoutServiceTier,
       effort: resolution.effort,
       model: resolution.modelId,
       selectionNotice: resolution.explanation,

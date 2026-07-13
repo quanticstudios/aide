@@ -413,11 +413,18 @@ export class ManagedTerminalProviderProjector {
           } else if (event.state !== 'waiting') {
             this.detail = null
           }
+          if (event.state === 'stopped' || event.state === 'error') {
+            this.activeTurnStartedAt = null
+            this.pendingApprovals.clear()
+            this.pendingUserInputs.clear()
+          }
           break
         case 'session.exited':
           this.sessionState =
             event.exitCode && event.exitCode !== 0 ? 'error' : 'stopped'
           this.activeTurnStartedAt = null
+          this.pendingApprovals.clear()
+          this.pendingUserInputs.clear()
           break
         case 'turn.started':
           this.activeTurnStartedAt = event.createdAt
@@ -487,6 +494,9 @@ export class ManagedTerminalProviderProjector {
           this.lastErrorAt = event.createdAt
           this.detail = event.message
           this.sessionState = 'error'
+          this.activeTurnStartedAt = null
+          this.pendingApprovals.clear()
+          this.pendingUserInputs.clear()
           break
       }
     }

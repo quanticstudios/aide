@@ -104,4 +104,47 @@ describe('ProviderCapabilityService', () => {
       }),
     ).rejects.toThrow('Invalid managed-session mode.')
   })
+
+  it('drops a stale service tier when the resolved model no longer advertises tiers', async () => {
+    const service = new ProviderCapabilityService({
+      listCodexModels: async () => ({
+        data: [
+          {
+            defaultReasoningEffort: 'medium',
+            description: 'Tierless model',
+            displayName: 'Tierless model',
+            hidden: false,
+            id: 'tierless-model',
+            isDefault: true,
+            model: 'tierless-model',
+            serviceTiers: [],
+            supportedReasoningEfforts: [
+              { description: 'Balanced', reasoningEffort: 'medium' },
+            ],
+          },
+        ],
+      }),
+      probeClaudeVersion: async () => '2.1.207',
+    })
+
+    const config = await service.resolveManagedSessionConfig({
+      cwd: '/tmp/project',
+      effort: 'medium',
+      mode: 'codex',
+      model: 'tierless-model',
+      paneId: 'pane-1',
+      serviceTier: 'retired-tier',
+      sessionId: 'session-1',
+      workspaceId: 'workspace-1',
+    })
+    const selection = await service.resolveManagedSessionProviderSelection({
+      effort: 'medium',
+      mode: 'codex',
+      model: 'tierless-model',
+      serviceTier: 'retired-tier',
+    })
+
+    expect(config).not.toHaveProperty('serviceTier')
+    expect(selection).not.toHaveProperty('serviceTier')
+  })
 })
