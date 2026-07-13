@@ -11,9 +11,9 @@ import {
   type SaveWorkspaceSurfaceStateInput,
   type SurfaceLayoutRecord,
   type WorkspaceLayoutRecord,
-  type WorkspaceRecord,
   createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
+import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import {
   type WorkspaceActivitySnapshot,
   compareWorkspacesByAttentionTier,
@@ -22,6 +22,10 @@ import {
 import AppShell from './components/AppShell'
 import CommandPalette from './components/CommandPalette'
 import PaneCreationModal from './components/PaneCreationModal'
+import PreviewBrowserHost, {
+  type PreviewBrowserControl,
+  type PreviewPresentation,
+} from './components/PreviewBrowserHost'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceCreationModal from './components/WorkspaceCreationModal'
 import WorkspaceSwitcherOverlay from './components/WorkspaceSwitcherOverlay'
@@ -49,12 +53,6 @@ import {
   splitWorkspacePane,
   switchPaneView,
 } from './lib/workspace-layout-mutations'
-import {
-  type WorkspaceRuntimeState,
-  getWorkspacePreviewState,
-  selectWorkspacePreviewTarget,
-  upsertWorkspacePreviewTarget,
-} from './lib/workspace-runtime'
 import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import {
   getOrderedWorkspaces,
@@ -149,8 +147,15 @@ export default function App() {
   const [workspaceActivities, setWorkspaceActivities] = useState<
     Record<string, WorkspaceActivitySnapshot[]>
   >({})
-  const [workspaceRuntimeState, setWorkspaceRuntimeState] =
-    useState<WorkspaceRuntimeState>({})
+  const [previewSnapshots, setPreviewSnapshots] = useState<
+    Record<string, WorkspacePreviewSnapshot>
+  >({})
+  const [previewPresentation, setPreviewPresentation] =
+    useState<PreviewPresentation | null>(null)
+  const [previewBrowserAction, setPreviewBrowserAction] = useState<{
+    id: number
+    type: PreviewBrowserControl
+  } | null>(null)
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -173,6 +178,14 @@ export default function App() {
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = storageSnapshot ?? createEmptyPersistenceSnapshot()
+  const updatePreviewSnapshot = useCallback(
+    (snapshot: WorkspacePreviewSnapshot) =>
+      setPreviewSnapshots((current) => ({
+        ...current,
+        [snapshot.workspaceId]: snapshot,
+      })),
+    [],
+  )
   const getSurfaceIdsForSnapshot = useCallback(
     (snapshot: PersistenceSnapshot, workspaceId: string | null) => {
       return resolveWorkspaceSurfaces(snapshot, workspaceId).map(
@@ -1378,14 +1391,9 @@ export default function App() {
     allWorkspaces.find(
       (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
     ) ?? null
-  const activePreviewState = getWorkspacePreviewState(
-    workspaceRuntimeState,
-    activeWorkspace,
-  )
-  const activePreviewTarget =
-    activePreviewState.targets.find(
-      (target) => target.id === activePreviewState.activeTargetId,
-    ) ?? null
+  const activePreviewSnapshot = activeWorkspace
+    ? (previewSnapshots[activeWorkspace.id] ?? null)
+    : null
   const projectWorkspaces = activeProject
     ? allWorkspaces.filter(
         (workspace) => workspace.projectId === activeProject.id,
@@ -1468,28 +1476,42 @@ export default function App() {
     ],
   )
 
-  const handleLoadPreviewTarget = useCallback(
-    (workspace: WorkspaceRecord, url: string) => {
-      setWorkspaceRuntimeState((current) =>
-        upsertWorkspacePreviewTarget({
-          runtimeState: current,
-          url,
-          workspace,
-        }),
-      )
+  const activePaneIsPreview =
+    activePaneId !== null &&
+    getPaneCatalogEntryForTemplate(getPaneTemplateId(activePaneId))?.type ===
+      'preview'
+
+  useEffect(() => {
+    const aide = getAideApi()
+    if (!aide) return
+
+    return aide.onPreviewEvent((event) => updatePreviewSnapshot(event.snapshot))
+  }, [updatePreviewSnapshot])
+
+  useEffect(() => {
+    const aide = getAideApi()
+    if (!aide || !activeWorkspace || !activePaneIsPreview) return
+
+    void aide
+      .getWorkspacePreviewSnapshot(activeWorkspace.id)
+      .then(updatePreviewSnapshot)
+      .catch((error: unknown) => setActionError(getErrorMessage(error)))
+  }, [activePaneIsPreview, activeWorkspace, updatePreviewSnapshot])
+
+  const withPreviewSnapshot = useCallback(
+    (operation: () => Promise<WorkspacePreviewSnapshot>) => {
+      void operation()
+        .then(updatePreviewSnapshot)
+        .catch((error: unknown) => setActionError(getErrorMessage(error)))
     },
-    [],
+    [updatePreviewSnapshot],
   )
-  const handleSelectPreviewTarget = useCallback(
-    (workspace: WorkspaceRecord, targetId: string) => {
-      setWorkspaceRuntimeState((current) =>
-        selectWorkspacePreviewTarget({
-          runtimeState: current,
-          targetId,
-          workspace,
-        }),
-      )
-    },
+  const handlePreviewBrowserControl = useCallback(
+    (type: PreviewBrowserControl) =>
+      setPreviewBrowserAction((current) => ({
+        id: (current?.id ?? 0) + 1,
+        type,
+      })),
     [],
   )
 
@@ -1583,16 +1605,41 @@ export default function App() {
         />
         <WorkspaceCanvas
           activeProject={activeProject}
-          activePreviewTarget={activePreviewTarget}
           activeWorkspace={activeWorkspace}
           actionError={actionError}
           onAddView={handleAddView}
           onCreateProject={openProject}
           onCreateWorkspace={createWorkspace}
           onClosePane={handleClosePane}
-          onLoadPreviewTarget={handleLoadPreviewTarget}
           onRemoveView={handleRemoveView}
-          onSelectPreviewTarget={handleSelectPreviewTarget}
+          onPreviewBrowserControl={handlePreviewBrowserControl}
+          onPreviewCloseTab={(workspace, tabId) => {
+            const aide = getAideApi()
+            if (aide)
+              withPreviewSnapshot(() =>
+                aide.closePreviewTab(workspace.id, tabId),
+              )
+          }}
+          onPreviewNavigate={(workspace, tabId, url) => {
+            const aide = getAideApi()
+            if (aide)
+              withPreviewSnapshot(() =>
+                aide.navigatePreviewTab(workspace.id, tabId, url),
+              )
+          }}
+          onPreviewOpenTab={(workspace, url) => {
+            const aide = getAideApi()
+            if (aide)
+              withPreviewSnapshot(() => aide.openPreviewTab(workspace.id, url))
+          }}
+          onPreviewPresentationChange={setPreviewPresentation}
+          onPreviewSelectTab={(workspace, tabId) => {
+            const aide = getAideApi()
+            if (aide)
+              withPreviewSnapshot(() =>
+                aide.selectPreviewTab(workspace.id, tabId),
+              )
+          }}
           onSelectPane={(paneId: string) =>
             setSelection(
               applyPaneSelection(
@@ -1605,7 +1652,7 @@ export default function App() {
             )
           }
           onSwitchView={handleSwitchView}
-          previewTargets={activePreviewState.targets}
+          previewSnapshot={activePreviewSnapshot}
           allWorkspaces={orderedWorkspaces}
           projects={projects}
           shellError={shellError}
@@ -1614,6 +1661,11 @@ export default function App() {
           surfaceLayouts={navigationSnapshot.surfaceLayouts ?? {}}
           workspaceSurfaces={navigationSnapshot.workspaceSurfaces ?? {}}
           workspaceLayouts={navigationSnapshot.workspaceLayouts}
+        />
+        <PreviewBrowserHost
+          action={previewBrowserAction}
+          presentation={previewPresentation}
+          snapshots={previewSnapshots}
         />
       </>
     </AppShell>

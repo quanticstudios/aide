@@ -21,6 +21,11 @@ describe('isAllowedPreviewUrl', () => {
   it('rejects non-local or invalid targets', () => {
     expect(isAllowedPreviewUrl('https://example.com')).toBe(false)
     expect(isAllowedPreviewUrl('file:///tmp/index.html')).toBe(false)
+    expect(isAllowedPreviewUrl('http://user@localhost:3000')).toBe(false)
+    expect(isAllowedPreviewUrl('http://[::1]:4173')).toBe(true)
+    expect(isAllowedPreviewUrl(`http://localhost/${'a'.repeat(2049)}`)).toBe(
+      false,
+    )
     expect(isAllowedPreviewUrl('not-a-url')).toBe(false)
   })
 })

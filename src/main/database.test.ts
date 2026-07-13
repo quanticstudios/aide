@@ -19,7 +19,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 5,
+      schemaVersion: 6,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -406,5 +406,42 @@ describe('createAideDatabase', () => {
     } finally {
       rmSync(tempDirectory, { force: true, recursive: true })
     }
+  })
+
+  it('persists initialized-empty preview state and cascades it with a workspace', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+
+    database.saveWorkspacePreviewState({
+      activeTabId: null,
+      initialized: true,
+      revision: 4,
+      tabs: [],
+      workspaceId: workspace.id,
+    })
+
+    expect(database.getWorkspacePreviewState(workspace.id)).toEqual({
+      activeTabId: null,
+      initialized: true,
+      revision: 4,
+      tabs: [],
+      workspaceId: workspace.id,
+    })
+
+    database.deleteWorkspace(workspace.id)
+    expect(database.getWorkspacePreviewState(workspace.id)).toBeNull()
+    database.close()
   })
 })

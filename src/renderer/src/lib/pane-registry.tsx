@@ -1,13 +1,17 @@
 import type { ReactNode } from 'react'
 
-import type { PreviewTarget } from '../../../shared/domain'
 import type {
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
+import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
 import GitPane from '../components/GitPane'
 import ManagedAgentPane from '../components/ManagedAgentPane'
 import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
+import type {
+  PreviewBrowserControl,
+  PreviewPresentation,
+} from '../components/PreviewBrowserHost'
 import PreviewPane from '../components/PreviewPane'
 import TerminalPane from '../components/TerminalPane'
 import {
@@ -22,13 +26,22 @@ import {
 
 interface PaneRenderArgs {
   activePaneId: string | null
-  activePreviewTarget: PreviewTarget | null
   onClosePane: (paneId: string) => void
-  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
-  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
+  onPreviewBrowserControl: (control: PreviewBrowserControl) => void
+  onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
+  onPreviewNavigate: (
+    workspace: WorkspaceRecord,
+    tabId: string,
+    url: string,
+  ) => void
+  onPreviewOpenTab: (workspace: WorkspaceRecord, url: string) => void
+  onPreviewPresentationChange: (
+    presentation: PreviewPresentation | null,
+  ) => void
+  onPreviewSelectTab: (workspace: WorkspaceRecord, tabId: string) => void
   pane: ResolvedPaneMetadata
   project: ProjectRecord
-  previewTargets: readonly PreviewTarget[]
+  previewSnapshot: WorkspacePreviewSnapshot | null
   workspace: WorkspaceRecord
 }
 
@@ -55,12 +68,15 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
 const previewRenderer = (args: PaneRenderArgs): ReactNode =>
   args.pane.id === args.activePaneId ? (
     <PreviewPane
-      activeTarget={args.activePreviewTarget}
-      onLoadTarget={(url) => args.onLoadPreviewTarget(args.workspace, url)}
-      onSelectTarget={(targetId) =>
-        args.onSelectPreviewTarget(args.workspace, targetId)
+      onBrowserControl={args.onPreviewBrowserControl}
+      onCloseTab={(tabId) => args.onPreviewCloseTab(args.workspace, tabId)}
+      onNavigate={(tabId, url) =>
+        args.onPreviewNavigate(args.workspace, tabId, url)
       }
-      targets={args.previewTargets}
+      onOpenTab={(url) => args.onPreviewOpenTab(args.workspace, url)}
+      onPresentationChange={args.onPreviewPresentationChange}
+      onSelectTab={(tabId) => args.onPreviewSelectTab(args.workspace, tabId)}
+      snapshot={args.previewSnapshot}
     />
   ) : (
     placeholderRenderer(args)

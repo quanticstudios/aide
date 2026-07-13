@@ -9,8 +9,12 @@ import {
   getPaneTemplateId,
   resolvePaneMetadata,
 } from '@/lib/pane-catalog'
-import type { PreviewTarget } from '../../../shared/domain'
+import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import type {
+  PreviewBrowserControl,
+  PreviewPresentation,
+} from './PreviewBrowserHost'
 
 import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
@@ -41,7 +45,6 @@ import type {
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
-  readonly activePreviewTarget: PreviewTarget | null
   readonly activeSurfaceId: string | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly actionError: string | null
@@ -49,20 +52,30 @@ interface WorkspaceCanvasProps {
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
-  readonly onLoadPreviewTarget: (
+  readonly onPreviewBrowserControl: (control: PreviewBrowserControl) => void
+  readonly onPreviewCloseTab: (
     workspace: WorkspaceRecord,
+    tabId: string,
+  ) => void
+  readonly onPreviewNavigate: (
+    workspace: WorkspaceRecord,
+    tabId: string,
     url: string,
+  ) => void
+  readonly onPreviewOpenTab: (workspace: WorkspaceRecord, url: string) => void
+  readonly onPreviewPresentationChange: (
+    presentation: PreviewPresentation | null,
+  ) => void
+  readonly onPreviewSelectTab: (
+    workspace: WorkspaceRecord,
+    tabId: string,
   ) => void
   readonly allWorkspaces: readonly WorkspaceRecord[]
   readonly projects: readonly ProjectRecord[]
   readonly onRemoveView: (paneId: string, viewIndex: number) => void
-  readonly onSelectPreviewTarget: (
-    workspace: WorkspaceRecord,
-    targetId: string,
-  ) => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSwitchView: (paneId: string, viewIndex: number) => void
-  readonly previewTargets: readonly PreviewTarget[]
+  readonly previewSnapshot: WorkspacePreviewSnapshot | null
   readonly shellError: string | null
   readonly surfaceLayouts: Record<string, SurfaceLayoutRecord>
   readonly workspaceLayouts: Record<string, WorkspaceLayoutRecord>
@@ -118,25 +131,37 @@ function EmptyState({
 function resolvePaneContent(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
-  activePreviewTarget: PreviewTarget | null
   onClosePane: (paneId: string) => void
-  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
-  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
+  onPreviewBrowserControl: (control: PreviewBrowserControl) => void
+  onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
+  onPreviewNavigate: (
+    workspace: WorkspaceRecord,
+    tabId: string,
+    url: string,
+  ) => void
+  onPreviewOpenTab: (workspace: WorkspaceRecord, url: string) => void
+  onPreviewPresentationChange: (
+    presentation: PreviewPresentation | null,
+  ) => void
+  onPreviewSelectTab: (workspace: WorkspaceRecord, tabId: string) => void
   paneId: string
-  previewTargets: readonly PreviewTarget[]
+  previewSnapshot: WorkspacePreviewSnapshot | null
   workspace: WorkspaceRecord
 }) {
   const pane = createFallbackPane(args.paneId)
 
   return renderPaneFromRegistry({
     activePaneId: args.activePaneId,
-    activePreviewTarget: args.activePreviewTarget,
     onClosePane: args.onClosePane,
-    onLoadPreviewTarget: args.onLoadPreviewTarget,
-    onSelectPreviewTarget: args.onSelectPreviewTarget,
+    onPreviewBrowserControl: args.onPreviewBrowserControl,
+    onPreviewCloseTab: args.onPreviewCloseTab,
+    onPreviewNavigate: args.onPreviewNavigate,
+    onPreviewOpenTab: args.onPreviewOpenTab,
+    onPreviewPresentationChange: args.onPreviewPresentationChange,
+    onPreviewSelectTab: args.onPreviewSelectTab,
     pane,
     project: args.activeProject,
-    previewTargets: args.previewTargets,
+    previewSnapshot: args.previewSnapshot,
     workspace: args.workspace,
   })
 }
@@ -235,20 +260,28 @@ function PaneTabBar({
 function renderLayoutNode(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
-  activePreviewTarget: PreviewTarget | null
-
   isInteractive: boolean
   isSolePane?: boolean
   node: PersistedLayoutNode
   nodeLookup: Map<string, PersistedLayoutNode>
   onAddView: (paneId: string, templateViewId: string) => void
   onClosePane: (paneId: string) => void
-  onLoadPreviewTarget: (workspace: WorkspaceRecord, url: string) => void
   onRemoveView: (paneId: string, viewIndex: number) => void
-  onSelectPreviewTarget: (workspace: WorkspaceRecord, targetId: string) => void
+  onPreviewBrowserControl: (control: PreviewBrowserControl) => void
+  onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
+  onPreviewNavigate: (
+    workspace: WorkspaceRecord,
+    tabId: string,
+    url: string,
+  ) => void
+  onPreviewOpenTab: (workspace: WorkspaceRecord, url: string) => void
+  onPreviewPresentationChange: (
+    presentation: PreviewPresentation | null,
+  ) => void
+  onPreviewSelectTab: (workspace: WorkspaceRecord, tabId: string) => void
   onSelectPane: (paneId: string) => void
   onSwitchView: (paneId: string, viewIndex: number) => void
-  previewTargets: readonly PreviewTarget[]
+  previewSnapshot: WorkspacePreviewSnapshot | null
   workspace: WorkspaceRecord
 }) {
   if (args.node.type === 'pane') {
@@ -285,12 +318,15 @@ function renderLayoutNode(args: {
           {resolvePaneContent({
             activePaneId: args.activePaneId,
             activeProject: args.activeProject,
-            activePreviewTarget: args.activePreviewTarget,
             onClosePane: args.onClosePane,
-            onLoadPreviewTarget: args.onLoadPreviewTarget,
-            onSelectPreviewTarget: args.onSelectPreviewTarget,
+            onPreviewBrowserControl: args.onPreviewBrowserControl,
+            onPreviewCloseTab: args.onPreviewCloseTab,
+            onPreviewNavigate: args.onPreviewNavigate,
+            onPreviewOpenTab: args.onPreviewOpenTab,
+            onPreviewPresentationChange: args.onPreviewPresentationChange,
+            onPreviewSelectTab: args.onPreviewSelectTab,
             paneId: activeViewId,
-            previewTargets: args.previewTargets,
+            previewSnapshot: args.previewSnapshot,
             workspace: args.workspace,
           })}
         </div>
@@ -365,7 +401,6 @@ function renderLayoutNode(args: {
 export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
-  activePreviewTarget,
   activeSurfaceId,
   activeWorkspace,
   actionError,
@@ -373,12 +408,16 @@ export default function WorkspaceCanvas({
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
-  onLoadPreviewTarget,
   onRemoveView,
-  onSelectPreviewTarget,
+  onPreviewBrowserControl,
+  onPreviewCloseTab,
+  onPreviewNavigate,
+  onPreviewOpenTab,
+  onPreviewPresentationChange,
+  onPreviewSelectTab,
   onSelectPane,
   onSwitchView,
-  previewTargets,
+  previewSnapshot,
   allWorkspaces,
   projects,
   shellError,
@@ -583,23 +622,24 @@ export default function WorkspaceCanvas({
                                         ? activePaneId
                                         : null,
                                       activeProject: workspaceProject,
-                                      activePreviewTarget: isInteractiveSurface
-                                        ? activePreviewTarget
-                                        : null,
                                       isInteractive: isInteractiveSurface,
                                       isSolePane: rootNode.type === 'pane',
                                       node: rootNode,
                                       nodeLookup,
                                       onAddView,
                                       onClosePane,
-                                      onLoadPreviewTarget,
                                       onRemoveView,
-                                      onSelectPreviewTarget,
+                                      onPreviewBrowserControl,
+                                      onPreviewCloseTab,
+                                      onPreviewNavigate,
+                                      onPreviewOpenTab,
+                                      onPreviewPresentationChange,
+                                      onPreviewSelectTab,
                                       onSelectPane,
                                       onSwitchView,
-                                      previewTargets: isInteractiveSurface
-                                        ? previewTargets
-                                        : [],
+                                      previewSnapshot: isInteractiveSurface
+                                        ? previewSnapshot
+                                        : null,
                                       workspace,
                                     })
                                   ) : (

@@ -17,6 +17,7 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../shared/persistence'
+import type { WorkspacePreviewSnapshot } from '../shared/preview'
 
 interface SqlProjectRow {
   created_at: string
@@ -57,6 +58,14 @@ interface SqlWorkspaceLayoutRow {
 interface SqlWorkspaceSurfaceStateRow {
   layouts_json: string
   surfaces_json: string
+  workspace_id: string
+}
+
+interface SqlWorkspacePreviewStateRow {
+  active_tab_id: string | null
+  initialized: number
+  revision: number
+  tabs_json: string
   workspace_id: string
 }
 
@@ -144,6 +153,20 @@ const MIGRATIONS = [
 
       ALTER TABLE app_state ADD COLUMN last_active_surface_ids_by_workspace TEXT NOT NULL DEFAULT '{}';
       ALTER TABLE app_state ADD COLUMN last_active_pane_ids_by_surface TEXT NOT NULL DEFAULT '{}';
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE IF NOT EXISTS workspace_preview_states (
+        workspace_id TEXT PRIMARY KEY,
+        active_tab_id TEXT,
+        initialized INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        tabs_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
     `,
   },
 ]
@@ -646,6 +669,54 @@ export class AideDatabase {
     return this.getWorkspaceSurfaceState(workspaceId)
   }
 
+  public getWorkspacePreviewState(
+    workspaceId: string,
+  ): WorkspacePreviewSnapshot | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT workspace_id, active_tab_id, initialized, revision, tabs_json
+          FROM workspace_preview_states
+          WHERE workspace_id = ?
+        `,
+      )
+      .get(workspaceId) as SqlWorkspacePreviewStateRow | undefined
+
+    return row ? this.mapWorkspacePreviewStateRow(row) : null
+  }
+
+  public saveWorkspacePreviewState(
+    input: WorkspacePreviewSnapshot,
+  ): WorkspacePreviewSnapshot | null {
+    if (!this.getWorkspace(input.workspaceId)) {
+      return null
+    }
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO workspace_preview_states (workspace_id, active_tab_id, initialized, revision, tabs_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET
+            active_tab_id = excluded.active_tab_id,
+            initialized = excluded.initialized,
+            revision = excluded.revision,
+            tabs_json = excluded.tabs_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.workspaceId,
+        input.activeTabId,
+        input.initialized ? 1 : 0,
+        input.revision,
+        JSON.stringify(input.tabs),
+        new Date().toISOString(),
+      )
+
+    return this.getWorkspacePreviewState(input.workspaceId)
+  }
+
   public setActiveSelection(input: SetActiveSelectionInput): void {
     this.database
       .prepare(
@@ -805,6 +876,18 @@ export class AideDatabase {
       surfaces: parsedSurfaces.map((surface) =>
         this.normalizeWorkspaceSurface(row.workspace_id, surface),
       ),
+      workspaceId: row.workspace_id,
+    }
+  }
+
+  private mapWorkspacePreviewStateRow(
+    row: SqlWorkspacePreviewStateRow,
+  ): WorkspacePreviewSnapshot {
+    return {
+      activeTabId: row.active_tab_id,
+      initialized: row.initialized === 1,
+      revision: row.revision,
+      tabs: JSON.parse(row.tabs_json),
       workspaceId: row.workspace_id,
     }
   }

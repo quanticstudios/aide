@@ -16,12 +16,14 @@ import type {
   SaveWorkspaceLayoutInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
+import { isAllowedPreviewUrl } from '../shared/preview'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
 import { mapInputToShortcutEvent } from './app-shortcuts'
+import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { createAideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
@@ -30,6 +32,7 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
+import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
 import { TerminalSessionManager } from './terminal-session-manager'
@@ -37,35 +40,61 @@ import { WorkspaceActivityService } from './workspace-activity-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const database = createAideDatabase(
-  process.env.AIDE_DATABASE_PATH ?? path.join(process.cwd(), '.aide.sqlite3'),
-)
-const gitWorkspaceService = new GitWorkspaceService(database)
-const workspaceActivityService = new WorkspaceActivityService({
-  onUpdate: (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
-    }
-  },
-})
-const managedSessionManager = new ManagedSessionManager({
-  onRuntimeEvent: (meta, event) => {
-    workspaceActivityService.handleManagedRuntimeEvent(meta.sessionId, event)
-  },
-  onUpdate: (event) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.managedSessionEvent, event)
-    }
-  },
-})
-const terminalSessionManager = new TerminalSessionManager({
-  onEvent: (event) => {
-    workspaceActivityService.handleTerminalEvent(event)
-    for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.terminalEvent, event)
-    }
-  },
-})
+let database: ReturnType<typeof createAideDatabase>
+let gitWorkspaceService: GitWorkspaceService
+let workspaceActivityService: WorkspaceActivityService
+let managedSessionManager: ManagedSessionManager
+let previewManager: PreviewManager
+let terminalSessionManager: TerminalSessionManager
+
+function initializeServices(): void {
+  const databasePath = getAideDatabasePath({
+    databasePathOverride: process.env.AIDE_DATABASE_PATH,
+    userDataPath: app.getPath('userData'),
+  })
+
+  if (!process.env.AIDE_DATABASE_PATH) {
+    migrateLegacyDatabase({
+      databasePath,
+      legacyPath: path.join(process.cwd(), '.aide.sqlite3'),
+    })
+  }
+
+  database = createAideDatabase(databasePath)
+  gitWorkspaceService = new GitWorkspaceService(database)
+  workspaceActivityService = new WorkspaceActivityService({
+    onUpdate: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.workspaceActivityEvent, event)
+      }
+    },
+  })
+  managedSessionManager = new ManagedSessionManager({
+    onRuntimeEvent: (meta, event) => {
+      workspaceActivityService.handleManagedRuntimeEvent(meta.sessionId, event)
+    },
+    onUpdate: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.managedSessionEvent, event)
+      }
+    },
+  })
+  previewManager = new PreviewManager(database, {
+    onUpdate: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.previewEvent, event)
+      }
+    },
+  })
+  terminalSessionManager = new TerminalSessionManager({
+    onEvent: (event) => {
+      workspaceActivityService.handleTerminalEvent(event)
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.terminalEvent, event)
+      }
+    },
+  })
+}
 
 app.setName('aide')
 app.setAppUserModelId('aide')
@@ -108,7 +137,43 @@ function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       preload: path.join(__dirname, '../preload/index.js'),
+      webviewTag: true,
     },
+  })
+
+  window.webContents.on(
+    'will-attach-webview',
+    (event, webPreferences, params) => {
+      if (!params.src || !isAllowedPreviewUrl(params.src)) {
+        event.preventDefault()
+        return
+      }
+
+      // biome-ignore lint/performance/noDelete: remove untrusted renderer preload
+      delete params.preload
+      params.partition = 'persist:aide-preview'
+      params.allowpopups = 'false'
+      webPreferences.contextIsolation = true
+      webPreferences.nodeIntegration = false
+      webPreferences.sandbox = true
+      webPreferences.webSecurity = true
+    },
+  )
+  window.webContents.on('did-attach-webview', (_event, guestWebContents) => {
+    guestWebContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    guestWebContents.session.setPermissionRequestHandler(
+      (_webContents, _permission, callback) => callback(false),
+    )
+    guestWebContents.on('will-navigate', (event, url) => {
+      if (!isAllowedPreviewUrl(url)) {
+        event.preventDefault()
+      }
+    })
+    guestWebContents.on('will-redirect', (event, url) => {
+      if (!isAllowedPreviewUrl(url)) {
+        event.preventDefault()
+      }
+    })
   })
 
   let didRevealWindow = false
@@ -179,6 +244,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
     managedSessionManager.getSnapshots(),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspacePreviewSnapshot,
+    (_event, workspaceId) => previewManager.ensure(workspaceId),
+  )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
@@ -191,6 +260,23 @@ function registerIpcHandlers(): void {
 
       return pickProjectRoot(browserWindow, dialog, defaultPath)
     },
+  )
+  ipcMain.handle(IPC_CHANNELS.previewOpenTab, (_event, workspaceId, url) =>
+    previewManager.openTab(workspaceId, url),
+  )
+  ipcMain.handle(IPC_CHANNELS.previewSelectTab, (_event, workspaceId, tabId) =>
+    previewManager.selectTab(workspaceId, tabId),
+  )
+  ipcMain.handle(IPC_CHANNELS.previewCloseTab, (_event, workspaceId, tabId) =>
+    previewManager.closeTab(workspaceId, tabId),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.previewNavigate,
+    (_event, workspaceId, tabId, url) =>
+      previewManager.navigate(workspaceId, tabId, url),
+  )
+  ipcMain.handle(IPC_CHANNELS.previewReportNavigation, (_event, report) =>
+    previewManager.reportNavigation(report),
   )
   ipcMain.handle(
     IPC_CHANNELS.createWorkspace,
@@ -365,6 +451,7 @@ function registerIpcHandlers(): void {
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
+  initializeServices()
   registerIpcHandlers()
   createMainWindow()
 

@@ -26,6 +26,11 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from './persistence'
+import type {
+  PreviewEvent,
+  PreviewNavigationReport,
+  WorkspacePreviewSnapshot,
+} from './preview'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
@@ -61,6 +66,7 @@ export const IPC_CHANNELS = {
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
+  getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
@@ -72,6 +78,12 @@ export const IPC_CHANNELS = {
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
+  previewCloseTab: 'preview:close-tab',
+  previewEvent: 'preview:event',
+  previewNavigate: 'preview:navigate',
+  previewOpenTab: 'preview:open-tab',
+  previewReportNavigation: 'preview:report-navigation',
+  previewSelectTab: 'preview:select-tab',
   terminalCreate: 'terminal:create-session',
   terminalEvent: 'terminal:event',
   terminalKill: 'terminal:kill-session',
@@ -125,6 +137,9 @@ export interface AideApi {
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
+  getWorkspacePreviewSnapshot: (
+    workspaceId: string,
+  ) => Promise<WorkspacePreviewSnapshot>
   saveWorkspaceLayout: (
     workspaceId: string,
     input: SaveWorkspaceLayoutInput,
@@ -145,16 +160,37 @@ export interface AideApi {
   onManagedSessionEvent: (
     callback: (event: ManagedSessionEvent) => void,
   ) => () => void
+  onPreviewEvent: (callback: (event: PreviewEvent) => void) => () => void
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => () => void
   onWorkspaceActivity: (
     callback: (event: WorkspaceActivityEvent) => void,
   ) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
+  closePreviewTab: (
+    workspaceId: string,
+    tabId: string,
+  ) => Promise<WorkspacePreviewSnapshot>
+  navigatePreviewTab: (
+    workspaceId: string,
+    tabId: string,
+    url: string,
+  ) => Promise<WorkspacePreviewSnapshot>
+  openPreviewTab: (
+    workspaceId: string,
+    url: string,
+  ) => Promise<WorkspacePreviewSnapshot>
+  reportPreviewNavigation: (
+    report: PreviewNavigationReport,
+  ) => Promise<WorkspacePreviewSnapshot>
   resizeTerminalSession: (
     sessionId: string,
     size: TerminalResizeInput,
   ) => Promise<void>
   setActiveSelection: (input: SetActiveSelectionInput) => Promise<void>
+  selectPreviewTab: (
+    workspaceId: string,
+    tabId: string,
+  ) => Promise<WorkspacePreviewSnapshot>
   resolveManagedSessionRequest: (
     sessionId: string,
     requestId: string,

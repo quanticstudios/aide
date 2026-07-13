@@ -7,6 +7,7 @@ import type {
   ManagedSessionDecision,
   ManagedSessionEvent,
 } from '../shared/managed-session'
+import type { PreviewNavigationReport } from '../shared/preview'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   ManagedSessionMode,
@@ -33,6 +34,8 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
+  getWorkspacePreviewSnapshot: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
   getWorkspaceActivitySnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceActivitySnapshot),
   importProject: (repoPath: string) =>
@@ -74,6 +77,18 @@ const aideApi: AideApi = {
       ipcRenderer.off(IPC_CHANNELS.managedSessionEvent, listener)
     }
   },
+  onPreviewEvent: (callback) => {
+    const listener = (
+      _event: unknown,
+      payload: Parameters<typeof callback>[0],
+    ) => callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.previewEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.previewEvent, listener)
+    }
+  },
   onTerminalEvent: (callback: (event: TerminalEvent) => void) => {
     const listener = (_event: unknown, payload: TerminalEvent) =>
       callback(payload)
@@ -98,6 +113,14 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.executableProbe, input),
   readProjectFile: (relativePath) =>
     ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, relativePath),
+  closePreviewTab: (workspaceId: string, tabId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.previewCloseTab, workspaceId, tabId),
+  navigatePreviewTab: (workspaceId: string, tabId: string, url: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.previewNavigate, workspaceId, tabId, url),
+  openPreviewTab: (workspaceId: string, url: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.previewOpenTab, workspaceId, url),
+  reportPreviewNavigation: (report: PreviewNavigationReport) =>
+    ipcRenderer.invoke(IPC_CHANNELS.previewReportNavigation, report),
   resizeTerminalSession: (sessionId: string, size: TerminalResizeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalResize, sessionId, size),
   saveWorkspaceLayout: (workspaceId, input) =>
@@ -132,6 +155,8 @@ const aideApi: AideApi = {
     ),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
+  selectPreviewTab: (workspaceId: string, tabId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.previewSelectTab, workspaceId, tabId),
   sendManagedSessionInput: (sessionId: string, text: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
   switchManagedSessionProvider: (
