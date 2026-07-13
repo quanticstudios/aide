@@ -3,6 +3,7 @@ import {
   Columns2,
   Expand,
   GitBranch,
+  LifeBuoy,
   type LucideIcon,
   Plus,
   Rows2,
@@ -29,6 +30,7 @@ interface TopBarProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
+  readonly onOpenDiagnostics: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
     paneId: string,
@@ -243,6 +245,7 @@ export default function TopBar({
   activeWorkspace,
   onClosePane,
   onCreatePane,
+  onOpenDiagnostics,
   onResizePane,
   onSplitPane,
   surfaces,
@@ -306,6 +309,16 @@ export default function TopBar({
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
         />
+        <Button
+          aria-label="Open diagnostics"
+          className="size-8 shrink-0 rounded-md"
+          isIconOnly
+          onPress={onOpenDiagnostics}
+          size="sm"
+          variant="ghost"
+        >
+          <LifeBuoy aria-hidden="true" className="size-4" />
+        </Button>
       </div>
     </header>
   )

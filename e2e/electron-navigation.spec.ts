@@ -232,6 +232,34 @@ test.describe('electron spatial navigation', () => {
     expect(consoleErrors).toEqual([])
   })
 
+  test('shows local-only diagnostics and the explicit support export action', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const diagnosticsButton = launched.page.getByRole('button', {
+      name: 'Open diagnostics',
+    })
+    await diagnosticsButton.click()
+
+    await expect(
+      launched.page.getByRole('heading', { name: 'Diagnostics' }),
+    ).toBeVisible()
+    await expect(
+      launched.page.getByText(
+        /Prompts, terminal output, patches, credentials, environment values, and home paths are never included\./,
+      ),
+    ).toBeVisible()
+    await expect(
+      launched.page.getByRole('button', { name: 'Export support bundle' }),
+    ).toBeVisible()
+    await launched.page.keyboard.press('Escape')
+    await expect(
+      launched.page.getByRole('heading', { name: 'Diagnostics' }),
+    ).not.toBeVisible()
+    await expect(diagnosticsButton).toBeFocused()
+  })
+
   test('adds panes as full-size destinations and keeps siblings off-screen', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
