@@ -33,7 +33,7 @@
     "@git-diff-view/react": "0.1.6",
     "@git-diff-view/shiki": "0.1.6",
     "@gravity-ui/icons": "2.20.0",
-    "@heroui-pro/react": "1.0.0-beta.6",
+    "@heroui-pro/react": "1.0.0-beta.7",
     "@heroui/react": "3.2.2",
     "@heroui/styles": "3.2.2",
     "@monaco-editor/react": "4.7.0",
