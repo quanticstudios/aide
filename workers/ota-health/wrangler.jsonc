@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aide-ota-health",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-24",
+  "triggers": { "crons": ["0 3 * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "REPLACE_WITH_PRODUCTION_D1_DATABASE_NAME",
+      "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "HEALTH_ATTEMPT_RATE",
+      "namespace_id": "REPLACE_WITH_ACCOUNT_LOCAL_RATE_LIMIT_NAMESPACE",
+      "simple": { "limit": 6, "period": 60 }
+    }
+  ]
+}

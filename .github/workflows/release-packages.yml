@@ -17,8 +17,10 @@ jobs:
   validate-release:
     name: Validate release identity
     runs-on: ubuntu-24.04
+    environment: ota-production
     outputs:
       commit: ${{ steps.release.outputs.commit }}
+      health_endpoint: ${{ steps.release.outputs.health_endpoint }}
       version: ${{ steps.release.outputs.version }}
     steps:
       # v7.0.1, pinned to the upstream release commit.
@@ -32,6 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          AIDE_UPDATE_HEALTH_ENDPOINT: ${{ vars.AIDE_UPDATE_HEALTH_ENDPOINT }}
         shell: bash
         run: |
           set -euo pipefail
@@ -49,8 +52,10 @@ jobs:
             [[ ! -s failed-checks ]] || { echo "Release commit has unsuccessful checks:" >&2; cat failed-checks >&2; exit 1; }
             gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.conclusion == "success") | .name' > successful-checks
             [[ -s successful-checks ]] || { echo "Release commit has no successful checks." >&2; exit 1; }
+            node scripts/validate-update-health-endpoint.mjs
           fi
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "health_endpoint=${AIDE_UPDATE_HEALTH_ENDPOINT:-}" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   linux-x64:
@@ -59,6 +64,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    env:
+      AIDE_UPDATE_HEALTH_ENDPOINT: ${{ needs.validate-release.outputs.health_endpoint }}
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -114,6 +121,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
+    env:
+      AIDE_UPDATE_HEALTH_ENDPOINT: ${{ needs.validate-release.outputs.health_endpoint }}
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:dependency-policy": "node --test scripts/check-dependency-policy.node-test.mjs",
     "test:packaging": "node --test scripts/desktop-packaging.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/write-updater-metadata.node-test.mjs",
+    "test:ota-health": "node ./node_modules/vitest/vitest.mjs run --config workers/ota-health/vitest.config.ts && node --test scripts/check-ota-health-gate.node-test.mjs workers/ota-health/migrations/0001_ota_health.node-test.mjs && WRANGLER_SEND_METRICS=false bunx wrangler deploy --dry-run --config workers/ota-health/wrangler.jsonc",
     "check": "biome check . --assist-enabled=false",
     "check:bundle": "node scripts/renderer-bundle-budget.mjs out/renderer",
     "check:dependencies": "node scripts/check-dependency-policy.mjs",
@@ -89,13 +90,15 @@
     "react-doctor": "0.7.1",
     "typescript": "6.0.3",
     "vite": "7.3.6",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "wrangler": "4.113.0"
   },
   "overrides": {
     "fast-uri": "3.1.4",
     "hono": "4.12.25",
     "picomatch": "4.0.4",
     "postcss": "8.5.19",
+    "sharp": "0.35.3",
     "tar": "7.5.20"
   },
   "trustedDependencies": [

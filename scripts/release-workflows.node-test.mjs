@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 
+import { validateUpdateHealthEndpoint } from '../src/shared/update-health-endpoint.mjs'
+
 const root = resolve(import.meta.dirname, '..')
 
 test('collector creates official provenance attestations for checksum and SBOM', async () => {
@@ -48,4 +50,57 @@ test('promotion trusts an immutable packaging workflow path rather than display 
     /jq -r \.path release-run\.json\).*\.github\/workflows\/release-packages\.yml/,
   )
   assert.doesNotMatch(workflow, /jq -r \.name release-run\.json/)
+})
+
+test('health reporting endpoint is a fail-closed package-time main bundle value', async () => {
+  const vite = await readFile(resolve(root, 'electron.vite.config.ts'), 'utf8')
+  const config = await readFile(
+    resolve(root, 'src/main/update-health-config.ts'),
+    'utf8',
+  )
+  assert.match(vite, /AIDE_UPDATE_HEALTH_ENDPOINT/)
+  assert.match(vite, /__AIDE_UPDATE_HEALTH_ENDPOINT__/)
+  assert.doesNotMatch(config, /process\.env/)
+})
+
+test('tagged packages receive a protected custom health endpoint', async () => {
+  const workflow = await readFile(
+    resolve(root, '.github/workflows/release-packages.yml'),
+    'utf8',
+  )
+  assert.match(
+    workflow,
+    /validate-release:[\s\S]*?environment: ota-production[\s\S]*?AIDE_UPDATE_HEALTH_ENDPOINT: \$\{\{ vars\.AIDE_UPDATE_HEALTH_ENDPOINT \}\}/,
+  )
+  assert.match(workflow, /node scripts\/validate-update-health-endpoint\.mjs/)
+  assert.match(
+    workflow,
+    /linux-x64:[\s\S]*?AIDE_UPDATE_HEALTH_ENDPOINT: \$\{\{ needs\.validate-release\.outputs\.health_endpoint \}\}/,
+  )
+  assert.match(
+    workflow,
+    /macos:[\s\S]*?AIDE_UPDATE_HEALTH_ENDPOINT: \$\{\{ needs\.validate-release\.outputs\.health_endpoint \}\}/,
+  )
+})
+
+test('health endpoint validation rejects provider defaults and ambiguous DNS forms', () => {
+  assert.equal(
+    validateUpdateHealthEndpoint(
+      'https://health.example.com/v1/ota-health/events',
+    ),
+    'https://health.example.com/v1/ota-health/events',
+  )
+  for (const hostname of [
+    'workers.dev',
+    'tenant.workers.dev',
+    'r2.dev',
+    'bucket.r2.dev',
+    'tenant.workers.dev.',
+    'bucket.r2.dev.',
+  ]) {
+    assert.equal(
+      validateUpdateHealthEndpoint(`https://${hostname}/v1/ota-health/events`),
+      null,
+    )
+  }
 })

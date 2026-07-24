@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { DatabaseSync } from 'node:sqlite'
 
 import { describe, expect, it } from 'vitest'
 
@@ -224,7 +225,7 @@ describe('createAideDatabase', () => {
         cohort: index % 100,
         createdAt: '2026-07-24T12:00:00.000Z',
         currentVersion: '0.1.0',
-        durationMs: index,
+        durationMs: 1_000,
         errorCode: index % 2 === 0 ? 'network' : null,
         lifecycle: 'downloaded',
         platform: 'linux',
@@ -242,6 +243,37 @@ describe('createAideDatabase', () => {
 
     database.updateUpdateState({ healthReportingEnabled: false })
     expect(database.listUpdateHealthEvents()).toEqual([])
+    database.close()
+  })
+
+  it('acknowledges only exact internal health queue rows', () => {
+    const database = createAideDatabase(':memory:')
+    database.updateUpdateState({ healthDisclosureAcknowledged: true })
+    for (const attemptId of ['first', 'second']) {
+      database.appendUpdateHealthEvent({
+        arch: 'x64',
+        attemptId,
+        cohort: 7,
+        createdAt: '2026-07-24T12:00:00.000Z',
+        currentVersion: '0.1.0',
+        durationMs: null,
+        errorCode: null,
+        lifecycle: 'check-started',
+        platform: 'linux',
+        targetVersion: null,
+      })
+    }
+
+    const queued = database.listQueuedUpdateHealthEvents(
+      20,
+      '2026-07-24T12:00:01.000Z',
+    )
+    expect(queued).toHaveLength(2)
+    expect(queued[0]?.event.attemptId).toBe('first')
+    database.acknowledgeUpdateHealthEvents([queued[0]?.id as number])
+    expect(
+      database.listUpdateHealthEvents('2026-07-24T12:00:01.000Z'),
+    ).toMatchObject([{ attemptId: 'second' }])
     database.close()
   })
 
@@ -314,6 +346,107 @@ describe('createAideDatabase', () => {
         platform: 'linux',
       }),
     ).toMatchObject({ lifecycle: 'install-failed', targetVersion: '0.2.2' })
+    database.close()
+  })
+
+  it('keeps install markers durable when optional health queue writes fail', () => {
+    const database = createAideDatabase(':memory:')
+    database.updateUpdateState({ healthDisclosureAcknowledged: true })
+    const sqlite = (database as unknown as { database: DatabaseSync }).database
+    sqlite.exec(`
+      CREATE TRIGGER fail_optional_update_health
+      BEFORE INSERT ON app_update_health_queue
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated telemetry failure');
+      END;
+    `)
+
+    expect(() =>
+      database.commitUpdateInstallStart({
+        arch: 'x64',
+        attemptId: 'durable-install-attempt',
+        currentVersion: '0.1.0',
+        now: '2026-07-24T12:00:30.123Z',
+        platform: 'linux',
+        targetVersion: '0.2.1',
+      }),
+    ).not.toThrow()
+    expect(database.getUpdateState()).toMatchObject({
+      pendingAttemptId: 'durable-install-attempt',
+      pendingTargetVersion: '0.2.1',
+    })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+
+    expect(
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.2.1',
+        now: '2026-07-24T12:01:45.987Z',
+        platform: 'linux',
+      }),
+    ).toBeNull()
+    expect(database.getUpdateState()).toMatchObject({
+      pendingAttemptId: null,
+      pendingTargetVersion: null,
+    })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+    database.close()
+  })
+
+  it('keeps required install marker writes fatal and atomic', () => {
+    const database = createAideDatabase(':memory:')
+    const sqlite = (database as unknown as { database: DatabaseSync }).database
+    sqlite.exec(`
+      CREATE TRIGGER fail_required_install_marker
+      BEFORE UPDATE ON app_update_state
+      WHEN NEW.pending_attempt_id IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated marker failure');
+      END;
+    `)
+
+    expect(() =>
+      database.commitUpdateInstallStart({
+        arch: 'x64',
+        attemptId: 'required-install-attempt',
+        currentVersion: '0.1.0',
+        now: '2026-07-24T12:00:30.123Z',
+        platform: 'linux',
+        targetVersion: '0.2.1',
+      }),
+    ).toThrow('simulated marker failure')
+    expect(database.getUpdateState()).toMatchObject({
+      pendingAttemptId: null,
+      pendingTargetVersion: null,
+    })
+
+    sqlite.exec('DROP TRIGGER fail_required_install_marker;')
+    database.updateUpdateState({
+      pendingAttemptId: 'required-clear-attempt',
+      pendingTargetVersion: '0.2.1',
+    })
+    sqlite.exec(`
+      CREATE TRIGGER fail_required_install_clear
+      BEFORE UPDATE ON app_update_state
+      WHEN OLD.pending_attempt_id IS NOT NULL
+        AND NEW.pending_attempt_id IS NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated marker clear failure');
+      END;
+    `)
+
+    expect(() =>
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.2.1',
+        now: '2026-07-24T12:01:45.987Z',
+        platform: 'linux',
+      }),
+    ).toThrow('simulated marker clear failure')
+    expect(database.getUpdateState()).toMatchObject({
+      pendingAttemptId: 'required-clear-attempt',
+      pendingTargetVersion: '0.2.1',
+    })
     database.close()
   })
 

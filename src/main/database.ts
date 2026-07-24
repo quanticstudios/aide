@@ -18,6 +18,10 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../shared/preview'
+import {
+  cohortForInstallation,
+  compareStableSemver,
+} from '../shared/release-envelope'
 import type {
   UpdateHealthEvent,
   UpdatePreferencesInput,
@@ -25,9 +29,9 @@ import type {
   UpdateState,
 } from '../shared/update'
 import {
-  cohortForInstallation,
-  compareStableSemver,
-} from '../shared/release-envelope'
+  coarsenUpdateHealthTimestamp,
+  UPDATE_HEALTH_DURATION_BUCKETS_MS,
+} from '../shared/update-health'
 import type {
   WorkspaceSetupSnapshot,
   WorkspaceSetupStatus,
@@ -130,6 +134,15 @@ interface SqlUpdateHealthEventRow {
   lifecycle: UpdateHealthEvent['lifecycle']
   platform: 'darwin' | 'linux'
   target_version: string | null
+}
+
+interface SqlQueuedUpdateHealthEventRow extends SqlUpdateHealthEventRow {
+  id: number
+}
+
+export interface QueuedUpdateHealthEvent {
+  event: UpdateHealthEvent
+  id: number
 }
 
 const MIGRATION_STRATEGY =
@@ -308,7 +321,7 @@ const MIGRATIONS = [
 
 const UPDATE_HEALTH_QUEUE_LIMIT = 100
 const UPDATE_HEALTH_TTL_MS = 30 * 24 * 60 * 60 * 1_000
-const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const STABLE_SEMVER = /^(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})$/
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const UPDATE_HEALTH_LIFECYCLES = new Set<UpdateHealthEvent['lifecycle']>([
   'check-failed',
@@ -327,6 +340,11 @@ const UPDATE_ERROR_CODES = new Set<UpdateHealthEvent['errorCode']>([
   'unknown',
   null,
 ])
+const UPDATE_HEALTH_DURATION_BUCKETS = new Set<number>(
+  UPDATE_HEALTH_DURATION_BUCKETS_MS,
+)
+const COARSE_UPDATE_HEALTH_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/
 
 export function createAideDatabase(databasePath: string): AideDatabase {
   return new AideDatabase(databasePath)
@@ -572,6 +590,62 @@ export class AideDatabase {
     return rows.map((row) => this.mapUpdateHealthEventRow(row))
   }
 
+  /** Main-process-only queue records; SQLite IDs never cross the IPC boundary. */
+  public listQueuedUpdateHealthEvents(
+    limit: number,
+    now = new Date().toISOString(),
+  ): QueuedUpdateHealthEvent[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+      throw new Error('Invalid update health queue limit.')
+    }
+    if (!this.canCollectUpdateHealth(this.getUpdateState())) {
+      this.database.exec('DELETE FROM app_update_health_queue;')
+      return []
+    }
+    const checkedNow = this.requireNullableIsoTimestamp(now, 'current time')
+    if (!checkedNow) throw new Error('Current time is required.')
+    this.deleteExpiredUpdateHealthEvents(checkedNow)
+    const rows = this.database
+      .prepare(
+        `
+          SELECT id, attempt_id, current_version, target_version, platform, arch,
+                 cohort, lifecycle, error_code, created_at, duration_ms
+          FROM app_update_health_queue
+          ORDER BY id ASC
+          LIMIT ?
+        `,
+      )
+      .all(limit) as unknown as SqlQueuedUpdateHealthEventRow[]
+    return rows.map((row) => ({
+      event: this.mapUpdateHealthEventRow(row),
+      id: row.id,
+    }))
+  }
+
+  /** Deletes only an acknowledged main-process batch, inside one transaction. */
+  public acknowledgeUpdateHealthEvents(ids: readonly number[]): void {
+    if (
+      ids.length === 0 ||
+      ids.length > 20 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id < 1)
+    ) {
+      throw new Error('Invalid update health acknowledgement.')
+    }
+    const unique = [...new Set(ids)]
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      this.database
+        .prepare(
+          `DELETE FROM app_update_health_queue WHERE id IN (${unique.map(() => '?').join(', ')})`,
+        )
+        .run(...unique)
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+  }
+
   /** Atomically records the only restart marker eligible for post-update reconciliation. */
   public commitUpdateInstallStart(input: {
     arch: 'arm64' | 'x64'
@@ -611,26 +685,25 @@ export class AideDatabase {
           `,
         )
         .run(targetVersion, attemptId, now)
-      if (this.canCollectUpdateHealth(state)) {
-        this.insertUpdateHealthEvent({
-          arch: input.arch,
-          attemptId,
-          cohort: cohortForInstallation(state.installationId, targetVersion),
-          createdAt: now,
-          currentVersion: input.currentVersion,
-          durationMs: null,
-          errorCode: null,
-          lifecycle: 'install-started',
-          platform: input.platform,
-          targetVersion,
-        })
-        this.deleteExpiredUpdateHealthEvents(now)
-        this.trimUpdateHealthEvents()
-      }
       this.database.exec('COMMIT;')
     } catch (error) {
       this.database.exec('ROLLBACK;')
       throw error
+    }
+
+    if (this.canCollectUpdateHealth(state)) {
+      this.tryAppendUpdateHealthEvent({
+        arch: input.arch,
+        attemptId,
+        cohort: cohortForInstallation(state.installationId, targetVersion),
+        createdAt: coarsenUpdateHealthTimestamp(now),
+        currentVersion: input.currentVersion,
+        durationMs: null,
+        errorCode: null,
+        lifecycle: 'install-started',
+        platform: input.platform,
+        targetVersion,
+      })
     }
     return this.getUpdateState()
   }
@@ -670,7 +743,7 @@ export class AideDatabase {
       arch: input.arch,
       attemptId,
       cohort: cohortForInstallation(current.installationId, targetVersion),
-      createdAt: now,
+      createdAt: coarsenUpdateHealthTimestamp(now),
       currentVersion: input.currentVersion,
       durationMs: null,
       errorCode: null,
@@ -684,11 +757,6 @@ export class AideDatabase {
 
     this.database.exec('BEGIN IMMEDIATE;')
     try {
-      if (this.canCollectUpdateHealth(current)) {
-        this.insertUpdateHealthEvent(event)
-        this.deleteExpiredUpdateHealthEvents(now)
-        this.trimUpdateHealthEvents()
-      }
       this.database
         .prepare(
           `
@@ -704,7 +772,10 @@ export class AideDatabase {
       this.database.exec('ROLLBACK;')
       throw error
     }
-    return this.canCollectUpdateHealth(current) ? event : null
+    return this.canCollectUpdateHealth(current) &&
+      this.tryAppendUpdateHealthEvent(event)
+      ? event
+      : null
   }
 
   public getWorkspaceActivityVisitWatermarks(): Record<string, string> {
@@ -1825,28 +1896,13 @@ export class AideDatabase {
     this.database.exec('DELETE FROM app_update_health_queue;')
   }
 
-  private insertUpdateHealthEvent(event: UpdateHealthEvent): void {
-    this.database
-      .prepare(
-        `
-          INSERT INTO app_update_health_queue (
-            attempt_id, current_version, target_version, platform, arch,
-            cohort, lifecycle, error_code, created_at, duration_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-      )
-      .run(
-        event.attemptId,
-        event.currentVersion,
-        event.targetVersion,
-        event.platform,
-        event.arch,
-        event.cohort,
-        event.lifecycle,
-        event.errorCode,
-        event.createdAt,
-        event.durationMs,
-      )
+  private tryAppendUpdateHealthEvent(event: UpdateHealthEvent): boolean {
+    try {
+      this.appendUpdateHealthEvent(event)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private deleteExpiredUpdateHealthEvents(now: string): void {
@@ -1856,17 +1912,6 @@ export class AideDatabase {
     this.database
       .prepare('DELETE FROM app_update_health_queue WHERE created_at < ?')
       .run(cutoff)
-  }
-
-  private trimUpdateHealthEvents(): void {
-    this.database.exec(`
-      DELETE FROM app_update_health_queue
-      WHERE id NOT IN (
-        SELECT id FROM app_update_health_queue
-        ORDER BY id DESC
-        LIMIT ${UPDATE_HEALTH_QUEUE_LIMIT}
-      );
-    `)
   }
 
   private mapUpdateStateRow(row: SqlUpdateStateRow): UpdateState {
@@ -1916,10 +1961,11 @@ export class AideDatabase {
       event.cohort >= 100 ||
       !UPDATE_HEALTH_LIFECYCLES.has(event.lifecycle) ||
       !UPDATE_ERROR_CODES.has(event.errorCode) ||
-      !ISO_TIMESTAMP.test(event.createdAt) ||
+      !COARSE_UPDATE_HEALTH_TIMESTAMP.test(event.createdAt) ||
       new Date(event.createdAt).toISOString() !== event.createdAt ||
       (event.durationMs !== null &&
-        (!Number.isSafeInteger(event.durationMs) || event.durationMs < 0))
+        (!Number.isSafeInteger(event.durationMs) ||
+          !UPDATE_HEALTH_DURATION_BUCKETS.has(event.durationMs)))
     ) {
       throw new Error('Invalid update health event.')
     }

@@ -5,9 +5,13 @@ import react from '@vitejs/plugin-react'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
+const updateHealthEndpoint = process.env.AIDE_UPDATE_HEALTH_ENDPOINT ?? ''
 
 export default defineConfig({
   main: {
+    define: {
+      __AIDE_UPDATE_HEALTH_ENDPOINT__: JSON.stringify(updateHealthEndpoint),
+    },
     plugins: [externalizeDepsPlugin()],
   },
   preload: {

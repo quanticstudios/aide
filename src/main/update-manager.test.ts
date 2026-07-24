@@ -1,12 +1,11 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
 import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
-
-import type { UpdatePhase } from '../shared/update'
 import { canonicalizeReleaseEnvelope } from '../shared/release-envelope'
+import type { UpdatePhase } from '../shared/update'
 import { ApplicationRuntime } from './application-runtime'
 import { UpdateManager, type UpdateProvider } from './update-manager'
 import { UpdateRestartCoordinator } from './update-restart-coordinator'
@@ -180,6 +179,96 @@ function createManager(
 }
 
 describe('UpdateManager', () => {
+  it('records only fixed consented lifecycle events', async () => {
+    const healthEvents: unknown[] = []
+    const scheduleUpload = vi.fn(() => Promise.reject(new Error('offline')))
+    const state = {
+      automaticDownloads: false,
+      healthDisclosureAcknowledged: true,
+      healthReportingEnabled: true,
+      installationId: 'installation-1',
+      lastCheckedAt: null,
+      pendingAttemptId: null,
+      pendingTargetVersion: null,
+      snoozedUntil: null,
+    }
+    const { manager, provider } = createManager({
+      now: () => new Date('2026-07-24T12:00:42.987Z'),
+      onUpdateHealthEventQueued: scheduleUpload,
+      store: {
+        appendUpdateHealthEvent: (event) => healthEvents.push(event),
+        getUpdateState: () => state,
+        updateUpdateState: () => state,
+      },
+    })
+
+    await manager.checkForUpdates()
+    provider.emit('update-available', { version: '0.2.1' })
+    await manager.downloadUpdate()
+    provider.emit('error', new Error('network unavailable'))
+
+    expect(healthEvents).toMatchObject([
+      {
+        createdAt: '2026-07-24T12:00:00.000Z',
+        durationMs: null,
+        lifecycle: 'check-started',
+        targetVersion: null,
+      },
+      {
+        createdAt: '2026-07-24T12:00:00.000Z',
+        durationMs: null,
+        lifecycle: 'download-started',
+        targetVersion: '0.2.1',
+      },
+      {
+        createdAt: '2026-07-24T12:00:00.000Z',
+        durationMs: 1_000,
+        errorCode: 'network',
+        lifecycle: 'download-failed',
+      },
+    ])
+    expect(JSON.stringify(healthEvents)).not.toContain('installation-1')
+    expect(scheduleUpload).toHaveBeenCalledTimes(3)
+    await Promise.resolve()
+    expect(manager.getSnapshot().phase).toBe('failed')
+  })
+
+  it('schedules a flush only after the health event has been queued', async () => {
+    const scheduleUpload = vi.fn()
+    const { manager } = createManager({
+      onUpdateHealthEventQueued: scheduleUpload,
+      store: {
+        appendUpdateHealthEvent: () => {
+          throw new Error('database unavailable')
+        },
+        getUpdateState: () => ({
+          automaticDownloads: false,
+          healthDisclosureAcknowledged: true,
+          healthReportingEnabled: true,
+          installationId: 'installation-1',
+          lastCheckedAt: null,
+          pendingAttemptId: null,
+          pendingTargetVersion: null,
+          snoozedUntil: null,
+        }),
+        updateUpdateState: () => ({
+          automaticDownloads: false,
+          healthDisclosureAcknowledged: true,
+          healthReportingEnabled: true,
+          installationId: 'installation-1',
+          lastCheckedAt: null,
+          pendingAttemptId: null,
+          pendingTargetVersion: null,
+          snoozedUntil: null,
+        }),
+      },
+    })
+
+    await manager.checkForUpdates()
+
+    expect(scheduleUpload).not.toHaveBeenCalled()
+  })
+
   it('fails closed until a production release origin is supplied', () => {
     const { manager, provider } = createManager({ release: null })
 

@@ -12,7 +12,7 @@ key, native macOS credentials, and Cloudflare configuration exist.
    `/releases/*` and `no-store` for `/channels/*`.
 2. Create the protected GitHub environment `ota-production` with required
    reviewers. Its deployment rules must permit stable `v*` tags (for the
-   collector) and `main` (for promotion). Put these non-secret variables there: `AIDE_UPDATE_ORIGIN`,
+   collector) and `main` (for promotion). Put these non-secret variables there: `AIDE_UPDATE_ORIGIN`, `AIDE_UPDATE_HEALTH_ENDPOINT`,
    `AIDE_RELEASE_KEY_ID`, `AIDE_RELEASE_PUBLIC_KEY_PEM`, `R2_BUCKET`, and
    `R2_ENDPOINT`.
 3. Put only short-lived, bucket-scoped R2 credentials in its environment
@@ -29,6 +29,83 @@ key, native macOS credentials, and Cloudflare configuration exist.
 5. Replace the development key embedded in the app through a reviewed bootstrap
    release before configuring a production origin. The matching private Ed25519
    key remains offline.
+
+## OTA rollout health service
+
+The optional health service is a separate Cloudflare Worker and D1 database in
+`workers/ota-health/`; it has no R2 binding, no promotion capability, and no
+public read API. Before deploying it:
+
+1. Create the D1 database and a Worker custom HTTPS hostname such as
+   `health.example.com`. Replace every `REPLACE_WITH_*` placeholder in
+   `workers/ota-health/wrangler.jsonc`, then apply
+   `bunx wrangler d1 migrations apply <database-name> --remote` and deploy with
+   `bunx wrangler deploy`. Both commands resolve the exact version pinned in
+   `bun.lock`. Use a narrowly scoped Worker/D1 deployment token; do not add that
+   token to a desktop release workflow.
+2. Configure a Cloudflare WAF rate rule for only
+   `POST /v1/ota-health/events`, in addition to the Worker binding that limits
+   each opaque update attempt. The Worker must never inspect or store source
+   IPs, headers, user agents, request bodies in logs, or any identifier other
+   than the permitted per-attempt ID. Do not enable Workers Logpush/request
+   body logging for this route without a separate privacy review.
+3. Supply `AIDE_UPDATE_HEALTH_ENDPOINT` at desktop package build time as the
+   exact custom HTTPS `https://health.example.com/v1/ota-health/events` URL.
+   Tagged builds fail closed when this protected environment value is absent or
+   uses a provider-default `workers.dev` or `r2.dev` hostname. It is
+   compiled into the main bundle rather than read from a user's launch shell.
+   Missing, malformed, credentialed, query-bearing, or non-HTTPS values disable
+   reporting completely. The current update feed origin remains independently
+   configured by the packaged OTA bootstrap work.
+4. Verify locally with `bun run test:ota-health`. A remote validation must send
+   one synthetic fixed-schema event, confirm its anonymous aggregate, wait for
+   or invoke the retention cron, and verify that no raw record older than 30
+   days remains. Do not use production project, repository, workspace, prompt,
+   terminal, file-path, IP, or user-agent data in this check.
+
+The desktop queues at most 100 fixed-schema events and uploads only after the
+user has both acknowledged the disclosure and left reporting enabled. Turning
+off either choice atomically purges the local queue; a failed request is retried
+without retaining server or transport detail. Event and Worker receipt
+timestamps are rounded down to their UTC minute before storage. Durations are
+upper-bounded into fixed 1s, 5s, 15s, 30s, 1m, 5m, 15m, 1h, 6h, 1d, 3d, or 7d
+buckets; the collector rejects exact timestamps or durations. The service keeps
+raw events for 30 days and writes only anonymous daily aggregates thereafter.
+
+### Manual rollout gates
+
+Rollout is never automatic. An operator exports only
+`ota_health_daily_aggregates` from D1, then runs a reviewed local gate before
+offline-signing a new 10%, 50%, or 100% envelope:
+
+```sh
+node scripts/check-ota-health-gate.mjs \
+  --input aggregates.json \
+  --version 1.2.3 \
+  --rollout 50 \
+  --window-start 2026-07-24T00:00:00.000Z \
+  --window-end 2026-07-25T00:00:00.000Z \
+  --min-observations 100 \
+  --max-failure-rate 0.02
+```
+
+The command requires an already elapsed 24-hour window with UTC-midnight
+endpoints, the requested cohort boundary, and explicit sample/failure
+thresholds. Because aggregates are UTC-day buckets, the window is half-open:
+the start day is included and the end day is excluded. It independently evaluates
+download failures as `download-failed / (downloaded + download-failed)` and
+install failures as
+`install-failed / (install-succeeded + install-failed)`. Each stage must meet
+the minimum observation count and maximum failure rate. Started lifecycle
+events and `check-failed` are excluded because the anonymous aggregates cannot
+attribute them to a corresponding successful outcome. The command only returns
+a report and cannot contact R2, sign an envelope, or promote a channel. Record
+the stage metrics and human approval with the next offline-signed promotion
+record.
+
+The outstanding external blockers are the Cloudflare account, D1 database ID,
+custom health hostname, Worker rate-limit namespace, WAF policy, and scoped
+deployment token. Until those exist the built client remains safely silent.
 
 ## Normal stable promotion
 

@@ -53,10 +53,12 @@ paths, raw transport errors, or full release payloads.
 
 Allowed OTA health fields are a per-release attempt identifier, current and
 target version, platform, architecture, cohort bucket, lifecycle event, stable
-error code, and coarse timestamp/duration. The service does not persist IP,
-headers, user agent, repository, project, workspace, prompt, file path, or
-terminal data. Raw events expire after 30 days and rollout never promotes
-automatically.
+error code, a timestamp rounded down to its UTC minute, and an upper-bounded
+duration bucket (1s, 5s, 15s, 30s, 1m, 5m, 15m, 1h, 6h, 1d, 3d, or 7d). The
+service rejects finer-grained values and also rounds its receipt timestamp to a
+UTC minute. It does not persist IP, headers, user agent, repository, project,
+workspace, prompt, file path, or terminal data. Raw events expire after 30 days
+and rollout never promotes automatically.
 
 ## Release Pipeline
 
