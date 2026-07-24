@@ -33,6 +33,7 @@ function createLockfile() {
 const validBunfig = `
 [install]
 minimumReleaseAge = 604800
+minimumReleaseAgeExcludes = ["fast-uri"]
 `
 
 test('accepts exact direct pins, the seven-day release age, and resolved security overrides', () => {
@@ -60,7 +61,7 @@ test('rejects a ranged direct dependency', () => {
   )
 })
 
-test('rejects a release age below seven days or any exemption', () => {
+test('rejects a release age below seven days or an unapproved exemption', () => {
   const errors = validateDependencyPolicy({
     packageJson: createPackageJson(),
     bunfig: `[install]\nminimumReleaseAge = 1\nminimumReleaseAgeExcludes = ["example-runtime"]`,
@@ -68,13 +69,13 @@ test('rejects a release age below seven days or any exemption', () => {
   }).join('\n')
 
   assert.match(errors, /minimumReleaseAge = 604800/)
-  assert.match(errors, /must not exempt packages/)
+  assert.match(errors, /must exempt only fast-uri/)
 })
 
 test('rejects a release age outside the install table and quoted exemption keys', () => {
   const misplacedAgeErrors = validateDependencyPolicy({
     packageJson: createPackageJson(),
-    bunfig: `minimumReleaseAge = 604800\n[install]`,
+    bunfig: `minimumReleaseAge = 604800\n[install]\nminimumReleaseAgeExcludes = ["fast-uri"]`,
     lockfile: createLockfile(),
   }).join('\n')
   const quotedExemptionErrors = validateDependencyPolicy({
@@ -84,7 +85,7 @@ test('rejects a release age outside the install table and quoted exemption keys'
   }).join('\n')
 
   assert.match(misplacedAgeErrors, /minimumReleaseAge = 604800/)
-  assert.match(quotedExemptionErrors, /must not exempt packages/)
+  assert.match(quotedExemptionErrors, /must exempt only fast-uri/)
 })
 
 test('rejects invalid TOML without crashing the policy report', () => {
@@ -109,5 +110,5 @@ test('rejects an unpinned security override or a lockfile that did not resolve i
   }).join('\n')
 
   assert.match(errors, /overrides.hono must be exactly 4\.12\.25/)
-  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.2/)
+  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.4/)
 })

@@ -1,0 +1,168 @@
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+import test from 'node:test'
+
+import {
+  assertMacReleaseCredentials,
+  hasMacNotarizationCredentials,
+  hasMacSigningCredentials,
+  macTargetFromArguments,
+} from './package-macos.mjs'
+import { writeChecksums } from './write-checksums.mjs'
+
+const root = resolve(import.meta.dirname, '..')
+const packageJson = JSON.parse(
+  readFileSync(resolve(root, 'package.json'), 'utf8'),
+)
+const build = packageJson.build
+
+test('locks a reproducible desktop packaging configuration', () => {
+  assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3')
+  assert.equal(
+    packageJson.scripts['test:packaging'],
+    'node --test scripts/desktop-packaging.node-test.mjs',
+  )
+  assert.equal(build.appId, 'studio.quantic.aide')
+  assert.equal(build.productName, 'Aide')
+  assert.equal(build.executableName, 'aide')
+  assert.equal(packageJson.author, 'Quantic Studios')
+  assert.equal(packageJson.desktopName, 'Aide')
+  assert.equal(
+    build.artifactName,
+    [
+      '$' + '{productName}',
+      '$' + '{version}',
+      '$' + '{os}',
+      '$' + '{arch}.' + '$' + '{ext}',
+    ].join('-'),
+  )
+  assert.equal(build.asar, true)
+  assert.deepEqual(build.asarUnpack, [
+    'node_modules/node-pty/**',
+    'node_modules/@anthropic-ai/claude-agent-sdk-*/**',
+  ])
+  assert.deepEqual(build.linux.target, [
+    { target: 'AppImage', arch: ['x64'] },
+    { target: 'tar.gz', arch: ['x64'] },
+  ])
+  assert.equal(build.linux.syncDesktopName, true)
+  assert.deepEqual(build.mac.target, [
+    { target: 'dmg', arch: ['x64', 'arm64'] },
+    { target: 'zip', arch: ['x64', 'arm64'] },
+  ])
+})
+
+test('uses hardened runtime entitlements and native-only packaging entry points', () => {
+  assert.equal(build.mac.hardenedRuntime, true)
+  assert.equal(build.mac.entitlements, 'build/entitlements.mac.plist')
+  assert.equal(build.mac.entitlementsInherit, 'build/entitlements.mac.plist')
+  assert.equal(existsSync(resolve(root, build.mac.entitlements)), true)
+  assert.match(
+    readFileSync(resolve(root, 'scripts/package-linux.mjs'), 'utf8'),
+    /process\.platform !== 'linux'/,
+  )
+  assert.match(
+    readFileSync(resolve(root, 'scripts/package-macos.mjs'), 'utf8'),
+    /process\.platform !== 'darwin'/,
+  )
+})
+
+test('ships release automation on native Linux and macOS runners only', () => {
+  const workflow = readFileSync(
+    resolve(root, '.github/workflows/release-packages.yml'),
+    'utf8',
+  )
+  const macosJob = workflow.slice(workflow.indexOf('  macos:'))
+  const macosJobHeader = macosJob.slice(0, macosJob.indexOf('    steps:'))
+
+  assert.match(workflow, /runs-on: ubuntu-24\.04/)
+  assert.match(workflow, /runner: macos-15-intel/)
+  assert.match(workflow, /runner: macos-15/)
+  assert.match(workflow, /bun install --frozen-lockfile/)
+  assert.match(
+    workflow,
+    /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/,
+  )
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/)
+  assert.match(workflow, /bun run test:packaging/)
+  assert.doesNotMatch(macosJobHeader, /secrets\./)
+  assert.match(
+    readFileSync(resolve(root, 'scripts/verify-linux-package.mjs'), 'utf8'),
+    /--appimage-extract/,
+  )
+  assert.match(
+    readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'),
+    /bun run test:packaging/,
+  )
+})
+
+test('rejects macOS cross-target ambiguity and recognizes complete release credentials', () => {
+  assert.equal(macTargetFromArguments(['--x64']), 'x64')
+  assert.equal(macTargetFromArguments(['--arm64']), 'arm64')
+  assert.throws(
+    () => macTargetFromArguments(['--x64', '--arm64']),
+    /exactly one native macOS target/,
+  )
+  assert.equal(
+    hasMacSigningCredentials({
+      CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate',
+    }),
+    true,
+  )
+  assert.equal(hasMacSigningCredentials({ CSC_LINK: 'certificate' }), false)
+  assert.equal(
+    hasMacNotarizationCredentials({
+      APPLE_API_KEY: '/tmp/key.p8',
+      APPLE_API_KEY_ID: 'key-id',
+      APPLE_API_ISSUER: 'issuer-id',
+    }),
+    true,
+  )
+  assert.throws(
+    () => assertMacReleaseCredentials(true, {}),
+    /CSC_LINK and CSC_KEY_PASSWORD/,
+  )
+  assert.throws(
+    () =>
+      assertMacReleaseCredentials(true, {
+        CSC_KEY_PASSWORD: 'password',
+        CSC_LINK: 'certificate',
+      }),
+    /Apple notarization credentials/,
+  )
+  assert.doesNotThrow(() =>
+    assertMacReleaseCredentials(true, {
+      APPLE_API_KEY: '/tmp/key.p8',
+      APPLE_API_KEY_ID: 'key-id',
+      APPLE_API_ISSUER: 'issuer-id',
+      CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate',
+    }),
+  )
+})
+
+test('writes SHA-256 checksums only for sorted distributable artifacts', async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), 'aide-checksums-'))
+  try {
+    await writeFile(resolve(directory, 'Aide-1.0.0-linux-x64.tar.gz'), 'tar')
+    await writeFile(resolve(directory, 'Aide-1.0.0-linux-x64.AppImage'), 'app')
+    await writeFile(resolve(directory, 'latest-linux.yml'), 'metadata')
+
+    const artifacts = await writeChecksums(directory)
+
+    assert.deepEqual(artifacts, [
+      'Aide-1.0.0-linux-x64.AppImage',
+      'Aide-1.0.0-linux-x64.tar.gz',
+    ])
+    const checksums = await readFile(resolve(directory, 'SHA256SUMS'), 'utf8')
+    assert.match(checksums, /Aide-1\.0\.0-linux-x64\.AppImage/)
+    assert.match(checksums, /Aide-1\.0\.0-linux-x64\.tar\.gz/)
+    assert.doesNotMatch(checksums, /latest-linux\.yml/)
+  } finally {
+    await rm(directory, { force: true, recursive: true })
+  }
+})

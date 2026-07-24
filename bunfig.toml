@@ -1,5 +1,7 @@
 [install]
 minimumReleaseAge = 604800
+# Exact-pinned security fix for GHSA-v2hh-gcrm-f6hx and GHSA-4c8g-83qw-93j6.
+minimumReleaseAgeExcludes = ["fast-uri"]
 
 [test]
 pathIgnorePatterns = [

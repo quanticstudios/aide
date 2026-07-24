@@ -40,6 +40,9 @@ jobs:
       - name: Test dependency policy
         run: bun run test:dependency-policy
 
+      - name: Test desktop packaging configuration
+        run: bun run test:packaging
+
       - name: Enforce dependency policy
         run: bun run check:dependencies
 
