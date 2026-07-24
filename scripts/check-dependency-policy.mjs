@@ -5,14 +5,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import TOML from '@iarna/toml'
 
 export const REQUIRED_OVERRIDES = Object.freeze({
-  'fast-uri': '3.1.2',
+  'fast-uri': '3.1.4',
   hono: '4.12.25',
   picomatch: '4.0.4',
+  postcss: '8.5.19',
+  tar: '7.5.20',
 })
 
 const EXACT_SEMVER =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const MINIMUM_RELEASE_AGE = 604800
+const MINIMUM_RELEASE_AGE_EXCLUDES = Object.freeze(['fast-uri'])
 
 function policyError(message) {
   return `Dependency policy violation: ${message}`
@@ -66,12 +69,12 @@ export function validateDependencyPolicy({ packageJson, bunfig, lockfile }) {
     )
   }
   if (
-    parsedBunfig?.install &&
-    Object.hasOwn(parsedBunfig.install, 'minimumReleaseAgeExcludes')
+    JSON.stringify(parsedBunfig?.install?.minimumReleaseAgeExcludes) !==
+    JSON.stringify(MINIMUM_RELEASE_AGE_EXCLUDES)
   ) {
     errors.push(
       policyError(
-        'bunfig.toml must not exempt packages from the release-age gate',
+        'bunfig.toml must exempt only fast-uri from the release-age gate',
       ),
     )
   }
