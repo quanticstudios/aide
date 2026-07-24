@@ -2,12 +2,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  BrowserWindow,
-  Menu,
   app,
+  BrowserWindow,
   dialog,
-  ipcMain,
   type IpcMainInvokeEvent,
+  ipcMain,
+  Menu,
 } from 'electron'
 
 import type {
@@ -26,10 +26,11 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
-import { ApplicationRuntime } from './application-runtime'
-import { DiagnosticsService } from './diagnostics-service'
+import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
+import { ApplicationRuntime } from './application-runtime'
 import { createAideDatabase } from './database'
+import { DiagnosticsService } from './diagnostics-service'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
   probeExecutable,
@@ -37,20 +38,20 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
-import { ProviderCapabilityService } from './provider-capability-service'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
+import { ProviderCapabilityService } from './provider-capability-service'
 import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { isTrustedRendererUrl } from './trusted-renderer'
-import { WorkspaceActivityService } from './workspace-activity-service'
+import { UpdateManager } from './update-manager'
 import { WindowManager } from './window-manager'
+import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
-import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let database: ReturnType<typeof createAideDatabase>
@@ -62,6 +63,7 @@ let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
 let workspaceSetupManager: WorkspaceSetupManager
+let updateManager: UpdateManager
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
@@ -168,6 +170,14 @@ function initializeServices(): void {
       nodeVersion: process.versions.node,
       platform: process.platform,
     },
+  })
+  updateManager = new UpdateManager({
+    app: {
+      getVersion: () => app.getVersion(),
+      isPackaged: app.isPackaged,
+    },
+    onUpdate: (event) =>
+      windowManager.broadcast(IPC_CHANNELS.updateEvent, event),
   })
 }
 
@@ -305,6 +315,22 @@ function registerIpcHandlers(): void {
     previewManager.list(),
   )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
+  ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {
+    requireTrustedRenderer(event)
+    return updateManager.getSnapshot()
+  })
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, (event) => {
+    requireTrustedRenderer(event)
+    return updateManager.checkForUpdates()
+  })
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, (event) => {
+    requireTrustedRenderer(event)
+    return updateManager.downloadUpdate()
+  })
+  ipcMain.handle(IPC_CHANNELS.retryUpdate, (event) => {
+    requireTrustedRenderer(event)
+    return updateManager.checkForUpdates()
+  })
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
     async (event, defaultPath: string | null) => {
@@ -601,6 +627,7 @@ const applicationRuntime = new ApplicationRuntime({
   registerIpcHandlers,
   shutdownServices: async () => {
     try {
+      updateManager.stop()
       await Promise.all([
         workspaceSetupManager.shutdown(),
         managedSessionManager.closeAll(2_000),
@@ -616,6 +643,7 @@ const applicationRuntime = new ApplicationRuntime({
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   applicationRuntime.start()
+  updateManager.startAutomaticChecks()
   registerDiagnosticsHandlers()
 
   app.on('activate', () => {
