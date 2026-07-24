@@ -8,7 +8,7 @@ import {
 } from 'node:fs'
 import path from 'node:path'
 
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 
 import type {
   UpdateCapability,
@@ -346,6 +346,7 @@ export class UpdateManager {
   }
 
   private createElectronProvider(): UpdateProvider {
+    const { autoUpdater } = electronUpdater
     return {
       get allowDowngrade() {
         return autoUpdater.allowDowngrade

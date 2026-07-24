@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
-    "build": "tsc --noEmit && electron-vite build",
+    "build": "tsc --noEmit && electron-vite build && node scripts/assert-main-runtime-import.mjs",
     "test": "bun run test:node",
     "test:node": "node ./node_modules/vitest/vitest.mjs run",
     "test:unit": "vitest run --exclude src/main/database.test.ts",
