@@ -9,7 +9,12 @@ export const REQUIRED_OVERRIDES = Object.freeze({
   hono: '4.12.25',
   picomatch: '4.0.4',
   postcss: '8.5.19',
+  sharp: '0.35.3',
   tar: '7.5.20',
+})
+
+export const REQUIRED_DEV_DEPENDENCIES = Object.freeze({
+  wrangler: '4.113.0',
 })
 
 const EXACT_SEMVER =
@@ -83,6 +88,25 @@ export function validateDependencyPolicy({ packageJson, bunfig, lockfile }) {
     if (packageJson.overrides?.[name] !== expectedVersion) {
       errors.push(
         policyError(`overrides.${name} must be exactly ${expectedVersion}`),
+      )
+    }
+    if (packageVersion(lockfile, name) !== expectedVersion) {
+      errors.push(
+        policyError(
+          `bun.lock must resolve ${name} to exactly ${expectedVersion}`,
+        ),
+      )
+    }
+  }
+
+  for (const [name, expectedVersion] of Object.entries(
+    REQUIRED_DEV_DEPENDENCIES,
+  )) {
+    if (packageJson.devDependencies?.[name] !== expectedVersion) {
+      errors.push(
+        policyError(
+          `devDependencies.${name} must be exactly ${expectedVersion}`,
+        ),
       )
     }
     if (packageVersion(lockfile, name) !== expectedVersion) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  REQUIRED_DEV_DEPENDENCIES,
   REQUIRED_OVERRIDES,
   validateDependencyPolicy,
 } from './check-dependency-policy.mjs'
@@ -14,6 +15,7 @@ function createPackageJson(overrides = REQUIRED_OVERRIDES) {
     },
     devDependencies: {
       'example-tool': '4.5.6-beta.7',
+      ...REQUIRED_DEV_DEPENDENCIES,
     },
     overrides,
   }
@@ -22,10 +24,10 @@ function createPackageJson(overrides = REQUIRED_OVERRIDES) {
 function createLockfile() {
   return {
     packages: Object.fromEntries(
-      Object.entries(REQUIRED_OVERRIDES).map(([name, version]) => [
-        name,
-        [`${name}@${version}`],
-      ]),
+      [
+        ...Object.entries(REQUIRED_OVERRIDES),
+        ...Object.entries(REQUIRED_DEV_DEPENDENCIES),
+      ].map(([name, version]) => [name, [`${name}@${version}`]]),
     ),
   }
 }
@@ -111,4 +113,20 @@ test('rejects an unpinned security override or a lockfile that did not resolve i
 
   assert.match(errors, /overrides.hono must be exactly 4\.12\.25/)
   assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.4/)
+})
+
+test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
+  const packageJson = createPackageJson()
+  packageJson.devDependencies.wrangler = '4.112.0'
+  const lockfile = createLockfile()
+  lockfile.packages.wrangler = ['wrangler@4.112.0']
+
+  const errors = validateDependencyPolicy({
+    packageJson,
+    bunfig: validBunfig,
+    lockfile,
+  }).join('\n')
+
+  assert.match(errors, /devDependencies\.wrangler must be exactly 4\.113\.0/)
+  assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.113\.0/)
 })

@@ -21,8 +21,8 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
-import type { RuntimeSnapshot } from '../shared/runtime'
 import { AIDE_RELEASE_PUBLIC_KEYRING } from '../shared/release-keyring'
+import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -49,6 +49,8 @@ import {
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { isTrustedRendererUrl } from './trusted-renderer'
+import { configuredUpdateHealthEndpoint } from './update-health-config'
+import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
 import { requireUpdatePreferencesInput } from './update-preferences'
 import { UpdateRestartCoordinator } from './update-restart-coordinator'
@@ -67,6 +69,7 @@ let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
 let workspaceSetupManager: WorkspaceSetupManager
 let updateManager: UpdateManager
+let updateHealthReporter: UpdateHealthReporter
 let updateRestartCoordinator: UpdateRestartCoordinator
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
@@ -197,19 +200,26 @@ function initializeServices(): void {
       platform: process.platform,
     },
   })
+  updateHealthReporter = new UpdateHealthReporter({
+    endpoint: configuredUpdateHealthEndpoint(),
+    isPackaged: app.isPackaged,
+    store: database,
+  })
   updateManager = new UpdateManager({
     app: {
       getVersion: () => app.getVersion(),
       isPackaged: app.isPackaged,
     },
+    onUpdateHealthEventQueued: () => updateHealthReporter.flush(),
     onUpdate: (event) =>
       windowManager.broadcast(IPC_CHANNELS.updateEvent, event),
     release: releaseConfiguration(),
     store: database,
   })
-  updateManager.subscribePreferences((event) =>
-    windowManager.broadcast(IPC_CHANNELS.updatePreferencesEvent, event),
-  )
+  updateManager.subscribePreferences((event) => {
+    windowManager.broadcast(IPC_CHANNELS.updatePreferencesEvent, event)
+    updateHealthReporter.handlePreferencesChanged()
+  })
   updateRestartCoordinator = new UpdateRestartCoordinator({
     applicationRuntime,
     managedSessions: managedSessionManager,
@@ -689,6 +699,7 @@ const applicationRuntime = new ApplicationRuntime({
       updateManager.stop({
         preserveVerifiedDownload: reason === 'update-install',
       })
+      updateHealthReporter.stop()
       await Promise.all([
         workspaceSetupManager.shutdown(),
         managedSessionManager.closeAll(2_000),
@@ -704,6 +715,7 @@ const applicationRuntime = new ApplicationRuntime({
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null)
   applicationRuntime.start()
+  updateHealthReporter.start()
   updateManager.startAutomaticChecks()
   registerDiagnosticsHandlers()
 

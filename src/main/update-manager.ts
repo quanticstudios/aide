@@ -15,8 +15,8 @@ import path from 'node:path'
 
 import electronUpdater from 'electron-updater'
 import {
-  compareStableSemver,
   cohortForInstallation,
+  compareStableSemver,
   MAX_RELEASE_FEED_BYTES,
   parseAndVerifyReleaseEnvelope,
   type ReleaseEnvelope,
@@ -39,6 +39,10 @@ import type {
   UpdateState,
 } from '../shared/update'
 import { UPDATE_SCHEMA_VERSION } from '../shared/update'
+import {
+  bucketUpdateHealthDuration,
+  coarsenUpdateHealthTimestamp,
+} from '../shared/update-health'
 
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const DEFAULT_INITIAL_CHECK_DELAY_MS = 60_000
@@ -72,6 +76,8 @@ export interface UpdateManagerOptions {
   initialCheckDelayMs?: number
   isAppImagePath?: (path: string) => boolean
   now?: () => Date
+  /** Invoked after a consented health event is durably queued. */
+  onUpdateHealthEventQueued?: () => void | Promise<void>
   onUpdate?: (event: UpdateEvent) => void
   platform?: NodeJS.Platform
   arch?: NodeJS.Architecture
@@ -203,6 +209,7 @@ export class UpdateManager {
   private verifiedDownloadedRelease: VerifiedDownloadedRelease | null = null
   private verifiedRelease: ReleaseEnvelope | null = null
   private downloadedVerification: Promise<void> | null = null
+  private healthOperationStartedAt: string | null = null
   private quitAndInstallCalled = false
   private readonly preferenceSubscribers = new Set<
     (event: UpdatePreferencesEvent) => void
@@ -356,6 +363,9 @@ export class UpdateManager {
       targetVersion: null,
       urgency: null,
     })
+    this.activeAttemptId = randomUUID()
+    this.healthOperationStartedAt = this.snapshot.lastCheckedAt
+    this.recordHealth('check-started')
     this.options.store?.updateUpdateState({
       lastCheckedAt: this.snapshot.lastCheckedAt,
     })
@@ -363,7 +373,7 @@ export class UpdateManager {
       .then(() => this.getProvider().checkForUpdates())
       .catch((error: unknown) => {
         if (this.isActiveGeneration(generation)) {
-          this.publish({ errorCode: sanitizeErrorCode(error), phase: 'failed' })
+          this.failUpdate(sanitizeErrorCode(error))
         }
       })
       .then(() => this.getSnapshot())
@@ -385,6 +395,8 @@ export class UpdateManager {
     const generation = this.operationGeneration
     const provider = this.getProvider()
     this.publish({ errorCode: null, phase: 'downloading', progress: null })
+    this.healthOperationStartedAt = this.getNow()
+    this.recordHealth('download-started')
     this.downloadedVerification = null
     this.downloadPromise = provider
       .downloadUpdate()
@@ -393,7 +405,7 @@ export class UpdateManager {
       })
       .catch((error: unknown) => {
         if (this.isActiveGeneration(generation)) {
-          this.publish({ errorCode: sanitizeErrorCode(error), phase: 'failed' })
+          this.failUpdate(sanitizeErrorCode(error))
         }
       })
       .then(() => this.getSnapshot())
@@ -463,7 +475,7 @@ export class UpdateManager {
         (this.requiresSignedRelease() &&
           this.verifiedRelease?.version !== version)
       ) {
-        this.publish({ errorCode: 'invalid-update', phase: 'failed' })
+        this.failUpdate('invalid-update')
         return
       }
       this.publish({
@@ -473,7 +485,6 @@ export class UpdateManager {
         targetVersion: version,
         urgency: this.verifiedRelease?.urgency ?? null,
       })
-      this.activeAttemptId = randomUUID()
       if (this.shouldAutomaticallyDownload()) {
         void this.downloadUpdate()
       }
@@ -498,13 +509,13 @@ export class UpdateManager {
       }
       const version = extractVersion(payload)
       if (!version || version !== this.snapshot.targetVersion) {
-        this.publish({ errorCode: 'invalid-update', phase: 'failed' })
+        this.failUpdate('invalid-update')
         return
       }
       this.downloadedVerification = this.handleDownloadedUpdate(payload).catch(
         () => {
           if (this.isActiveGeneration(generation)) {
-            this.publish({ errorCode: 'invalid-update', phase: 'failed' })
+            this.failUpdate('invalid-update')
           }
         },
       )
@@ -515,7 +526,7 @@ export class UpdateManager {
         (this.snapshot.phase === 'checking' ||
           this.snapshot.phase === 'downloading')
       ) {
-        this.publish({ errorCode: sanitizeErrorCode(error), phase: 'failed' })
+        this.failUpdate(sanitizeErrorCode(error))
       }
     })
     return provider
@@ -632,7 +643,8 @@ export class UpdateManager {
       updated.healthReportingEnabled &&
       updated.healthDisclosureAcknowledged
     ) {
-      store.appendUpdateHealthEvent?.({
+      if (!store.appendUpdateHealthEvent) return
+      store.appendUpdateHealthEvent({
         arch: input.arch,
         attemptId,
         cohort: cohortForInstallation(updated.installationId, target),
@@ -904,6 +916,7 @@ export class UpdateManager {
         phase: 'downloaded',
         progress: { percent: 100, total: 0, transferred: 0 },
       })
+      this.recordHealth('downloaded')
       return
     }
     const pathValue = (payload as DownloadedUpdateInfo | null)?.downloadedFile
@@ -921,6 +934,7 @@ export class UpdateManager {
       phase: 'downloaded',
       progress: { percent: 100, total: 0, transferred: 0 },
     })
+    this.recordHealth('downloaded')
   }
 
   private requiresSignedRelease(): boolean {
@@ -1122,6 +1136,76 @@ export class UpdateManager {
 
   private getNow(): string {
     return (this.options.now?.() ?? new Date()).toISOString()
+  }
+
+  private failUpdate(errorCode: UpdateErrorCode): void {
+    if (this.snapshot.phase === 'checking') {
+      this.recordHealth('check-failed', errorCode)
+    } else if (this.snapshot.phase === 'downloading') {
+      this.recordHealth('download-failed', errorCode)
+    }
+    this.publish({ errorCode, phase: 'failed' })
+  }
+
+  /** Records only the fixed health schema; persistence enforces consent again. */
+  private recordHealth(
+    lifecycle: UpdateHealthEvent['lifecycle'],
+    errorCode: UpdateErrorCode | null = null,
+  ): void {
+    const store = this.options.store
+    if (!store) return
+    try {
+      const state = store.getUpdateState()
+      if (!state.healthDisclosureAcknowledged || !state.healthReportingEnabled)
+        return
+      const targetVersion = this.snapshot.targetVersion
+      const platform =
+        this.verifiedRelease?.platform ??
+        this.options.platform ??
+        process.platform
+      const arch =
+        this.verifiedRelease?.arch ?? this.options.arch ?? process.arch
+      if (
+        (platform !== 'darwin' && platform !== 'linux') ||
+        (arch !== 'arm64' && arch !== 'x64')
+      ) {
+        return
+      }
+      const now = this.getNow()
+      const started = this.healthOperationStartedAt
+      const durationMs =
+        started && !lifecycle.endsWith('-started')
+          ? bucketUpdateHealthDuration(
+              Math.max(
+                0,
+                new Date(now).getTime() - new Date(started).getTime(),
+              ),
+            )
+          : null
+      if (!store.appendUpdateHealthEvent) return
+      store.appendUpdateHealthEvent({
+        arch,
+        attemptId: this.activeAttemptId ?? randomUUID(),
+        cohort: cohortForInstallation(
+          state.installationId,
+          targetVersion ?? this.snapshot.currentVersion,
+        ),
+        createdAt: coarsenUpdateHealthTimestamp(now),
+        currentVersion: this.snapshot.currentVersion,
+        durationMs,
+        errorCode,
+        lifecycle,
+        platform,
+        targetVersion,
+      })
+      void Promise.resolve(this.options.onUpdateHealthEventQueued?.()).catch(
+        () => {
+          // Upload scheduling must not alter update trust or availability.
+        },
+      )
+    } catch {
+      // Health observability must not alter update trust or availability.
+    }
   }
 
   private publish(
