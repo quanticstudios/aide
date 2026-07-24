@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -61,6 +61,13 @@ export async function verifyMacosPackage(
     `claude-agent-sdk-darwin-${target}`,
     'claude',
   )
+
+  if (
+    (await readFile(join(resources, 'app-update.yml'), 'utf8')) !==
+    'updaterCacheDirName: aide-updater\n'
+  ) {
+    throw new Error('The packaged updater cache configuration is invalid.')
+  }
 
   await assertNativeArchitecture(
     join(application, 'Contents', 'MacOS', 'aide'),

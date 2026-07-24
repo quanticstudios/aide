@@ -21,14 +21,30 @@ function argument(name: string): string {
 }
 
 const envelopePath = resolve(process.cwd(), argument('--envelope'))
-const privateKeyPath = resolve(process.cwd(), argument('--private-key'))
+const privateKeyFromStdin = process.argv.includes('--private-key-stdin')
+const privateKeyPath = privateKeyFromStdin
+  ? null
+  : resolve(process.cwd(), argument('--private-key'))
 const signaturePath = resolve(process.cwd(), argument('--signature'))
 const [canonicalEnvelopePath, canonicalPrivateKeyPath, signatureDirectory] =
   await Promise.all([
     realpath(envelopePath),
-    realpath(privateKeyPath),
+    privateKeyPath ? realpath(privateKeyPath) : Promise.resolve(null),
     realpath(dirname(signaturePath)),
   ])
+
+async function readBoundedPrivateKeyFromStdin(): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of process.stdin) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += bytes.byteLength
+    if (size > 8_192) throw new Error('Private key stdin is too large.')
+    chunks.push(bytes)
+  }
+  if (size === 0) throw new Error('Private key stdin is empty.')
+  return Buffer.concat(chunks, size)
+}
 const canonicalSignaturePath = join(signatureDirectory, basename(signaturePath))
 
 if (
@@ -73,7 +89,11 @@ if (!rawEnvelope.equals(canonicalEnvelope)) {
   throw new Error('Envelope must be canonical before signing.')
 }
 
-const privateKey = createPrivateKey(await readFile(privateKeyPath, 'utf8'))
+const privateKey = createPrivateKey(
+  privateKeyFromStdin
+    ? await readBoundedPrivateKeyFromStdin()
+    : await readFile(privateKeyPath as string, 'utf8'),
+)
 if (privateKey.asymmetricKeyType !== 'ed25519') {
   throw new Error('Private key must be an Ed25519 key.')
 }

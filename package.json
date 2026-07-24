@@ -21,7 +21,7 @@
     "test:e2e": "bun run build && env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK XDG_SESSION_TYPE=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 OZONE_PLATFORM=x11 xvfb-run -a playwright test --config=playwright.electron.config.ts",
     "test:watch": "vitest",
     "test:dependency-policy": "node --test scripts/check-dependency-policy.node-test.mjs",
-    "test:packaging": "node --test scripts/desktop-packaging.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/write-updater-metadata.node-test.mjs",
+    "test:packaging": "node --test scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs",
     "test:ota-health": "node ./node_modules/vitest/vitest.mjs run --config workers/ota-health/vitest.config.ts && node --test scripts/check-ota-health-gate.node-test.mjs workers/ota-health/migrations/0001_ota_health.node-test.mjs && WRANGLER_SEND_METRICS=false bunx wrangler deploy --dry-run --config workers/ota-health/wrangler.jsonc",
     "check": "biome check . --assist-enabled=false",
     "check:bundle": "node scripts/renderer-bundle-budget.mjs out/renderer",
@@ -32,6 +32,7 @@
     "test:native": "ELECTRON_RUN_AS_NODE=1 electron -e \"require('node-pty')\"",
     "package:checksums": "node scripts/write-checksums.mjs dist",
     "package:linux": "node scripts/package-linux.mjs",
+    "test:ota-linux-upgrade": "node scripts/linux-ota-upgrade-drill.mjs",
     "package:mac": "node scripts/package-macos.mjs",
     "package:mac:x64": "bun run package:mac -- --x64",
     "package:mac:arm64": "bun run package:mac -- --arm64"
@@ -116,6 +117,12 @@
     "files": [
       "out/**",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/app-update.yml",
+        "to": "app-update.yml"
+      }
     ],
     "asar": true,
     "asarUnpack": [

@@ -35,6 +35,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           AIDE_UPDATE_HEALTH_ENDPOINT: ${{ vars.AIDE_UPDATE_HEALTH_ENDPOINT }}
+          AIDE_UPDATE_ORIGIN: ${{ vars.AIDE_UPDATE_ORIGIN }}
+          AIDE_RELEASE_KEY_ID: ${{ vars.AIDE_RELEASE_KEY_ID }}
+          AIDE_RELEASE_PUBLIC_KEY_PEM: ${{ vars.AIDE_RELEASE_PUBLIC_KEY_PEM }}
         shell: bash
         run: |
           set -euo pipefail
@@ -52,7 +55,7 @@ jobs:
             [[ ! -s failed-checks ]] || { echo "Release commit has unsuccessful checks:" >&2; cat failed-checks >&2; exit 1; }
             gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.conclusion == "success") | .name' > successful-checks
             [[ -s successful-checks ]] || { echo "Release commit has no successful checks." >&2; exit 1; }
-            node scripts/validate-update-health-endpoint.mjs
+            node scripts/validate-packaged-update-config.mjs
           fi
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "health_endpoint=${AIDE_UPDATE_HEALTH_ENDPOINT:-}" >> "$GITHUB_OUTPUT"
@@ -64,8 +67,12 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    environment: ota-production
     env:
       AIDE_UPDATE_HEALTH_ENDPOINT: ${{ needs.validate-release.outputs.health_endpoint }}
+      AIDE_UPDATE_ORIGIN: ${{ vars.AIDE_UPDATE_ORIGIN }}
+      AIDE_RELEASE_KEY_ID: ${{ vars.AIDE_RELEASE_KEY_ID }}
+      AIDE_RELEASE_PUBLIC_KEY_PEM: ${{ vars.AIDE_RELEASE_PUBLIC_KEY_PEM }}
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -91,6 +98,13 @@ jobs:
 
       - name: Test desktop packaging configuration
         run: bun run test:packaging
+
+      # Revalidate the exact protected values in this native job immediately
+      # before bundling. This prevents a later environment-variable edit from
+      # silently diverging from validate-release.
+      - name: Validate compiled OTA trust configuration
+        if: github.event_name == 'push'
+        run: node scripts/validate-packaged-update-config.mjs
 
       - name: Package and smoke-test Linux x64
         run: bun run package:linux
@@ -119,10 +133,14 @@ jobs:
           - arch: arm64
             runner: macos-15
     runs-on: ${{ matrix.runner }}
+    environment: ota-production
     permissions:
       contents: read
     env:
       AIDE_UPDATE_HEALTH_ENDPOINT: ${{ needs.validate-release.outputs.health_endpoint }}
+      AIDE_UPDATE_ORIGIN: ${{ vars.AIDE_UPDATE_ORIGIN }}
+      AIDE_RELEASE_KEY_ID: ${{ vars.AIDE_RELEASE_KEY_ID }}
+      AIDE_RELEASE_PUBLIC_KEY_PEM: ${{ vars.AIDE_RELEASE_PUBLIC_KEY_PEM }}
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -148,6 +166,10 @@ jobs:
 
       - name: Test desktop packaging configuration
         run: bun run test:packaging
+
+      - name: Validate compiled OTA trust configuration
+        if: github.event_name == 'push'
+        run: node scripts/validate-packaged-update-config.mjs
 
       - name: Materialize the App Store Connect API key
         if: github.event_name == 'push'
@@ -228,6 +250,7 @@ jobs:
           node --test scripts/release-assembly.node-test.mjs
           scripts/publish-ota-release.node-test.mjs
           scripts/release-workflows.node-test.mjs
+          scripts/validate-packaged-update-config.node-test.mjs
           scripts/write-updater-metadata.node-test.mjs
 
       - name: Assemble a checked release bundle

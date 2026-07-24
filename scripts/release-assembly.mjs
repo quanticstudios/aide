@@ -4,28 +4,17 @@ import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { validateTrustedUpdateOrigin } from '../src/shared/trusted-update-url.mjs'
+
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const sha512Base64 = /^[A-Za-z0-9+/]+={0,2}$/
 
 export function assertProductionOrigin(origin) {
-  let parsed
-  try {
-    parsed = new URL(origin)
-  } catch {
+  const normalized = validateTrustedUpdateOrigin(origin)
+  if (!normalized) {
     throw new Error('AIDE_UPDATE_ORIGIN must be an HTTPS custom origin.')
   }
-  if (
-    parsed.protocol !== 'https:' ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash ||
-    parsed.pathname !== '/' ||
-    parsed.hostname.endsWith('.r2.dev')
-  ) {
-    throw new Error('AIDE_UPDATE_ORIGIN must be an HTTPS custom origin.')
-  }
-  return parsed.origin
+  return normalized
 }
 
 export function assertStableVersion(version) {
