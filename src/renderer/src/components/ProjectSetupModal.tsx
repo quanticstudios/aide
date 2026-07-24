@@ -7,7 +7,7 @@ import {
   Modal,
   TextField,
 } from '@heroui/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import type { ProjectRecord } from '../../../shared/persistence'
 
@@ -27,13 +27,18 @@ export default function ProjectSetupModal({
   const [command, setCommand] = useState(project?.setupCommand ?? '')
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const resetKey = isOpen
+    ? `${project?.id}:${project?.worktreeSetupRevision}`
+    : null
+  const [previousResetKey, setPreviousResetKey] = useState(resetKey)
 
-  useEffect(() => {
+  if (resetKey !== previousResetKey) {
+    setPreviousResetKey(resetKey)
     if (isOpen) {
       setCommand(project?.setupCommand ?? '')
       setError(null)
     }
-  }, [isOpen, project?.setupCommand])
+  }
 
   if (!project) return null
 
