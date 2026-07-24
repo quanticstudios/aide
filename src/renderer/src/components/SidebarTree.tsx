@@ -51,6 +51,7 @@ interface SidebarTreeProps {
   readonly isPinnedOpen: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -192,8 +193,10 @@ function ActivityPill({
 }
 
 function ProjectOverflowMenu({
+  onConfigureSetup,
   projectName,
 }: {
+  readonly onConfigureSetup: () => void
   readonly projectName: string
 }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -245,6 +248,17 @@ function ProjectOverflowMenu({
           className="absolute right-0 top-full z-30 mt-1 w-44 rounded-md border border-border bg-surface py-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
           ref={popoverRef}
         >
+          <button
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-surface-secondary"
+            onClick={() => {
+              onConfigureSetup()
+              setIsOpen(false)
+            }}
+            type="button"
+          >
+            <Settings className="size-3.5" />
+            Configure worktree setup
+          </button>
           {(
             [
               { id: 'rename', label: 'Rename project' },
@@ -275,6 +289,7 @@ export default function SidebarTree({
   isPinnedOpen,
   onCreateProject,
   onCreateWorkspace,
+  onConfigureProjectSetup,
   onSelectHome,
   onSelectPane,
   onSelectProject,
@@ -597,7 +612,10 @@ export default function SidebarTree({
                       </span>
                     ) : null}
                   </button>
-                  <ProjectOverflowMenu projectName={project.name} />
+                  <ProjectOverflowMenu
+                    onConfigureSetup={() => onConfigureProjectSetup(project.id)}
+                    projectName={project.name}
+                  />
                 </div>
 
                 {isProjectExpanded ? (

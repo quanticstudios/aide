@@ -1,7 +1,14 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  type IpcMainInvokeEvent,
+} from 'electron'
 
 import type {
   AttachWorkspaceRequest,
@@ -42,6 +49,8 @@ import { TerminalSessionManager } from './terminal-session-manager'
 import { isTrustedRendererUrl } from './trusted-renderer'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WindowManager } from './window-manager'
+import { WorkspaceSetupManager } from './workspace-setup-manager'
+import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let database: ReturnType<typeof createAideDatabase>
@@ -52,11 +61,46 @@ let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
+let workspaceSetupManager: WorkspaceSetupManager
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
+
+function requireTrustedRenderer(event: IpcMainInvokeEvent): void {
+  const window = windowManager.getWindowForWebContents(event.sender)
+
+  if (
+    !window ||
+    event.senderFrame !== event.sender.mainFrame ||
+    !isTrustedRendererUrl(event.senderFrame.url, rendererLocation)
+  ) {
+    throw new Error('This request is not permitted from the current renderer.')
+  }
+}
+
+function requireRuntimeId(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.trim().length === 0 ||
+    value.length > 200
+  ) {
+    throw new Error(`Invalid ${label}.`)
+  }
+
+  return value
+}
+
+function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
+  requireTrustedRenderer(event)
+  const workspaceId = requireRuntimeId(value, 'workspace id')
+  const workspace = database.getWorkspace(workspaceId)
+  if (!workspace) {
+    throw new Error('Workspace does not exist.')
+  }
+  return workspace
+}
 
 function initializeServices(): void {
   const databasePath = getAideDatabasePath({
@@ -73,6 +117,12 @@ function initializeServices(): void {
 
   database = createAideDatabase(databasePath)
   gitWorkspaceService = new GitWorkspaceService(database)
+  workspaceSetupManager = new WorkspaceSetupManager({
+    onUpdate: (event) => {
+      windowManager.broadcast(IPC_CHANNELS.workspaceSetupEvent, event)
+    },
+    store: database,
+  })
   workspaceActivityService = new WorkspaceActivityService({
     onWorkspaceVisited: (workspaceId, processedThrough) => {
       database.setWorkspaceActivityVisitWatermark(workspaceId, processedThrough)
@@ -192,7 +242,10 @@ function registerIpcHandlers(): void {
     return snapshot
   }
 
-  ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, () => database.getSnapshot())
+  ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, (event) => {
+    requireTrustedRenderer(event)
+    return database.getSnapshot()
+  })
   ipcMain.handle(IPC_CHANNELS.getDiagnosticsSnapshot, () =>
     diagnosticsService.getSnapshot(),
   )
@@ -234,6 +287,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getWorkspaceActivitySnapshot, () =>
     workspaceActivityService.getSnapshot(),
   )
+  ipcMain.handle(IPC_CHANNELS.getWorkspaceSetupSnapshot, (event) => {
+    requireTrustedRenderer(event)
+    return workspaceSetupManager.getCollectionSnapshot()
+  })
   ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
     managedSessionManager.getSnapshots(),
   )
@@ -279,15 +336,21 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.createWorkspace,
-    async (_event, input: CreateWorkspaceRequest) => {
-      const snapshot = await gitWorkspaceService.createWorkspace(input)
+    async (event, input: CreateWorkspaceRequest) => {
+      requireTrustedRenderer(event)
+      const result = await gitWorkspaceService.createWorkspaceWithResult(input)
+      // The Git worktree and workspace record are already durable here. Setup
+      // is deliberately outside Git's rollback transaction so failures retain
+      // a repairable workspace and terminal.
+      workspaceSetupManager.run(result.workspaceId)
       publishPersistenceSnapshot()
-      return snapshot
+      return result.snapshot
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.attachWorkspace,
-    async (_event, input: AttachWorkspaceRequest) => {
+    async (event, input: AttachWorkspaceRequest) => {
+      requireTrustedRenderer(event)
       const snapshot = await gitWorkspaceService.attachWorkspace(input)
       publishPersistenceSnapshot()
       return snapshot
@@ -305,12 +368,36 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.importProject,
-    async (_event, repoPath: string) => {
+    async (event, repoPath: string) => {
+      requireTrustedRenderer(event)
       const result = await gitWorkspaceService.importProject(repoPath)
       publishPersistenceSnapshot()
       return result
     },
   )
+  ipcMain.handle(
+    IPC_CHANNELS.updateProjectSetupCommand,
+    (event, projectId: unknown, command: unknown) => {
+      requireTrustedRenderer(event)
+      const validProjectId = requireRuntimeId(projectId, 'project id')
+      const setupCommand = normalizeProjectSetupCommand(command)
+      const project = database.updateProject(validProjectId, { setupCommand })
+      if (!project) {
+        throw new Error('Project does not exist.')
+      }
+      const snapshot = publishPersistenceSnapshot()
+      workspaceSetupManager.publishProjectSnapshots(project.id)
+      return snapshot
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.runWorkspaceSetup, (event, workspaceId) => {
+    const workspace = requireWorkspaceForSetup(event, workspaceId)
+    return workspaceSetupManager.run(workspace.id)
+  })
+  ipcMain.handle(IPC_CHANNELS.cancelWorkspaceSetup, (event, workspaceId) => {
+    const workspace = requireWorkspaceForSetup(event, workspaceId)
+    return workspaceSetupManager.cancel(workspace.id)
+  })
   ipcMain.handle(IPC_CHANNELS.listProjectRefs, (_event, projectId: string) =>
     gitWorkspaceService.listProjectRefs(projectId),
   )
@@ -435,9 +522,14 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionCreate,
-    async (_event, input: unknown) => {
+    async (event, input: unknown) => {
+      requireTrustedRenderer(event)
       const config =
         await providerCapabilityService.resolveManagedSessionConfig(input)
+      requireWorkspaceForSetup(event, config.workspaceId)
+      if (!managedSessionManager.getSnapshots()[config.sessionId]) {
+        workspaceSetupManager.assertManagedSessionAllowed(config.workspaceId)
+      }
       return managedSessionManager.createSession(config)
     },
   )
@@ -509,8 +601,11 @@ const applicationRuntime = new ApplicationRuntime({
   registerIpcHandlers,
   shutdownServices: async () => {
     try {
-      await managedSessionManager.closeAll(2_000)
-      await terminalSessionManager.closeAll(1_000)
+      await Promise.all([
+        workspaceSetupManager.shutdown(),
+        managedSessionManager.closeAll(2_000),
+        terminalSessionManager.closeAll(1_000),
+      ])
     } finally {
       database.close()
     }

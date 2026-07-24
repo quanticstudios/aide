@@ -18,6 +18,7 @@ import type {
   TerminalSessionConfig,
 } from '../shared/terminal'
 import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
+import type { WorkspaceSetupEvent } from '../shared/workspace-setup'
 
 const aideApi: AideApi = {
   attachWorkspace: (input) =>
@@ -48,6 +49,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshots),
   getWorkspaceActivitySnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceActivitySnapshot),
+  getWorkspaceSetupSnapshot: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceSetupSnapshot),
   importProject: (repoPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.importProject, repoPath),
   launchEditor: (editorId: string, cwd: string) =>
@@ -141,6 +144,16 @@ const aideApi: AideApi = {
       ipcRenderer.off(IPC_CHANNELS.workspacePersistenceEvent, listener)
     }
   },
+  onWorkspaceSetup: (callback: (event: WorkspaceSetupEvent) => void) => {
+    const listener = (_event: unknown, payload: WorkspaceSetupEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.workspaceSetupEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.workspaceSetupEvent, listener)
+    }
+  },
   probeExecutableCommand: (input: ExecutableProbeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableProbe, input),
   readProjectFile: (relativePath) =>
@@ -189,6 +202,16 @@ const aideApi: AideApi = {
     ),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
+  updateProjectSetupCommand: (projectId: string, command: string | null) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.updateProjectSetupCommand,
+      projectId,
+      command,
+    ),
+  runWorkspaceSetup: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceSetup, workspaceId),
+  cancelWorkspaceSetup: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cancelWorkspaceSetup, workspaceId),
   selectPreviewTab: (workspaceId: string, tabId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewSelectTab, workspaceId, tabId),
   sendManagedSessionInput: (sessionId: string, text: string) =>

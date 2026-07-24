@@ -34,7 +34,9 @@ function createProject(id: string): ProjectRecord {
     name: id,
     remoteUrl: null,
     repoRoot: `/repo/${id}`,
+    setupCommand: null,
     updatedAt: '2026-03-22T00:00:00Z',
+    worktreeSetupRevision: 0,
   }
 }
 

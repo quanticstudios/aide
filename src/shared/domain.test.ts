@@ -16,8 +16,10 @@ describe('domain model draft helpers', () => {
         repoRoot: '/repo/aide',
         remoteUrl: null,
         defaultBranch: 'main',
+        setupCommand: null,
         createdAt: '2026-03-22T00:00:00Z',
         updatedAt: '2026-03-22T00:00:00Z',
+        worktreeSetupRevision: 0,
       }),
     ).toMatchObject({
       settings: { preferredProviderId: null },

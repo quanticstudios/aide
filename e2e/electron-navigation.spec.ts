@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -701,6 +707,102 @@ test.describe('electron spatial navigation', () => {
     await expect(
       relaunched.page.getByTestId('preview-active-target'),
     ).toHaveText('http://127.0.0.1:4173')
+  })
+
+  test('runs configured setup once for new worktrees while root setup remains manual', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    const setupMarkerName = '.aide-worktree-setup-cwd'
+    const rootSetupMarker = path.join(chosenProjectRoot, setupMarkerName)
+    const worktreePath = path.join(
+      chosenProjectRoot,
+      '.worktrees',
+      'setup-workspace',
+    )
+    const worktreeSetupMarker = path.join(worktreePath, setupMarkerName)
+
+    await importProject(page)
+    await expandSidebar(page)
+
+    await page.getByRole('button', { name: /more options for/i }).click()
+    await page.getByRole('button', { name: 'Configure worktree setup' }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Worktree setup' }),
+    ).toBeVisible()
+    await page
+      .getByLabel('Project setup command')
+      .fill(`printf '%s\\n' "$PWD" >> ${setupMarkerName}`)
+    await page.getByRole('button', { name: 'Save setup' }).click()
+
+    // The project root existed before setup was configured, so it remains
+    // manual and has not received an implicit command execution.
+    await expect(page.getByTestId('workspace-setup-status')).toContainText(
+      'Setup required',
+    )
+    expect(existsSync(rootSetupMarker)).toBe(false)
+    await page.getByRole('button', { name: 'Run setup' }).click()
+    await expect.poll(() => existsSync(rootSetupMarker)).toBe(true)
+    expect(readFileSync(rootSetupMarker, 'utf8').trim()).toBe(chosenProjectRoot)
+
+    await createWorkspace(page, {
+      branchName: 'setup-workspace',
+      name: 'Setup workspace',
+    })
+    await expect.poll(() => existsSync(worktreeSetupMarker)).toBe(true)
+    expect(readFileSync(worktreeSetupMarker, 'utf8').trim()).toBe(worktreePath)
+
+    // The setup manager's persisted state survives a renderer reload; reload
+    // must not cause another setup attempt or forget the successful result.
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Setup workspace',
+    )
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const snapshots = await window.aide?.getWorkspaceSetupSnapshot()
+          return Object.values(snapshots?.setupsByWorkspace ?? {}).find(
+            (setup) => setup.state === 'succeeded',
+          )?.state
+        }),
+      )
+      .toBe('succeeded')
+    expect(
+      readFileSync(worktreeSetupMarker, 'utf8').trim().split('\n'),
+    ).toEqual([worktreePath])
+
+    await app.close()
+    app = null
+
+    const relaunched = await launchAideApp(
+      {},
+      { tempDirectory: launched.tempDirectory },
+    )
+    app = relaunched.app
+    await expect(
+      relaunched.page.getByTestId('active-workspace-name'),
+    ).toHaveText('Setup workspace')
+    await expect
+      .poll(async () =>
+        relaunched.page.evaluate(async () => {
+          const snapshots = await window.aide?.getWorkspaceSetupSnapshot()
+          return Object.values(snapshots?.setupsByWorkspace ?? {}).find(
+            (setup) => setup.state === 'succeeded',
+          )?.state
+        }),
+      )
+      .toBe('succeeded')
+    expect(
+      readFileSync(worktreeSetupMarker, 'utf8').trim().split('\n'),
+    ).toEqual([worktreePath])
   })
 
   test('shows an inline error when the chosen folder is not a git repo', async () => {

@@ -214,7 +214,7 @@ describe('GitWorkspaceService', () => {
     const imported = await service.importProject(repoRoot)
     const worktreePath = path.join(repoRoot, '.worktrees', 'feature-existing')
 
-    const snapshot = await service.createWorkspace({
+    const result = await service.createWorkspaceWithResult({
       baseBranch: 'main',
       branchName: 'feature/existing',
       name: 'feature/existing',
@@ -223,8 +223,13 @@ describe('GitWorkspaceService', () => {
       worktreePath,
     })
 
+    expect(result.workspaceId).toBe(
+      result.snapshot.workspaces.find(
+        (workspace) => workspace.worktreePath === worktreePath,
+      )?.id,
+    )
     expect(
-      snapshot.workspaces.find(
+      result.snapshot.workspaces.find(
         (workspace) => workspace.worktreePath === worktreePath,
       ),
     ).toMatchObject({

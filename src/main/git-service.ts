@@ -41,6 +41,11 @@ interface RepositoryMetadata {
   repoRoot: string
 }
 
+export interface CreatedWorkspaceResult {
+  readonly snapshot: PersistenceSnapshot
+  readonly workspaceId: string
+}
+
 export interface GitWorkspaceStore {
   createProject(input: CreateProjectInput): ProjectRecord
   createWorkspace(input: CreateWorkspaceInput): WorkspaceRecord
@@ -517,6 +522,17 @@ export class GitWorkspaceService {
   public async createWorkspace(
     input: CreateWorkspaceRequest,
   ): Promise<PersistenceSnapshot> {
+    return (await this.createWorkspaceWithResult(input)).snapshot
+  }
+
+  /**
+   * The explicit workspace id lets main-process post-create services (setup,
+   * preview, future runtime ownership) start only after durable persistence
+   * has succeeded. Git rollback remains entirely inside this service.
+   */
+  public async createWorkspaceWithResult(
+    input: CreateWorkspaceRequest,
+  ): Promise<CreatedWorkspaceResult> {
     const project = this.store.getProject(input.projectId)
 
     if (!project) {
@@ -551,7 +567,7 @@ export class GitWorkspaceService {
       await this.runGit(gitArgs, repoRoot)
       worktreeCreated = true
 
-      this.store.createWorkspace({
+      const workspace = this.store.createWorkspace({
         branchName,
         name,
         projectId: project.id,
@@ -559,7 +575,10 @@ export class GitWorkspaceService {
         worktreePath,
       })
 
-      return this.store.getSnapshot()
+      return {
+        snapshot: this.store.getSnapshot(),
+        workspaceId: workspace.id,
+      }
     } catch (error) {
       if (worktreeCreated) {
         await this.rollbackWorktree(repoRoot, worktreePath, error)

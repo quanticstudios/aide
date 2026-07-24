@@ -23,12 +23,17 @@ import {
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
+import type {
+  WorkspaceSetupCollectionSnapshot,
+  WorkspaceSetupSnapshot,
+} from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
   type PreviewPresentation,
 } from './components/PreviewBrowserHost'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
+import WorkspaceSetupStatus from './components/WorkspaceSetupStatus'
 import { buildCommandList } from './lib/command-registry'
 import {
   getPaneCatalogEntryForTemplate,
@@ -78,6 +83,9 @@ const LazyWorkspaceCreationModal = lazy(
 )
 const LazyWorkspaceSwitcherOverlay = lazy(
   () => import('./components/WorkspaceSwitcherOverlay'),
+)
+const LazyProjectSetupModal = lazy(
+  () => import('./components/ProjectSetupModal'),
 )
 
 function getAideApi(): AideApi | null {
@@ -166,12 +174,18 @@ export default function App() {
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
+  const [projectSetupProjectId, setProjectSetupProjectId] = useState<
+    string | null
+  >(null)
   const [showProjectHints, setShowProjectHints] = useState(false)
   const [workspaceActivities, setWorkspaceActivities] = useState<
     Record<string, WorkspaceActivitySnapshot[]>
   >({})
   const [previewSnapshots, setPreviewSnapshots] = useState<
     Record<string, WorkspacePreviewSnapshot>
+  >({})
+  const [workspaceSetups, setWorkspaceSetups] = useState<
+    Record<string, WorkspaceSetupSnapshot>
   >({})
   const [previewPresentation, setPreviewPresentation] =
     useState<PreviewPresentation | null>(null)
@@ -181,6 +195,7 @@ export default function App() {
   } | null>(null)
   const previewRevisionsRef = useRef<Record<string, number>>({})
   const workspaceActivityRevisionRef = useRef(-1)
+  const workspaceSetupRevisionRef = useRef(-1)
   const storageSnapshotRef = useRef<PersistenceSnapshot | null>(null)
   const resolvedNavigationStateRef = useRef<SpatialNavigationState | null>(null)
   const [workspaceMutationQueue] = useState(() => new WorkspaceMutationQueue())
@@ -219,6 +234,29 @@ export default function App() {
       setPreviewSnapshots((current) => ({
         ...current,
         [snapshot.workspaceId]: snapshot,
+      }))
+    },
+    [],
+  )
+  const applyWorkspaceSetupCollection = useCallback(
+    (snapshot: WorkspaceSetupCollectionSnapshot) => {
+      if (snapshot.revision < workspaceSetupRevisionRef.current) {
+        return
+      }
+      workspaceSetupRevisionRef.current = snapshot.revision
+      setWorkspaceSetups(snapshot.setupsByWorkspace)
+    },
+    [],
+  )
+  const applyWorkspaceSetupEvent = useCallback(
+    (event: { revision: number; setup: WorkspaceSetupSnapshot }) => {
+      if (event.revision <= workspaceSetupRevisionRef.current) {
+        return
+      }
+      workspaceSetupRevisionRef.current = event.revision
+      setWorkspaceSetups((current) => ({
+        ...current,
+        [event.setup.workspaceId]: event.setup,
       }))
     },
     [],
@@ -508,6 +546,24 @@ export default function App() {
     ],
   )
 
+  const saveProjectSetupCommand = useCallback(
+    async (projectId: string, command: string | null) => {
+      const api = getAideApi()
+      if (!api) return 'Desktop bridge did not load. Reload the app window.'
+
+      try {
+        const snapshot = await api.updateProjectSetupCommand(projectId, command)
+        storageSnapshotRef.current = snapshot
+        setStorageSnapshot(snapshot)
+        setActionError(null)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [],
+  )
+
   const listProjectRefs = useCallback(
     async (projectId: string) => {
       const api = getAideApi()
@@ -616,6 +672,43 @@ export default function App() {
 
     return unsubscribe
   }, [updatePreviewSnapshot])
+
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) return
+
+    let isHydrating = true
+    let bufferedEvents: Array<{
+      revision: number
+      setup: WorkspaceSetupSnapshot
+    }> = []
+    const unsubscribe = api.onWorkspaceSetup((event) => {
+      if (isHydrating) {
+        bufferedEvents.push(event)
+        return
+      }
+      applyWorkspaceSetupEvent(event)
+    })
+
+    void api
+      .getWorkspaceSetupSnapshot()
+      .then((snapshot) => {
+        applyWorkspaceSetupCollection(snapshot)
+        isHydrating = false
+        for (const event of bufferedEvents.sort(
+          (left, right) => left.revision - right.revision,
+        )) {
+          applyWorkspaceSetupEvent(event)
+        }
+        bufferedEvents = []
+      })
+      .catch((error) => {
+        isHydrating = false
+        setShellError(getErrorMessage(error))
+      })
+
+    return unsubscribe
+  }, [applyWorkspaceSetupCollection, applyWorkspaceSetupEvent])
 
   useEffect(() => {
     const resolvedSignature = JSON.stringify(resolvedNavigationState)
@@ -1771,6 +1864,37 @@ export default function App() {
       })),
     [],
   )
+  const activeWorkspaceSetup = activeWorkspace
+    ? (workspaceSetups[activeWorkspace.id] ?? null)
+    : null
+  const runActiveWorkspaceSetup = useCallback(() => {
+    if (!activeWorkspace) return
+    const api = getAideApi()
+    if (!api) {
+      setActionError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+    void api
+      .runWorkspaceSetup(activeWorkspace.id)
+      .then(() => api.getWorkspaceSetupSnapshot())
+      .then(applyWorkspaceSetupCollection)
+      .catch((error) => setActionError(getErrorMessage(error)))
+  }, [activeWorkspace, applyWorkspaceSetupCollection])
+  const cancelActiveWorkspaceSetup = useCallback(() => {
+    if (!activeWorkspace) return
+    const api = getAideApi()
+    if (!api) return
+    void api
+      .cancelWorkspaceSetup(activeWorkspace.id)
+      .then(() => api.getWorkspaceSetupSnapshot())
+      .then(applyWorkspaceSetupCollection)
+      .catch((error) => setActionError(getErrorMessage(error)))
+  }, [activeWorkspace, applyWorkspaceSetupCollection])
+  const setupProject = projectSetupProjectId
+    ? (navigationSnapshot.projects.find(
+        (project) => project.id === projectSetupProjectId,
+      ) ?? null)
+    : null
 
   return (
     <AppShell
@@ -1806,6 +1930,7 @@ export default function App() {
       onCreateProject={openProject}
       onCreatePane={createPane}
       onCreateWorkspace={createWorkspace}
+      onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
@@ -1858,6 +1983,20 @@ export default function App() {
             />
           </Suspense>
         ) : null}
+        {setupProject ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyProjectSetupModal
+              isOpen
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setProjectSetupProjectId(null)
+              }}
+              onSave={(command) =>
+                saveProjectSetupCommand(setupProject.id, command)
+              }
+              project={setupProject}
+            />
+          </Suspense>
+        ) : null}
         {isWorkspaceSwitcherVisible ? (
           <Suspense fallback={<OverlayLoadFallback />}>
             <LazyWorkspaceSwitcherOverlay
@@ -1886,6 +2025,11 @@ export default function App() {
             />
           </Suspense>
         ) : null}
+        <WorkspaceSetupStatus
+          onCancel={cancelActiveWorkspaceSetup}
+          onRun={runActiveWorkspaceSetup}
+          setup={activeWorkspaceSetup}
+        />
         <WorkspaceCanvas
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}

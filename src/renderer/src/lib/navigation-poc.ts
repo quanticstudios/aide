@@ -37,8 +37,10 @@ function createProject(
     repoRoot,
     remoteUrl: null,
     defaultBranch,
+    setupCommand: null,
     createdAt: '2026-03-22T00:00:00Z',
     updatedAt: '2026-03-22T00:00:00Z',
+    worktreeSetupRevision: 0,
   }
 }
 

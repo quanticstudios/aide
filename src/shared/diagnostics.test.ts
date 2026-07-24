@@ -82,6 +82,10 @@ describe('sanitizeDiagnosticsSnapshot', () => {
         workingDirectory: '/home/alice/private-project',
       },
       terminalOutput: unsafeText,
+      workspaceSetup: {
+        command: 'SETUP_COMMAND_MUST_NEVER_EXPORT',
+        output: 'SETUP_OUTPUT_MUST_NEVER_EXPORT',
+      },
       version: 1,
     })
     const bundleText = files.map((file) => file.contents).join('\n')
@@ -92,6 +96,8 @@ describe('sanitizeDiagnosticsSnapshot', () => {
     expect(bundleText).not.toContain('user prompt')
     expect(bundleText).not.toContain('terminal output')
     expect(bundleText).not.toContain('diff --git')
+    expect(bundleText).not.toContain('SETUP_COMMAND_MUST_NEVER_EXPORT')
+    expect(bundleText).not.toContain('SETUP_OUTPUT_MUST_NEVER_EXPORT')
     expect(bundleText).toContain('main-uncaught-exception')
     expect(bundleText).toContain('electronVersion')
     expect(
