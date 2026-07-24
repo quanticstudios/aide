@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
+import type { UpdatePresentation } from '@/lib/update-presentation'
 import { cn } from '@/lib/utils'
 import type {
   PersistedSplitLayoutNode,
@@ -22,6 +23,7 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import UpdateIndicator from './UpdateIndicator'
 
 interface TopBarProps {
   readonly activePaneId: string | null
@@ -31,6 +33,7 @@ interface TopBarProps {
   readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
   readonly onOpenDiagnostics: () => void
+  readonly onOpenUpdate: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
     paneId: string,
@@ -40,6 +43,7 @@ interface TopBarProps {
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly onSelectPane: (paneId: string) => void
+  readonly updatePresentation: UpdatePresentation
 }
 
 function SurfaceTab({
@@ -246,11 +250,13 @@ export default function TopBar({
   onClosePane,
   onCreatePane,
   onOpenDiagnostics,
+  onOpenUpdate,
   onResizePane,
   onSplitPane,
   surfaces,
   surfaceManagedSessionIds,
   onSelectPane,
+  updatePresentation,
 }: TopBarProps) {
   const visibleSurfaces = surfaces
 
@@ -308,6 +314,10 @@ export default function TopBar({
           onClosePane={onClosePane}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
+        />
+        <UpdateIndicator
+          onOpen={onOpenUpdate}
+          presentation={updatePresentation}
         />
         <Button
           aria-label="Open diagnostics"

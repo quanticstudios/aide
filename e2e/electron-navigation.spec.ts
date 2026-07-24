@@ -182,6 +182,14 @@ async function expectRestingViewportClean(page: Page): Promise<void> {
   expect(ownership.surfaceHeightRatio).toBeGreaterThan(0.94)
 }
 
+async function runPaletteCommand(page: Page, label: string): Promise<void> {
+  await page.keyboard.press('Control+K')
+  const input = page.getByPlaceholder('Type a command...')
+  await expect(input).toBeFocused()
+  await input.fill(label)
+  await page.getByText(label, { exact: true }).click()
+}
+
 test.describe('electron spatial navigation', () => {
   let app: ElectronApplication | null = null
   let additionalRepoRoots: string[] = []
@@ -905,6 +913,160 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-pane-name')).toHaveText(
       'Workspace terminal',
     )
+  })
+
+  test('announces critical updates without opening or stealing focus', async () => {
+    const launched = await launchAideApp({
+      AIDE_FAKE_UPDATE_INITIAL_AVAILABLE: '1',
+      AIDE_FAKE_UPDATE_SERVICE: '1',
+      AIDE_FAKE_UPDATE_URGENCY: 'critical',
+    })
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    const diagnostics = page.getByRole('button', {
+      name: /open diagnostics/i,
+    })
+    await diagnostics.focus()
+    await expect(diagnostics).toBeFocused()
+
+    const criticalAlert = page.getByRole('alert').filter({
+      hasText: 'Critical update available',
+    })
+    await expect(criticalAlert).toBeVisible()
+    await expect(diagnostics).toBeFocused()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
+
+    const indicator = page.getByTestId('update-indicator')
+    await indicator.click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: /snooze/i }),
+    ).not.toBeVisible()
+
+    await page
+      .getByTestId('update-modal')
+      .getByRole('button', { exact: true, name: 'Close' })
+      .click()
+    await expect(indicator).toBeFocused()
+  })
+
+  test('presents update lifecycle, progress, and controls accessibly', async () => {
+    const launched = await launchAideApp({
+      AIDE_FAKE_UPDATE_ACTIVE_MANAGED: '2',
+      AIDE_FAKE_UPDATE_ACTIVE_SETUPS: '1',
+      AIDE_FAKE_UPDATE_ACTIVE_TERMINALS: '1',
+      AIDE_FAKE_UPDATE_CHECK_FAILURES: '1',
+      AIDE_FAKE_UPDATE_DOWNLOAD_FAILURES: '1',
+      AIDE_FAKE_UPDATE_SERVICE: '1',
+    })
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    const disclosureIndicator = page.getByTestId('update-indicator')
+    await expect(disclosureIndicator).toContainText('Review update privacy')
+    await disclosureIndicator.click()
+    const modal = page.getByTestId('update-modal')
+    await expect(modal).toBeVisible()
+    const healthReporting = page.getByRole('switch', {
+      name: 'Share privacy-bounded update health reports',
+    })
+    await expect(healthReporting).toBeDisabled()
+    await expect(healthReporting).not.toBeChecked()
+    await page
+      .getByRole('button', {
+        name: 'Acknowledge and enable health reporting',
+      })
+      .click()
+    await expect(healthReporting).toBeEnabled()
+    await expect(healthReporting).toBeChecked()
+    await healthReporting.focus()
+    await page.keyboard.press('Space')
+    await expect(healthReporting).not.toBeChecked()
+
+    await modal.getByRole('button', { exact: true, name: 'Close' }).click()
+    await expect(disclosureIndicator).not.toBeVisible()
+
+    await runPaletteCommand(page, 'Check for updates')
+    await expect(modal).toContainText('Injected update check failure.')
+    await modal.getByRole('button', { name: 'Check for updates' }).click()
+    await expect(modal).toContainText('Update available')
+    await expect(
+      page.getByRole('button', { name: 'Snooze for 24 hours' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Snooze for 24 hours' }).click()
+    await expect(modal).toContainText(/remaining/)
+    await modal.getByRole('button', { exact: true, name: 'Close' }).click()
+
+    await runPaletteCommand(page, 'Download update')
+    await expect(
+      page.getByRole('progressbar', { name: 'Update download progress' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Retry update' }),
+    ).toBeVisible({ timeout: 5_000 })
+
+    await page.getByRole('button', { name: 'Retry update' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Download update' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Download update' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Restart to update' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Restart to update' }).click()
+    await expect(modal).toContainText('4 active tasks')
+    await page
+      .getByRole('button', { name: 'Restart and stop 4 active tasks' })
+      .click()
+    await expect(modal).toContainText('Restart requested')
+
+    const nestedInteractiveCount = await modal.evaluate(
+      (element) =>
+        element.querySelectorAll(
+          'button button, button a, button [role="button"], a button, [role="button"] button, [role="button"] [role="button"]',
+        ).length,
+    )
+    expect(nestedInteractiveCount).toBe(0)
+
+    await modal.getByRole('button', { exact: true, name: 'Close' }).click()
+    await page.reload()
+    await expect(disclosureIndicator).not.toContainText('Review update privacy')
+    await runPaletteCommand(page, 'Software update settings')
+    await expect(
+      page.getByRole('switch', {
+        name: 'Share privacy-bounded update health reports',
+      }),
+    ).not.toBeChecked()
+    await expect(
+      page.getByRole('button', {
+        name: 'Withdraw approval and disable health reporting',
+      }),
+    ).toBeVisible()
+  })
+
+  test('recovers first-run update hydration without opening or stealing focus', async () => {
+    const launched = await launchAideApp({
+      AIDE_FAKE_UPDATE_SERVICE: '1',
+      AIDE_FAKE_UPDATE_SNAPSHOT_FAILURES: '1',
+    })
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    const diagnostics = page.getByRole('button', {
+      name: /open diagnostics/i,
+    })
+    await diagnostics.focus()
+    await expect(diagnostics).toBeFocused()
+
+    await expect(page.getByTestId('update-indicator')).toContainText(
+      'Review update privacy',
+    )
+    await expect(diagnostics).toBeFocused()
+    await expect(page.getByRole('dialog')).not.toBeVisible()
   })
 
   test('shows an empty workspace after closing the last pane and keeps it empty after reload', async () => {
