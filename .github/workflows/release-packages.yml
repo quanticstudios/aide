@@ -2,20 +2,63 @@ name: Package desktop artifacts
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: release-packages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  validate-release:
+    name: Validate release identity
+    runs-on: ubuntu-24.04
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      # v7.0.1, pinned to the upstream release commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          commit="$(git rev-parse HEAD)"
+          if [[ "$EVENT_NAME" == push ]]; then
+            [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Only stable vMAJOR.MINOR.PATCH tags may release." >&2; exit 1; }
+            [[ "$TAG" == "v$version" ]] || { echo "Tag $TAG does not match package version $version." >&2; exit 1; }
+            git cat-file -e "refs/tags/$TAG^{tag}" || { echo "Release tags must be annotated." >&2; exit 1; }
+            tag_commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+            [[ "$tag_commit" == "$commit" ]] || { echo "Checked-out commit does not match release tag." >&2; exit 1; }
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$tag_commit" origin/main || { echo "Release tag must be reachable from main." >&2; exit 1; }
+            gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped") | .name' > failed-checks
+            [[ ! -s failed-checks ]] || { echo "Release commit has unsuccessful checks:" >&2; cat failed-checks >&2; exit 1; }
+            gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.conclusion == "success") | .name' > successful-checks
+            [[ -s successful-checks ]] || { echo "Release commit has no successful checks." >&2; exit 1; }
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   linux-x64:
     name: Linux x64 packages
+    needs: validate-release
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -54,10 +97,12 @@ jobs:
           path: |
             dist/Aide-*.AppImage
             dist/Aide-*.tar.gz
+            dist/latest-linux.yml
             dist/SHA256SUMS
 
   macos:
     name: macOS ${{ matrix.arch }} packages
+    needs: validate-release
     strategy:
       fail-fast: false
       matrix:
@@ -67,6 +112,8 @@ jobs:
           - arch: arm64
             runner: macos-15
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -94,26 +141,32 @@ jobs:
         run: bun run test:packaging
 
       - name: Materialize the App Store Connect API key
+        if: github.event_name == 'push'
         id: apple-key
         shell: bash
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
-          if [[ -n "$APPLE_API_KEY_P8" ]]; then
-            key_path="$RUNNER_TEMP/AuthKey.p8"
-            umask 077
-            printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
-            echo "path=$key_path" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          [[ -n "$APPLE_API_KEY_P8" ]] || { echo "Missing Apple API key." >&2; exit 1; }
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          umask 077
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          echo "path=$key_path" >> "$GITHUB_OUTPUT"
 
-      - name: Package macOS natively
+      - name: Package signed macOS release
+        if: github.event_name == 'push'
         env:
           APPLE_API_KEY: ${{ steps.apple-key.outputs.path }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
-          AIDE_REQUIRE_MAC_SIGNING: ${{ github.event_name == 'push' && '1' || '0' }}
+          AIDE_REQUIRE_MAC_SIGNING: "1"
+        run: bun run package:mac:${{ matrix.arch }}
+
+      - name: Package unsigned macOS test artifact
+        if: github.event_name == 'workflow_dispatch'
         run: bun run package:mac:${{ matrix.arch }}
 
       # v7.0.1, pinned to the upstream release commit.
@@ -125,4 +178,87 @@ jobs:
           path: |
             dist/Aide-*.dmg
             dist/Aide-*.zip
+            dist/Aide-*.zip.blockmap
+            dist/latest-mac.yml
             dist/SHA256SUMS
+
+  collect-release:
+    name: Collect verified immutable release bundle
+    needs: [validate-release, linux-x64, macos]
+    runs-on: ubuntu-24.04
+    # The protected environment supplies the production update origin. It does
+    # not expose R2 credentials to this collector job.
+    environment: ota-production
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      # v7.0.1, pinned to the upstream release commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # v2.2.0, pinned to the upstream release commit.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      # v6.4.0, pinned to the upstream release commit.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.17.0
+          package-manager-cache: false
+
+      # v4.3.0, pinned to the upstream release commit.
+      - name: Download only internal package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: release-input
+
+      - name: Test release assembly and promotion guards
+        run: >-
+          node --test scripts/release-assembly.node-test.mjs
+          scripts/publish-ota-release.node-test.mjs
+          scripts/release-workflows.node-test.mjs
+          scripts/write-updater-metadata.node-test.mjs
+
+      - name: Assemble a checked release bundle
+        env:
+          AIDE_UPDATE_ORIGIN: ${{ vars.AIDE_UPDATE_ORIGIN }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == push ]]; then
+            [[ -n "$AIDE_UPDATE_ORIGIN" ]] || { echo "Tagged releases require the protected AIDE_UPDATE_ORIGIN variable." >&2; exit 1; }
+          else
+            AIDE_UPDATE_ORIGIN="${AIDE_UPDATE_ORIGIN:-https://updates.invalid}"
+          fi
+          node scripts/release-assembly.mjs \
+            --version '${{ needs.validate-release.outputs.version }}' \
+            --commit '${{ needs.validate-release.outputs.commit }}' \
+            --linux release-input/aide-linux-x64 \
+            --mac-x64 release-input/aide-macos-x64 \
+            --mac-arm64 release-input/aide-macos-arm64 \
+            --output release-bundle \
+            --origin "$AIDE_UPDATE_ORIGIN"
+
+      # v4.1.1, resolved from GitHub's official actions/attest-build-provenance
+      # release API on 2026-07-24 and pinned to the upstream release commit.
+      - name: Attest finalized release checksum bundle provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        with:
+          subject-path: release-bundle/SHA256SUMS
+
+      # The SBOM is independently attestable and remains a versioned immutable
+      # audit object in the promoted release.
+      - name: Attest CycloneDX SBOM provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        with:
+          subject-path: release-bundle/sbom.cdx.json
+
+      # v7.0.1, pinned to the upstream release commit.
+      - name: Retain internal release bundle for protected promotion only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: aide-release-bundle-${{ needs.validate-release.outputs.version }}
+          if-no-files-found: error
+          path: release-bundle
