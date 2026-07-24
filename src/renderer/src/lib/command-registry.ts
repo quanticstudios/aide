@@ -1,11 +1,13 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+  CloudDownload,
   Eye,
   FolderKanban,
   GitBranch,
   Layers,
   Plus,
   SquareTerminal,
+  Wrench,
 } from 'lucide-react'
 
 import type {
@@ -28,9 +30,19 @@ export interface CommandContext {
   readonly onCreateWorkspace: () => void
   readonly onOpenOverview: () => void
   readonly onOpenProject: () => void
+  readonly onOpenSoftwareUpdate: () => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly projects: readonly ProjectRecord[]
+  readonly updateAction?: {
+    readonly id:
+      | 'check-for-updates'
+      | 'download-update'
+      | 'restart-to-update'
+      | 'retry-update'
+    readonly label: string
+    readonly onSelect: () => void
+  }
   readonly workspaces: readonly WorkspaceRecord[]
 }
 
@@ -65,6 +77,26 @@ export function buildCommandList(context: CommandContext): PaletteCommand[] {
     label: 'New pane...',
     onSelect: context.onCreatePane,
     shortcut: 'Alt N',
+  })
+
+  if (context.updateAction) {
+    commands.push({
+      group: 'view',
+      icon: CloudDownload,
+      id: context.updateAction.id,
+      keywords: ['ota', 'release', 'upgrade'],
+      label: context.updateAction.label,
+      onSelect: context.updateAction.onSelect,
+    })
+  }
+
+  commands.push({
+    group: 'view',
+    icon: Wrench,
+    id: 'open-software-update',
+    keywords: ['ota', 'release', 'upgrade', 'settings'],
+    label: 'Software update settings',
+    onSelect: context.onOpenSoftwareUpdate,
   })
 
   commands.push({

@@ -22,6 +22,16 @@ import {
   createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
+import {
+  type UpdateEvent,
+  type UpdatePreferencesEvent,
+  type UpdatePreferencesInput,
+  type UpdatePreferencesSnapshot,
+  type UpdateRestartStatus,
+  type UpdateSnapshot,
+  reconcileUpdatePreferencesSnapshot,
+  reconcileUpdateSnapshot,
+} from '../../shared/update'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
 import type {
   WorkspaceSetupCollectionSnapshot,
@@ -41,6 +51,7 @@ import {
   resolvePaneMetadata,
   resolvePaneType,
 } from './lib/pane-catalog'
+import { hydrateRevisionedState } from './lib/revisioned-hydration'
 import {
   type SpatialNavigationState,
   applyPaneSelection,
@@ -67,6 +78,11 @@ import {
 } from './lib/workspace-shortcuts'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 import {
+  createUpdateSnoozeUntil,
+  getUpdatePresentationRefreshDelay,
+  resolveUpdatePresentation,
+} from './lib/update-presentation'
+import {
   createSinglePaneSurface,
   findWorkspaceIdForSurface,
   resolveSurfaceLayout,
@@ -75,6 +91,7 @@ import {
 
 const LazyCommandPalette = lazy(() => import('./components/CommandPalette'))
 const LazyDiagnosticsModal = lazy(() => import('./components/DiagnosticsModal'))
+const LazyUpdateModal = lazy(() => import('./components/UpdateModal'))
 const LazyPaneCreationModal = lazy(
   () => import('./components/PaneCreationModal'),
 )
@@ -172,6 +189,24 @@ export default function App() {
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
+  const [isUpdateOpen, setIsUpdateOpen] = useState(false)
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(
+    null,
+  )
+  const [updatePreferences, setUpdatePreferences] =
+    useState<UpdatePreferencesSnapshot | null>(null)
+  const [updateRestartStatus, setUpdateRestartStatus] =
+    useState<UpdateRestartStatus | null>(null)
+  const [updateActionError, setUpdateActionError] = useState<string | null>(
+    null,
+  )
+  const [updateSnapshotHydrationError, setUpdateSnapshotHydrationError] =
+    useState<string | null>(null)
+  const [updatePreferencesHydrationError, setUpdatePreferencesHydrationError] =
+    useState<string | null>(null)
+  const [updatePresentationNow, setUpdatePresentationNow] = useState(
+    () => new Date(),
+  )
   const [isOverviewVisible, setIsOverviewVisible] = useState(false)
   const [isWorkspaceCreationOpen, setIsWorkspaceCreationOpen] = useState(false)
   const [projectSetupProjectId, setProjectSetupProjectId] = useState<
@@ -194,6 +229,7 @@ export default function App() {
     type: PreviewBrowserControl
   } | null>(null)
   const previewRevisionsRef = useRef<Record<string, number>>({})
+  const updateReturnFocusRef = useRef<HTMLElement | null>(null)
   const workspaceActivityRevisionRef = useRef(-1)
   const workspaceSetupRevisionRef = useRef(-1)
   const storageSnapshotRef = useRef<PersistenceSnapshot | null>(null)
@@ -636,6 +672,53 @@ export default function App() {
 
     return unsubscribe
   }, [refreshStorage])
+
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) return
+
+    const unsubscribeUpdate = hydrateRevisionedState<
+      UpdateSnapshot,
+      UpdateEvent
+    >({
+      fetchSnapshot: api.getUpdateSnapshot,
+      onError: () => {
+        setUpdateSnapshotHydrationError(
+          'Software update status is temporarily unavailable. Retrying automatically.',
+        )
+      },
+      onSnapshot: (snapshot) => {
+        setUpdateSnapshotHydrationError(null)
+        setUpdatePresentationNow(new Date())
+        setUpdateSnapshot(snapshot)
+      },
+      reconcile: reconcileUpdateSnapshot,
+      subscribe: api.onUpdateEvent,
+    })
+    const unsubscribePreferences = hydrateRevisionedState<
+      UpdatePreferencesSnapshot,
+      UpdatePreferencesEvent
+    >({
+      fetchSnapshot: api.getUpdatePreferences,
+      onError: () => {
+        setUpdatePreferencesHydrationError(
+          'Software update preferences are temporarily unavailable. Retrying automatically.',
+        )
+      },
+      onSnapshot: (snapshot) => {
+        setUpdatePreferencesHydrationError(null)
+        setUpdatePresentationNow(new Date())
+        setUpdatePreferences(snapshot)
+      },
+      reconcile: reconcileUpdatePreferencesSnapshot,
+      subscribe: api.onUpdatePreferences,
+    })
+
+    return () => {
+      unsubscribeUpdate()
+      unsubscribePreferences()
+    }
+  }, [])
 
   useEffect(() => {
     const api = getAideApi()
@@ -1810,6 +1893,188 @@ export default function App() {
       ),
     [navigationSnapshot.projects, navigationSnapshot.workspaces],
   )
+  const updatePresentation = useMemo(
+    () =>
+      resolveUpdatePresentation(
+        updateSnapshot,
+        updatePreferences,
+        updatePresentationNow,
+      ),
+    [updatePreferences, updatePresentationNow, updateSnapshot],
+  )
+  useEffect(() => {
+    const refreshDelay = getUpdatePresentationRefreshDelay(
+      updateSnapshot,
+      updatePreferences,
+      updatePresentationNow,
+    )
+    if (refreshDelay === null) return
+
+    const timer = window.setTimeout(
+      () => setUpdatePresentationNow(new Date()),
+      refreshDelay,
+    )
+    return () => window.clearTimeout(timer)
+  }, [updatePreferences, updatePresentationNow, updateSnapshot])
+  const openUpdateModal = useCallback(() => {
+    if (
+      typeof document !== 'undefined' &&
+      document.activeElement instanceof HTMLElement
+    ) {
+      updateReturnFocusRef.current = document.activeElement
+    }
+    setIsUpdateOpen(true)
+  }, [])
+  const handleUpdateOpenChange = useCallback((isOpen: boolean) => {
+    setIsUpdateOpen(isOpen)
+    if (isOpen) return
+
+    setUpdateRestartStatus(null)
+    setUpdateActionError(null)
+    const returnFocus = updateReturnFocusRef.current
+    updateReturnFocusRef.current = null
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) {
+        returnFocus.focus()
+        return
+      }
+
+      const fallback = document.querySelector<HTMLElement>(
+        '[data-testid="update-indicator"], [aria-label="Open diagnostics"]',
+      )
+      fallback?.focus()
+    })
+  }, [])
+  const acceptUpdateSnapshot = useCallback((snapshot: UpdateSnapshot) => {
+    setUpdatePresentationNow(new Date())
+    setUpdateSnapshot((current) =>
+      !current || snapshot.revision >= current.revision ? snapshot : current,
+    )
+  }, [])
+  const acceptUpdatePreferences = useCallback(
+    (snapshot: UpdatePreferencesSnapshot) => {
+      setUpdatePresentationNow(new Date())
+      setUpdatePreferences((current) =>
+        !current || snapshot.revision >= current.revision ? snapshot : current,
+      )
+    },
+    [],
+  )
+  const performUpdateAction = useCallback(
+    async (operation: () => Promise<void>) => {
+      setUpdateActionError(null)
+      try {
+        await operation()
+      } catch (error) {
+        setUpdateActionError(getErrorMessage(error))
+        throw error
+      }
+    },
+    [],
+  )
+  const checkForSoftwareUpdate = useCallback(async () => {
+    await performUpdateAction(async () => {
+      const api = getAideApi()
+      if (!api) throw new Error('Desktop bridge did not load.')
+      acceptUpdateSnapshot(await api.checkForUpdates())
+    })
+  }, [acceptUpdateSnapshot, performUpdateAction])
+  const downloadSoftwareUpdate = useCallback(async () => {
+    await performUpdateAction(async () => {
+      const api = getAideApi()
+      if (!api) throw new Error('Desktop bridge did not load.')
+      acceptUpdateSnapshot(await api.downloadUpdate())
+    })
+  }, [acceptUpdateSnapshot, performUpdateAction])
+  const retrySoftwareUpdate = useCallback(async () => {
+    await performUpdateAction(async () => {
+      const api = getAideApi()
+      if (!api) throw new Error('Desktop bridge did not load.')
+      acceptUpdateSnapshot(await api.retryUpdate())
+    })
+  }, [acceptUpdateSnapshot, performUpdateAction])
+  const updateSoftwarePreferences = useCallback(
+    async (input: UpdatePreferencesInput) => {
+      await performUpdateAction(async () => {
+        const api = getAideApi()
+        if (!api) throw new Error('Desktop bridge did not load.')
+        acceptUpdatePreferences(await api.updatePreferences(input))
+      })
+    },
+    [acceptUpdatePreferences, performUpdateAction],
+  )
+  const snoozeSoftwareUpdate = useCallback(
+    () =>
+      updateSoftwarePreferences({
+        snoozedUntil: createUpdateSnoozeUntil(),
+      }),
+    [updateSoftwarePreferences],
+  )
+  const requestSoftwareUpdateRestart = useCallback(async () => {
+    await performUpdateAction(async () => {
+      const api = getAideApi()
+      if (!api) throw new Error('Desktop bridge did not load.')
+      setUpdateRestartStatus(await api.restartUpdate(false))
+    })
+  }, [performUpdateAction])
+  const confirmSoftwareUpdateRestart = useCallback(async () => {
+    await performUpdateAction(async () => {
+      const api = getAideApi()
+      if (!api) throw new Error('Desktop bridge did not load.')
+      setUpdateRestartStatus(await api.restartUpdate(true))
+    })
+  }, [performUpdateAction])
+  const runUpdatePaletteAction = useCallback(
+    (operation?: () => Promise<void>) => {
+      openUpdateModal()
+      if (!operation) return
+      void operation().catch(() => {})
+    },
+    [openUpdateModal],
+  )
+  const paletteUpdateAction = useMemo(() => {
+    if (updatePresentation.canCheck) {
+      return {
+        id: 'check-for-updates' as const,
+        label: 'Check for updates',
+        onSelect: () => runUpdatePaletteAction(checkForSoftwareUpdate),
+      }
+    }
+    if (updatePresentation.canDownload) {
+      return {
+        id: 'download-update' as const,
+        label: updatePresentation.isCritical
+          ? 'Download critical update'
+          : 'Download update',
+        onSelect: () => runUpdatePaletteAction(downloadSoftwareUpdate),
+      }
+    }
+    if (updatePresentation.canRetry) {
+      return {
+        id: 'retry-update' as const,
+        label: 'Retry update',
+        onSelect: () => runUpdatePaletteAction(retrySoftwareUpdate),
+      }
+    }
+    if (updatePresentation.canRestart) {
+      return {
+        id: 'restart-to-update' as const,
+        label: 'Restart to update…',
+        onSelect: () => runUpdatePaletteAction(),
+      }
+    }
+    return undefined
+  }, [
+    checkForSoftwareUpdate,
+    downloadSoftwareUpdate,
+    retrySoftwareUpdate,
+    runUpdatePaletteAction,
+    updatePresentation.canCheck,
+    updatePresentation.canDownload,
+    updatePresentation.canRestart,
+    updatePresentation.canRetry,
+    updatePresentation.isCritical,
+  ])
   const paletteCommands = useMemo(
     () =>
       buildCommandList({
@@ -1817,9 +2082,11 @@ export default function App() {
         onCreateWorkspace: createWorkspace,
         onOpenOverview: () => setIsOverviewVisible(true),
         onOpenProject: openProject,
+        onOpenSoftwareUpdate: openUpdateModal,
         onSelectProject: handleProjectSelection,
         onSelectWorkspace: handleWorkspaceSelection,
         projects,
+        updateAction: paletteUpdateAction,
         workspaces: projectWorkspaces,
       }),
     [
@@ -1828,6 +2095,8 @@ export default function App() {
       handleProjectSelection,
       handleWorkspaceSelection,
       openProject,
+      openUpdateModal,
+      paletteUpdateAction,
       projects,
       projectWorkspaces,
     ],
@@ -1932,16 +2201,43 @@ export default function App() {
       onCreateWorkspace={createWorkspace}
       onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
+      onOpenUpdate={openUpdateModal}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
       projects={projects}
       workspaces={orderedWorkspaces}
       workspaceSummaries={workspaceSummaries}
+      updatePresentation={updatePresentation}
     >
       <>
         {isDiagnosticsOpen ? (
           <Suspense fallback={<OverlayLoadFallback />}>
             <LazyDiagnosticsModal isOpen onOpenChange={setIsDiagnosticsOpen} />
+          </Suspense>
+        ) : null}
+        {isUpdateOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazyUpdateModal
+              actionError={
+                updateActionError ??
+                updateSnapshotHydrationError ??
+                updatePreferencesHydrationError
+              }
+              isOpen
+              onCheck={checkForSoftwareUpdate}
+              onConfirmRestart={confirmSoftwareUpdateRestart}
+              onDownload={downloadSoftwareUpdate}
+              onOpenChange={handleUpdateOpenChange}
+              onClearActionError={() => setUpdateActionError(null)}
+              onRequestRestart={requestSoftwareUpdateRestart}
+              onRetry={retrySoftwareUpdate}
+              onSnooze={snoozeSoftwareUpdate}
+              onUpdatePreferences={updateSoftwarePreferences}
+              preferences={updatePreferences}
+              presentationNow={updatePresentationNow}
+              restartStatus={updateRestartStatus}
+              snapshot={updateSnapshot}
+            />
           </Suspense>
         ) : null}
         {isCommandPaletteOpen ? (

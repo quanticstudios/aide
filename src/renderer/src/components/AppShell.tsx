@@ -2,6 +2,7 @@ import type { FocusEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
+import type { UpdatePresentation } from '@/lib/update-presentation'
 import type {
   PersistedSplitLayoutNode,
   ProjectRecord,
@@ -40,6 +41,8 @@ interface AppShellProps {
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenDiagnostics: () => void
+  readonly onOpenUpdate: () => void
+  readonly updatePresentation: UpdatePresentation
   readonly workspaceSummaries: Record<string, WorkspaceSummary>
   readonly children: ReactNode
 }
@@ -66,6 +69,8 @@ export default function AppShell({
   onCreateWorkspace,
   onConfigureProjectSetup,
   onOpenDiagnostics,
+  onOpenUpdate,
+  updatePresentation,
   workspaceSummaries,
   children,
 }: AppShellProps) {
@@ -290,10 +295,12 @@ export default function AppShell({
           onClosePane={onClosePane}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
+          onOpenUpdate={onOpenUpdate}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
           surfaces={surfaces}
           surfaceManagedSessionIds={surfaceManagedSessionIds}
+          updatePresentation={updatePresentation}
           onSelectPane={onSelectPane}
         />
 

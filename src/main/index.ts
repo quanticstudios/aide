@@ -27,6 +27,7 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
+import type { UpdateEvent } from '../shared/update'
 import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { ApplicationRuntime } from './application-runtime'
@@ -37,6 +38,10 @@ import {
   probeExecutable,
   validateExecutablePath,
 } from './executable-resolution'
+import {
+  FakeUpdateService,
+  isFakeUpdateServiceEnabled,
+} from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
 import { PreviewManager } from './preview-manager'
@@ -68,9 +73,9 @@ let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
 let workspaceSetupManager: WorkspaceSetupManager
-let updateManager: UpdateManager
+let updateManager: UpdateManager | FakeUpdateService
 let updateHealthReporter: UpdateHealthReporter
-let updateRestartCoordinator: UpdateRestartCoordinator
+let updateRestartCoordinator: UpdateRestartCoordinator | FakeUpdateService
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
@@ -85,6 +90,11 @@ function releaseConfiguration(): UpdateReleaseOptions | null {
         origin,
       }
     : null
+}
+
+function readNonNegativeInteger(value: string | undefined): number {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
 }
 
 function requireTrustedRenderer(event: IpcMainInvokeEvent): void {
@@ -205,34 +215,79 @@ function initializeServices(): void {
     isPackaged: app.isPackaged,
     store: database,
   })
-  updateManager = new UpdateManager({
-    app: {
-      getVersion: () => app.getVersion(),
-      isPackaged: app.isPackaged,
-    },
-    onUpdateHealthEventQueued: () => updateHealthReporter.flush(),
-    onUpdate: (event) =>
-      windowManager.broadcast(IPC_CHANNELS.updateEvent, event),
-    release: releaseConfiguration(),
-    store: database,
-  })
+  const onUpdate = (event: UpdateEvent) =>
+    windowManager.broadcast(IPC_CHANNELS.updateEvent, event)
+  const useFakeUpdates = isFakeUpdateServiceEnabled(
+    app.isPackaged,
+    process.env.AIDE_FAKE_UPDATE_SERVICE,
+  )
+  updateManager = useFakeUpdates
+    ? new FakeUpdateService({
+        activeManagedSessions: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_ACTIVE_MANAGED,
+        ),
+        activeTerminalSessions: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_ACTIVE_TERMINALS,
+        ),
+        activeWorkspaceSetups: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_ACTIVE_SETUPS,
+        ),
+        checkFailures: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_CHECK_FAILURES,
+        ),
+        currentVersion: app.getVersion(),
+        downloadFailures: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_DOWNLOAD_FAILURES,
+        ),
+        initialUpdateAvailable:
+          process.env.AIDE_FAKE_UPDATE_INITIAL_AVAILABLE === '1',
+        onUpdate,
+        preferenceFailures: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_PREFERENCE_FAILURES,
+        ),
+        restartFailures: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_RESTART_FAILURES,
+        ),
+        snapshotFailures: readNonNegativeInteger(
+          process.env.AIDE_FAKE_UPDATE_SNAPSHOT_FAILURES,
+        ),
+        store: database,
+        urgency:
+          process.env.AIDE_FAKE_UPDATE_URGENCY === 'critical'
+            ? 'critical'
+            : 'normal',
+      })
+    : new UpdateManager({
+        app: {
+          getVersion: () => app.getVersion(),
+          isPackaged: app.isPackaged,
+        },
+        onUpdateHealthEventQueued: () => updateHealthReporter.flush(),
+        onUpdate,
+        release: releaseConfiguration(),
+        store: database,
+      })
   updateManager.subscribePreferences((event) => {
     windowManager.broadcast(IPC_CHANNELS.updatePreferencesEvent, event)
-    updateHealthReporter.handlePreferencesChanged()
+    if (!useFakeUpdates) updateHealthReporter.handlePreferencesChanged()
   })
-  updateRestartCoordinator = new UpdateRestartCoordinator({
-    applicationRuntime,
-    managedSessions: managedSessionManager,
-    terminals: terminalSessionManager,
-    terminateAfterShutdownFailure: () => {
-      // Shutdown has already closed the database and child services. Relaunching
-      // the current signed app is safer than attempting an unverified install.
-      app.relaunch()
-      app.exit(1)
-    },
-    updates: updateManager,
-    workspaceSetups: workspaceSetupManager,
-  })
+  if (useFakeUpdates) {
+    updateRestartCoordinator = updateManager as FakeUpdateService
+  } else {
+    updateRestartCoordinator = new UpdateRestartCoordinator({
+      applicationRuntime,
+      managedSessions: managedSessionManager,
+      terminals: terminalSessionManager,
+      terminateAfterShutdownFailure: () => {
+        // Shutdown has already closed the database and child services. Relaunching
+        // the current signed app is safer than attempting an unverified install.
+        app.relaunch()
+        app.exit(1)
+      },
+      updates: updateManager as UpdateManager,
+      workspaceSetups: workspaceSetupManager,
+    })
+  }
 }
 
 function recordDiagnosticEvent(

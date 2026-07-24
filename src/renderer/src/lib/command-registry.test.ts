@@ -10,6 +10,7 @@ function createContext(
     onCreateWorkspace: vi.fn(),
     onOpenOverview: vi.fn(),
     onOpenProject: vi.fn(),
+    onOpenSoftwareUpdate: vi.fn(),
     onSelectProject: vi.fn(),
     onSelectWorkspace: vi.fn(),
     projects: [],
@@ -27,6 +28,30 @@ describe('buildCommandList', () => {
     expect(ids).toContain('create-workspace')
     expect(ids).toContain('open-project')
     expect(ids).toContain('open-overview')
+    expect(ids).toContain('open-software-update')
+  })
+
+  it('includes only the update action relevant to the current state', () => {
+    const onSelect = vi.fn()
+    const commands = buildCommandList(
+      createContext({
+        updateAction: {
+          id: 'download-update',
+          label: 'Download update',
+          onSelect,
+        },
+      }),
+    )
+
+    expect(commands.filter((command) => command.id.includes('update'))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'download-update' }),
+        expect.objectContaining({ id: 'open-software-update' }),
+      ]),
+    )
+    expect(commands.some((command) => command.id === 'check-for-updates')).toBe(
+      false,
+    )
   })
 
   it('generates navigation commands for workspaces', () => {
