@@ -19,6 +19,16 @@ import type {
 } from '../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../shared/preview'
 import type {
+  UpdateHealthEvent,
+  UpdatePreferencesInput,
+  UpdatePreferencesSnapshot,
+  UpdateState,
+} from '../shared/update'
+import {
+  cohortForInstallation,
+  compareStableSemver,
+} from '../shared/release-envelope'
+import type {
   WorkspaceSetupSnapshot,
   WorkspaceSetupStatus,
 } from '../shared/workspace-setup'
@@ -95,6 +105,31 @@ interface SqlWorkspaceSetupStateRow {
   state: WorkspaceSetupStatus
   updated_at: string
   workspace_id: string
+}
+
+interface SqlUpdateStateRow {
+  automatic_downloads: number
+  health_disclosure_acknowledged: number
+  health_reporting_enabled: number
+  installation_id: string
+  last_checked_at: string | null
+  pending_attempt_id: string | null
+  pending_target_version: string | null
+  revision: number
+  snoozed_until: string | null
+}
+
+interface SqlUpdateHealthEventRow {
+  arch: 'arm64' | 'x64'
+  attempt_id: string
+  cohort: number
+  created_at: string
+  current_version: string
+  duration_ms: number | null
+  error_code: UpdateHealthEvent['errorCode']
+  lifecycle: UpdateHealthEvent['lifecycle']
+  platform: 'darwin' | 'linux'
+  target_version: string | null
 }
 
 const MIGRATION_STRATEGY =
@@ -234,7 +269,64 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_update_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        installation_id TEXT NOT NULL,
+        automatic_downloads INTEGER NOT NULL DEFAULT 1 CHECK (automatic_downloads IN (0, 1)),
+        health_reporting_enabled INTEGER NOT NULL DEFAULT 1 CHECK (health_reporting_enabled IN (0, 1)),
+        health_disclosure_acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (health_disclosure_acknowledged IN (0, 1)),
+        snoozed_until TEXT,
+        last_checked_at TEXT,
+        pending_target_version TEXT,
+        pending_attempt_id TEXT,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS app_update_health_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        attempt_id TEXT NOT NULL,
+        current_version TEXT NOT NULL,
+        target_version TEXT,
+        platform TEXT NOT NULL CHECK (platform IN ('darwin', 'linux')),
+        arch TEXT NOT NULL CHECK (arch IN ('arm64', 'x64')),
+        cohort INTEGER NOT NULL CHECK (cohort >= 0 AND cohort < 100),
+        lifecycle TEXT NOT NULL CHECK (lifecycle IN ('check-failed', 'check-started', 'downloaded', 'download-failed', 'download-started', 'install-failed', 'install-started', 'install-succeeded')),
+        error_code TEXT,
+        created_at TEXT NOT NULL,
+        duration_ms INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_app_update_health_queue_created_at
+      ON app_update_health_queue(created_at);
+    `,
+  },
 ]
+
+const UPDATE_HEALTH_QUEUE_LIMIT = 100
+const UPDATE_HEALTH_TTL_MS = 30 * 24 * 60 * 60 * 1_000
+const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+const UPDATE_HEALTH_LIFECYCLES = new Set<UpdateHealthEvent['lifecycle']>([
+  'check-failed',
+  'check-started',
+  'downloaded',
+  'download-failed',
+  'download-started',
+  'install-failed',
+  'install-started',
+  'install-succeeded',
+])
+const UPDATE_ERROR_CODES = new Set<UpdateHealthEvent['errorCode']>([
+  'disk-space',
+  'invalid-update',
+  'network',
+  'unknown',
+  null,
+])
 
 export function createAideDatabase(databasePath: string): AideDatabase {
   return new AideDatabase(databasePath)
@@ -247,10 +339,372 @@ export class AideDatabase {
     this.database = new DatabaseSync(databasePath)
     this.database.exec('PRAGMA foreign_keys = ON;')
     this.runMigrations()
+    this.ensureUpdateState()
+    this.discardUpdateHealthEventsIfNotPermitted()
   }
 
   public close(): void {
     this.database.close()
+  }
+
+  /**
+   * Returns the only durable OTA preferences record. It intentionally exposes
+   * no release URLs, downloader paths, headers, transport errors, or payloads.
+   */
+  public getUpdateState(): UpdateState {
+    this.ensureUpdateState()
+    const row = this.database
+      .prepare(
+        `
+          SELECT installation_id, automatic_downloads, health_reporting_enabled,
+                 health_disclosure_acknowledged, snoozed_until, last_checked_at,
+                 pending_target_version, pending_attempt_id, revision
+          FROM app_update_state
+          WHERE id = 1
+        `,
+      )
+      .get() as SqlUpdateStateRow | undefined
+
+    if (!row) {
+      throw new Error('Update state could not be initialized.')
+    }
+    return this.mapUpdateStateRow(row)
+  }
+
+  public getUpdatePreferences(): UpdatePreferencesSnapshot {
+    const row = this.database
+      .prepare(
+        `
+          SELECT automatic_downloads, health_reporting_enabled,
+                 health_disclosure_acknowledged, snoozed_until, revision
+          FROM app_update_state
+          WHERE id = 1
+        `,
+      )
+      .get() as
+      | Pick<
+          SqlUpdateStateRow,
+          | 'automatic_downloads'
+          | 'health_disclosure_acknowledged'
+          | 'health_reporting_enabled'
+          | 'revision'
+          | 'snoozed_until'
+        >
+      | undefined
+    if (!row) throw new Error('Update preferences could not be initialized.')
+    return {
+      automaticDownloads: row.automatic_downloads === 1,
+      healthDisclosureAcknowledged: row.health_disclosure_acknowledged === 1,
+      healthReportingEnabled: row.health_reporting_enabled === 1,
+      revision: row.revision,
+      snoozedUntil: row.snoozed_until,
+    }
+  }
+
+  public updateUpdatePreferences(
+    input: UpdatePreferencesInput,
+  ): UpdatePreferencesSnapshot {
+    this.updateUpdateState(input)
+    return this.getUpdatePreferences()
+  }
+
+  /** Atomically updates the singleton while preserving its cohort identity. */
+  public updateUpdateState(
+    input: Partial<Omit<UpdateState, 'installationId'>>,
+  ): UpdateState {
+    const current = this.getUpdateState()
+    const next: UpdateState = {
+      automaticDownloads:
+        input.automaticDownloads ?? current.automaticDownloads,
+      healthDisclosureAcknowledged:
+        input.healthDisclosureAcknowledged ??
+        current.healthDisclosureAcknowledged,
+      healthReportingEnabled:
+        input.healthReportingEnabled ?? current.healthReportingEnabled,
+      installationId: current.installationId,
+      lastCheckedAt: this.requireNullableIsoTimestamp(
+        this.pickUpdateStateValue(
+          input,
+          'lastCheckedAt',
+          current.lastCheckedAt,
+        ),
+        'last checked time',
+      ),
+      pendingAttemptId: this.requireNullableIdentifier(
+        this.pickUpdateStateValue(
+          input,
+          'pendingAttemptId',
+          current.pendingAttemptId,
+        ),
+        'pending attempt id',
+      ),
+      pendingTargetVersion: this.requireNullableSemver(
+        this.pickUpdateStateValue(
+          input,
+          'pendingTargetVersion',
+          current.pendingTargetVersion,
+        ),
+        'pending target version',
+      ),
+      snoozedUntil: this.requireNullableIsoTimestamp(
+        this.pickUpdateStateValue(input, 'snoozedUntil', current.snoozedUntil),
+        'snoozed until',
+      ),
+    }
+
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      this.database
+        .prepare(
+          `
+            UPDATE app_update_state
+            SET automatic_downloads = ?, health_reporting_enabled = ?,
+                health_disclosure_acknowledged = ?, snoozed_until = ?,
+                last_checked_at = ?, pending_target_version = ?,
+                pending_attempt_id = ?, revision = revision + 1, updated_at = ?
+            WHERE id = 1
+          `,
+        )
+        .run(
+          next.automaticDownloads ? 1 : 0,
+          next.healthReportingEnabled ? 1 : 0,
+          next.healthDisclosureAcknowledged ? 1 : 0,
+          next.snoozedUntil,
+          next.lastCheckedAt,
+          next.pendingTargetVersion,
+          next.pendingAttemptId,
+          new Date().toISOString(),
+        )
+
+      if (!this.canCollectUpdateHealth(next)) {
+        this.database.exec('DELETE FROM app_update_health_queue;')
+      }
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+    return this.getUpdateState()
+  }
+
+  /**
+   * Adds only the fixed, non-identifying OTA health schema. Cleanup and the
+   * insertion happen inside one SQLite transaction so a crash cannot leave an
+   * over-capacity queue behind.
+   */
+  public appendUpdateHealthEvent(event: UpdateHealthEvent): void {
+    const state = this.getUpdateState()
+    if (!this.canCollectUpdateHealth(state)) {
+      this.database.exec('DELETE FROM app_update_health_queue;')
+      return
+    }
+    const sanitized = this.normalizeUpdateHealthEvent(event)
+    const cutoff = new Date(
+      new Date(sanitized.createdAt).getTime() - UPDATE_HEALTH_TTL_MS,
+    ).toISOString()
+
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      this.database
+        .prepare(
+          `
+            INSERT INTO app_update_health_queue (
+              attempt_id, current_version, target_version, platform, arch,
+              cohort, lifecycle, error_code, created_at, duration_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+        )
+        .run(
+          sanitized.attemptId,
+          sanitized.currentVersion,
+          sanitized.targetVersion,
+          sanitized.platform,
+          sanitized.arch,
+          sanitized.cohort,
+          sanitized.lifecycle,
+          sanitized.errorCode,
+          sanitized.createdAt,
+          sanitized.durationMs,
+        )
+      this.database
+        .prepare('DELETE FROM app_update_health_queue WHERE created_at < ?')
+        .run(cutoff)
+      this.database.exec(`
+        DELETE FROM app_update_health_queue
+        WHERE id NOT IN (
+          SELECT id FROM app_update_health_queue
+          ORDER BY id DESC
+          LIMIT ${UPDATE_HEALTH_QUEUE_LIMIT}
+        );
+      `)
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+  }
+
+  public listUpdateHealthEvents(
+    now = new Date().toISOString(),
+  ): UpdateHealthEvent[] {
+    if (!this.canCollectUpdateHealth(this.getUpdateState())) {
+      this.database.exec('DELETE FROM app_update_health_queue;')
+      return []
+    }
+    const checkedNow = this.requireNullableIsoTimestamp(now, 'current time')
+    if (!checkedNow) throw new Error('Current time is required.')
+    const cutoff = new Date(
+      new Date(checkedNow).getTime() - UPDATE_HEALTH_TTL_MS,
+    ).toISOString()
+    this.database
+      .prepare('DELETE FROM app_update_health_queue WHERE created_at < ?')
+      .run(cutoff)
+    const rows = this.database
+      .prepare(
+        `
+          SELECT attempt_id, current_version, target_version, platform, arch,
+                 cohort, lifecycle, error_code, created_at, duration_ms
+          FROM app_update_health_queue
+          ORDER BY id ASC
+        `,
+      )
+      .all() as unknown as SqlUpdateHealthEventRow[]
+    return rows.map((row) => this.mapUpdateHealthEventRow(row))
+  }
+
+  /** Atomically records the only restart marker eligible for post-update reconciliation. */
+  public commitUpdateInstallStart(input: {
+    arch: 'arm64' | 'x64'
+    attemptId: string
+    currentVersion: string
+    now: string
+    platform: 'darwin' | 'linux'
+    targetVersion: string
+  }): UpdateState {
+    const state = this.getUpdateState()
+    const attemptId = this.requireNullableIdentifier(
+      input.attemptId,
+      'install attempt id',
+    )
+    const targetVersion = this.requireNullableSemver(
+      input.targetVersion,
+      'install target version',
+    )
+    const now = this.requireNullableIsoTimestamp(input.now, 'current time')
+    if (
+      !attemptId ||
+      !targetVersion ||
+      !now ||
+      !STABLE_SEMVER.test(input.currentVersion)
+    ) {
+      throw new Error('Invalid update install marker.')
+    }
+
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      this.database
+        .prepare(
+          `
+            UPDATE app_update_state
+            SET pending_target_version = ?, pending_attempt_id = ?, updated_at = ?
+            WHERE id = 1
+          `,
+        )
+        .run(targetVersion, attemptId, now)
+      if (this.canCollectUpdateHealth(state)) {
+        this.insertUpdateHealthEvent({
+          arch: input.arch,
+          attemptId,
+          cohort: cohortForInstallation(state.installationId, targetVersion),
+          createdAt: now,
+          currentVersion: input.currentVersion,
+          durationMs: null,
+          errorCode: null,
+          lifecycle: 'install-started',
+          platform: input.platform,
+          targetVersion,
+        })
+        this.deleteExpiredUpdateHealthEvents(now)
+        this.trimUpdateHealthEvents()
+      }
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+    return this.getUpdateState()
+  }
+
+  /**
+   * Resolves the sole durable install marker after a new app process starts.
+   * Only an install that was committed immediately before shutdown has both
+   * fields, so ordinary closes with an available/downloaded update never create
+   * a misleading terminal health event.
+   */
+  public reconcilePendingUpdateInstall(input: {
+    arch: 'arm64' | 'x64'
+    currentVersion: string
+    now: string
+    platform: 'darwin' | 'linux'
+  }): UpdateHealthEvent | null {
+    if (!STABLE_SEMVER.test(input.currentVersion)) {
+      throw new Error('Invalid installed version.')
+    }
+    const now = this.requireNullableIsoTimestamp(input.now, 'current time')
+    if (!now) throw new Error('Current time is required.')
+    const current = this.getUpdateState()
+    const targetVersion = current.pendingTargetVersion
+    const attemptId = current.pendingAttemptId
+
+    if (!targetVersion || !attemptId) {
+      if (targetVersion || attemptId) {
+        this.updateUpdateState({
+          pendingAttemptId: null,
+          pendingTargetVersion: null,
+        })
+      }
+      return null
+    }
+
+    const event: UpdateHealthEvent = {
+      arch: input.arch,
+      attemptId,
+      cohort: cohortForInstallation(current.installationId, targetVersion),
+      createdAt: now,
+      currentVersion: input.currentVersion,
+      durationMs: null,
+      errorCode: null,
+      lifecycle:
+        compareStableSemver(input.currentVersion, targetVersion) >= 0
+          ? 'install-succeeded'
+          : 'install-failed',
+      platform: input.platform,
+      targetVersion,
+    }
+
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      if (this.canCollectUpdateHealth(current)) {
+        this.insertUpdateHealthEvent(event)
+        this.deleteExpiredUpdateHealthEvents(now)
+        this.trimUpdateHealthEvents()
+      }
+      this.database
+        .prepare(
+          `
+            UPDATE app_update_state
+            SET pending_target_version = NULL, pending_attempt_id = NULL,
+                updated_at = ?
+            WHERE id = 1
+          `,
+        )
+        .run(now)
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+    return this.canCollectUpdateHealth(current) ? event : null
   }
 
   public getWorkspaceActivityVisitWatermarks(): Record<string, string> {
@@ -1340,6 +1794,195 @@ export class AideDatabase {
       children: [...node.children],
       sizeWeights: [...node.sizeWeights],
     }
+  }
+
+  private ensureUpdateState(): void {
+    this.database
+      .prepare(
+        `
+          INSERT INTO app_update_state (
+            id, installation_id, automatic_downloads, health_reporting_enabled,
+            health_disclosure_acknowledged, updated_at
+          ) VALUES (1, ?, 1, 1, 0, ?)
+          ON CONFLICT(id) DO NOTHING
+        `,
+      )
+      .run(randomUUID(), new Date().toISOString())
+  }
+
+  private canCollectUpdateHealth(
+    state: Pick<
+      UpdateState,
+      'healthDisclosureAcknowledged' | 'healthReportingEnabled'
+    >,
+  ): boolean {
+    return state.healthReportingEnabled && state.healthDisclosureAcknowledged
+  }
+
+  /** Clears stale pre-disclosure data left by an older build before it can upload. */
+  private discardUpdateHealthEventsIfNotPermitted(): void {
+    if (this.canCollectUpdateHealth(this.getUpdateState())) return
+    this.database.exec('DELETE FROM app_update_health_queue;')
+  }
+
+  private insertUpdateHealthEvent(event: UpdateHealthEvent): void {
+    this.database
+      .prepare(
+        `
+          INSERT INTO app_update_health_queue (
+            attempt_id, current_version, target_version, platform, arch,
+            cohort, lifecycle, error_code, created_at, duration_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        event.attemptId,
+        event.currentVersion,
+        event.targetVersion,
+        event.platform,
+        event.arch,
+        event.cohort,
+        event.lifecycle,
+        event.errorCode,
+        event.createdAt,
+        event.durationMs,
+      )
+  }
+
+  private deleteExpiredUpdateHealthEvents(now: string): void {
+    const cutoff = new Date(
+      new Date(now).getTime() - UPDATE_HEALTH_TTL_MS,
+    ).toISOString()
+    this.database
+      .prepare('DELETE FROM app_update_health_queue WHERE created_at < ?')
+      .run(cutoff)
+  }
+
+  private trimUpdateHealthEvents(): void {
+    this.database.exec(`
+      DELETE FROM app_update_health_queue
+      WHERE id NOT IN (
+        SELECT id FROM app_update_health_queue
+        ORDER BY id DESC
+        LIMIT ${UPDATE_HEALTH_QUEUE_LIMIT}
+      );
+    `)
+  }
+
+  private mapUpdateStateRow(row: SqlUpdateStateRow): UpdateState {
+    return {
+      automaticDownloads: row.automatic_downloads === 1,
+      healthDisclosureAcknowledged: row.health_disclosure_acknowledged === 1,
+      healthReportingEnabled: row.health_reporting_enabled === 1,
+      installationId: row.installation_id,
+      lastCheckedAt: row.last_checked_at,
+      pendingAttemptId: row.pending_attempt_id,
+      pendingTargetVersion: row.pending_target_version,
+      snoozedUntil: row.snoozed_until,
+    }
+  }
+
+  private mapUpdateHealthEventRow(
+    row: SqlUpdateHealthEventRow,
+  ): UpdateHealthEvent {
+    return {
+      arch: row.arch,
+      attemptId: row.attempt_id,
+      cohort: row.cohort,
+      createdAt: row.created_at,
+      currentVersion: row.current_version,
+      durationMs: row.duration_ms,
+      errorCode: row.error_code,
+      lifecycle: row.lifecycle,
+      platform: row.platform,
+      targetVersion: row.target_version,
+    }
+  }
+
+  private normalizeUpdateHealthEvent(
+    event: UpdateHealthEvent,
+  ): UpdateHealthEvent {
+    if (
+      !event ||
+      typeof event.attemptId !== 'string' ||
+      !/^[a-zA-Z0-9._-]{1,128}$/.test(event.attemptId) ||
+      !STABLE_SEMVER.test(event.currentVersion) ||
+      (event.targetVersion !== null &&
+        !STABLE_SEMVER.test(event.targetVersion)) ||
+      (event.platform !== 'darwin' && event.platform !== 'linux') ||
+      (event.arch !== 'arm64' && event.arch !== 'x64') ||
+      !Number.isInteger(event.cohort) ||
+      event.cohort < 0 ||
+      event.cohort >= 100 ||
+      !UPDATE_HEALTH_LIFECYCLES.has(event.lifecycle) ||
+      !UPDATE_ERROR_CODES.has(event.errorCode) ||
+      !ISO_TIMESTAMP.test(event.createdAt) ||
+      new Date(event.createdAt).toISOString() !== event.createdAt ||
+      (event.durationMs !== null &&
+        (!Number.isSafeInteger(event.durationMs) || event.durationMs < 0))
+    ) {
+      throw new Error('Invalid update health event.')
+    }
+
+    return {
+      arch: event.arch,
+      attemptId: event.attemptId,
+      cohort: event.cohort,
+      createdAt: event.createdAt,
+      currentVersion: event.currentVersion,
+      durationMs: event.durationMs,
+      errorCode: event.errorCode,
+      lifecycle: event.lifecycle,
+      platform: event.platform,
+      targetVersion: event.targetVersion,
+    }
+  }
+
+  private requireNullableIdentifier(
+    value: string | null,
+    label: string,
+  ): string | null {
+    if (value === null) return null
+    if (typeof value !== 'string' || !/^[a-zA-Z0-9._-]{1,128}$/.test(value)) {
+      throw new Error(`Invalid ${label}.`)
+    }
+    return value
+  }
+
+  private requireNullableIsoTimestamp(
+    value: string | null,
+    label: string,
+  ): string | null {
+    if (value === null) return null
+    if (
+      typeof value !== 'string' ||
+      !ISO_TIMESTAMP.test(value) ||
+      new Date(value).toISOString() !== value
+    ) {
+      throw new Error(`Invalid ${label}.`)
+    }
+    return value
+  }
+
+  private requireNullableSemver(
+    value: string | null,
+    label: string,
+  ): string | null {
+    if (value === null) return null
+    if (typeof value !== 'string' || !STABLE_SEMVER.test(value)) {
+      throw new Error(`Invalid ${label}.`)
+    }
+    return value
+  }
+
+  private pickUpdateStateValue<
+    K extends Exclude<keyof UpdateState, 'installationId'>,
+  >(
+    input: Partial<Omit<UpdateState, 'installationId'>>,
+    key: K,
+    fallback: UpdateState[K],
+  ): UpdateState[K] {
+    return Object.hasOwn(input, key) ? (input[key] as UpdateState[K]) : fallback
   }
 
   private runMigrations(): void {

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   type UpdateEvent,
+  type UpdatePreferencesEvent,
+  type UpdatePreferencesSnapshot,
   type UpdateSnapshot,
+  reconcileUpdatePreferencesSnapshot,
   reconcileUpdateSnapshot,
 } from './update'
 
@@ -18,8 +21,9 @@ function snapshot(
     phase,
     progress: null,
     revision,
-    schemaVersion: 1,
+    schemaVersion: 2,
     targetVersion: phase === 'available' ? '0.1.1' : null,
+    urgency: null,
   }
 }
 
@@ -51,5 +55,46 @@ describe('reconcileUpdateSnapshot', () => {
         malformed,
       ]),
     ).toEqual(snapshot(5, 'available'))
+  })
+})
+
+function preferences(revision: number): UpdatePreferencesSnapshot {
+  return {
+    automaticDownloads: revision % 2 === 0,
+    healthDisclosureAcknowledged: revision >= 2,
+    healthReportingEnabled: true,
+    revision,
+    snoozedUntil: null,
+  }
+}
+
+function preferenceEvent(revision: number): UpdatePreferencesEvent {
+  return { revision, snapshot: preferences(revision) }
+}
+
+describe('reconcileUpdatePreferencesSnapshot', () => {
+  it('replays only newer preference events after the initial snapshot', () => {
+    expect(
+      reconcileUpdatePreferencesSnapshot(preferences(3), [
+        preferenceEvent(4),
+        preferenceEvent(5),
+      ]),
+    ).toEqual(preferences(5))
+  })
+
+  it('rejects stale, duplicate, malformed, and out-of-order preference events', () => {
+    const malformed: UpdatePreferencesEvent = {
+      revision: 8,
+      snapshot: preferences(7),
+    }
+
+    expect(
+      reconcileUpdatePreferencesSnapshot(preferences(3), [
+        preferenceEvent(5),
+        preferenceEvent(4),
+        preferenceEvent(5),
+        malformed,
+      ]),
+    ).toEqual(preferences(5))
   })
 })

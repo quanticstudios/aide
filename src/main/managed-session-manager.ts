@@ -7,9 +7,9 @@ import {
   type ModelUsage,
   type PermissionResult,
   type PermissionUpdate,
+  query,
   type SDKMessage,
   type SDKUserMessage,
-  query,
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type {
@@ -1616,6 +1616,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
 
 export class ManagedSessionManager {
   private readonly getNow: () => string
+  private quiescing = false
   private readonly sessions = new Map<string, ManagedSessionMutableState>()
 
   public constructor(private readonly options: ManagedSessionManagerOptions) {
@@ -1631,9 +1632,24 @@ export class ManagedSessionManager {
     )
   }
 
+  public getActiveSessionCount(): number {
+    return this.sessions.size
+  }
+
+  /** Blocks new providers while an explicit update restart is being prepared. */
+  public beginQuiescing(): () => void {
+    this.quiescing = true
+    return () => {
+      this.quiescing = false
+    }
+  }
+
   public async createSession(
     config: ManagedSessionConfig,
   ): Promise<ManagedSessionSnapshot> {
+    if (this.quiescing) {
+      throw new Error('Managed sessions are unavailable while Aide restarts.')
+    }
     const existing = this.sessions.get(config.sessionId)
 
     if (existing) {
@@ -1809,6 +1825,9 @@ export class ManagedSessionManager {
       selectionNotice?: string | null
     },
   ): Promise<ManagedSessionSnapshot> {
+    if (this.quiescing) {
+      throw new Error('Managed sessions are unavailable while Aide restarts.')
+    }
     const newMode = selection.mode
 
     const state = this.sessions.get(sessionId)

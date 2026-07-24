@@ -17,7 +17,7 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
-import type { UpdateEvent } from '../shared/update'
+import type { UpdateEvent, UpdatePreferencesEvent } from '../shared/update'
 import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 import type { WorkspaceSetupEvent } from '../shared/workspace-setup'
 
@@ -39,10 +39,16 @@ const aideApi: AideApi = {
   getDiagnosticsSnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticsSnapshot),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
+  getUpdatePreferences: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getUpdatePreferences),
   getUpdateSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateSnapshot),
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
   downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
   retryUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.retryUpdate),
+  restartUpdate: (confirmed: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.restartUpdate, confirmed),
+  updatePreferences: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updatePreferences, input),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
@@ -103,6 +109,16 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.updateEvent, listener)
+    }
+  },
+  onUpdatePreferences: (callback: (event: UpdatePreferencesEvent) => void) => {
+    const listener = (_event: unknown, payload: UpdatePreferencesEvent) =>
+      callback(payload)
+
+    ipcRenderer.on(IPC_CHANNELS.updatePreferencesEvent, listener)
+
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.updatePreferencesEvent, listener)
     }
   },
   onManagedSessionEvent: (callback: (event: ManagedSessionEvent) => void) => {

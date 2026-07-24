@@ -25,11 +25,15 @@ interface TerminalSessionState {
 const MAX_BUFFER_LENGTH = 120_000
 
 export class TerminalSessionManager {
+  private quiescing = false
   private readonly sessions = new Map<string, TerminalSessionState>()
 
   public constructor(private readonly options: TerminalSessionManagerOptions) {}
 
   public createSession(config: TerminalSessionConfig): TerminalSessionSnapshot {
+    if (this.quiescing) {
+      throw new Error('Terminal sessions are unavailable while Aide restarts.')
+    }
     const existingSession = this.sessions.get(config.sessionId)
 
     if (existingSession && existingSession.pty !== null) {
@@ -88,6 +92,19 @@ export class TerminalSessionManager {
   public killAll(): void {
     for (const sessionId of this.sessions.keys()) {
       this.killSession(sessionId)
+    }
+  }
+
+  public getActiveSessionCount(): number {
+    return [...this.sessions.values()].filter((session) => session.pty !== null)
+      .length
+  }
+
+  /** Blocks new PTYs while an explicit update restart is being prepared. */
+  public beginQuiescing(): () => void {
+    this.quiescing = true
+    return () => {
+      this.quiescing = false
     }
   }
 

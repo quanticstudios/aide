@@ -22,6 +22,7 @@ import type {
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import type { RuntimeSnapshot } from '../shared/runtime'
+import { AIDE_RELEASE_PUBLIC_KEYRING } from '../shared/release-keyring'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -48,7 +49,9 @@ import {
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { isTrustedRendererUrl } from './trusted-renderer'
-import { UpdateManager } from './update-manager'
+import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
+import { requireUpdatePreferencesInput } from './update-preferences'
+import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
@@ -64,11 +67,22 @@ let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
 let workspaceSetupManager: WorkspaceSetupManager
 let updateManager: UpdateManager
+let updateRestartCoordinator: UpdateRestartCoordinator
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
+
+function releaseConfiguration(): UpdateReleaseOptions | null {
+  const origin = process.env.AIDE_UPDATE_ORIGIN
+  return origin
+    ? {
+        keyring: AIDE_RELEASE_PUBLIC_KEYRING,
+        origin,
+      }
+    : null
+}
 
 function requireTrustedRenderer(event: IpcMainInvokeEvent): void {
   const window = windowManager.getWindowForWebContents(event.sender)
@@ -118,6 +132,18 @@ function initializeServices(): void {
   }
 
   database = createAideDatabase(databasePath)
+  if (
+    (process.platform === 'linux' || process.platform === 'darwin') &&
+    (process.arch === 'x64' || process.arch === 'arm64') &&
+    !(process.platform === 'linux' && process.arch !== 'x64')
+  ) {
+    database.reconcilePendingUpdateInstall({
+      arch: process.arch,
+      currentVersion: app.getVersion(),
+      now: new Date().toISOString(),
+      platform: process.platform,
+    })
+  }
   gitWorkspaceService = new GitWorkspaceService(database)
   workspaceSetupManager = new WorkspaceSetupManager({
     onUpdate: (event) => {
@@ -178,6 +204,24 @@ function initializeServices(): void {
     },
     onUpdate: (event) =>
       windowManager.broadcast(IPC_CHANNELS.updateEvent, event),
+    release: releaseConfiguration(),
+    store: database,
+  })
+  updateManager.subscribePreferences((event) =>
+    windowManager.broadcast(IPC_CHANNELS.updatePreferencesEvent, event),
+  )
+  updateRestartCoordinator = new UpdateRestartCoordinator({
+    applicationRuntime,
+    managedSessions: managedSessionManager,
+    terminals: terminalSessionManager,
+    terminateAfterShutdownFailure: () => {
+      // Shutdown has already closed the database and child services. Relaunching
+      // the current signed app is safer than attempting an unverified install.
+      app.relaunch()
+      app.exit(1)
+    },
+    updates: updateManager,
+    workspaceSetups: workspaceSetupManager,
   })
 }
 
@@ -319,6 +363,10 @@ function registerIpcHandlers(): void {
     requireTrustedRenderer(event)
     return updateManager.getSnapshot()
   })
+  ipcMain.handle(IPC_CHANNELS.getUpdatePreferences, (event) => {
+    requireTrustedRenderer(event)
+    return updateManager.getPreferences()
+  })
   ipcMain.handle(IPC_CHANNELS.checkForUpdates, (event) => {
     requireTrustedRenderer(event)
     return updateManager.checkForUpdates()
@@ -330,6 +378,17 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.retryUpdate, (event) => {
     requireTrustedRenderer(event)
     return updateManager.checkForUpdates()
+  })
+  ipcMain.handle(IPC_CHANNELS.restartUpdate, (event, confirmed: unknown) => {
+    requireTrustedRenderer(event)
+    if (typeof confirmed !== 'boolean') {
+      throw new Error('Invalid update restart confirmation.')
+    }
+    return updateRestartCoordinator.requestRestart(confirmed)
+  })
+  ipcMain.handle(IPC_CHANNELS.updatePreferences, (event, input: unknown) => {
+    requireTrustedRenderer(event)
+    return updateManager.updatePreferences(requireUpdatePreferencesInput(input))
   })
   ipcMain.handle(
     IPC_CHANNELS.pickProjectRoot,
@@ -625,9 +684,11 @@ const applicationRuntime = new ApplicationRuntime({
     )
   },
   registerIpcHandlers,
-  shutdownServices: async () => {
+  shutdownServices: async (reason) => {
     try {
-      updateManager.stop()
+      updateManager.stop({
+        preserveVerifiedDownload: reason === 'update-install',
+      })
       await Promise.all([
         workspaceSetupManager.shutdown(),
         managedSessionManager.closeAll(2_000),

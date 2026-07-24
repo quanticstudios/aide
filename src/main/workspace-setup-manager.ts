@@ -185,6 +185,7 @@ export class WorkspaceSetupManager {
   private readonly liveByWorkspace = new Map<string, LiveSetup>()
   private readonly nextGenerationByWorkspace = new Map<string, number>()
   private readonly platform: NodeJS.Platform
+  private quiescing = false
   private readonly setTimeout: typeof setTimeout
   private readonly spawn: SetupSpawner
 
@@ -250,6 +251,18 @@ export class WorkspaceSetupManager {
     throw new Error(setupFailureMessage(setup.state))
   }
 
+  public getActiveSetupCount(): number {
+    return this.liveByWorkspace.size
+  }
+
+  /** Blocks new setup child processes while an explicit update restart runs. */
+  public beginQuiescing(): () => void {
+    this.quiescing = true
+    return () => {
+      this.quiescing = false
+    }
+  }
+
   /** Publishes a command revision change without implicitly starting work. */
   public publishProjectSnapshots(projectId: string): void {
     for (const workspace of this.options.store.listWorkspaces()) {
@@ -265,6 +278,9 @@ export class WorkspaceSetupManager {
 
   /** Starts a fresh attempt, or returns the live attempt for duplicate calls. */
   public run(workspaceId: string): WorkspaceSetupSnapshot {
+    if (this.quiescing) {
+      throw new Error('Workspace setup is unavailable while Aide restarts.')
+    }
     const existing = this.liveByWorkspace.get(workspaceId)
     if (existing) {
       return this.getSnapshot(workspaceId)

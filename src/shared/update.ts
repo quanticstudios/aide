@@ -1,4 +1,5 @@
-export const UPDATE_SCHEMA_VERSION = 1
+// v2 adds required signed-release urgency to renderer snapshots.
+export const UPDATE_SCHEMA_VERSION = 2
 
 export type UpdateCapability =
   | 'supported'
@@ -37,11 +38,101 @@ export interface UpdateSnapshot {
   revision: number
   schemaVersion: typeof UPDATE_SCHEMA_VERSION
   targetVersion: string | null
+  urgency: 'critical' | 'normal' | null
 }
 
 export interface UpdateEvent {
   revision: number
   snapshot: UpdateSnapshot
+}
+
+/** The only durable OTA preferences the renderer may read or mutate. */
+export interface UpdatePreferencesSnapshot {
+  automaticDownloads: boolean
+  healthDisclosureAcknowledged: boolean
+  healthReportingEnabled: boolean
+  revision: number
+  snoozedUntil: string | null
+}
+
+export interface UpdatePreferencesInput {
+  automaticDownloads?: boolean
+  healthDisclosureAcknowledged?: boolean
+  healthReportingEnabled?: boolean
+  snoozedUntil?: string | null
+}
+
+export interface UpdatePreferencesEvent {
+  revision: number
+  snapshot: UpdatePreferencesSnapshot
+}
+
+/**
+ * Reconciles preference events buffered while a renderer fetches its initial
+ * snapshot. This follows the same subscribe-before-hydrate protocol as update
+ * status, so duplicate, stale, and out-of-order IPC deliveries cannot roll a
+ * renderer back to an older durable preference revision.
+ */
+export function reconcileUpdatePreferencesSnapshot(
+  fetchedSnapshot: UpdatePreferencesSnapshot,
+  bufferedEvents: readonly UpdatePreferencesEvent[],
+): UpdatePreferencesSnapshot {
+  let reconciledSnapshot = fetchedSnapshot
+
+  for (const event of bufferedEvents) {
+    if (
+      event.revision <= reconciledSnapshot.revision ||
+      event.snapshot.revision !== event.revision
+    ) {
+      continue
+    }
+    reconciledSnapshot = event.snapshot
+  }
+
+  return reconciledSnapshot
+}
+
+/** Durable, privacy-bounded preferences owned exclusively by the main process. */
+export interface UpdateState {
+  automaticDownloads: boolean
+  healthDisclosureAcknowledged: boolean
+  healthReportingEnabled: boolean
+  installationId: string
+  lastCheckedAt: string | null
+  pendingAttemptId: string | null
+  pendingTargetVersion: string | null
+  snoozedUntil: string | null
+}
+
+export type UpdateHealthLifecycle =
+  | 'check-failed'
+  | 'check-started'
+  | 'downloaded'
+  | 'download-failed'
+  | 'download-started'
+  | 'install-failed'
+  | 'install-started'
+  | 'install-succeeded'
+
+export interface UpdateHealthEvent {
+  arch: 'arm64' | 'x64'
+  attemptId: string
+  cohort: number
+  createdAt: string
+  currentVersion: string
+  durationMs: number | null
+  errorCode: UpdateErrorCode | null
+  lifecycle: UpdateHealthLifecycle
+  platform: 'darwin' | 'linux'
+  targetVersion: string | null
+}
+
+export interface UpdateRestartStatus {
+  activeManagedSessions: number
+  activeTerminalSessions: number
+  activeWorkspaceSetups: number
+  confirmationRequired: boolean
+  restarting: boolean
 }
 
 /**
