@@ -9,6 +9,7 @@ import {
   assertMacReleaseCredentials,
   hasMacNotarizationCredentials,
   hasMacSigningCredentials,
+  macPackagingEnvironment,
   macTargetFromArguments,
 } from './package-macos.mjs'
 import { writeChecksums } from './write-checksums.mjs'
@@ -94,6 +95,14 @@ test('ships release automation on native Linux and macOS runners only', () => {
     /--appimage-extract/,
   )
   assert.match(
+    readFileSync(resolve(root, 'scripts/package-macos.mjs'), 'utf8'),
+    /await run\(process\.execPath, verificationArguments\)/,
+  )
+  assert.match(
+    readFileSync(resolve(root, 'scripts/verify-macos-package.mjs'), 'utf8'),
+    /verifySignature: process\.argv\.includes\('--signed'\)/,
+  )
+  assert.match(
     readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'),
     /bun run test:packaging/,
   )
@@ -142,6 +151,30 @@ test('rejects macOS cross-target ambiguity and recognizes complete release crede
       CSC_KEY_PASSWORD: 'password',
       CSC_LINK: 'certificate',
     }),
+  )
+})
+
+test('removes empty macOS credential variables before invoking electron-builder', () => {
+  assert.deepEqual(
+    macPackagingEnvironment({
+      APPLE_API_KEY: '',
+      CSC_KEY_PASSWORD: '',
+      CSC_LINK: '',
+      PATH: '/usr/bin',
+    }),
+    { PATH: '/usr/bin' },
+  )
+  assert.deepEqual(
+    macPackagingEnvironment({
+      APPLE_API_KEY: '/tmp/key.p8',
+      CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate',
+    }),
+    {
+      APPLE_API_KEY: '/tmp/key.p8',
+      CSC_KEY_PASSWORD: 'password',
+      CSC_LINK: 'certificate',
+    },
   )
 })
 

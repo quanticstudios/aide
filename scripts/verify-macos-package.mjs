@@ -38,7 +38,11 @@ async function assertNativeArchitecture(file, target) {
   }
 }
 
-export async function verifyMacosPackage(directory, target) {
+export async function verifyMacosPackage(
+  directory,
+  target,
+  { verifySignature = false } = {},
+) {
   const application = await findApplication(directory)
   const resources = join(application, 'Contents', 'Resources')
   const nodePty = join(
@@ -70,15 +74,22 @@ export async function verifyMacosPackage(directory, target) {
       'The packaged Claude Agent SDK executable is not executable.',
     )
   }
-  await executeFile('codesign', ['--verify', '--deep', '--strict', application])
-  await executeFile('spctl', [
-    '--assess',
-    '--type',
-    'execute',
-    '--verbose=4',
-    application,
-  ])
-  await executeFile('xcrun', ['stapler', 'validate', application])
+  if (verifySignature) {
+    await executeFile('codesign', [
+      '--verify',
+      '--deep',
+      '--strict',
+      application,
+    ])
+    await executeFile('spctl', [
+      '--assess',
+      '--type',
+      'execute',
+      '--verbose=4',
+      application,
+    ])
+    await executeFile('xcrun', ['stapler', 'validate', application])
+  }
 }
 
 if (
@@ -91,8 +102,11 @@ if (
   await verifyMacosPackage(
     resolve(process.cwd(), process.argv[2] ?? 'dist'),
     process.argv[3],
+    { verifySignature: process.argv.includes('--signed') },
   )
   console.log(
-    'Verified macOS codesigning, Gatekeeper assessment, and stapling.',
+    process.argv.includes('--signed')
+      ? 'Verified macOS architecture, codesigning, Gatekeeper assessment, and stapling.'
+      : 'Verified macOS application and bundled executable architectures.',
   )
 }

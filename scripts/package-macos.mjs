@@ -5,6 +5,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const supportedArchitectures = new Set(['x64', 'arm64'])
+const macCredentialVariables = [
+  'APPLE_API_ISSUER',
+  'APPLE_API_KEY',
+  'APPLE_API_KEY_ID',
+  'APPLE_APP_SPECIFIC_PASSWORD',
+  'APPLE_ID',
+  'APPLE_KEYCHAIN',
+  'APPLE_KEYCHAIN_PROFILE',
+  'APPLE_TEAM_ID',
+  'CSC_KEY_PASSWORD',
+  'CSC_LINK',
+]
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
@@ -52,6 +64,16 @@ export function hasMacNotarizationCredentials(environment = process.env) {
     (hasValue(environment.APPLE_KEYCHAIN) &&
       hasValue(environment.APPLE_KEYCHAIN_PROFILE))
   )
+}
+
+export function macPackagingEnvironment(environment = process.env) {
+  const sanitized = { ...environment }
+  for (const variable of macCredentialVariables) {
+    if (!hasValue(sanitized[variable])) {
+      delete sanitized[variable]
+    }
+  }
+  return sanitized
 }
 
 export function macTargetFromArguments(argumentsList) {
@@ -104,21 +126,24 @@ export async function packageMacos(target) {
   await run('bun', ['run', 'build'])
   await run('bun', ['run', 'rebuild:native'])
   await run('bun', ['run', 'test:native'])
-  await run(resolve(root, 'node_modules/.bin/electron-builder'), [
-    '--mac',
-    `--${target}`,
-    '--publish',
-    'never',
-  ])
+  await run(
+    resolve(root, 'node_modules/.bin/electron-builder'),
+    ['--mac', `--${target}`, '--publish', 'never'],
+    {
+      env: macPackagingEnvironment(),
+    },
+  )
   await run(process.execPath, ['scripts/write-checksums.mjs', 'dist'])
 
+  const verificationArguments = [
+    'scripts/verify-macos-package.mjs',
+    'dist',
+    target,
+  ]
   if (hasMacSigningCredentials() && hasMacNotarizationCredentials()) {
-    await run(process.execPath, [
-      'scripts/verify-macos-package.mjs',
-      'dist',
-      target,
-    ])
+    verificationArguments.push('--signed')
   }
+  await run(process.execPath, verificationArguments)
 }
 
 if (
