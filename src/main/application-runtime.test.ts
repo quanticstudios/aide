@@ -84,6 +84,7 @@ describe('ApplicationRuntime', () => {
     await runtime.shutdown()
 
     expect(shutdownServices).toHaveBeenCalledOnce()
+    expect(shutdownServices).toHaveBeenCalledWith('normal')
     expect(runtime.isShutdownComplete()).toBe(true)
   })
 })

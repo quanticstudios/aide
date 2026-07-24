@@ -4,12 +4,14 @@ export interface ApplicationRuntimeDependencies {
   initializeServices: () => void
   reapStoppedManagedSessions: () => void
   registerIpcHandlers: () => void
-  shutdownServices: () => Promise<void>
+  shutdownServices: (reason: ApplicationShutdownReason) => Promise<void>
   startReaper: (
     callback: () => void,
     interval: number,
   ) => { unref?: () => void }
 }
+
+export type ApplicationShutdownReason = 'normal' | 'update-install'
 
 export class ApplicationRuntime {
   private shutdownComplete = false
@@ -36,9 +38,9 @@ export class ApplicationRuntime {
     }
   }
 
-  shutdown(): Promise<void> {
+  shutdown(reason: ApplicationShutdownReason = 'normal'): Promise<void> {
     this.shutdownPromise ??= this.dependencies
-      .shutdownServices()
+      .shutdownServices(reason)
       .finally(() => {
         this.shutdownComplete = true
       })

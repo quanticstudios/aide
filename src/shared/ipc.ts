@@ -48,7 +48,14 @@ import type {
   TerminalSessionConfig,
   TerminalSessionSnapshot,
 } from './terminal'
-import type { UpdateEvent, UpdateSnapshot } from './update'
+import type {
+  UpdateEvent,
+  UpdatePreferencesEvent,
+  UpdatePreferencesInput,
+  UpdatePreferencesSnapshot,
+  UpdateRestartStatus,
+  UpdateSnapshot,
+} from './update'
 import type {
   WorkspaceActivityCollectionSnapshot,
   WorkspaceActivityEvent,
@@ -73,11 +80,15 @@ export const IPC_CHANNELS = {
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
+  getUpdatePreferences: 'update:get-preferences',
   getUpdateSnapshot: 'update:get-snapshot',
   checkForUpdates: 'update:check',
   downloadUpdate: 'update:download',
   retryUpdate: 'update:retry',
+  restartUpdate: 'update:restart',
   updateEvent: 'update:event',
+  updatePreferences: 'update:set-preferences',
+  updatePreferencesEvent: 'update:preferences-event',
   pickProjectRoot: 'app:pick-project-root',
   importProject: 'app:import-project',
   listProjectRefs: 'app:list-project-refs',
@@ -158,6 +169,9 @@ export interface AideApi {
     callback: (snapshot: DiagnosticsSnapshot) => void,
   ) => () => void
   onUpdateEvent: (callback: (event: UpdateEvent) => void) => () => void
+  onUpdatePreferences: (
+    callback: (event: UpdatePreferencesEvent) => void,
+  ) => () => void
   probeExecutableCommand: (
     input: ExecutableProbeInput,
   ) => Promise<ExecutableProbeResult>
@@ -165,10 +179,15 @@ export interface AideApi {
     command: string,
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
+  getUpdatePreferences: () => Promise<UpdatePreferencesSnapshot>
   getUpdateSnapshot: () => Promise<UpdateSnapshot>
   checkForUpdates: () => Promise<UpdateSnapshot>
   downloadUpdate: () => Promise<UpdateSnapshot>
   retryUpdate: () => Promise<UpdateSnapshot>
+  restartUpdate: (confirmed: boolean) => Promise<UpdateRestartStatus>
+  updatePreferences: (
+    input: UpdatePreferencesInput,
+  ) => Promise<UpdatePreferencesSnapshot>
   getDiagnosticsSnapshot: () => Promise<DiagnosticsSnapshot>
   exportSupportBundle: () => Promise<SupportBundleExportResult>
   reportRendererFault: (

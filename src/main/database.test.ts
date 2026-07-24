@@ -19,7 +19,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 7,
+      schemaVersion: 8,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -77,6 +77,243 @@ describe('createAideDatabase', () => {
     expect(database.getWorkspaceActivityVisitWatermarks()).toEqual({
       [workspace.id]: '2026-07-13T12:00:00.000Z',
     })
+    database.close()
+  })
+
+  it('initializes durable update state once and safely reopens it', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-update-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const initial = database.getUpdateState()
+
+      expect(initial).toMatchObject({
+        automaticDownloads: true,
+        healthDisclosureAcknowledged: false,
+        healthReportingEnabled: true,
+        lastCheckedAt: null,
+        pendingAttemptId: null,
+        pendingTargetVersion: null,
+        snoozedUntil: null,
+      })
+      expect(initial.installationId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      )
+
+      const updated = database.updateUpdateState({
+        automaticDownloads: false,
+        healthDisclosureAcknowledged: true,
+        lastCheckedAt: '2026-07-24T12:00:00.000Z',
+        pendingAttemptId: 'attempt-1',
+        pendingTargetVersion: '0.2.1',
+        snoozedUntil: '2026-07-25T12:00:00.000Z',
+      })
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getUpdateState()).toEqual(updated)
+      expect(reopened.getUpdateState().installationId).toBe(
+        initial.installationId,
+      )
+      reopened.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
+  })
+
+  it('collects health data only after disclosure and clears it when consent is withdrawn', () => {
+    const database = createAideDatabase(':memory:')
+    const initial = database.getUpdatePreferences()
+
+    expect(initial).toEqual({
+      automaticDownloads: true,
+      healthDisclosureAcknowledged: false,
+      healthReportingEnabled: true,
+      revision: 0,
+      snoozedUntil: null,
+    })
+    database.appendUpdateHealthEvent({
+      arch: 'x64',
+      attemptId: 'before-disclosure',
+      cohort: 7,
+      createdAt: '2026-07-24T11:00:00.000Z',
+      currentVersion: '0.1.0',
+      durationMs: null,
+      errorCode: null,
+      lifecycle: 'check-started',
+      platform: 'linux',
+      targetVersion: null,
+    })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+
+    expect(
+      database.updateUpdatePreferences({
+        automaticDownloads: false,
+        healthDisclosureAcknowledged: true,
+        snoozedUntil: '2026-07-25T12:00:00.000Z',
+      }),
+    ).toEqual({
+      automaticDownloads: false,
+      healthDisclosureAcknowledged: true,
+      healthReportingEnabled: true,
+      revision: 1,
+      snoozedUntil: '2026-07-25T12:00:00.000Z',
+    })
+
+    database.appendUpdateHealthEvent({
+      arch: 'x64',
+      attemptId: 'privacy-opt-out',
+      cohort: 7,
+      createdAt: '2026-07-24T12:00:00.000Z',
+      currentVersion: '0.1.0',
+      durationMs: null,
+      errorCode: null,
+      lifecycle: 'check-started',
+      platform: 'linux',
+      targetVersion: null,
+    })
+    expect(database.listUpdateHealthEvents()).toHaveLength(1)
+
+    expect(
+      database.updateUpdatePreferences({ healthDisclosureAcknowledged: false }),
+    ).toMatchObject({ healthDisclosureAcknowledged: false, revision: 2 })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+
+    database.updateUpdatePreferences({ healthDisclosureAcknowledged: true })
+    database.appendUpdateHealthEvent({
+      arch: 'x64',
+      attemptId: 'after-reacknowledgement',
+      cohort: 7,
+      createdAt: '2026-07-24T13:00:00.000Z',
+      currentVersion: '0.1.0',
+      durationMs: null,
+      errorCode: null,
+      lifecycle: 'check-started',
+      platform: 'linux',
+      targetVersion: null,
+    })
+    expect(database.listUpdateHealthEvents()).toHaveLength(1)
+    expect(
+      database.updateUpdatePreferences({ healthReportingEnabled: false }),
+    ).toMatchObject({ healthReportingEnabled: false })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+    database.close()
+  })
+
+  it('bounds update health storage, expires it, and never serializes unknown fields', () => {
+    const database = createAideDatabase(':memory:')
+    database.updateUpdateState({ healthDisclosureAcknowledged: true })
+
+    database.appendUpdateHealthEvent({
+      arch: 'x64',
+      attemptId: 'expired',
+      cohort: 7,
+      createdAt: '2026-06-01T00:00:00.000Z',
+      currentVersion: '0.1.0',
+      durationMs: null,
+      errorCode: null,
+      lifecycle: 'check-started',
+      platform: 'linux',
+      targetVersion: null,
+    })
+    for (let index = 0; index < 101; index += 1) {
+      database.appendUpdateHealthEvent({
+        arch: 'x64',
+        attemptId: `attempt-${index}`,
+        cohort: index % 100,
+        createdAt: '2026-07-24T12:00:00.000Z',
+        currentVersion: '0.1.0',
+        durationMs: index,
+        errorCode: index % 2 === 0 ? 'network' : null,
+        lifecycle: 'downloaded',
+        platform: 'linux',
+        targetVersion: '0.2.1',
+        // This must never be used as a persistence schema escape hatch.
+        rawError: 'https://secret@example.test/file',
+      } as never)
+    }
+
+    const events = database.listUpdateHealthEvents('2026-07-24T12:00:00.000Z')
+    expect(events).toHaveLength(100)
+    expect(events[0]?.attemptId).toBe('attempt-1')
+    expect(JSON.stringify(events)).not.toContain('secret')
+    expect(JSON.stringify(events)).not.toContain('rawError')
+
+    database.updateUpdateState({ healthReportingEnabled: false })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+    database.close()
+  })
+
+  it('reconciles only committed update installs on the next startup', () => {
+    const database = createAideDatabase(':memory:')
+
+    expect(
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.1.0',
+        now: '2026-07-24T12:00:00.000Z',
+        platform: 'linux',
+      }),
+    ).toBeNull()
+    expect(database.listUpdateHealthEvents()).toEqual([])
+
+    database.commitUpdateInstallStart({
+      arch: 'x64',
+      attemptId: 'install-attempt',
+      currentVersion: '0.1.0',
+      now: '2026-07-24T12:00:30.000Z',
+      platform: 'linux',
+      targetVersion: '0.2.1',
+    })
+    expect(database.listUpdateHealthEvents()).toEqual([])
+    expect(
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.2.1',
+        now: '2026-07-24T12:01:00.000Z',
+        platform: 'linux',
+      }),
+    ).toBeNull()
+    expect(database.listUpdateHealthEvents()).toEqual([])
+
+    database.updateUpdateState({ healthDisclosureAcknowledged: true })
+    database.commitUpdateInstallStart({
+      arch: 'x64',
+      attemptId: 'acknowledged-install-attempt',
+      currentVersion: '0.1.0',
+      now: '2026-07-24T12:01:30.000Z',
+      platform: 'linux',
+      targetVersion: '0.2.1',
+    })
+    expect(database.listUpdateHealthEvents()).toMatchObject([
+      { lifecycle: 'install-started', targetVersion: '0.2.1' },
+    ])
+    expect(
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.2.1',
+        now: '2026-07-24T12:02:00.000Z',
+        platform: 'linux',
+      }),
+    ).toMatchObject({ lifecycle: 'install-succeeded', targetVersion: '0.2.1' })
+    expect(database.getUpdateState()).toMatchObject({
+      pendingAttemptId: null,
+      pendingTargetVersion: null,
+    })
+
+    database.updateUpdateState({
+      pendingAttemptId: 'failed-install',
+      pendingTargetVersion: '0.2.2',
+    })
+    expect(
+      database.reconcilePendingUpdateInstall({
+        arch: 'x64',
+        currentVersion: '0.2.1',
+        now: '2026-07-24T12:03:00.000Z',
+        platform: 'linux',
+      }),
+    ).toMatchObject({ lifecycle: 'install-failed', targetVersion: '0.2.2' })
     database.close()
   })
 
