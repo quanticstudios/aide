@@ -1,5 +1,5 @@
-import { generateKeyPairSync, sign } from 'node:crypto'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { mkdtemp, rename, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,11 +8,16 @@ import { describe, expect, it } from 'vitest'
 import {
   canonicalizeReleaseEnvelope,
   cohortForInstallation,
+  ED25519_SIGNATURE_BYTES,
+  MAX_RELEASE_ENVELOPE_BYTES,
+  MAX_RELEASE_FEED_BYTES,
   parseAndVerifyReleaseEnvelope,
   type ReleaseEnvelope,
   ReleaseEnvelopeError,
+  releaseFileMatchesIdentity,
   validateReleaseEligibility,
   verifyArtifactDigest,
+  verifyReleaseFileDigest,
 } from './release-envelope'
 
 const TEST_ORIGIN = 'http://127.0.0.1:43123'
@@ -95,6 +100,51 @@ describe('release envelopes', () => {
         }),
       ).toThrow(ReleaseEnvelopeError)
     }
+  })
+
+  it('rejects oversized untrusted bytes before decoding or verification', () => {
+    const { payload, publicKeyPem } = signedEnvelope()
+
+    expect(() =>
+      parseAndVerifyReleaseEnvelope(
+        Buffer.alloc(MAX_RELEASE_ENVELOPE_BYTES + 1, 0x7b),
+        Buffer.alloc(ED25519_SIGNATURE_BYTES),
+        { 'test-2026-01': publicKeyPem },
+      ),
+    ).toThrow(/too large/i)
+    expect(() =>
+      parseAndVerifyReleaseEnvelope(
+        payload,
+        Buffer.alloc(ED25519_SIGNATURE_BYTES + 1),
+        { 'test-2026-01': publicKeyPem },
+      ),
+    ).toThrow(/64 bytes/i)
+  })
+
+  it('bounds semantic version digits and the revocation list', () => {
+    expect(() =>
+      canonicalizeReleaseEnvelope(
+        createEnvelope({ version: `${'9'.repeat(11)}.0.0` }),
+      ),
+    ).toThrow(/SemVer/i)
+    expect(() =>
+      canonicalizeReleaseEnvelope(
+        createEnvelope({
+          revokedVersions: Array.from(
+            { length: 101 },
+            (_, index) => `1.0.${index}`,
+          ),
+        }),
+      ),
+    ).toThrow(/at most 100/i)
+    expect(() =>
+      canonicalizeReleaseEnvelope(createEnvelope({ keyId: 'k'.repeat(65) })),
+    ).toThrow(/keyId/i)
+    expect(() =>
+      canonicalizeReleaseEnvelope(
+        createEnvelope({ publishedAt: '2'.repeat(1_024) }),
+      ),
+    ).toThrow(/publishedAt/i)
   })
 
   it('rejects unknown keys and unsupported release fields before accepting a signature', () => {
@@ -217,20 +267,23 @@ describe('release envelopes', () => {
     ).toBe(true)
   })
 
-  it('checks both expected artifact digests and size without loading the file', async () => {
+  it('checks both expected artifact digests and size through one file identity', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'aide-envelope-'))
     const artifact = join(directory, 'artifact.bin')
     await writeFile(artifact, 'release payload')
 
-    await expect(
-      verifyArtifactDigest(artifact, {
-        sha256:
-          'd11a02dfb3d8dfdc9229678b67f948c32aabeb9e5d409434b171cd7e5275774f',
-        sha512:
-          '52f462270a45b78c9494256e3af98ca81b5fccf3d3ab4c2faedbf3e1c58806597077a8975a02135559c2488d9913e7c7a10ceae64dc6bcdf2f1a4a4966c81bef',
-        size: 15,
-      }),
-    ).resolves.toBeUndefined()
+    const identity = await verifyArtifactDigest(artifact, {
+      sha256:
+        'd11a02dfb3d8dfdc9229678b67f948c32aabeb9e5d409434b171cd7e5275774f',
+      sha512:
+        '52f462270a45b78c9494256e3af98ca81b5fccf3d3ab4c2faedbf3e1c58806597077a8975a02135559c2488d9913e7c7a10ceae64dc6bcdf2f1a4a4966c81bef',
+      size: 15,
+    })
+
+    expect(identity.size).toBe(15)
+    await expect(releaseFileMatchesIdentity(artifact, identity)).resolves.toBe(
+      true,
+    )
 
     await expect(
       verifyArtifactDigest(artifact, {
@@ -239,5 +292,52 @@ describe('release envelopes', () => {
         size: 15,
       }),
     ).rejects.toThrow(/digest/i)
+  })
+
+  it('verifies bounded feed metadata before updater consumption', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'aide-feed-'))
+    const feed = join(directory, 'latest-linux.yml')
+    const contents = Buffer.from('version: 0.2.1\npath: Aide.AppImage\n')
+    await writeFile(feed, contents)
+    const digest = createHash('sha256').update(contents).digest('hex')
+
+    await expect(verifyReleaseFileDigest(feed, digest)).resolves.toMatchObject({
+      size: contents.byteLength,
+    })
+    await expect(verifyReleaseFileDigest(feed, '0'.repeat(64))).rejects.toThrow(
+      /digest/i,
+    )
+
+    await writeFile(feed, Buffer.alloc(MAX_RELEASE_FEED_BYTES + 1))
+    await expect(verifyReleaseFileDigest(feed, digest)).rejects.toThrow(
+      /too large/i,
+    )
+  })
+
+  it('rejects symlinks and detects path replacement after verification', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'aide-identity-'))
+    const artifact = join(directory, 'artifact.bin')
+    const symlinkPath = join(directory, 'artifact-link.bin')
+    const replacement = join(directory, 'replacement.bin')
+    const contents = Buffer.from('release payload')
+    const expected = {
+      sha256: createHash('sha256').update(contents).digest('hex'),
+      sha512: createHash('sha512').update(contents).digest('hex'),
+      size: contents.byteLength,
+    }
+    await writeFile(artifact, contents)
+    await symlink(artifact, symlinkPath)
+
+    await expect(verifyArtifactDigest(symlinkPath, expected)).rejects.toThrow(
+      /regular file|symbolic link/i,
+    )
+
+    const identity = await verifyArtifactDigest(artifact, expected)
+    await writeFile(replacement, contents)
+    await rename(replacement, artifact)
+
+    await expect(releaseFileMatchesIdentity(artifact, identity)).resolves.toBe(
+      false,
+    )
   })
 })

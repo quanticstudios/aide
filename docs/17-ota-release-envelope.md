@@ -32,7 +32,10 @@ bun scripts/verify-release-envelope.ts \
 
 `sign-release-envelope.ts` rejects pretty-printed or otherwise noncanonical
 input. It reads the PEM only from the supplied path and writes only the requested
-detached signature; it never prints or stores private-key material.
+detached signature; it never prints or stores private-key material. The signature
+path cannot be either input path. Publication uses an exclusive temporary file and
+an atomic non-clobbering link, so an existing signature or operator path mistake
+cannot overwrite the envelope or private key.
 
 ## Client policy
 
@@ -43,5 +46,17 @@ cross-origin URLs, wrong platform/architecture, non-newer versions, revoked
 versions, and installations outside the signed 10%, 50%, or 100% cohort.
 
 The cohort is deterministic: `SHA-256(installationId + targetVersion) mod 100`.
-The update manager must revalidate the envelope and stream-check the published
-artifact SHA-256, SHA-512, and size immediately before installation.
+Raw envelopes are limited to 64 KiB and detached Ed25519 signatures must be exactly
+64 bytes. Semantic-version components, URLs, key IDs, and the revocation list are
+also bounded before cryptographic or updater work begins.
+
+Before configuring the updater, the update manager must download its metadata to a
+private cache file and call `verifyReleaseFileDigest`. Feed metadata is streamed
+from one non-symlink regular file descriptor and limited to 1 MiB.
+
+Before installation, `verifyArtifactDigest` streams SHA-256 and SHA-512 from one
+non-symlink regular file descriptor and returns that verified file's device/inode,
+size, and change timestamps. The updater must consume that exact updater-cache
+identity. Call `releaseFileMatchesIdentity` immediately before handing the cache
+path to the installer; if the identity changed, abort and re-download/reverify.
+Never copy verification success from one path or file identity to another.

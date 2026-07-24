@@ -1,6 +1,13 @@
-import { createPrivateKey, sign } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { createPrivateKey, randomUUID, sign } from 'node:crypto'
+import {
+  type FileHandle,
+  link,
+  open,
+  readFile,
+  realpath,
+  unlink,
+} from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { canonicalizeReleaseEnvelope } from '../src/shared/release-envelope'
 
@@ -16,6 +23,48 @@ function argument(name: string): string {
 const envelopePath = resolve(process.cwd(), argument('--envelope'))
 const privateKeyPath = resolve(process.cwd(), argument('--private-key'))
 const signaturePath = resolve(process.cwd(), argument('--signature'))
+const [canonicalEnvelopePath, canonicalPrivateKeyPath, signatureDirectory] =
+  await Promise.all([
+    realpath(envelopePath),
+    realpath(privateKeyPath),
+    realpath(dirname(signaturePath)),
+  ])
+const canonicalSignaturePath = join(signatureDirectory, basename(signaturePath))
+
+if (
+  canonicalSignaturePath === canonicalEnvelopePath ||
+  canonicalSignaturePath === canonicalPrivateKeyPath
+) {
+  throw new Error('Signature output must not collide with an input file.')
+}
+
+try {
+  const existingSignaturePath = await realpath(canonicalSignaturePath)
+  if (
+    existingSignaturePath === canonicalEnvelopePath ||
+    existingSignaturePath === canonicalPrivateKeyPath
+  ) {
+    throw new Error('Signature output must not collide with an input file.')
+  }
+  throw new Error('Signature output already exists.')
+} catch (error) {
+  if (
+    error instanceof Error &&
+    (error.message.includes('collide') ||
+      error.message.includes('already exists'))
+  ) {
+    throw error
+  }
+  if (
+    typeof error !== 'object' ||
+    error === null ||
+    !('code' in error) ||
+    error.code !== 'ENOENT'
+  ) {
+    throw error
+  }
+}
+
 const rawEnvelope = await readFile(envelopePath)
 const parsedEnvelope = JSON.parse(rawEnvelope.toString('utf8'))
 const canonicalEnvelope = canonicalizeReleaseEnvelope(parsedEnvelope)
@@ -29,5 +78,42 @@ if (privateKey.asymmetricKeyType !== 'ed25519') {
   throw new Error('Private key must be an Ed25519 key.')
 }
 
-await writeFile(signaturePath, sign(null, rawEnvelope, privateKey))
-console.log(`Wrote detached release signature to ${signaturePath}.`)
+const signature = sign(null, rawEnvelope, privateKey)
+const temporaryPath = join(
+  signatureDirectory,
+  `.${basename(signaturePath)}.tmp-${randomUUID()}`,
+)
+let temporaryHandle: FileHandle | null = null
+
+try {
+  temporaryHandle = await open(temporaryPath, 'wx', 0o600)
+  await temporaryHandle.writeFile(signature)
+  await temporaryHandle.sync()
+  await temporaryHandle.close()
+  temporaryHandle = null
+  await link(temporaryPath, canonicalSignaturePath)
+} catch (error) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'EEXIST'
+  ) {
+    throw new Error('Signature output already exists.')
+  }
+  throw error
+} finally {
+  await temporaryHandle?.close()
+  await unlink(temporaryPath).catch((error: unknown) => {
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('code' in error) ||
+      error.code !== 'ENOENT'
+    ) {
+      throw error
+    }
+  })
+}
+
+console.log(`Wrote detached release signature to ${canonicalSignaturePath}.`)

@@ -4,11 +4,15 @@ import {
   timingSafeEqual,
   verify,
 } from 'node:crypto'
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { type BigIntStats, constants } from 'node:fs'
+import { type FileHandle, lstat, open } from 'node:fs/promises'
 
 export const RELEASE_ENVELOPE_SCHEMA_VERSION = 1
 export const AIDE_RELEASE_PRODUCT_ID = 'studio.quantic.aide'
+export const ED25519_SIGNATURE_BYTES = 64
+export const MAX_RELEASE_ENVELOPE_BYTES = 64 * 1_024
+export const MAX_RELEASE_FEED_BYTES = 1_024 * 1_024
+export const MAX_REVOKED_VERSIONS = 100
 
 export type ReleasePlatform = 'darwin' | 'linux'
 export type ReleaseArch = 'arm64' | 'x64'
@@ -51,14 +55,27 @@ export interface ReleaseEligibilityInput {
   readonly platform: ReleasePlatform
 }
 
+/** Identity returned for the exact open file handle whose bytes were verified. */
+export interface VerifiedReleaseFileIdentity {
+  readonly changedNanoseconds: string
+  readonly device: string
+  readonly inode: string
+  readonly modifiedNanoseconds: string
+  readonly size: number
+}
+
 export type ReleaseEnvelopeErrorCode =
   | 'artifact-digest-mismatch'
   | 'artifact-size-mismatch'
   | 'invalid-envelope'
   | 'invalid-origin'
+  | 'invalid-release-file'
   | 'invalid-signature'
   | 'not-eligible'
   | 'noncanonical-envelope'
+  | 'release-file-digest-mismatch'
+  | 'release-file-changed'
+  | 'release-file-too-large'
   | 'unknown-key'
 
 export class ReleaseEnvelopeError extends Error {
@@ -71,7 +88,12 @@ export class ReleaseEnvelopeError extends Error {
   }
 }
 
-const stableSemverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const stableSemverPattern =
+  /^(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})$/
+const MAX_KEY_ID_CHARACTERS = 64
+const MAX_SEMVER_CHARACTERS = 32
+const MAX_URL_CHARACTERS = 2_048
+const MAX_INSTALLATION_ID_CHARACTERS = 256
 const sha256Pattern = /^[a-f0-9]{64}$/
 const sha512Pattern = /^[a-f0-9]{128}$/
 const keyIdPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/
@@ -119,7 +141,10 @@ function expectString(value: unknown, name: string): string {
 
 function expectStableSemver(value: unknown, name: string): string {
   const version = expectString(value, name)
-  if (!stableSemverPattern.test(version)) {
+  if (
+    version.length > MAX_SEMVER_CHARACTERS ||
+    !stableSemverPattern.test(version)
+  ) {
     invalidEnvelope(`${name} must be a stable SemVer version.`)
   }
   return version
@@ -135,6 +160,9 @@ function expectDigest(value: unknown, name: string, pattern: RegExp): string {
 
 function expectIsoTimestamp(value: unknown): string {
   const timestamp = expectString(value, 'publishedAt')
+  if (timestamp.length !== 24) {
+    invalidEnvelope('publishedAt must be a canonical ISO-8601 timestamp.')
+  }
   const parsed = new Date(timestamp)
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== timestamp) {
     invalidEnvelope('publishedAt must be a canonical ISO-8601 timestamp.')
@@ -144,7 +172,7 @@ function expectIsoTimestamp(value: unknown): string {
 
 function expectUrl(value: unknown, name: string): string {
   const url = expectString(value, name)
-  if (url.length > 2_048) {
+  if (url.length > MAX_URL_CHARACTERS) {
     invalidEnvelope(`${name} is too long.`)
   }
   try {
@@ -240,11 +268,16 @@ export function parseReleaseEnvelope(value: unknown): ReleaseEnvelope {
     invalidEnvelope('rolloutPercentage must be 10, 50, or 100.')
   }
   const keyId = expectString(envelope.keyId, 'keyId')
-  if (!keyIdPattern.test(keyId)) {
+  if (keyId.length > MAX_KEY_ID_CHARACTERS || !keyIdPattern.test(keyId)) {
     invalidEnvelope('keyId has an unsupported format.')
   }
   if (!Array.isArray(envelope.revokedVersions)) {
     invalidEnvelope('revokedVersions must be an array.')
+  }
+  if (envelope.revokedVersions.length > MAX_REVOKED_VERSIONS) {
+    invalidEnvelope(
+      `revokedVersions must contain at most ${MAX_REVOKED_VERSIONS} entries.`,
+    )
   }
   const revokedVersions = envelope.revokedVersions.map((version) =>
     expectStableSemver(version, 'revokedVersions entry'),
@@ -309,6 +342,21 @@ export function parseAndVerifyReleaseEnvelope(
   signature: Uint8Array,
   keyring: Readonly<Record<string, string>>,
 ): ReleaseEnvelope {
+  if (
+    rawEnvelope.byteLength < 1 ||
+    rawEnvelope.byteLength > MAX_RELEASE_ENVELOPE_BYTES
+  ) {
+    throw new ReleaseEnvelopeError(
+      'invalid-envelope',
+      `Release envelope is too large; maximum is ${MAX_RELEASE_ENVELOPE_BYTES} bytes.`,
+    )
+  }
+  if (signature.byteLength !== ED25519_SIGNATURE_BYTES) {
+    throw new ReleaseEnvelopeError(
+      'invalid-signature',
+      `Ed25519 release signatures must be exactly ${ED25519_SIGNATURE_BYTES} bytes.`,
+    )
+  }
   let parsed: unknown
   try {
     parsed = JSON.parse(
@@ -374,8 +422,13 @@ export function cohortForInstallation(
   installationId: string,
   targetVersion: string,
 ): number {
-  if (!installationId || installationId.length > 256) {
-    invalidEnvelope('installationId must be between 1 and 256 characters.')
+  if (
+    !installationId ||
+    installationId.length > MAX_INSTALLATION_ID_CHARACTERS
+  ) {
+    invalidEnvelope(
+      `installationId must be between 1 and ${MAX_INSTALLATION_ID_CHARACTERS} characters.`,
+    )
   }
   expectStableSemver(targetVersion, 'targetVersion')
   const digest = createHash('sha256')
@@ -503,33 +556,220 @@ export function validateReleaseEligibility(
   return true
 }
 
-/** Streams and checks an already-downloaded artifact before it can be installed. */
+function invalidReleaseFile(message: string): never {
+  throw new ReleaseEnvelopeError('invalid-release-file', message)
+}
+
+function fileIdentity(stats: BigIntStats): VerifiedReleaseFileIdentity {
+  const size = Number(stats.size)
+  if (!Number.isSafeInteger(size) || size < 0) {
+    invalidReleaseFile('Release file size is unsupported.')
+  }
+  return {
+    changedNanoseconds: stats.ctimeNs.toString(),
+    device: stats.dev.toString(),
+    inode: stats.ino.toString(),
+    modifiedNanoseconds: stats.mtimeNs.toString(),
+    size,
+  }
+}
+
+function sameFileStats(left: BigIntStats, right: BigIntStats): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.ctimeNs === right.ctimeNs &&
+    left.mtimeNs === right.mtimeNs
+  )
+}
+
+function identityMatches(
+  stats: BigIntStats,
+  identity: VerifiedReleaseFileIdentity,
+): boolean {
+  return (
+    stats.dev.toString() === identity.device &&
+    stats.ino.toString() === identity.inode &&
+    stats.size.toString() === String(identity.size) &&
+    stats.ctimeNs.toString() === identity.changedNanoseconds &&
+    stats.mtimeNs.toString() === identity.modifiedNanoseconds
+  )
+}
+
+async function openRegularReleaseFile(
+  filePath: string,
+): Promise<{ handle: FileHandle; stats: BigIntStats }> {
+  try {
+    const pathStats = await lstat(filePath, { bigint: true })
+    if (pathStats.isSymbolicLink()) {
+      invalidReleaseFile('Release file must not be a symbolic link.')
+    }
+    const noFollow =
+      typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+    const handle = await open(filePath, constants.O_RDONLY | noFollow)
+    try {
+      const stats = await handle.stat({ bigint: true })
+      if (!stats.isFile()) {
+        invalidReleaseFile('Release file must be a non-symbolic regular file.')
+      }
+      if (!sameFileStats(pathStats, stats)) {
+        throw new ReleaseEnvelopeError(
+          'release-file-changed',
+          'Release file changed while it was being opened.',
+        )
+      }
+      return { handle, stats }
+    } catch (error) {
+      await handle.close()
+      throw error
+    }
+  } catch (error) {
+    if (error instanceof ReleaseEnvelopeError) {
+      throw error
+    }
+    invalidReleaseFile('Release file must be a non-symbolic regular file.')
+  }
+}
+
+async function hashOpenReleaseFile(
+  handle: FileHandle,
+  maxBytes: number,
+  includeSha512: boolean,
+): Promise<{ sha256: string; sha512: string | null; size: number }> {
+  const sha256 = createHash('sha256')
+  const sha512 = includeSha512 ? createHash('sha512') : null
+  let size = 0
+  for await (const chunk of handle.createReadStream({ autoClose: false })) {
+    size += chunk.byteLength
+    if (size > maxBytes) {
+      throw new ReleaseEnvelopeError(
+        'release-file-too-large',
+        `Release file is too large; maximum is ${maxBytes} bytes.`,
+      )
+    }
+    sha256.update(chunk)
+    sha512?.update(chunk)
+  }
+  return {
+    sha256: sha256.digest('hex'),
+    sha512: sha512?.digest('hex') ?? null,
+    size,
+  }
+}
+
+async function verifyOpenReleaseFile(
+  filePath: string,
+  maxBytes: number,
+  includeSha512: boolean,
+): Promise<{
+  digests: { sha256: string; sha512: string | null; size: number }
+  identity: VerifiedReleaseFileIdentity
+}> {
+  const { handle, stats: before } = await openRegularReleaseFile(filePath)
+  try {
+    if (before.size > BigInt(maxBytes)) {
+      throw new ReleaseEnvelopeError(
+        'release-file-too-large',
+        `Release file is too large; maximum is ${maxBytes} bytes.`,
+      )
+    }
+    const digests = await hashOpenReleaseFile(handle, maxBytes, includeSha512)
+    const after = await handle.stat({ bigint: true })
+    if (!sameFileStats(before, after) || BigInt(digests.size) !== after.size) {
+      throw new ReleaseEnvelopeError(
+        'release-file-changed',
+        'Release file changed while it was being verified.',
+      )
+    }
+    return { digests, identity: fileIdentity(after) }
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * Streams bounded update metadata from one non-symlink file handle and verifies
+ * the feed SHA-256 before its URL may be passed to the updater.
+ */
+export async function verifyReleaseFileDigest(
+  filePath: string,
+  expectedSha256: string,
+): Promise<VerifiedReleaseFileIdentity> {
+  const expected = expectDigest(expectedSha256, 'feed.sha256', sha256Pattern)
+  const { digests, identity } = await verifyOpenReleaseFile(
+    filePath,
+    MAX_RELEASE_FEED_BYTES,
+    false,
+  )
+  if (!bytesEqual(Buffer.from(digests.sha256), Buffer.from(expected))) {
+    throw new ReleaseEnvelopeError(
+      'release-file-digest-mismatch',
+      'Release file digest does not match.',
+    )
+  }
+  return identity
+}
+
+/** Streams and checks an already-downloaded artifact from one open file handle. */
 export async function verifyArtifactDigest(
   artifactPath: string,
   expected: Pick<ReleaseArtifact, 'sha256' | 'sha512' | 'size'>,
-): Promise<void> {
-  const metadata = await stat(artifactPath)
-  if (metadata.size !== expected.size) {
+): Promise<VerifiedReleaseFileIdentity> {
+  const expectedSha256 = expectDigest(
+    expected.sha256,
+    'artifact.sha256',
+    sha256Pattern,
+  )
+  const expectedSha512 = expectDigest(
+    expected.sha512,
+    'artifact.sha512',
+    sha512Pattern,
+  )
+  if (!Number.isSafeInteger(expected.size) || expected.size < 1) {
+    invalidEnvelope('artifact.size must be a positive safe integer.')
+  }
+  const { digests, identity } = await verifyOpenReleaseFile(
+    artifactPath,
+    expected.size,
+    true,
+  )
+  if (digests.size !== expected.size) {
     throw new ReleaseEnvelopeError(
       'artifact-size-mismatch',
       'Downloaded artifact size does not match.',
     )
   }
-  const sha256 = createHash('sha256')
-  const sha512 = createHash('sha512')
-  for await (const chunk of createReadStream(artifactPath)) {
-    sha256.update(chunk)
-    sha512.update(chunk)
-  }
-  const actualSha256 = Buffer.from(sha256.digest('hex'), 'utf8')
-  const actualSha512 = Buffer.from(sha512.digest('hex'), 'utf8')
   if (
-    !bytesEqual(actualSha256, Buffer.from(expected.sha256, 'utf8')) ||
-    !bytesEqual(actualSha512, Buffer.from(expected.sha512, 'utf8'))
+    !bytesEqual(Buffer.from(digests.sha256), Buffer.from(expectedSha256)) ||
+    !digests.sha512 ||
+    !bytesEqual(Buffer.from(digests.sha512), Buffer.from(expectedSha512))
   ) {
     throw new ReleaseEnvelopeError(
       'artifact-digest-mismatch',
       'Downloaded artifact digest does not match.',
     )
+  }
+  return identity
+}
+
+/**
+ * Reopens without following symlinks and checks that an updater-cache path still
+ * names the exact verified file identity. Call immediately before installation.
+ */
+export async function releaseFileMatchesIdentity(
+  filePath: string,
+  identity: VerifiedReleaseFileIdentity,
+): Promise<boolean> {
+  let opened: { handle: FileHandle; stats: BigIntStats }
+  try {
+    opened = await openRegularReleaseFile(filePath)
+  } catch {
+    return false
+  }
+  try {
+    return identityMatches(opened.stats, identity)
+  } finally {
+    await opened.handle.close()
   }
 }
