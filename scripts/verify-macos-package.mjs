@@ -14,11 +14,11 @@ async function findApplication(directory, target) {
   const application = join(
     directory,
     target === 'arm64' ? 'mac-arm64' : 'mac',
-    'Aide.app',
+    'aide.app',
   )
   const applicationStat = await stat(application).catch(() => null)
   if (!applicationStat?.isDirectory()) {
-    throw new Error('The packaged macOS output does not contain Aide.app.')
+    throw new Error('The packaged macOS output does not contain aide.app.')
   }
   return application
 }
