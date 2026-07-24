@@ -78,6 +78,6 @@ if (
     arch: argument('--arch'),
     directory: resolve(argument('--directory')),
     platform: argument('--platform'),
-    version: packageJson.version,
+    version: process.env.AIDE_PACKAGE_VERSION ?? packageJson.version,
   })
 }

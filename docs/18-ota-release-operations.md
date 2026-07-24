@@ -30,6 +30,44 @@ key, native macOS credentials, and Cloudflare configuration exist.
    release before configuring a production origin. The matching private Ed25519
    key remains offline.
 
+The protected variables are compiled into tagged desktop packages. Native package
+jobs independently validate the exact values immediately before building, so a
+launch shell cannot redirect the update origin, keyring, or health endpoint.
+`AIDE_RELEASE_PUBLIC_KEY_PEM` must be a PEM `PUBLIC KEY` (SPKI) for Ed25519;
+private PEMs, development key IDs, IP literals, loopback, `r2.dev`,
+`workers.dev`, and trailing-dot variants are rejected. Unpackaged builds and a
+package with absent inputs are deliberately manual-only.
+
+## Linux packaged upgrade drill
+
+Run the expensive Linux x64 acceptance gate manually from the `Linux packaged
+OTA upgrade drill` workflow or any isolated Linux host:
+
+```sh
+bun install --frozen-lockfile
+bun run test:ota-linux-upgrade
+```
+
+The drill creates an ephemeral Ed25519 signing key in process memory and a
+local CA/feed bound only to `127.0.0.1` in a temporary directory, then compiles the exact
+`AIDE_OTA_DRILL_BUILD=1` policy into those disposable AppImages. That policy
+permits only HTTPS `127.0.0.1` as the update origin; it cannot be activated by
+a launch environment, and tagged builds reject the flag. The local CA is trusted
+via `NODE_EXTRA_CA_CERTS`; TLS is never disabled and the production parser still
+rejects every IP literal.
+It packages bootstrap, target, and recovery AppImages with the public test key
+compiled in, drives the real preload update commands under Xvfb/CDP, verifies
+the stable versionless `Aide.AppImage` replacement, retained userData/SQLite
+marker, and `node-pty` before and after restart. It also refreshes a signed
+revocation after download and proves restart refusal before publishing and
+installing the higher recovery patch. Temporary certificates, feed, and logs
+are removed in `finally`; the drill never mutates system networking
+configuration. The signing private key is neither written nor printed. The
+only retained CI evidence is bounded request paths, lifecycle stages, and
+process exit summaries; raw process output remains in the temporary directory
+and is deleted with it. Failure screenshots contain only the hermetic drill
+application state, never user data.
+
 ## OTA rollout health service
 
 The optional health service is a separate Cloudflare Worker and D1 database in

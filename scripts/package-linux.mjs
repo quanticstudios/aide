@@ -47,6 +47,9 @@ export async function packageLinux() {
     '--x64',
     '--publish',
     'never',
+    ...(process.env.AIDE_PACKAGE_VERSION
+      ? [`--config.extraMetadata.version=${process.env.AIDE_PACKAGE_VERSION}`]
+      : []),
   ])
   await run(process.execPath, [
     'scripts/write-updater-metadata.mjs',

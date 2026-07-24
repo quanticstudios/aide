@@ -1,4 +1,4 @@
-import { execFile as executeFile } from 'node:child_process'
+import { execFile as executeFile, spawn } from 'node:child_process'
 import { generateKeyPairSync } from 'node:crypto'
 import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -9,6 +9,23 @@ import { expect, test } from 'vitest'
 
 const execFile = promisify(executeFile)
 const root = resolve(import.meta.dirname, '..')
+
+function execFileWithInput(command, args, input) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const stderr = []
+    child.stderr.on('data', (chunk) => stderr.push(chunk))
+    child.once('error', reject)
+    child.once('exit', (code) => {
+      if (code === 0) return resolvePromise()
+      reject(new Error(Buffer.concat(stderr).toString()))
+    })
+    child.stdin.end(input)
+  })
+}
 
 function inputEnvelope() {
   return {
@@ -101,6 +118,45 @@ test('creates, signs, and verifies a canonical envelope using an external privat
   expect((await readFile(signature)).byteLength).toBe(64)
   expect(
     (await readdir(directory)).some((name) => name.includes('.tmp-')),
+  ).toBe(false)
+})
+
+test('signs a canonical envelope from bounded stdin without a private-key path', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aide-release-stdin-'))
+  const input = join(directory, 'input.json')
+  const envelope = join(directory, 'envelope.json')
+  const signature = join(directory, 'envelope.sig')
+  const keys = generateKeyPairSync('ed25519')
+  const privateKeyPem = keys.privateKey
+    .export({ format: 'pem', type: 'pkcs8' })
+    .toString()
+  await writeFile(input, JSON.stringify(inputEnvelope()))
+  await execFile(
+    'bun',
+    [
+      'scripts/create-release-envelope.ts',
+      '--input',
+      input,
+      '--output',
+      envelope,
+    ],
+    { cwd: root },
+  )
+  await execFileWithInput(
+    'bun',
+    [
+      'scripts/sign-release-envelope.ts',
+      '--envelope',
+      envelope,
+      '--private-key-stdin',
+      '--signature',
+      signature,
+    ],
+    privateKeyPem,
+  )
+  expect((await readFile(signature)).byteLength).toBe(64)
+  expect(
+    (await readdir(directory)).some((name) => name.includes('private')),
   ).toBe(false)
 })
 

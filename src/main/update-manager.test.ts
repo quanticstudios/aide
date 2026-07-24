@@ -407,6 +407,47 @@ describe('UpdateManager', () => {
     }
   })
 
+  it('invalidates a revoked or unreadable downloaded channel so a higher patch can recover', async () => {
+    const fixture = signedReleaseFixture()
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-revoked-'))
+    const downloadedFile = path.join(directory, 'Aide.AppImage')
+    writeFileSync(downloadedFile, fixture.artifact)
+    let revoked = false
+    const fetch = vi.fn(async (input: URL | RequestInfo) => {
+      if (revoked) return new Response('revoked channel', { status: 200 })
+      return fixture.fetch(input)
+    })
+    const { manager, provider } = createManager({
+      automaticDownloads: false,
+      release: {
+        allowInsecureTestOrigin: true,
+        fetch,
+        keyring: fixture.keyring,
+        origin: TEST_ORIGIN,
+      },
+    })
+    try {
+      await manager.checkForUpdates()
+      provider.emit('update-available', { version: '0.2.1' })
+      const download = manager.downloadUpdate()
+      provider.emit('update-downloaded', { downloadedFile, version: '0.2.1' })
+      await download
+      revoked = true
+      await expect(manager.revalidateDownloadedUpdate()).resolves.toBe(false)
+      expect(manager.getSnapshot()).toMatchObject({
+        errorCode: 'invalid-update',
+        phase: 'failed',
+        targetVersion: null,
+      })
+      revoked = false
+      await manager.checkForUpdates()
+      expect(provider.checkCount).toBe(2)
+    } finally {
+      manager.stop()
+      rmSync(directory, { force: true, recursive: true })
+    }
+  })
+
   it('rejects an artifact whose bytes do not match its signed identity', async () => {
     const fixture = signedReleaseFixture()
     const directory = mkdtempSync(path.join(tmpdir(), 'aide-downloaded-'))
@@ -586,6 +627,26 @@ describe('UpdateManager', () => {
     void manual.manager.checkForUpdates()
     expect(development.provider.checkCount).toBe(0)
     expect(manual.provider.checkCount).toBe(0)
+  })
+
+  it('permits an HTTPS loopback origin only for the explicit drill release option', () => {
+    const fixture = signedReleaseFixture()
+    const release = {
+      keyring: fixture.keyring,
+      origin: 'https://127.0.0.1:4567',
+    }
+    const normal = createManager({
+      appImagePath: '/tmp/Aide.AppImage',
+      isAppImagePath: () => true,
+      release,
+    })
+    const drill = createManager({
+      appImagePath: '/tmp/Aide.AppImage',
+      isAppImagePath: () => true,
+      release: { ...release, allowLoopbackDrillOrigin: true },
+    })
+    expect(normal.manager.getSnapshot().capability).toBe('manual-only')
+    expect(drill.manager.getSnapshot().capability).toBe('supported')
   })
 
   it('does not schedule automatic checks for unsupported installations', () => {

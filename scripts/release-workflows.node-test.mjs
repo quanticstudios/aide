@@ -59,8 +59,43 @@ test('health reporting endpoint is a fail-closed package-time main bundle value'
     'utf8',
   )
   assert.match(vite, /AIDE_UPDATE_HEALTH_ENDPOINT/)
+  assert.match(vite, /AIDE_UPDATE_ORIGIN/)
+  assert.match(vite, /AIDE_RELEASE_PUBLIC_KEY_PEM/)
+  assert.match(vite, /AIDE_OTA_DRILL_BUILD/)
   assert.match(vite, /__AIDE_UPDATE_HEALTH_ENDPOINT__/)
   assert.doesNotMatch(config, /process\.env/)
+})
+
+test('tagged package validation refuses the drill-only build flag', async () => {
+  const config = await readFile(
+    resolve(root, 'scripts/validate-packaged-update-config.mjs'),
+    'utf8',
+  )
+  assert.match(config, /AIDE_OTA_DRILL_BUILD/)
+  assert.match(config, /must not enable the OTA drill build policy/)
+})
+
+test('tagged packages embed only validated protected public OTA configuration', async () => {
+  const workflow = await readFile(
+    resolve(root, '.github/workflows/release-packages.yml'),
+    'utf8',
+  )
+  assert.match(workflow, /node scripts\/validate-packaged-update-config\.mjs/)
+  assert.match(
+    workflow,
+    /AIDE_RELEASE_PUBLIC_KEY_PEM: \$\{\{ vars\.AIDE_RELEASE_PUBLIC_KEY_PEM \}\}/,
+  )
+  assert.match(workflow, /linux-x64:[\s\S]*?environment: ota-production/)
+  assert.match(workflow, /macos:[\s\S]*?environment: ota-production/)
+  assert.equal(
+    workflow.split('node scripts/validate-packaged-update-config.mjs').length -
+      1,
+    3,
+  )
+  assert.match(
+    workflow,
+    /Test release assembly[\s\S]*?validate-packaged-update-config\.node-test\.mjs/,
+  )
 })
 
 test('tagged packages receive a protected custom health endpoint', async () => {
@@ -72,7 +107,7 @@ test('tagged packages receive a protected custom health endpoint', async () => {
     workflow,
     /validate-release:[\s\S]*?environment: ota-production[\s\S]*?AIDE_UPDATE_HEALTH_ENDPOINT: \$\{\{ vars\.AIDE_UPDATE_HEALTH_ENDPOINT \}\}/,
   )
-  assert.match(workflow, /node scripts\/validate-update-health-endpoint\.mjs/)
+  assert.match(workflow, /node scripts\/validate-packaged-update-config\.mjs/)
   assert.match(
     workflow,
     /linux-x64:[\s\S]*?AIDE_UPDATE_HEALTH_ENDPOINT: \$\{\{ needs\.validate-release\.outputs\.health_endpoint \}\}/,

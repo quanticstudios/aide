@@ -21,7 +21,6 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
-import { AIDE_RELEASE_PUBLIC_KEYRING } from '../shared/release-keyring'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
@@ -55,6 +54,7 @@ import {
 import { TerminalSessionManager } from './terminal-session-manager'
 import { isTrustedRendererUrl } from './trusted-renderer'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
+import { configuredUpdateRelease } from './update-release-config'
 import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
 import { requireUpdatePreferencesInput } from './update-preferences'
@@ -83,13 +83,7 @@ const rendererLocation = {
 const lastRendererFaultAt = new Map<string, number>()
 
 function releaseConfiguration(): UpdateReleaseOptions | null {
-  const origin = process.env.AIDE_UPDATE_ORIGIN
-  return origin
-    ? {
-        keyring: AIDE_RELEASE_PUBLIC_KEYRING,
-        origin,
-      }
-    : null
+  return configuredUpdateRelease()
 }
 
 function readNonNegativeInteger(value: string | undefined): number {

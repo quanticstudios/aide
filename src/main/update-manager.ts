@@ -43,6 +43,7 @@ import {
   bucketUpdateHealthDuration,
   coarsenUpdateHealthTimestamp,
 } from '../shared/update-health'
+import { validateTrustedUpdateOrigin } from '../shared/trusted-update-url.mjs'
 
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const DEFAULT_INITIAL_CHECK_DELAY_MS = 60_000
@@ -120,6 +121,8 @@ export interface UpdateStateStore {
 }
 
 export interface UpdateReleaseOptions {
+  /** Build-time-only acceptance-drill capability; never derived from env. */
+  readonly allowLoopbackDrillOrigin?: boolean
   readonly allowInsecureTestOrigin?: boolean
   readonly fetch?: typeof globalThis.fetch
   readonly keyring: Readonly<Record<string, string>>
@@ -591,15 +594,35 @@ export class UpdateManager {
         envelope.artifact.sha512 !== downloaded.envelope.artifact.sha512 ||
         envelope.artifact.size !== downloaded.envelope.artifact.size
       ) {
+        this.invalidateDownloadedUpdate()
         return false
       }
-      return releaseFileMatchesIdentity(
+      const matches = await releaseFileMatchesIdentity(
         downloaded.artifactPath,
         downloaded.identity,
       )
+      if (!matches) this.invalidateDownloadedUpdate()
+      return matches
     } catch {
+      this.invalidateDownloadedUpdate()
       return false
     }
+  }
+
+  /** A refreshed channel can revoke a ready file; make recovery checkable. */
+  private invalidateDownloadedUpdate(): void {
+    this.verifiedDownloadedRelease = null
+    this.downloadedVerification = null
+    void this.releaseProxy?.close()
+    this.releaseProxy = null
+    this.verifiedRelease = null
+    this.publish({
+      errorCode: 'invalid-update',
+      phase: 'failed',
+      progress: null,
+      targetVersion: null,
+      urgency: null,
+    })
   }
 
   /** Reopens the updater cache path without following links immediately before install. */
@@ -983,13 +1006,15 @@ export class UpdateManager {
       release.allowInsecureTestOrigin === true &&
       ['127.0.0.1', '::1', '[::1]', 'localhost'].includes(origin.hostname)
     if (
-      (!loopback && origin.protocol !== 'https:') ||
+      (!loopback &&
+        validateTrustedUpdateOrigin(release.origin, {
+          allowLoopback: release.allowLoopbackDrillOrigin === true,
+        }) === null) ||
       origin.username ||
       origin.password ||
       origin.search ||
       origin.hash ||
       origin.pathname !== '/' ||
-      origin.hostname.endsWith('.r2.dev') ||
       Object.keys(release.keyring).length === 0
     ) {
       throw new Error('A trusted HTTPS custom update origin is required.')

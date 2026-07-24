@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -50,6 +50,10 @@ async function verifyPackagedRuntime(appRoot) {
   )
 
   await stat(join(resources, 'app.asar'))
+  assert.equal(
+    await readFile(join(resources, 'app-update.yml'), 'utf8'),
+    'updaterCacheDirName: aide-updater\n',
+  )
   await stat(join(nodePty, 'build', 'Release', 'pty.node'))
   assert.ok(
     (await stat(claude)).mode & 0o111,
@@ -84,6 +88,7 @@ export async function verifyLinuxPackage(directory) {
 
   const { stdout } = await run('tar', ['-tzf', join(directory, archive)])
   assert.match(stdout, /resources\/app\.asar\n/)
+  assert.match(stdout, /resources\/app-update\.yml\n/)
   assert.match(
     stdout,
     /resources\/app\.asar\.unpacked\/node_modules\/node-pty\/.*pty\.node\n/,

@@ -24,7 +24,7 @@ test('locks a reproducible desktop packaging configuration', () => {
   assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3')
   assert.equal(
     packageJson.scripts['test:packaging'],
-    'node --test scripts/desktop-packaging.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
+    'node --test scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
   )
   assert.equal(build.appId, 'studio.quantic.aide')
   assert.equal(build.productName, 'Aide')
@@ -41,6 +41,15 @@ test('locks a reproducible desktop packaging configuration', () => {
     ].join('-'),
   )
   assert.equal(build.asar, true)
+  assert.deepEqual(build.extraResources, [
+    { from: 'build/app-update.yml', to: 'app-update.yml' },
+  ])
+  const updaterConfig = readFileSync(
+    resolve(root, 'build', 'app-update.yml'),
+    'utf8',
+  )
+  assert.equal(updaterConfig, 'updaterCacheDirName: aide-updater\n')
+  assert.doesNotMatch(updaterConfig, /provider|url|https?|channel|auth|trust/i)
   assert.deepEqual(build.asarUnpack, [
     'node_modules/node-pty/**',
     'node_modules/@anthropic-ai/claude-agent-sdk-*/**',
@@ -111,6 +120,10 @@ test('ships release automation on native Linux and macOS runners only', () => {
   assert.match(
     readFileSync(resolve(root, 'scripts/verify-macos-package.mjs'), 'utf8'),
     /verifySignature: process\.argv\.includes\('--signed'\)/,
+  )
+  assert.match(
+    readFileSync(resolve(root, 'scripts/verify-macos-package.mjs'), 'utf8'),
+    /app-update\.yml/,
   )
   assert.match(
     readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'),
