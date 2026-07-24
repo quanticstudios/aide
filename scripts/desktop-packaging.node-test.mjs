@@ -50,10 +50,7 @@ test('locks a reproducible desktop packaging configuration', () => {
     { target: 'tar.gz', arch: ['x64'] },
   ])
   assert.equal(build.linux.syncDesktopName, true)
-  assert.deepEqual(build.mac.target, [
-    { target: 'dmg', arch: ['x64', 'arm64'] },
-    { target: 'zip', arch: ['x64', 'arm64'] },
-  ])
+  assert.deepEqual(build.mac.target, ['dmg', 'zip'])
 })
 
 test('uses hardened runtime entitlements and native-only packaging entry points', () => {

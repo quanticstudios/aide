@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readdir, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
@@ -10,18 +10,17 @@ const expectedArchitectures = new Map([
   ['arm64', 'arm64'],
 ])
 
-async function findApplication(directory) {
-  const entries = await readdir(directory, {
-    recursive: true,
-    withFileTypes: true,
-  })
-  const application = entries.find(
-    (entry) => entry.isDirectory() && entry.name === 'Aide.app',
+async function findApplication(directory, target) {
+  const application = join(
+    directory,
+    target === 'arm64' ? 'mac-arm64' : 'mac',
+    'Aide.app',
   )
-  if (!application?.parentPath) {
+  const applicationStat = await stat(application).catch(() => null)
+  if (!applicationStat?.isDirectory()) {
     throw new Error('The packaged macOS output does not contain Aide.app.')
   }
-  return join(application.parentPath, application.name)
+  return application
 }
 
 async function assertNativeArchitecture(file, target) {
@@ -43,7 +42,7 @@ export async function verifyMacosPackage(
   target,
   { verifySignature = false } = {},
 ) {
-  const application = await findApplication(directory)
+  const application = await findApplication(directory, target)
   const resources = join(application, 'Contents', 'Resources')
   const nodePty = join(
     resources,
