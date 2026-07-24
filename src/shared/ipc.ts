@@ -1,9 +1,9 @@
-import type { ProjectTextFile } from './editor'
 import type {
   DiagnosticEventType,
   DiagnosticsSnapshot,
   SupportBundleExportResult,
 } from './diagnostics'
+import type { ProjectTextFile } from './editor'
 import type {
   ExecutableProbeInput,
   ExecutableProbeResult,
@@ -26,7 +26,6 @@ import type {
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from './managed-session'
-import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
@@ -40,6 +39,7 @@ import type {
   WorkspacePreviewEvent,
   WorkspacePreviewSnapshot,
 } from './preview'
+import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
@@ -48,6 +48,7 @@ import type {
   TerminalSessionConfig,
   TerminalSessionSnapshot,
 } from './terminal'
+import type { UpdateEvent, UpdateSnapshot } from './update'
 import type {
   WorkspaceActivityCollectionSnapshot,
   WorkspaceActivityEvent,
@@ -72,6 +73,11 @@ export const IPC_CHANNELS = {
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
   getRuntimeSnapshot: 'app:get-runtime-snapshot',
+  getUpdateSnapshot: 'update:get-snapshot',
+  checkForUpdates: 'update:check',
+  downloadUpdate: 'update:download',
+  retryUpdate: 'update:retry',
+  updateEvent: 'update:event',
   pickProjectRoot: 'app:pick-project-root',
   importProject: 'app:import-project',
   listProjectRefs: 'app:list-project-refs',
@@ -151,6 +157,7 @@ export interface AideApi {
   onDiagnosticsEvent: (
     callback: (snapshot: DiagnosticsSnapshot) => void,
   ) => () => void
+  onUpdateEvent: (callback: (event: UpdateEvent) => void) => () => void
   probeExecutableCommand: (
     input: ExecutableProbeInput,
   ) => Promise<ExecutableProbeResult>
@@ -158,6 +165,10 @@ export interface AideApi {
     command: string,
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
+  getUpdateSnapshot: () => Promise<UpdateSnapshot>
+  checkForUpdates: () => Promise<UpdateSnapshot>
+  downloadUpdate: () => Promise<UpdateSnapshot>
+  retryUpdate: () => Promise<UpdateSnapshot>
   getDiagnosticsSnapshot: () => Promise<DiagnosticsSnapshot>
   exportSupportBundle: () => Promise<SupportBundleExportResult>
   reportRendererFault: (
