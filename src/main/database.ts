@@ -18,6 +18,10 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../shared/preview'
+import type {
+  WorkspaceSetupSnapshot,
+  WorkspaceSetupStatus,
+} from '../shared/workspace-setup'
 
 interface SqlProjectRow {
   created_at: string
@@ -26,7 +30,9 @@ interface SqlProjectRow {
   name: string
   remote_url: string | null
   repo_root: string
+  setup_command: string | null
   updated_at: string
+  worktree_setup_revision: number
 }
 
 interface SqlWorkspaceRow {
@@ -48,6 +54,7 @@ interface SqlAppStateRow {
   last_active_surface_ids_by_workspace: string
   last_active_pane_ids_by_workspace: string
   last_active_workspace_id: string | null
+  workspace_setup_revision: number
 }
 
 interface SqlWorkspaceLayoutRow {
@@ -69,6 +76,24 @@ interface SqlWorkspacePreviewStateRow {
   initialized: number
   revision: number
   tabs_json: string
+  workspace_id: string
+}
+
+interface SqlWorkspaceSetupStateRow {
+  attempt: number
+  ended_at: string | null
+  error_summary: string | null
+  exit_code: number | null
+  output_byte_length: number
+  output_line_count: number
+  output_tail: string
+  output_truncated: number
+  project_setup_revision: number
+  revision: number
+  signal: string | null
+  started_at: string | null
+  state: WorkspaceSetupStatus
+  updated_at: string
   workspace_id: string
 }
 
@@ -182,6 +207,33 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 7,
+    sql: `
+      ALTER TABLE projects ADD COLUMN setup_command TEXT;
+      ALTER TABLE projects ADD COLUMN worktree_setup_revision INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE app_state ADD COLUMN workspace_setup_revision INTEGER NOT NULL DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS workspace_setup_states (
+        workspace_id TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        project_setup_revision INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT,
+        ended_at TEXT,
+        exit_code INTEGER,
+        signal TEXT,
+        error_summary TEXT,
+        output_tail TEXT NOT NULL DEFAULT '',
+        output_byte_length INTEGER NOT NULL DEFAULT 0,
+        output_line_count INTEGER NOT NULL DEFAULT 0,
+        output_truncated INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+    `,
+  },
 ]
 
 export function createAideDatabase(databasePath: string): AideDatabase {
@@ -234,6 +286,128 @@ export class AideDatabase {
       .run(workspaceId, processedThrough)
   }
 
+  public getWorkspaceSetupRevision(): number {
+    const row = this.database
+      .prepare('SELECT workspace_setup_revision FROM app_state WHERE id = 1')
+      .get() as Pick<SqlAppStateRow, 'workspace_setup_revision'> | undefined
+
+    return row?.workspace_setup_revision ?? 0
+  }
+
+  public getWorkspaceSetupState(
+    workspaceId: string,
+  ): WorkspaceSetupSnapshot | null {
+    const row = this.database
+      .prepare(
+        `
+          SELECT workspace_id, state, attempt, project_setup_revision, started_at,
+                 ended_at, exit_code, signal, error_summary, output_tail,
+                 output_byte_length, output_line_count, output_truncated,
+                 revision, updated_at
+          FROM workspace_setup_states
+          WHERE workspace_id = ?
+        `,
+      )
+      .get(workspaceId) as SqlWorkspaceSetupStateRow | undefined
+
+    return row ? this.mapWorkspaceSetupStateRow(row) : null
+  }
+
+  public getWorkspaceSetupStates(): Record<string, WorkspaceSetupSnapshot> {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT workspace_id, state, attempt, project_setup_revision, started_at,
+                 ended_at, exit_code, signal, error_summary, output_tail,
+                 output_byte_length, output_line_count, output_truncated,
+                 revision, updated_at
+          FROM workspace_setup_states
+          ORDER BY workspace_id ASC
+        `,
+      )
+      .all() as unknown as SqlWorkspaceSetupStateRow[]
+
+    return Object.fromEntries(
+      rows.map((row) => {
+        const snapshot = this.mapWorkspaceSetupStateRow(row)
+        return [snapshot.workspaceId, snapshot]
+      }),
+    )
+  }
+
+  public saveWorkspaceSetupState(
+    input: WorkspaceSetupSnapshot,
+  ): WorkspaceSetupSnapshot | null {
+    if (!this.getWorkspace(input.workspaceId)) {
+      return null
+    }
+
+    const revision = this.incrementWorkspaceSetupRevision()
+    const updatedAt = new Date().toISOString()
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO workspace_setup_states (
+            workspace_id, state, attempt, project_setup_revision, started_at,
+            ended_at, exit_code, signal, error_summary, output_tail,
+            output_byte_length, output_line_count, output_truncated, revision,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET
+            state = excluded.state,
+            attempt = excluded.attempt,
+            project_setup_revision = excluded.project_setup_revision,
+            started_at = excluded.started_at,
+            ended_at = excluded.ended_at,
+            exit_code = excluded.exit_code,
+            signal = excluded.signal,
+            error_summary = excluded.error_summary,
+            output_tail = excluded.output_tail,
+            output_byte_length = excluded.output_byte_length,
+            output_line_count = excluded.output_line_count,
+            output_truncated = excluded.output_truncated,
+            revision = excluded.revision,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.workspaceId,
+        input.state,
+        input.attempt,
+        input.projectSetupRevision,
+        input.startedAt,
+        input.endedAt,
+        input.exitCode,
+        input.signal,
+        input.errorSummary,
+        input.outputTail,
+        input.outputByteLength,
+        input.outputLineCount,
+        input.outputTruncated ? 1 : 0,
+        revision,
+        updatedAt,
+      )
+
+    return this.getWorkspaceSetupState(input.workspaceId)
+  }
+
+  public reconcileInterruptedWorkspaceSetups(): WorkspaceSetupSnapshot[] {
+    const running = Object.values(this.getWorkspaceSetupStates()).filter(
+      (setup) => setup.state === 'queued' || setup.state === 'running',
+    )
+
+    return running.flatMap((setup) => {
+      const updated = this.saveWorkspaceSetupState({
+        ...setup,
+        endedAt: new Date().toISOString(),
+        errorSummary: 'Setup was interrupted when Aide closed.',
+        state: 'failed',
+      })
+      return updated ? [updated] : []
+    })
+  }
+
   public createProject(input: CreateProjectInput): ProjectRecord {
     const now = new Date().toISOString()
     const project: ProjectRecord = {
@@ -242,6 +416,8 @@ export class AideDatabase {
       repoRoot: input.repoRoot,
       remoteUrl: input.remoteUrl,
       defaultBranch: input.defaultBranch,
+      setupCommand: null,
+      worktreeSetupRevision: 0,
       createdAt: now,
       updatedAt: now,
     }
@@ -249,8 +425,8 @@ export class AideDatabase {
     this.database
       .prepare(
         `
-          INSERT INTO projects (id, name, repo_root, remote_url, default_branch, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO projects (id, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
@@ -259,6 +435,8 @@ export class AideDatabase {
         project.repoRoot,
         project.remoteUrl,
         project.defaultBranch,
+        project.setupCommand,
+        project.worktreeSetupRevision,
         project.createdAt,
         project.updatedAt,
       )
@@ -290,7 +468,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          SELECT id, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           WHERE id = ?
         `,
@@ -304,7 +482,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          SELECT id, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           ORDER BY created_at ASC, id ASC
         `,
@@ -318,7 +496,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, name, repo_root, remote_url, default_branch, created_at, updated_at
+          SELECT id, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           WHERE repo_root = ?
           LIMIT 1
@@ -348,6 +526,15 @@ export class AideDatabase {
           ? input.remoteUrl
           : existingProject.remoteUrl,
       repoRoot: input.repoRoot ?? existingProject.repoRoot,
+      setupCommand:
+        input.setupCommand !== undefined
+          ? input.setupCommand
+          : existingProject.setupCommand,
+      worktreeSetupRevision:
+        input.setupCommand !== undefined &&
+        input.setupCommand !== existingProject.setupCommand
+          ? existingProject.worktreeSetupRevision + 1
+          : existingProject.worktreeSetupRevision,
       updatedAt: new Date().toISOString(),
     }
 
@@ -355,7 +542,7 @@ export class AideDatabase {
       .prepare(
         `
           UPDATE projects
-          SET name = ?, repo_root = ?, remote_url = ?, default_branch = ?, updated_at = ?
+          SET name = ?, repo_root = ?, remote_url = ?, default_branch = ?, setup_command = ?, worktree_setup_revision = ?, updated_at = ?
           WHERE id = ?
         `,
       )
@@ -364,6 +551,8 @@ export class AideDatabase {
         updatedProject.repoRoot,
         updatedProject.remoteUrl,
         updatedProject.defaultBranch,
+        updatedProject.setupCommand,
+        updatedProject.worktreeSetupRevision,
         updatedProject.updatedAt,
         projectId,
       )
@@ -859,6 +1048,16 @@ export class AideDatabase {
       .run()
   }
 
+  private incrementWorkspaceSetupRevision(): number {
+    this.database
+      .prepare(
+        'UPDATE app_state SET workspace_setup_revision = workspace_setup_revision + 1 WHERE id = 1',
+      )
+      .run()
+
+    return this.getWorkspaceSetupRevision()
+  }
+
   private getActiveSelection(): SetActiveSelectionInput {
     const row = this.database
       .prepare(
@@ -895,6 +1094,8 @@ export class AideDatabase {
       repoRoot: row.repo_root,
       remoteUrl: row.remote_url,
       defaultBranch: row.default_branch,
+      setupCommand: row.setup_command,
+      worktreeSetupRevision: row.worktree_setup_revision,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
@@ -910,6 +1111,29 @@ export class AideDatabase {
       windowId: row.window_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    }
+  }
+
+  private mapWorkspaceSetupStateRow(
+    row: SqlWorkspaceSetupStateRow,
+  ): WorkspaceSetupSnapshot {
+    return {
+      attempt: row.attempt,
+      commandRequired: false,
+      endedAt: row.ended_at,
+      errorSummary: row.error_summary,
+      exitCode: row.exit_code,
+      outputByteLength: row.output_byte_length,
+      outputLineCount: row.output_line_count,
+      outputTail: row.output_tail,
+      outputTruncated: row.output_truncated === 1,
+      projectSetupRevision: row.project_setup_revision,
+      revision: row.revision,
+      signal: row.signal,
+      startedAt: row.started_at,
+      state: row.state,
+      updatedAt: row.updated_at,
+      workspaceId: row.workspace_id,
     }
   }
 

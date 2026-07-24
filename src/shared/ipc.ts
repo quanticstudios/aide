@@ -52,6 +52,11 @@ import type {
   WorkspaceActivityCollectionSnapshot,
   WorkspaceActivityEvent,
 } from './workspace-activity'
+import type {
+  WorkspaceSetupCollectionSnapshot,
+  WorkspaceSetupEvent,
+  WorkspaceSetupSnapshot,
+} from './workspace-setup'
 
 export const IPC_CHANNELS = {
   attachWorkspace: 'storage:attach-workspace',
@@ -81,10 +86,15 @@ export const IPC_CHANNELS = {
   getProviderCapabilities: 'app:get-provider-capabilities',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
+  getWorkspaceSetupSnapshot: 'workspace-setup:get-snapshot',
   readProjectFile: 'editor:read-project-file',
   setActiveSelection: 'storage:set-active-selection',
   workspaceActivityEvent: 'app:workspace-activity',
   workspacePersistenceEvent: 'storage:persistence-event',
+  workspaceSetupEvent: 'workspace-setup:event',
+  updateProjectSetupCommand: 'storage:update-project-setup-command',
+  runWorkspaceSetup: 'workspace-setup:run',
+  cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
   managedSessionClose: 'managed-session:close',
   managedSessionEvent: 'managed-session:event',
@@ -158,6 +168,7 @@ export interface AideApi {
   ) => Promise<void>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
+  getWorkspaceSetupSnapshot: () => Promise<WorkspaceSetupCollectionSnapshot>
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
@@ -182,6 +193,12 @@ export interface AideApi {
   createManagedSession: (
     input: ManagedSessionConfig,
   ) => Promise<ManagedSessionSnapshot>
+  updateProjectSetupCommand: (
+    projectId: string,
+    command: string | null,
+  ) => Promise<PersistenceSnapshot>
+  runWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
+  cancelWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
   closeManagedSession: (sessionId: string) => Promise<void>
   interruptManagedSession: (sessionId: string) => Promise<void>
   killTerminalSession: (sessionId: string) => Promise<void>
@@ -197,6 +214,9 @@ export interface AideApi {
   ) => () => void
   onWorkspacePersistence: (
     callback: (event: WorkspacePersistenceEvent) => void,
+  ) => () => void
+  onWorkspaceSetup: (
+    callback: (event: WorkspaceSetupEvent) => void,
   ) => () => void
   readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
   closePreviewTab: (

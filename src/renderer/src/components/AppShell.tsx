@@ -38,6 +38,7 @@ interface AppShellProps {
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
+  readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenDiagnostics: () => void
   readonly workspaceSummaries: Record<string, WorkspaceSummary>
   readonly children: ReactNode
@@ -63,6 +64,7 @@ export default function AppShell({
   onSelectWorkspace,
   onCreateProject,
   onCreateWorkspace,
+  onConfigureProjectSetup,
   onOpenDiagnostics,
   workspaceSummaries,
   children,
@@ -264,6 +266,7 @@ export default function AppShell({
           isPinnedOpen={isSidebarPinnedOpen}
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
+          onConfigureProjectSetup={onConfigureProjectSetup}
           onSelectHome={onSelectHome}
           onSelectProject={onSelectProject}
           onSelectPane={onSelectPane}

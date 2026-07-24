@@ -21,8 +21,10 @@ function createProject(id: string, name: string): ProjectRecord {
     repoRoot: `/repo/${name}`,
     remoteUrl: null,
     defaultBranch: 'main',
+    setupCommand: null,
     createdAt: `2026-03-22T00:00:0${id}Z`,
     updatedAt: `2026-03-22T00:00:0${id}Z`,
+    worktreeSetupRevision: 0,
   }
 }
 

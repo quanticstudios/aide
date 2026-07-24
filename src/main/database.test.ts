@@ -19,7 +19,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 6,
+      schemaVersion: 7,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -112,6 +112,87 @@ describe('createAideDatabase', () => {
     expect(database.getProject(createdProject.id)).toBeNull()
     expect(database.listProjects()).toEqual([])
 
+    database.close()
+  })
+
+  it('stores project setup commands with a monotonically increasing revision', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+
+    expect(project).toMatchObject({
+      setupCommand: null,
+      worktreeSetupRevision: 0,
+    })
+
+    const configured = database.updateProject(project.id, {
+      setupCommand: 'bun install',
+    })
+    expect(configured).toMatchObject({
+      setupCommand: 'bun install',
+      worktreeSetupRevision: 1,
+    })
+
+    expect(database.updateProject(project.id, { name: 'Aide' })).toMatchObject({
+      setupCommand: 'bun install',
+      worktreeSetupRevision: 1,
+    })
+    expect(
+      database.updateProject(project.id, { setupCommand: null }),
+    ).toMatchObject({
+      setupCommand: null,
+      worktreeSetupRevision: 2,
+    })
+    database.close()
+  })
+
+  it('persists setup states and cascades them when a workspace is deleted', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'Main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+
+    const saved = database.saveWorkspaceSetupState({
+      attempt: 1,
+      commandRequired: true,
+      endedAt: null,
+      errorSummary: null,
+      exitCode: null,
+      outputByteLength: 4,
+      outputLineCount: 1,
+      outputTail: 'done',
+      outputTruncated: false,
+      projectSetupRevision: 1,
+      revision: 0,
+      signal: null,
+      startedAt: '2026-07-24T15:00:00.000Z',
+      state: 'running',
+      updatedAt: '2026-07-24T15:00:00.000Z',
+      workspaceId: workspace.id,
+    })
+
+    expect(saved).toMatchObject({
+      outputTail: 'done',
+      revision: 1,
+      state: 'running',
+    })
+    expect(database.getWorkspaceSetupRevision()).toBe(1)
+    expect(database.deleteWorkspace(workspace.id)).toBe(true)
+    expect(database.getWorkspaceSetupState(workspace.id)).toBeNull()
     database.close()
   })
 

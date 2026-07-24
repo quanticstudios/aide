@@ -4,6 +4,12 @@ export interface ProjectRecord {
   repoRoot: string
   remoteUrl: string | null
   defaultBranch: string
+  /**
+   * A trusted, local command configured by the owner of this project. It is
+   * deliberately not part of diagnostics or support-bundle contracts.
+   */
+  setupCommand: string | null
+  worktreeSetupRevision: number
   createdAt: string
   updatedAt: string
 }
@@ -109,6 +115,7 @@ export interface UpdateProjectInput {
   name?: string
   remoteUrl?: string | null
   repoRoot?: string
+  setupCommand?: string | null
 }
 
 export interface CreateWorkspaceInput {
