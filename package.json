@@ -21,7 +21,7 @@
     "test:e2e": "bun run build && env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK XDG_SESSION_TYPE=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 OZONE_PLATFORM=x11 xvfb-run -a playwright test --config=playwright.electron.config.ts",
     "test:watch": "vitest",
     "test:dependency-policy": "node --test scripts/check-dependency-policy.node-test.mjs",
-    "test:packaging": "node --test scripts/desktop-packaging.node-test.mjs",
+    "test:packaging": "node --test scripts/desktop-packaging.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/write-updater-metadata.node-test.mjs",
     "check": "biome check . --assist-enabled=false",
     "check:bundle": "node scripts/renderer-bundle-budget.mjs out/renderer",
     "check:dependencies": "node scripts/check-dependency-policy.mjs",

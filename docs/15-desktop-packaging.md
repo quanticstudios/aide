@@ -75,3 +75,10 @@ and ZIP artifacts in lexical filename order. Verify a download with:
 ```sh
 sha256sum --check SHA256SUMS
 ```
+
+## OTA publication
+
+Package artifacts are not public releases. Tagged builds are collected into an
+internal immutable bundle, then a separately protected workflow verifies
+offline-signed per-target promotion records before writing public Cloudflare R2
+objects and stable channel pointers. See [OTA release operations](18-ota-release-operations.md).

@@ -134,6 +134,15 @@ export async function packageMacos(target) {
     },
   )
   await run(process.execPath, ['scripts/write-checksums.mjs', 'dist'])
+  await run(process.execPath, [
+    'scripts/write-updater-metadata.mjs',
+    '--platform',
+    'darwin',
+    '--arch',
+    target,
+    '--directory',
+    'dist',
+  ])
 
   const verificationArguments = [
     'scripts/verify-macos-package.mjs',

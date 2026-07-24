@@ -24,7 +24,7 @@ test('locks a reproducible desktop packaging configuration', () => {
   assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3')
   assert.equal(
     packageJson.scripts['test:packaging'],
-    'node --test scripts/desktop-packaging.node-test.mjs',
+    'node --test scripts/desktop-packaging.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
   )
   assert.equal(build.appId, 'studio.quantic.aide')
   assert.equal(build.productName, 'Aide')
@@ -63,8 +63,16 @@ test('uses hardened runtime entitlements and native-only packaging entry points'
     /process\.platform !== 'linux'/,
   )
   assert.match(
+    readFileSync(resolve(root, 'scripts/package-linux.mjs'), 'utf8'),
+    /write-updater-metadata\.mjs/,
+  )
+  assert.match(
     readFileSync(resolve(root, 'scripts/package-macos.mjs'), 'utf8'),
     /process\.platform !== 'darwin'/,
+  )
+  assert.match(
+    readFileSync(resolve(root, 'scripts/package-macos.mjs'), 'utf8'),
+    /write-updater-metadata\.mjs/,
   )
 })
 
@@ -86,6 +94,11 @@ test('ships release automation on native Linux and macOS runners only', () => {
   )
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/)
   assert.match(workflow, /bun run test:packaging/)
+  assert.match(workflow, /validate-release:/)
+  assert.match(workflow, /collect-release:/)
+  assert.match(workflow, /latest-linux\.yml/)
+  assert.match(workflow, /latest-mac\.yml/)
+  assert.match(workflow, /actions\/download-artifact@[0-9a-f]{40}/)
   assert.doesNotMatch(macosJobHeader, /secrets\./)
   assert.match(
     readFileSync(resolve(root, 'scripts/verify-linux-package.mjs'), 'utf8'),
@@ -103,6 +116,24 @@ test('ships release automation on native Linux and macOS runners only', () => {
     readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8'),
     /bun run test:packaging/,
   )
+})
+
+test('keeps public OTA promotion separate, protected, and fail-closed', () => {
+  const workflow = readFileSync(
+    resolve(root, '.github/workflows/ota-production.yml'),
+    'utf8',
+  )
+
+  assert.match(workflow, /environment: ota-production/)
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/)
+  assert.match(
+    workflow,
+    /AIDE_UPDATE_ORIGIN must be a configured HTTPS custom origin/,
+  )
+  assert.match(workflow, /R2_TEMPORARY_ACCESS_KEY_ID/)
+  assert.match(workflow, /release-promotions\/v\$VERSION\/linux-x64/)
+  assert.match(workflow, /scripts\/publish-ota-release\.mjs/)
+  assert.match(workflow, /actions\/download-artifact@[0-9a-f]{40}/)
 })
 
 test('rejects macOS cross-target ambiguity and recognizes complete release credentials', () => {

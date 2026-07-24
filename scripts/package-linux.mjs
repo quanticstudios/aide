@@ -48,6 +48,15 @@ export async function packageLinux() {
     '--publish',
     'never',
   ])
+  await run(process.execPath, [
+    'scripts/write-updater-metadata.mjs',
+    '--platform',
+    'linux',
+    '--arch',
+    'x64',
+    '--directory',
+    'dist',
+  ])
   await run(process.execPath, ['scripts/write-checksums.mjs', 'dist'])
   await run(process.execPath, ['scripts/verify-linux-package.mjs', 'dist'])
 }
