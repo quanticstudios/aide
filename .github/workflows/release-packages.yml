@@ -276,14 +276,14 @@ jobs:
       # v4.1.1, resolved from GitHub's official actions/attest-build-provenance
       # release API on 2026-07-24 and pinned to the upstream release commit.
       - name: Attest finalized release checksum bundle provenance
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: release-bundle/SHA256SUMS
 
       # The SBOM is independently attestable and remains a versioned immutable
       # audit object in the promoted release.
       - name: Attest CycloneDX SBOM provenance
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: release-bundle/sbom.cdx.json
 
