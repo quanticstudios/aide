@@ -15,23 +15,23 @@ import type {
 } from '../../shared/git'
 import type { AideApi } from '../../shared/ipc'
 import {
+  createEmptyPersistenceSnapshot,
   type PersistenceSnapshot,
   type SaveWorkspaceSurfaceStateInput,
   type SurfaceLayoutRecord,
   type WorkspaceLayoutRecord,
-  createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import type { PersistedStateRecovery } from '../../shared/recovery'
 import {
+  reconcileUpdatePreferencesSnapshot,
+  reconcileUpdateSnapshot,
   type UpdateEvent,
   type UpdatePreferencesEvent,
   type UpdatePreferencesInput,
   type UpdatePreferencesSnapshot,
   type UpdateRestartStatus,
   type UpdateSnapshot,
-  reconcileUpdatePreferencesSnapshot,
-  reconcileUpdateSnapshot,
 } from '../../shared/update'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
 import type {
@@ -55,14 +55,19 @@ import {
 } from './lib/pane-catalog'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
 import {
-  type SpatialNavigationState,
   applyPaneSelection,
   applyProjectSelection,
   applySurfaceSelection,
   applyWorkspaceSelection,
   moveRelativePane,
   resolveSpatialNavigationState,
+  type SpatialNavigationState,
 } from './lib/spatial-navigation-state'
+import {
+  createUpdateSnoozeUntil,
+  getUpdatePresentationRefreshDelay,
+  resolveUpdatePresentation,
+} from './lib/update-presentation'
 import { collectWorkspaceLayoutPaneIds } from './lib/workspace-layout'
 import {
   addPaneView,
@@ -79,11 +84,6 @@ import {
   resolveProjectShortcutTarget,
 } from './lib/workspace-shortcuts'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
-import {
-  createUpdateSnoozeUntil,
-  getUpdatePresentationRefreshDelay,
-  resolveUpdatePresentation,
-} from './lib/update-presentation'
 import {
   createSinglePaneSurface,
   findWorkspaceIdForSurface,
@@ -182,10 +182,65 @@ function prioritizeProjectRefs(
 }
 
 export default function App() {
+  const [persistedStateRecovery, setPersistedStateRecovery] = useState<
+    PersistedStateRecovery | null | undefined
+  >(undefined)
+  const [startupError, setStartupError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) {
+      setStartupError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+
+    void api
+      .getPersistedStateRecovery()
+      .then(setPersistedStateRecovery)
+      .catch((error: unknown) => setStartupError(getErrorMessage(error)))
+  }, [])
+
+  if (startupError) {
+    return (
+      <main className="recovery-screen" role="alert">
+        <section className="recovery-card">
+          <h1>Aide could not check its saved data</h1>
+          <p>{startupError}</p>
+        </section>
+      </main>
+    )
+  }
+
+  if (persistedStateRecovery === undefined) {
+    return (
+      <main aria-live="polite" className="recovery-screen">
+        <section className="recovery-card">
+          <h1>Opening saved data</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (persistedStateRecovery) {
+    const api = getAideApi()
+    if (!api) {
+      return null
+    }
+
+    return (
+      <PersistedStateRecoveryScreen
+        api={api}
+        recovery={persistedStateRecovery}
+      />
+    )
+  }
+
+  return <WorkspaceApp />
+}
+
+function WorkspaceApp() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
-  const [persistedStateRecovery, setPersistedStateRecovery] =
-    useState<PersistedStateRecovery | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isPaneCreationOpen, setIsPaneCreationOpen] = useState(false)
@@ -261,19 +316,6 @@ export default function App() {
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = storageSnapshot ?? createEmptyPersistenceSnapshot()
-  useEffect(() => {
-    const api = getAideApi()
-    if (!api) {
-      return
-    }
-
-    void api
-      .getPersistedStateRecovery()
-      .then(setPersistedStateRecovery)
-      .catch((error: unknown) => setShellError(getErrorMessage(error)))
-  }, [])
-
-  const recoveryApi = persistedStateRecovery ? getAideApi() : null
   const updatePreviewSnapshot = useCallback(
     (snapshot: WorkspacePreviewSnapshot) => {
       if (
@@ -2182,12 +2224,7 @@ export default function App() {
       ) ?? null)
     : null
 
-  return recoveryApi && persistedStateRecovery ? (
-    <PersistedStateRecoveryScreen
-      api={recoveryApi}
-      recovery={persistedStateRecovery}
-    />
-  ) : (
+  return (
     <AppShell
       activePaneId={resolvedNavigationState.activePaneId}
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}

@@ -561,6 +561,9 @@ const persistedManagedSessionSchema = z
     }
   })
 
+export const AIDE_DATABASE_SCHEMA_VERSION =
+  MIGRATIONS[MIGRATIONS.length - 1].version
+
 export function createAideDatabase(databasePath: string): AideDatabase {
   return new AideDatabase(databasePath)
 }
@@ -570,10 +573,15 @@ export class AideDatabase {
 
   public constructor(private readonly databasePath: string) {
     this.database = new DatabaseSync(databasePath)
-    this.database.exec('PRAGMA foreign_keys = ON;')
-    this.runMigrations()
-    this.ensureUpdateState()
-    this.discardUpdateHealthEventsIfNotPermitted()
+    try {
+      this.database.exec('PRAGMA foreign_keys = ON;')
+      this.runMigrations()
+      this.ensureUpdateState()
+      this.discardUpdateHealthEventsIfNotPermitted()
+    } catch (error) {
+      this.database.close()
+      throw error
+    }
   }
 
   public close(): void {

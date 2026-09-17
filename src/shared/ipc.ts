@@ -43,6 +43,7 @@ import type {
   WorkspacePreviewSnapshot,
 } from './preview'
 import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
+import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
@@ -70,6 +71,11 @@ import type {
 } from './workspace-setup'
 
 export const IPC_CHANNELS = {
+  getPersistedStateRecovery: 'app:get-persisted-state-recovery',
+  openPersistedStateDataFolder: 'app:open-persisted-state-data-folder',
+  quitPersistedStateRecovery: 'app:quit-persisted-state-recovery',
+  resetPersistedState: 'app:reset-persisted-state',
+  restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
   attachWorkspace: 'storage:attach-workspace',
@@ -147,6 +153,11 @@ export interface AvailableEditorDescriptor {
 }
 
 export interface AideApi {
+  getPersistedStateRecovery: () => Promise<PersistedStateRecovery | null>
+  openPersistedStateDataFolder: () => Promise<void>
+  quitPersistedStateRecovery: () => Promise<void>
+  resetPersistedState: () => Promise<void>
+  restoreKnownGoodPersistedState: () => Promise<void>
   getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>
   updateJevSettings: (
     workspaceId: string,

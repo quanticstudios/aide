@@ -23,6 +23,16 @@ import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 import type { WorkspaceSetupEvent } from '../shared/workspace-setup'
 
 const aideApi: AideApi = {
+  getPersistedStateRecovery: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getPersistedStateRecovery),
+  openPersistedStateDataFolder: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.openPersistedStateDataFolder),
+  quitPersistedStateRecovery: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.quitPersistedStateRecovery),
+  resetPersistedState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.resetPersistedState),
+  restoreKnownGoodPersistedState: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.restoreKnownGoodPersistedState),
   getJevSettings: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.getJevSettings, workspaceId),
   updateJevSettings: (workspaceId, input) =>

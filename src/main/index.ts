@@ -10,6 +10,7 @@ import {
   type IpcMainInvokeEvent,
   Menu,
   safeStorage,
+  shell,
 } from 'electron'
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
@@ -23,6 +24,7 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
+import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
@@ -33,7 +35,7 @@ import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { ApplicationRuntime } from './application-runtime'
 import { ContextPreparation } from './context-preparation'
-import { createAideDatabase } from './database'
+import type { AideDatabase } from './database'
 import { DiagnosticsService } from './diagnostics-service'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
@@ -47,6 +49,11 @@ import {
 import { GitWorkspaceService } from './git-service'
 import { JevSettings } from './jev-settings'
 import { ManagedSessionManager } from './managed-session-manager'
+import {
+  preparePersistedState,
+  resetPersistedState,
+  restoreKnownGoodPersistedState,
+} from './persistence-recovery'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
@@ -78,7 +85,9 @@ if (process.env.AIDE_DATABASE_PATH) {
 }
 const hasInstanceLock = app.requestSingleInstanceLock()
 if (!hasInstanceLock) app.exit(0)
-let database: ReturnType<typeof createAideDatabase>
+let database: AideDatabase
+let persistedStateRecovery: PersistedStateRecovery | null = null
+let runtimeInitialized = false
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
@@ -233,7 +242,7 @@ function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
   return workspace
 }
 
-function initializeServices(): void {
+function prepareDatabase(): boolean {
   const databasePath = getAideDatabasePath({
     databasePathOverride: process.env.AIDE_DATABASE_PATH,
     userDataPath: app.getPath('userData'),
@@ -246,7 +255,21 @@ function initializeServices(): void {
     })
   }
 
-  database = createAideDatabase(databasePath)
+  const result = preparePersistedState(databasePath)
+  if (result.status === 'recovery') {
+    persistedStateRecovery = result.recovery
+    return false
+  }
+  database = result.database
+  persistedStateRecovery = null
+  return true
+}
+
+function initializeServices(): void {
+  const databasePath = getAideDatabasePath({
+    databasePathOverride: process.env.AIDE_DATABASE_PATH,
+    userDataPath: app.getPath('userData'),
+  })
   jevSettings = new JevSettings(
     path.join(path.dirname(databasePath), 'jev-settings.json'),
     safeStorage,
@@ -942,7 +965,9 @@ function registerIpcHandlers(): void {
 }
 
 const applicationRuntime = new ApplicationRuntime({
-  createMainWindow: () => windowManager.createMainWindow(),
+  createMainWindow: () => {
+    if (!windowManager.hasWindows()) windowManager.createMainWindow()
+  },
   hasWindows: () => windowManager.hasWindows(),
   initializeServices,
   reapStoppedManagedSessions: () => {
@@ -952,6 +977,7 @@ const applicationRuntime = new ApplicationRuntime({
   },
   registerIpcHandlers,
   shutdownServices: async (reason) => {
+    if (!runtimeInitialized) return
     try {
       updateManager.stop({
         preserveVerifiedDownload: reason === 'update-install',
@@ -964,10 +990,62 @@ const applicationRuntime = new ApplicationRuntime({
       ])
     } finally {
       database.close()
+      runtimeInitialized = false
     }
   },
   startReaper: setInterval,
 })
+
+function startReadyRuntime(): void {
+  applicationRuntime.start()
+  runtimeInitialized = true
+  updateHealthReporter.start()
+  updateManager.startAutomaticChecks()
+  registerDiagnosticsHandlers()
+}
+
+function registerRecoveryHandlers(): void {
+  const ipcMain = createTrustedIpcRegistrar(
+    electronIpcMain,
+    requireTrustedRenderer,
+  )
+  const requireRecovery = () => {
+    if (!persistedStateRecovery)
+      throw new Error('Saved-data recovery is not active.')
+    return persistedStateRecovery
+  }
+  const resume = () => {
+    if (!prepareDatabase())
+      throw new Error(
+        persistedStateRecovery?.message ?? 'Saved data is still unavailable.',
+      )
+    startReadyRuntime()
+    setImmediate(() => {
+      for (const window of BrowserWindow.getAllWindows())
+        window.webContents.reload()
+    })
+  }
+  ipcMain.handle(
+    IPC_CHANNELS.getPersistedStateRecovery,
+    () => persistedStateRecovery,
+  )
+  ipcMain.handle(IPC_CHANNELS.openPersistedStateDataFolder, async () => {
+    const error = await shell.openPath(requireRecovery().dataDirectory)
+    if (error) throw new Error(error)
+  })
+  ipcMain.handle(IPC_CHANNELS.quitPersistedStateRecovery, () => {
+    requireRecovery()
+    app.quit()
+  })
+  ipcMain.handle(IPC_CHANNELS.restoreKnownGoodPersistedState, () => {
+    restoreKnownGoodPersistedState(requireRecovery().databasePath)
+    resume()
+  })
+  ipcMain.handle(IPC_CHANNELS.resetPersistedState, () => {
+    resetPersistedState(requireRecovery().databasePath)
+    resume()
+  })
+}
 
 app.on('second-instance', () => {
   const window = BrowserWindow.getAllWindows().find(
@@ -985,10 +1063,9 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   if (!hasInstanceLock) return
   Menu.setApplicationMenu(null)
-  applicationRuntime.start()
-  updateHealthReporter.start()
-  updateManager.startAutomaticChecks()
-  registerDiagnosticsHandlers()
+  registerRecoveryHandlers()
+  if (prepareDatabase()) startReadyRuntime()
+  else windowManager.createMainWindow()
 
   app.on('activate', () => {
     applicationRuntime.ensureMainWindow()
