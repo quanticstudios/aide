@@ -50,11 +50,46 @@ function emitAnswer(
     text,
     type: 'content.delta',
   })
+  emit({
+    createdAt: '2026-04-11T10:00:00.000Z',
+    itemId: `${config.sessionId}-reasoning`,
+    kind: 'reasoning-text',
+    provider: config.mode,
+    text: 'private reasoning',
+    type: 'content.delta',
+  })
+  emit({
+    createdAt: '2026-04-11T10:00:00.000Z',
+    itemId: `${config.sessionId}-tool`,
+    kind: 'command-output',
+    provider: config.mode,
+    text: 'private tool output',
+    type: 'content.delta',
+  })
   if (config.readOnly) {
     emit({
       createdAt: '2026-04-11T10:00:00.000Z',
       inputTokens: 3,
       outputTokens: 5,
+      provider: config.mode,
+      report: {
+        createdAt: '2026-04-11T10:00:00.000Z',
+        estimatedCostUsd: 0.1,
+        id: `${config.sessionId}-usage`,
+        models: [
+          {
+            cacheCreationInputTokens: null,
+            cachedInputTokens: null,
+            estimatedCostUsd: 0.1,
+            inputTokens: 3,
+            model: config.model ?? null,
+            outputTokens: 5,
+          },
+        ],
+        provider: config.mode,
+        scopeId: config.sessionId,
+        turnId,
+      },
       type: 'session.usage.updated',
     })
   }
@@ -119,6 +154,8 @@ describe('managed session opinions', () => {
         { provider: 'claude', role: 'assistant', text: 'assistant fact' },
       ]),
     ])
+    expect(prepared[0]?.history).toEqual(prepared[1]?.history)
+    expect(JSON.stringify(prepared[0]?.history)).not.toContain('private')
     expect(prepared.map((input) => input.config)).toEqual([
       expect.objectContaining({ agents: [], model: 'alpha', readOnly: true }),
       expect.objectContaining({ agents: [], model: 'beta', readOnly: true }),
@@ -138,9 +175,15 @@ describe('managed session opinions', () => {
         expect.objectContaining({ model: 'beta', text: 'answer beta' }),
       ]),
     )
-    expect(snapshot.usage).toMatchObject({ inputTokens: 3, outputTokens: 5 })
+    expect(snapshot.usageReports).toHaveLength(2)
+    expect(snapshot.usageSummary).toMatchObject({
+      estimatedCostUsd: 0.2,
+      inputTokens: 6,
+      outputTokens: 10,
+    })
     await manager.sendInput(config.sessionId, 'normal')
-    expect(lastOriginalInput).toBe('normal')
+    expect(lastOriginalInput).toStartWith('normal')
+    expect(lastOriginalInput).toContain('@alpha (claude/alpha)')
   })
 
   it('keeps successful opinions and rejects invalid recipients before child starts', async () => {
@@ -245,6 +288,112 @@ describe('managed session opinions', () => {
     ).toHaveLength(2)
     expect(manager.getSnapshots()[config.sessionId].content).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ text: 'late' })]),
+    )
+  })
+
+  it('cancels a child while preparation waits and accepts a later parent prompt', async () => {
+    let beginPreparation!: () => void
+    let releasePreparation!: () => void
+    const preparationStarted = new Promise<void>((resolve) => {
+      beginPreparation = resolve
+    })
+    const preparationRelease = new Promise<void>((resolve) => {
+      releasePreparation = resolve
+    })
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) =>
+          emitAnswer(config as OpinionConfig, emit, `answer ${text}`),
+        start: async () => emitReady(config, emit),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async (input) => {
+        if ((input.config as OpinionConfig).readOnly) {
+          beginPreparation()
+          await preparationRelease
+        }
+        return { text: input.text }
+      },
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    manager.configureSessionAgents(config.sessionId, [
+      { alias: 'alpha', selection: { mode: 'claude', model: 'alpha' } },
+    ])
+    const dispatch = manager.sendInput(config.sessionId, 'compare', ['alpha'])
+    await preparationStarted
+    await manager.interruptSession(config.sessionId)
+    await dispatch
+    releasePreparation()
+    await Promise.resolve()
+    expect(manager.getSnapshots()[config.sessionId].content).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'answer compare' }),
+      ]),
+    )
+    await expect(
+      manager.sendInput(config.sessionId, 'normal'),
+    ).resolves.toBeUndefined()
+  })
+
+  it('cancels one asked alias without cancelling another', async () => {
+    let releaseAlpha!: () => void
+    const alphaPending = new Promise<void>((resolve) => {
+      releaseAlpha = resolve
+    })
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => releaseAlpha(),
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          if (config.model === 'alpha') await alphaPending
+          emitAnswer(config as OpinionConfig, emit, `answer ${text}`)
+        },
+        start: async () => emitReady(config, emit),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    manager.configureSessionAgents(config.sessionId, [
+      { alias: 'alpha', selection: { mode: 'claude', model: 'alpha' } },
+      { alias: 'beta', selection: { mode: 'claude', model: 'beta' } },
+    ])
+    const alphaAbort = new AbortController()
+    const alpha = manager.askAgent(
+      config.sessionId,
+      'alpha',
+      'alpha prompt',
+      alphaAbort.signal,
+    )
+    const beta = manager.askAgent(
+      config.sessionId,
+      'beta',
+      'beta prompt',
+      new AbortController().signal,
+    )
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots()[config.sessionId].turns).toHaveLength(2),
+    )
+    alphaAbort.abort()
+    await expect(alpha).rejects.toThrow('cancelled')
+    await expect(beta).resolves.toContain('@beta (beta):')
+    expect(manager.getSnapshots()[config.sessionId].turns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipientAlias: 'alpha',
+          state: 'cancelled',
+        }),
+        expect.objectContaining({ recipientAlias: 'beta', state: 'completed' }),
+      ]),
     )
   })
 })
