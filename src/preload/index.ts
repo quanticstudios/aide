@@ -22,6 +22,10 @@ import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 import type { WorkspaceSetupEvent } from '../shared/workspace-setup'
 
 const aideApi: AideApi = {
+  getJevSettings: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getJevSettings, workspaceId),
+  updateJevSettings: (workspaceId, input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateJevSettings, workspaceId, input),
   attachWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.attachWorkspace, input),
   createTerminalSession: (input: TerminalSessionConfig) =>

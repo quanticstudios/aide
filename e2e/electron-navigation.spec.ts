@@ -11,9 +11,9 @@ import path from 'node:path'
 
 import {
   type ElectronApplication,
-  type Page,
   _electron as electron,
   expect,
+  type Page,
   test,
 } from '@playwright/test'
 
@@ -79,6 +79,10 @@ async function launchAideApp(
     env: {
       ...process.env,
       AIDE_DATABASE_PATH: path.join(tempDirectory, 'aide.sqlite3'),
+      TYPESAFE_API_KEY:
+        envOverrides.AIDE_FAKE_MANAGED_PROVIDERS === '1'
+          ? 'synthetic-e2e-key'
+          : (process.env.TYPESAFE_API_KEY ?? ''),
       ...envOverrides,
       WAYLAND_DISPLAY: '',
       HYPRLAND_INSTANCE_SIGNATURE: '',
@@ -107,6 +111,41 @@ async function importProject(page: Page): Promise<void> {
     .last()
     .click()
   await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+}
+
+async function prepareSyntheticJev(
+  app: ElectronApplication,
+  page: Page,
+): Promise<void> {
+  await app.evaluate(() => {
+    const nativeFetch = globalThis.fetch
+    globalThis.fetch = async (url, options) => {
+      if (url !== 'https://api.typesafe.ai/v1/systemone')
+        return nativeFetch(url, options)
+      const request = JSON.parse(String(options?.body))
+      return new Response(
+        JSON.stringify({
+          answers: Object.fromEntries(
+            Object.keys(request.questions).map((key) => [
+              key,
+              { type: 'noul', noul: 0.8 },
+            ]),
+          ),
+          model: 'jev-1.13.0',
+          usage: { input_tokens: 100, output_tokens: 10 },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      )
+    }
+  })
+  await page.evaluate(async () => {
+    const snapshot = await window.aide.getStorageSnapshot()
+    for (const workspace of snapshot.workspaces) {
+      await window.aide.updateJevSettings(workspace.id, {
+        allowProcessing: true,
+      })
+    }
+  })
 }
 
 async function addPane(page: Page, paneName: RegExp): Promise<void> {
@@ -535,6 +574,52 @@ test.describe('electron spatial navigation', () => {
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
   })
 
+  test('persists explicit Jev workspace consent without exposing credentials', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_FAKE_MANAGED_PROVIDERS: '1',
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+      TYPESAFE_API_KEY: '',
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+    const { page } = launched
+    await importProject(page)
+    await addPane(page, /^agent\b/i)
+    await page.locator('summary').filter({ hasText: 'Jev' }).click()
+    const consent = page.getByRole('checkbox', {
+      name: 'Allow TypeSafe processing for this workspace',
+    })
+    await expect(consent).not.toBeChecked()
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('Keep this draft until Jev is configured')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(
+      page.getByText(
+        /Allow TypeSafe processing for this workspace in Jev setup/,
+      ),
+    ).toBeVisible()
+    await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
+    await expect(page.getByTestId('managed-session-content')).not.toContainText(
+      'Handled:',
+    )
+    await consent.check()
+    await page.getByRole('button', { name: 'Save Jev settings' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeEnabled()
+    await page.reload()
+    await page.locator('summary').filter({ hasText: 'Jev' }).click()
+    await expect(consent).toBeChecked()
+    await expect(
+      page.getByLabel('TypeSafe API key', { exact: true }),
+    ).toHaveValue('')
+    await expect(
+      page.locator('summary').filter({ hasText: 'Jev' }),
+    ).toContainText('Setup required')
+  })
+
   test('renders managed Claude states from structured runtime events', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
@@ -550,6 +635,7 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await addPane(page, /^agent\b/i)
     await expandSidebar(page)
+    await prepareSyntheticJev(app, page)
     const workspaceSidebarRow = page
       .getByTestId('workspace-tree-panel')
       .getByRole('button', { name: /main/i })
@@ -560,6 +646,7 @@ test.describe('electron spatial navigation', () => {
     await expect(
       page.getByRole('button', { name: /submit answer/i }),
     ).toBeVisible()
+    await expandSidebar(page)
     await expect(workspaceSidebarRow.getByText('Agent Input')).toBeVisible()
     await page.getByRole('button', { name: /Continue the task/i }).click()
     await page.getByRole('button', { name: /submit answer/i }).click()
@@ -569,6 +656,7 @@ test.describe('electron spatial navigation', () => {
 
     await promptInput.fill('approval')
     await page.getByRole('button', { name: /send prompt/i }).click()
+    await expandSidebar(page)
     await expect(workspaceSidebarRow.getByText('Agent Approval')).toBeVisible()
     await page.getByRole('button', { name: /allow once/i }).click()
 
@@ -595,6 +683,7 @@ test.describe('electron spatial navigation', () => {
     await addPane(page, /^agent\b/i)
 
     const promptInput = page.getByRole('textbox', { name: /claude prompt/i })
+    await prepareSyntheticJev(app, page)
     await promptInput.fill('keep this session alive')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(

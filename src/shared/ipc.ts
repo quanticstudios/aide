@@ -19,6 +19,7 @@ import type {
   WorkspaceGitStatusResult,
   WorktreeBranchStatsResult,
 } from './git'
+import type { JevSettingsInput, JevSettingsStatus } from './jev'
 import type {
   ManagedSessionConfig,
   ManagedSessionDecision,
@@ -67,6 +68,8 @@ import type {
 } from './workspace-setup'
 
 export const IPC_CHANNELS = {
+  getJevSettings: 'jev:get-settings',
+  updateJevSettings: 'jev:update-settings',
   attachWorkspace: 'storage:attach-workspace',
   diagnosticsEvent: 'diagnostics:event',
   exportSupportBundle: 'diagnostics:export-support-bundle',
@@ -140,6 +143,11 @@ export interface AvailableEditorDescriptor {
 }
 
 export interface AideApi {
+  getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>
+  updateJevSettings: (
+    workspaceId: string,
+    input: JevSettingsInput,
+  ) => Promise<JevSettingsStatus>
   attachWorkspace: (
     input: AttachWorkspaceRequest,
   ) => Promise<PersistenceSnapshot>

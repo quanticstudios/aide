@@ -5,9 +5,10 @@ import {
   app,
   BrowserWindow,
   dialog,
-  type IpcMainInvokeEvent,
   ipcMain as electronIpcMain,
+  type IpcMainInvokeEvent,
   Menu,
+  safeStorage,
 } from 'electron'
 
 import type {
@@ -30,6 +31,7 @@ import type { UpdateEvent } from '../shared/update'
 import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { ApplicationRuntime } from './application-runtime'
+import { ContextPreparation } from './context-preparation'
 import { createAideDatabase } from './database'
 import { DiagnosticsService } from './diagnostics-service'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
@@ -42,6 +44,7 @@ import {
   isFakeUpdateServiceEnabled,
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
+import { JevSettings } from './jev-settings'
 import { ManagedSessionManager } from './managed-session-manager'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
@@ -55,10 +58,10 @@ import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
-import { configuredUpdateRelease } from './update-release-config'
 import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
 import { requireUpdatePreferencesInput } from './update-preferences'
+import { configuredUpdateRelease } from './update-release-config'
 import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
@@ -69,6 +72,7 @@ let database: ReturnType<typeof createAideDatabase>
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
+let jevSettings: JevSettings
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
@@ -140,6 +144,10 @@ function initializeServices(): void {
   }
 
   database = createAideDatabase(databasePath)
+  jevSettings = new JevSettings(
+    path.join(path.dirname(databasePath), 'jev-settings.json'),
+    safeStorage,
+  )
   if (
     (process.platform === 'linux' || process.platform === 'darwin') &&
     (process.arch === 'x64' || process.arch === 'arm64') &&
@@ -168,7 +176,18 @@ function initializeServices(): void {
     },
     visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
   })
+  const contextPreparation = new ContextPreparation(jevSettings)
   managedSessionManager = new ManagedSessionManager({
+    store: database,
+    prepareInput: (input) => {
+      const workspace = database.getWorkspace(input.config.workspaceId)
+      if (!workspace || workspace.worktreePath !== input.config.cwd) {
+        throw new Error(
+          'The conversation workspace changed. Reopen the workspace before sending a message.',
+        )
+      }
+      return contextPreparation.prepare(input)
+    },
     onRuntimeEvent: () => undefined,
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
@@ -350,6 +369,17 @@ function registerIpcHandlers(): void {
   const ipcMain = createTrustedIpcRegistrar(
     electronIpcMain,
     requireTrustedRenderer,
+  )
+  ipcMain.handle(IPC_CHANNELS.getJevSettings, (event, workspaceId: unknown) => {
+    const workspace = requireWorkspaceForSetup(event, workspaceId)
+    return jevSettings.getStatus(workspace.worktreePath)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.updateJevSettings,
+    (event, workspaceId: unknown, input: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      return jevSettings.update(workspace.worktreePath, input)
+    },
   )
   const publishPersistenceSnapshot = () => {
     const snapshot = database.getSnapshot()
@@ -675,7 +705,8 @@ function registerIpcHandlers(): void {
       requireTrustedRenderer(event)
       const config =
         await providerCapabilityService.resolveManagedSessionConfig(input)
-      requireWorkspaceForSetup(event, config.workspaceId)
+      const workspace = requireWorkspaceForSetup(event, config.workspaceId)
+      config.cwd = workspace.worktreePath
       if (!managedSessionManager.getSnapshots()[config.sessionId]) {
         workspaceSetupManager.assertManagedSessionAllowed(config.workspaceId)
       }
@@ -694,8 +725,13 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
-    (_event, sessionId: string, text: string) =>
-      managedSessionManager.sendInput(sessionId, text),
+    (_event, sessionId: unknown, text: unknown) => {
+      const id = requireRuntimeId(sessionId, 'managed-session id')
+      if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
+        throw new Error('Enter a message between 1 and 65,536 characters.')
+      }
+      return managedSessionManager.sendInput(id, text)
+    },
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionResolveRequest,

@@ -60,6 +60,7 @@ import {
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { cn } from '../lib/utils'
 import ContextWindowMeter from './ContextWindowMeter'
+import JevSetup from './JevSetup'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
@@ -1166,7 +1167,7 @@ export default function ManagedAgentPane({
         <div className="flex items-center gap-2">
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
-            isDisabled={snapshot?.sessionState !== 'running'}
+            isDisabled={!isSubmitting && snapshot?.sessionState !== 'running'}
             onPress={() => {
               const api = getAideApi()
               if (api) {
@@ -1181,6 +1182,8 @@ export default function ManagedAgentPane({
           </Button>
         </div>
       </div>
+
+      <JevSetup key={workspace.id} workspaceId={workspace.id} />
 
       {error ? (
         <div className="border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
