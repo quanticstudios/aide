@@ -735,7 +735,16 @@ export class GitWorkspaceService {
 
     if (file.isStaged) {
       const patch = await this.runGit(
-        ['diff', '--no-ext-diff', '--cached', '--unified=3', '--', file.path],
+        [
+          'diff',
+          '--no-ext-diff',
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          '--cached',
+          '--unified=3',
+          '--',
+          file.path,
+        ],
         workspace.worktreePath,
       )
       const truncated = truncateDiffOutput(patch)
@@ -766,7 +775,15 @@ export class GitWorkspaceService {
         })
       } else {
         const patch = await this.runGit(
-          ['diff', '--no-ext-diff', '--unified=3', '--', file.path],
+          [
+            'diff',
+            '--no-ext-diff',
+            '--src-prefix=a/',
+            '--dst-prefix=b/',
+            '--unified=3',
+            '--',
+            file.path,
+          ],
           workspace.worktreePath,
         )
         const truncated = truncateDiffOutput(patch)

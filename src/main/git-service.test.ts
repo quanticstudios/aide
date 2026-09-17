@@ -414,6 +414,8 @@ describe('GitWorkspaceService', () => {
 
   it('returns staged, unstaged, and untracked diff sections for changed files', async () => {
     const repoRoot = createGitRepository()
+    runGit(repoRoot, ['config', 'diff.mnemonicPrefix', 'true'])
+    runGit(repoRoot, ['config', 'diff.noprefix', 'true'])
     const database = createAideDatabase(':memory:')
     const service = new GitWorkspaceService(database)
     const imported = await service.importProject(repoRoot)
