@@ -182,7 +182,7 @@ describe('managed session opinions', () => {
       outputTokens: 10,
     })
     await manager.sendInput(config.sessionId, 'normal')
-    expect(lastOriginalInput).toStartWith('normal')
+    expect(lastOriginalInput.startsWith('normal')).toBe(true)
     expect(lastOriginalInput).toContain('@alpha (claude/alpha)')
   })
 
@@ -211,12 +211,17 @@ describe('managed session opinions', () => {
     })
     const config = createConfig()
     const agents = [
-      { alias: 'good', selection: { mode: 'claude' as const, model: 'good' } },
-      { alias: 'bad', selection: { mode: 'claude' as const, model: 'bad' } },
+      { alias: 'Good', selection: { mode: 'claude' as const, model: 'good' } },
+      { alias: 'Bad', selection: { mode: 'claude' as const, model: 'bad' } },
     ]
     await manager.createSession(config)
-    manager.configureSessionAgents(config.sessionId, agents)
-    await manager.sendInput(config.sessionId, 'compare', ['good', 'bad'])
+    expect(
+      manager.configureSessionAgents(config.sessionId, agents).agents,
+    ).toEqual([
+      expect.objectContaining({ alias: 'good' }),
+      expect.objectContaining({ alias: 'bad' }),
+    ])
+    await manager.sendInput(config.sessionId, 'compare', ['GOOD', 'bad'])
     expect(manager.getSnapshots()[config.sessionId].content).toEqual(
       expect.arrayContaining([expect.objectContaining({ text: 'kept' })]),
     )
@@ -395,5 +400,94 @@ describe('managed session opinions', () => {
         expect.objectContaining({ recipientAlias: 'beta', state: 'completed' }),
       ]),
     )
+  })
+
+  it('rejects an agent request while a parent close waits for its backend', async () => {
+    let beginClose!: () => void
+    let releaseClose!: () => void
+    const closeStarted = new Promise<void>((resolve) => {
+      beginClose = resolve
+    })
+    const closeRelease = new Promise<void>((resolve) => {
+      releaseClose = resolve
+    })
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => {
+          beginClose()
+          await closeRelease
+        },
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) =>
+          emitAnswer(config as OpinionConfig, emit, `answer ${text}`),
+        start: async () => emitReady(config, emit),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    manager.configureSessionAgents(config.sessionId, [
+      { alias: 'alpha', selection: { mode: 'claude', model: 'alpha' } },
+    ])
+    const close = manager.closeSession(config.sessionId)
+    await closeStarted
+    await expect(
+      manager.askAgent(
+        config.sessionId,
+        'alpha',
+        'do not start',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('unavailable')
+    releaseClose()
+    await close
+  })
+
+  it('cancels delayed child startup before the child sends input', async () => {
+    let beginChildStart!: () => void
+    let releaseChildStart!: () => void
+    let childSendCount = 0
+    const childStartStarted = new Promise<void>((resolve) => {
+      beginChildStart = resolve
+    })
+    const childStartRelease = new Promise<void>((resolve) => {
+      releaseChildStart = resolve
+    })
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          if ((config as OpinionConfig).readOnly) childSendCount += 1
+          emitAnswer(config as OpinionConfig, emit, `answer ${text}`)
+        },
+        start: async () => {
+          if ((config as OpinionConfig).readOnly) {
+            beginChildStart()
+            await childStartRelease
+          }
+          emitReady(config, emit)
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    manager.configureSessionAgents(config.sessionId, [
+      { alias: 'alpha', selection: { mode: 'claude', model: 'alpha' } },
+    ])
+    const dispatch = manager.sendInput(config.sessionId, 'compare', ['alpha'])
+    await childStartStarted
+    await manager.interruptSession(config.sessionId)
+    await dispatch
+    releaseChildStart()
+    await Promise.resolve()
+    expect(childSendCount).toBe(0)
   })
 })
