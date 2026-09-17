@@ -21,6 +21,8 @@ import {
 
 import type {
   WorkspaceGitDiffSnapshot,
+  WorkspaceGitMutationResult,
+  WorkspaceGitPullRequest,
   WorkspaceGitStatusSnapshot,
 } from '../../../shared/git'
 import type { WorkspaceRecord } from '../../../shared/persistence'
@@ -207,6 +209,14 @@ function getErrorMessage(error: unknown): string {
   return 'Unable to load workspace Git status.'
 }
 
+function formatReviewFeedback(
+  filePath: string,
+  line: string,
+  text: string,
+): string {
+  return `Review feedback for ${filePath}:${line}\n\n${text.trim()}`
+}
+
 function GitFileTreeRow({
   collapsed,
   depth,
@@ -320,6 +330,17 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [status, setStatus] = useState<WorkspaceGitStatusSnapshot | null>(null)
   const [diff, setDiff] = useState<WorkspaceGitDiffSnapshot | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [isMutating, setIsMutating] = useState(false)
+  const [isRevertConfirmationOpen, setIsRevertConfirmationOpen] =
+    useState(false)
+  const [commitMessage, setCommitMessage] = useState('')
+  const [pullRequestTitle, setPullRequestTitle] = useState('')
+  const [pullRequestBody, setPullRequestBody] = useState('')
+  const [pullRequest, setPullRequest] =
+    useState<WorkspaceGitPullRequest | null>(null)
+  const [reviewLine, setReviewLine] = useState('')
+  const [reviewFeedback, setReviewFeedback] = useState('')
   const [diffLayout, setDiffLayout] = useState<DiffLayout>(readStoredDiffLayout)
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
   const [previousWorkspaceId, setPreviousWorkspaceId] = useState(workspace.id)
@@ -333,9 +354,17 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     setIsDiffLoading(false)
     setError(null)
     setDiffError(null)
+    setActionError(null)
     setStatus(null)
     setDiff(null)
     setSelectedPath(null)
+    setIsRevertConfirmationOpen(false)
+    setCommitMessage('')
+    setPullRequestTitle('')
+    setPullRequestBody('')
+    setPullRequest(null)
+    setReviewLine('')
+    setReviewFeedback('')
     setCollapsedDirs(new Set())
   }
 
@@ -526,6 +555,100 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     }
   }, [selectedFile, workspace.id])
 
+  const applyMutationResult = useCallback(
+    (result: WorkspaceGitMutationResult): boolean => {
+      if (!result.ok) {
+        setActionError(result.error)
+        return false
+      }
+      setActionError(null)
+      setStatus(result.status)
+      setSelectedPath((current) =>
+        resolveSelectedGitFilePath(result.status.files, current),
+      )
+      setDiff(null)
+      setDiffError(null)
+      return true
+    },
+    [],
+  )
+
+  const runMutation = useCallback(
+    async (operation: () => Promise<WorkspaceGitMutationResult>) => {
+      setIsMutating(true)
+      try {
+        return applyMutationResult(await operation())
+      } catch (mutationError) {
+        setActionError(getErrorMessage(mutationError))
+        return false
+      } finally {
+        setIsMutating(false)
+      }
+    },
+    [applyMutationResult],
+  )
+
+  const sendReviewFeedback = useCallback(async () => {
+    const api = getAideApi()
+    const line = Number.parseInt(reviewLine, 10)
+    if (
+      !api ||
+      !selectedFile ||
+      !reviewFeedback.trim() ||
+      !Number.isSafeInteger(line) ||
+      line < 1
+    ) {
+      setActionError('Choose a positive line number and enter feedback.')
+      return
+    }
+
+    setIsMutating(true)
+    try {
+      const sessions = Object.values(
+        await api.getManagedSessionSnapshots(),
+      ).filter((session) => session.workspaceId === workspace.id)
+      const session = sessions.find((candidate) => candidate.paneId === 'agent')
+      if (!session) {
+        setActionError(
+          'Open the workspace Agent pane before sending review feedback.',
+        )
+        return
+      }
+      await api.sendManagedSessionInput(
+        session.sessionId,
+        formatReviewFeedback(selectedFile.path, reviewLine, reviewFeedback),
+      )
+      setActionError(null)
+      setReviewFeedback('')
+    } catch (sendError) {
+      setActionError(getErrorMessage(sendError))
+    } finally {
+      setIsMutating(false)
+    }
+  }, [reviewFeedback, reviewLine, selectedFile, workspace.id])
+
+  const refreshPullRequest = useCallback(async () => {
+    const api = getAideApi()
+    if (!api) {
+      setActionError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+    setIsMutating(true)
+    try {
+      const result = await api.getWorkspaceGitPullRequest(workspace.id)
+      if (!result.ok) {
+        setActionError(result.error)
+        return
+      }
+      setActionError(null)
+      setPullRequest(result.pullRequest)
+    } catch (pullRequestError) {
+      setActionError(getErrorMessage(pullRequestError))
+    } finally {
+      setIsMutating(false)
+    }
+  }, [workspace.id])
+
   if (error) {
     return (
       <section className="flex h-full min-h-0 flex-col items-center justify-center p-6">
@@ -602,6 +725,175 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           <RefreshCcw className="size-4" />
           {isLoading ? 'Refreshing…' : 'Refresh'}
         </Button>
+      </div>
+
+      {actionError ? (
+        <div className="border-b border-accent-red bg-accent-red-soft px-5 py-2 text-sm text-accent-red">
+          {actionError}
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 border-b border-border p-4 xl:grid-cols-2">
+        <Surface
+          className="space-y-2 rounded-lg border border-border p-3"
+          variant="secondary"
+        >
+          <p className="text-sm font-medium text-foreground">
+            Commit staged changes
+          </p>
+          <label
+            className="block text-xs text-muted-foreground"
+            htmlFor="git-commit-message"
+          >
+            Commit message
+          </label>
+          <textarea
+            className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+            id="git-commit-message"
+            onChange={(event) => setCommitMessage(event.target.value)}
+            placeholder="Describe the staged change"
+            value={commitMessage}
+          />
+          <Button
+            isDisabled={
+              isMutating || !status.hasStagedChanges || !commitMessage.trim()
+            }
+            onPress={() => {
+              const api = getAideApi()
+              if (!api) {
+                setActionError(
+                  'Desktop bridge did not load. Reload the app window.',
+                )
+                return
+              }
+              void runMutation(() =>
+                api.commitWorkspaceGitIndex({
+                  message: commitMessage,
+                  workspaceId: workspace.id,
+                }),
+              ).then((committed) => {
+                if (committed) setCommitMessage('')
+              })
+            }}
+            size="sm"
+            variant="secondary"
+          >
+            Commit index
+          </Button>
+        </Surface>
+
+        <Surface
+          className="space-y-2 rounded-lg border border-border p-3"
+          variant="secondary"
+        >
+          <p className="text-sm font-medium text-foreground">Pull request</p>
+          <label
+            className="block text-xs text-muted-foreground"
+            htmlFor="git-pr-title"
+          >
+            Title
+          </label>
+          <input
+            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+            id="git-pr-title"
+            onChange={(event) => setPullRequestTitle(event.target.value)}
+            value={pullRequestTitle}
+          />
+          <label
+            className="block text-xs text-muted-foreground"
+            htmlFor="git-pr-body"
+          >
+            Description
+          </label>
+          <textarea
+            className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+            id="git-pr-body"
+            onChange={(event) => setPullRequestBody(event.target.value)}
+            value={pullRequestBody}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              isDisabled={isMutating}
+              onPress={() => {
+                const api = getAideApi()
+                if (!api) {
+                  setActionError(
+                    'Desktop bridge did not load. Reload the app window.',
+                  )
+                  return
+                }
+                void runMutation(() => api.pushWorkspaceGitBranch(workspace.id))
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              Push branch
+            </Button>
+            <Button
+              isDisabled={isMutating || !pullRequestTitle.trim()}
+              onPress={() => {
+                const api = getAideApi()
+                if (!api) {
+                  setActionError(
+                    'Desktop bridge did not load. Reload the app window.',
+                  )
+                  return
+                }
+                setIsMutating(true)
+                void api
+                  .createWorkspaceGitPullRequest({
+                    body: pullRequestBody,
+                    title: pullRequestTitle,
+                    workspaceId: workspace.id,
+                  })
+                  .then((result) => {
+                    if (!result.ok) {
+                      setActionError(result.error)
+                      return
+                    }
+                    setActionError(null)
+                    setPullRequest(result.pullRequest)
+                  })
+                  .catch((pullRequestError) =>
+                    setActionError(getErrorMessage(pullRequestError)),
+                  )
+                  .finally(() => setIsMutating(false))
+              }}
+              size="sm"
+            >
+              Create pull request
+            </Button>
+            <Button
+              isDisabled={isMutating}
+              onPress={() => void refreshPullRequest()}
+              size="sm"
+              variant="ghost"
+            >
+              Inspect checks
+            </Button>
+          </div>
+          {pullRequest ? (
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <a
+                className="text-foreground underline"
+                href={pullRequest.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                #{pullRequest.number} {pullRequest.title}
+              </a>
+              <p>
+                {pullRequest.state} · {pullRequest.headRefName} →{' '}
+                {pullRequest.baseRefName}
+              </p>
+              {pullRequest.checks.map((check) => (
+                <p key={check.name}>
+                  {check.name}: {check.conclusion ?? check.status ?? 'pending'}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </Surface>
       </div>
 
       {status.files.length === 0 ? (
@@ -687,6 +979,64 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                           unstaged: {formatGitChangeKind(selectedFile.unstaged)}
                         </span>
                       </div>
+                      <div className="flex shrink-0 gap-1">
+                        {selectedFile.isUnstaged ? (
+                          <Button
+                            isDisabled={isMutating}
+                            onPress={() => {
+                              const api = getAideApi()
+                              if (!api) {
+                                setActionError(
+                                  'Desktop bridge did not load. Reload the app window.',
+                                )
+                                return
+                              }
+                              void runMutation(() =>
+                                api.stageWorkspaceGitFile({
+                                  filePath: selectedFile.path,
+                                  workspaceId: workspace.id,
+                                }),
+                              )
+                            }}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            Stage
+                          </Button>
+                        ) : null}
+                        {selectedFile.isStaged ? (
+                          <Button
+                            isDisabled={isMutating}
+                            onPress={() => {
+                              const api = getAideApi()
+                              if (!api) {
+                                setActionError(
+                                  'Desktop bridge did not load. Reload the app window.',
+                                )
+                                return
+                              }
+                              void runMutation(() =>
+                                api.unstageWorkspaceGitFile({
+                                  filePath: selectedFile.path,
+                                  workspaceId: workspace.id,
+                                }),
+                              )
+                            }}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            Unstage
+                          </Button>
+                        ) : null}
+                        <Button
+                          isDisabled={isMutating || !visibleDiff}
+                          onPress={() => setIsRevertConfirmationOpen(true)}
+                          size="sm"
+                          variant="danger"
+                        >
+                          Revert file
+                        </Button>
+                      </div>
                       <div className="flex shrink-0 gap-1 rounded-md border border-border bg-surface-secondary p-0.5">
                         <button
                           className={cn(
@@ -764,6 +1114,101 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                       </div>
                     </div>
                   ))}
+                  {isRevertConfirmationOpen && visibleDiff ? (
+                    <Surface
+                      className="space-y-2 rounded-md border border-accent-red p-3"
+                      variant="tertiary"
+                    >
+                      <p className="text-sm text-foreground">
+                        Revert the displayed changes for {selectedFile.path}?
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Aide checks the preview fingerprint before it changes
+                        the file.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          isDisabled={isMutating}
+                          onPress={() => {
+                            const api = getAideApi()
+                            if (!api) {
+                              setActionError(
+                                'Desktop bridge did not load. Reload the app window.',
+                              )
+                              return
+                            }
+                            void runMutation(() =>
+                              api.revertWorkspaceGitFile({
+                                filePath: selectedFile.path,
+                                fingerprint: visibleDiff.fingerprint,
+                                workspaceId: workspace.id,
+                              }),
+                            ).then((reverted) => {
+                              if (reverted) setIsRevertConfirmationOpen(false)
+                            })
+                          }}
+                          size="sm"
+                          variant="danger"
+                        >
+                          Confirm revert
+                        </Button>
+                        <Button
+                          isDisabled={isMutating}
+                          onPress={() => setIsRevertConfirmationOpen(false)}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </Surface>
+                  ) : null}
+                  <Surface
+                    className="space-y-2 rounded-md border border-border p-3"
+                    variant="tertiary"
+                  >
+                    <p className="text-sm font-medium text-foreground">
+                      Line feedback
+                    </p>
+                    <label
+                      className="block text-xs text-muted-foreground"
+                      htmlFor="git-review-line"
+                    >
+                      Line number
+                    </label>
+                    <input
+                      className="w-28 rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                      id="git-review-line"
+                      min="1"
+                      onChange={(event) => setReviewLine(event.target.value)}
+                      type="number"
+                      value={reviewLine}
+                    />
+                    <label
+                      className="block text-xs text-muted-foreground"
+                      htmlFor="git-review-feedback"
+                    >
+                      Feedback for the workspace Agent pane
+                    </label>
+                    <textarea
+                      className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                      id="git-review-feedback"
+                      onChange={(event) =>
+                        setReviewFeedback(event.target.value)
+                      }
+                      value={reviewFeedback}
+                    />
+                    <Button
+                      isDisabled={
+                        isMutating || !reviewFeedback.trim() || !reviewLine
+                      }
+                      onPress={() => void sendReviewFeedback()}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      Send feedback
+                    </Button>
+                  </Surface>
                 </div>
               </>
             ) : null}

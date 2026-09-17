@@ -17,6 +17,10 @@ import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
   AttachWorkspaceRequest,
   CreateWorkspaceRequest,
+  WorkspaceGitCommitInput,
+  WorkspaceGitFileMutationInput,
+  WorkspaceGitPullRequestInput,
+  WorkspaceGitRevertInput,
 } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
 import type { ManagedSessionDecision } from '../shared/managed-session'
@@ -789,6 +793,35 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.getWorkspaceGitDiff,
     (_event, workspaceId: string, filePath: string) =>
       gitWorkspaceService.getWorkspaceFileDiff(workspaceId, filePath),
+  )
+  ipcMain.handle(IPC_CHANNELS.stageWorkspaceGitFile, (_event, input) =>
+    gitWorkspaceService.stageWorkspaceFile(
+      input as WorkspaceGitFileMutationInput,
+    ),
+  )
+  ipcMain.handle(IPC_CHANNELS.unstageWorkspaceGitFile, (_event, input) =>
+    gitWorkspaceService.unstageWorkspaceFile(
+      input as WorkspaceGitFileMutationInput,
+    ),
+  )
+  ipcMain.handle(IPC_CHANNELS.revertWorkspaceGitFile, (_event, input) =>
+    gitWorkspaceService.revertWorkspaceFile(input as WorkspaceGitRevertInput),
+  )
+  ipcMain.handle(IPC_CHANNELS.commitWorkspaceGitIndex, (_event, input) =>
+    gitWorkspaceService.commitWorkspaceIndex(input as WorkspaceGitCommitInput),
+  )
+  ipcMain.handle(IPC_CHANNELS.pushWorkspaceGitBranch, (_event, workspaceId) =>
+    gitWorkspaceService.pushWorkspaceBranch(workspaceId as string),
+  )
+  ipcMain.handle(IPC_CHANNELS.createWorkspaceGitPullRequest, (_event, input) =>
+    gitWorkspaceService.createWorkspacePullRequest(
+      input as WorkspaceGitPullRequestInput,
+    ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspaceGitPullRequest,
+    (_event, workspaceId) =>
+      gitWorkspaceService.getWorkspacePullRequest(workspaceId as string),
   )
   ipcMain.handle(IPC_CHANNELS.executableValidate, (_event, command: string) =>
     validateExecutablePath(command),

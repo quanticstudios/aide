@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
+import { lstat, open, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -11,9 +12,16 @@ import type {
   GitChangeKind,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitCommitInput,
   WorkspaceGitDiffResult,
   WorkspaceGitDiffSection,
+  WorkspaceGitFileMutationInput,
   WorkspaceGitFileStatus,
+  WorkspaceGitMutationResult,
+  WorkspaceGitPullRequest,
+  WorkspaceGitPullRequestInput,
+  WorkspaceGitPullRequestResult,
+  WorkspaceGitRevertInput,
   WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
   WorktreeBranchStats,
@@ -32,6 +40,9 @@ import { resolveExecutablePath } from './executable-resolution'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
+const MAX_COMMIT_MESSAGE_LENGTH = 4_096
+const MAX_PULL_REQUEST_BODY_LENGTH = 65_536
+const MAX_PULL_REQUEST_TITLE_LENGTH = 256
 
 interface RepositoryMetadata {
   currentBranchLabel: string
@@ -67,6 +78,11 @@ export interface GitWorkspaceStore {
     input: UpdateWorkspaceInput,
   ): WorkspaceRecord | null
 }
+
+export type GitHubCommandRunner = (
+  args: readonly string[],
+  cwd: string,
+) => Promise<string>
 
 function resolveProjectName(repoRoot: string): string {
   return path.basename(repoRoot) || 'project'
@@ -269,6 +285,62 @@ function buildUntrackedPatch(filePath: string, content: string): string {
     .join('\n')
 }
 
+function parseWorkspacePullRequest(output: string): WorkspaceGitPullRequest {
+  const value: unknown = JSON.parse(output)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('GitHub CLI returned an invalid pull request response.')
+  }
+
+  const pullRequest = value as Record<string, unknown>
+  const requiredText = (field: string): string => {
+    const item = pullRequest[field]
+    if (typeof item !== 'string' || !item) {
+      throw new Error('GitHub CLI returned an invalid pull request response.')
+    }
+    return item
+  }
+  const number = pullRequest.number
+  if (typeof number !== 'number' || !Number.isSafeInteger(number)) {
+    throw new Error('GitHub CLI returned an invalid pull request response.')
+  }
+
+  const statusCheckRollup = pullRequest.statusCheckRollup
+  const checks = Array.isArray(statusCheckRollup)
+    ? statusCheckRollup.flatMap((check) => {
+        if (!check || typeof check !== 'object' || Array.isArray(check)) {
+          return []
+        }
+        const value = check as Record<string, unknown>
+        return typeof value.name === 'string' && value.name
+          ? [
+              {
+                conclusion:
+                  typeof value.conclusion === 'string'
+                    ? value.conclusion
+                    : null,
+                detailsUrl:
+                  typeof value.detailsUrl === 'string'
+                    ? value.detailsUrl
+                    : null,
+                name: value.name,
+                status: typeof value.status === 'string' ? value.status : null,
+              },
+            ]
+          : []
+      })
+    : []
+
+  return {
+    baseRefName: requiredText('baseRefName'),
+    checks,
+    headRefName: requiredText('headRefName'),
+    number,
+    state: requiredText('state'),
+    title: requiredText('title'),
+    url: requiredText('url'),
+  }
+}
+
 function isInsideRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate)
   return (
@@ -330,8 +402,12 @@ async function readUntrackedPatch(
 
 export class GitWorkspaceService {
   private gitPathPromise: Promise<string> | null = null
+  private ghPathPromise: Promise<string> | null = null
 
-  public constructor(private readonly store: GitWorkspaceStore) {}
+  public constructor(
+    private readonly store: GitWorkspaceStore,
+    private readonly runGitHubCommand?: GitHubCommandRunner,
+  ) {}
 
   public async getWorkspaceStatus(
     workspaceId: string,
@@ -409,13 +485,14 @@ export class GitWorkspaceService {
     }
 
     try {
-      const sections = await this.buildDiffSections(workspace, file)
+      const fileDiff = await this.buildDiffSections(workspace, file)
 
       return {
         diff: {
           branchName: statusResult.status.branchName,
+          fingerprint: fileDiff.fingerprint,
           path: file.path,
-          sections,
+          sections: fileDiff.sections,
           workspaceId: workspace.id,
           worktreePath: workspace.worktreePath,
         },
@@ -499,6 +576,242 @@ export class GitWorkspaceService {
       }
     } catch (error) {
       return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async stageWorkspaceFile(
+    input: WorkspaceGitFileMutationInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    const context = await this.getMutableWorkspaceFile(input)
+    if (!context.ok) return context
+
+    if (!context.file.isUnstaged) {
+      return this.invalidInput('The selected file has no unstaged changes.')
+    }
+
+    try {
+      await this.runGit(
+        ['add', '--', context.file.path],
+        context.workspace.worktreePath,
+      )
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async unstageWorkspaceFile(
+    input: WorkspaceGitFileMutationInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    const context = await this.getMutableWorkspaceFile(input)
+    if (!context.ok) return context
+
+    if (!context.file.isStaged) {
+      return this.invalidInput('The selected file has no staged changes.')
+    }
+
+    try {
+      await this.runGit(
+        ['restore', '--staged', '--', context.file.path],
+        context.workspace.worktreePath,
+      )
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async revertWorkspaceFile(
+    input: WorkspaceGitRevertInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    const context = await this.getMutableWorkspaceFile(input)
+    if (!context.ok) return context
+
+    if (!this.isValidFingerprint(input?.fingerprint)) {
+      return this.invalidInput(
+        'The revert preview is invalid. Refresh the file diff.',
+      )
+    }
+
+    try {
+      const fileDiff = await this.buildDiffSections(
+        context.workspace,
+        context.file,
+      )
+      if (fileDiff.fingerprint !== input.fingerprint) {
+        return {
+          code: 'stale-diff',
+          error:
+            'The file changed after this revert preview. Refresh the file diff.',
+          ok: false,
+        }
+      }
+
+      if (context.file.unstaged === 'untracked' && !context.file.isStaged) {
+        await rm(
+          this.resolveWorkspaceFilePath(
+            context.workspace.worktreePath,
+            context.file.path,
+          ),
+        )
+      } else {
+        await this.runGit(
+          [
+            'restore',
+            '--source=HEAD',
+            '--staged',
+            '--worktree',
+            '--',
+            context.file.path,
+          ],
+          context.workspace.worktreePath,
+        )
+      }
+
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async commitWorkspaceIndex(
+    input: WorkspaceGitCommitInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    if (
+      !input ||
+      typeof input.workspaceId !== 'string' ||
+      typeof input.message !== 'string'
+    ) {
+      return this.invalidInput('A workspace and commit message are required.')
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    const message = input.message.trim()
+    if (
+      !message ||
+      message.length > MAX_COMMIT_MESSAGE_LENGTH ||
+      message.includes('\0')
+    ) {
+      return this.invalidInput(
+        'A commit message of up to 4,096 characters is required.',
+      )
+    }
+
+    try {
+      await this.runGit(
+        ['commit', '-m', message],
+        context.workspace.worktreePath,
+      )
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async pushWorkspaceBranch(
+    workspaceId: string,
+  ): Promise<WorkspaceGitMutationResult> {
+    const context = await this.getOwnedWorkspace(workspaceId)
+    if (!context.ok) return context
+
+    try {
+      const branchName = await this.resolvePushBranch(
+        context.workspace.worktreePath,
+      )
+      await this.runGit(
+        ['push', '--set-upstream', 'origin', branchName],
+        context.workspace.worktreePath,
+      )
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return this.classifyPushError(error)
+    }
+  }
+
+  public async createWorkspacePullRequest(
+    input: WorkspaceGitPullRequestInput,
+  ): Promise<WorkspaceGitPullRequestResult> {
+    if (
+      !input ||
+      typeof input.workspaceId !== 'string' ||
+      typeof input.title !== 'string' ||
+      typeof input.body !== 'string'
+    ) {
+      return this.invalidInput(
+        'A workspace, pull request title, and body are required.',
+      )
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    const title = input.title.trim()
+    const body = input.body.trim()
+    if (
+      !title ||
+      title.length > MAX_PULL_REQUEST_TITLE_LENGTH ||
+      body.length > MAX_PULL_REQUEST_BODY_LENGTH ||
+      title.includes('\0') ||
+      body.includes('\0')
+    ) {
+      return this.invalidInput(
+        'A pull request title and an optional body within the size limits are required.',
+      )
+    }
+
+    try {
+      const branchName = await this.resolvePushBranch(
+        context.workspace.worktreePath,
+      )
+      await this.requireGitHubAuthentication(context.workspace.worktreePath)
+      await this.runGh(
+        [
+          'pr',
+          'create',
+          '--base',
+          context.project.defaultBranch,
+          '--head',
+          branchName,
+          '--title',
+          title,
+          '--body',
+          body,
+        ],
+        context.workspace.worktreePath,
+      )
+      return this.getWorkspacePullRequest(context.workspace.id)
+    } catch (error) {
+      return this.classifyPullRequestError(error)
+    }
+  }
+
+  public async getWorkspacePullRequest(
+    workspaceId: string,
+  ): Promise<WorkspaceGitPullRequestResult> {
+    const context = await this.getOwnedWorkspace(workspaceId)
+    if (!context.ok) return context
+
+    try {
+      await this.requireGitHubAuthentication(context.workspace.worktreePath)
+      const output = await this.runGh(
+        [
+          'pr',
+          'view',
+          '--json',
+          'number,title,url,state,headRefName,baseRefName,statusCheckRollup',
+        ],
+        context.workspace.worktreePath,
+      )
+      return { ok: true, pullRequest: parseWorkspacePullRequest(output) }
+    } catch (error) {
+      const message = formatGitError(
+        error,
+        'Unable to inspect the pull request.',
+      ).message
+      if (message.includes('no pull requests found')) {
+        return { ok: true, pullRequest: null }
+      }
+      return this.classifyPullRequestError(error)
     }
   }
 
@@ -721,6 +1034,212 @@ export class GitWorkspaceService {
     return this.store.getSnapshot()
   }
 
+  private invalidInput(error: string): WorkspaceGitStatusFailure {
+    return { code: 'invalid-input', error, ok: false }
+  }
+
+  private async getOwnedWorkspace(
+    workspaceId: string,
+  ): Promise<
+    | WorkspaceGitStatusFailure
+    | { ok: true; project: ProjectRecord; workspace: WorkspaceRecord }
+  > {
+    if (typeof workspaceId !== 'string' || !workspaceId.trim()) {
+      return this.invalidInput('A workspace is required.')
+    }
+
+    const workspace = this.store.getWorkspace(workspaceId)
+    if (!workspace) {
+      return {
+        code: 'workspace-not-found',
+        error: 'Workspace does not exist.',
+        ok: false,
+      }
+    }
+    const project = this.store.getProject(workspace.projectId)
+    if (!project) {
+      return {
+        code: 'workspace-not-owned',
+        error: 'Workspace does not belong to a configured project.',
+        ok: false,
+      }
+    }
+
+    try {
+      const [projectCommonDir, workspaceCommonDir] = await Promise.all([
+        this.resolveGitCommonDir(project.repoRoot),
+        this.resolveGitCommonDir(workspace.worktreePath),
+      ])
+      if (projectCommonDir !== workspaceCommonDir) {
+        return {
+          code: 'workspace-not-owned',
+          error: 'Workspace is not a worktree of its configured project.',
+          ok: false,
+        }
+      }
+      return { ok: true, project, workspace }
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  private async getMutableWorkspaceFile(
+    input: WorkspaceGitFileMutationInput,
+  ): Promise<
+    | WorkspaceGitStatusFailure
+    | { file: WorkspaceGitFileStatus; ok: true; workspace: WorkspaceRecord }
+  > {
+    if (
+      !input ||
+      typeof input.workspaceId !== 'string' ||
+      typeof input.filePath !== 'string'
+    ) {
+      return this.invalidInput('A workspace and file path are required.')
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    if (
+      !this.isSafeWorkspaceFilePath(
+        input.filePath,
+        context.workspace.worktreePath,
+      )
+    ) {
+      return this.invalidInput(
+        'File path must name a changed file inside the workspace.',
+      )
+    }
+
+    const statusResult = await this.getWorkspaceStatus(context.workspace.id)
+    if (!statusResult.ok) return statusResult
+    const file = statusResult.status.files.find(
+      (candidate) => candidate.path === input.filePath,
+    )
+    if (!file) {
+      return {
+        code: 'file-not-found',
+        error: 'Changed file does not exist in workspace Git status.',
+        ok: false,
+      }
+    }
+    return { file, ok: true, workspace: context.workspace }
+  }
+
+  private async getMutationStatus(
+    workspaceId: string,
+  ): Promise<WorkspaceGitMutationResult> {
+    return this.getWorkspaceStatus(workspaceId)
+  }
+
+  private isSafeWorkspaceFilePath(
+    filePath: string,
+    workspaceRoot: string,
+  ): boolean {
+    if (
+      typeof filePath !== 'string' ||
+      !filePath ||
+      filePath.includes('\0') ||
+      path.isAbsolute(filePath) ||
+      path.posix.isAbsolute(filePath)
+    ) {
+      return false
+    }
+    const segments = filePath.split('/')
+    if (
+      segments.some(
+        (segment) => !segment || segment === '.' || segment === '..',
+      )
+    ) {
+      return false
+    }
+    return isInsideRoot(
+      path.resolve(workspaceRoot),
+      this.resolveWorkspaceFilePath(workspaceRoot, filePath),
+    )
+  }
+
+  private resolveWorkspaceFilePath(
+    workspaceRoot: string,
+    filePath: string,
+  ): string {
+    return path.resolve(workspaceRoot, filePath)
+  }
+
+  private isValidFingerprint(fingerprint: string): boolean {
+    return typeof fingerprint === 'string' && /^[a-f0-9]{64}$/.test(fingerprint)
+  }
+
+  private async resolvePushBranch(worktreePath: string): Promise<string> {
+    try {
+      return await this.runGit(
+        ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+        worktreePath,
+      )
+    } catch (error) {
+      if (
+        formatGitError(error, '').message.includes(
+          'Configured executable "git"',
+        )
+      ) {
+        throw error
+      }
+      throw new Error('DETACHED_HEAD')
+    }
+  }
+
+  private classifyPushError(error: unknown): WorkspaceGitStatusFailure {
+    if (formatGitError(error, '').message === 'DETACHED_HEAD') {
+      return {
+        code: 'detached-head',
+        error: 'Push requires a checked out branch.',
+        ok: false,
+      }
+    }
+    return classifyWorkspaceGitStatusError(error)
+  }
+
+  private async requireGitHubAuthentication(
+    worktreePath: string,
+  ): Promise<void> {
+    try {
+      await this.runGh(['auth', 'status'], worktreePath)
+    } catch (error) {
+      const message = formatGitError(
+        error,
+        'GitHub CLI authentication is required.',
+      ).message
+      if (message.includes('Configured executable "gh"')) {
+        throw error
+      }
+      throw new Error(`GH_AUTH_REQUIRED: ${message}`)
+    }
+  }
+
+  private classifyPullRequestError(error: unknown): WorkspaceGitStatusFailure {
+    const message = formatGitError(
+      error,
+      'Unable to use the GitHub CLI.',
+    ).message
+    if (message.includes('DETACHED_HEAD')) {
+      return {
+        code: 'detached-head',
+        error: 'Pull requests require a checked out branch.',
+        ok: false,
+      }
+    }
+    if (message.includes('Configured executable "gh"')) {
+      return { code: 'gh-unavailable', error: message, ok: false }
+    }
+    if (message.startsWith('GH_AUTH_REQUIRED:')) {
+      return {
+        code: 'gh-auth-required',
+        error: message.slice('GH_AUTH_REQUIRED:'.length).trim(),
+        ok: false,
+      }
+    }
+    return { code: 'gh-command-failed', error: message, ok: false }
+  }
+
   private ensureRootWorkspace(
     project: ProjectRecord,
     metadata: RepositoryMetadata,
@@ -789,8 +1308,12 @@ export class GitWorkspaceService {
   private async buildDiffSections(
     workspace: WorkspaceRecord,
     file: WorkspaceGitFileStatus,
-  ): Promise<WorkspaceGitDiffSection[]> {
-    const sections: WorkspaceGitDiffSection[] = []
+  ): Promise<{
+    fingerprint: string
+    sections: WorkspaceGitDiffSection[]
+  }> {
+    const patches: { kind: WorkspaceGitDiffSection['kind']; patch: string }[] =
+      []
 
     if (file.isStaged) {
       const patch = await this.runGit(
@@ -806,27 +1329,14 @@ export class GitWorkspaceService {
         ],
         workspace.worktreePath,
       )
-      const truncated = truncateDiffOutput(patch)
-
-      sections.push({
-        isTruncated: truncated.isTruncated,
-        kind: 'staged',
-        patch: truncated.patch,
-        title: 'Staged diff',
-      })
+      patches.push({ kind: 'staged', patch })
     }
 
     if (file.isUnstaged) {
       if (file.unstaged === 'untracked') {
-        const truncated = truncateDiffOutput(
-          await readUntrackedPatch(workspace.worktreePath, file.path),
-        )
-
-        sections.push({
-          isTruncated: truncated.isTruncated,
+        patches.push({
           kind: 'untracked',
-          patch: truncated.patch,
-          title: 'Untracked file',
+          patch: await readUntrackedPatch(workspace.worktreePath, file.path),
         })
       } else {
         const patch = await this.runGit(
@@ -841,18 +1351,29 @@ export class GitWorkspaceService {
           ],
           workspace.worktreePath,
         )
-        const truncated = truncateDiffOutput(patch)
-
-        sections.push({
-          isTruncated: truncated.isTruncated,
-          kind: 'unstaged',
-          patch: truncated.patch,
-          title: 'Working tree diff',
-        })
+        patches.push({ kind: 'unstaged', patch })
       }
     }
 
-    return sections
+    return {
+      fingerprint: createHash('sha256')
+        .update(JSON.stringify(patches))
+        .digest('hex'),
+      sections: patches.map(({ kind, patch }) => {
+        const truncated = truncateDiffOutput(patch)
+        return {
+          isTruncated: truncated.isTruncated,
+          kind,
+          patch: truncated.patch,
+          title:
+            kind === 'staged'
+              ? 'Staged diff'
+              : kind === 'unstaged'
+                ? 'Working tree diff'
+                : 'Untracked file',
+        }
+      }),
+    }
   }
 
   private async resolveComparisonBase(
@@ -1106,8 +1627,26 @@ export class GitWorkspaceService {
     return `${result.stdout}`.trim()
   }
 
+  private async runGh(args: readonly string[], cwd: string): Promise<string> {
+    if (this.runGitHubCommand) {
+      return this.runGitHubCommand(args, cwd)
+    }
+    const ghPath = await this.resolveGhPath()
+    const result = await execFileAsync(ghPath, args, {
+      cwd,
+      env: process.env,
+      timeout: 10000,
+    })
+    return `${result.stdout}`.trim()
+  }
+
   private async resolveGitPath(): Promise<string> {
     this.gitPathPromise ??= resolveExecutablePath('git')
     return this.gitPathPromise
+  }
+
+  private async resolveGhPath(): Promise<string> {
+    this.ghPathPromise ??= resolveExecutablePath('gh')
+    return this.ghPathPromise
   }
 }

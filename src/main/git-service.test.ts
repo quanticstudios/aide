@@ -602,4 +602,185 @@ describe('GitWorkspaceService', () => {
 
     database.close()
   })
+
+  it('stages, unstages, commits, and reverts a changed file in its workspace', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
+    await expect(
+      service.stageWorkspaceFile({
+        filePath: 'README.md',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { hasStagedChanges: true },
+    })
+
+    await expect(
+      service.unstageWorkspaceFile({
+        filePath: 'README.md',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { hasUnstagedChanges: true },
+    })
+
+    await service.stageWorkspaceFile({
+      filePath: 'README.md',
+      workspaceId: imported.workspaceId,
+    })
+    await expect(
+      service.commitWorkspaceIndex({
+        message: 'Update readme',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { hasStagedChanges: false },
+    })
+    expect(runGit(repoRoot, ['log', '-1', '--format=%s'])).toBe('Update readme')
+
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged again\n')
+    const diff = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'README.md',
+    )
+    if (!diff.ok) throw new Error(diff.error)
+
+    await expect(
+      service.revertWorkspaceFile({
+        filePath: 'README.md',
+        fingerprint: diff.diff.fingerprint,
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { hasUnstagedChanges: false },
+    })
+    expect(runGit(repoRoot, ['show', 'HEAD:README.md'])).toBe('# aide\nchanged')
+
+    database.close()
+  })
+
+  it('rejects a stale revert preview before changing the file', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nfirst change\n')
+    const preview = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'README.md',
+    )
+    if (!preview.ok) throw new Error(preview.error)
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nsecond change\n')
+
+    await expect(
+      service.revertWorkspaceFile({
+        filePath: 'README.md',
+        fingerprint: preview.diff.fingerprint,
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      code: 'stale-diff',
+      error:
+        'The file changed after this revert preview. Refresh the file diff.',
+      ok: false,
+    })
+    expect(runGit(repoRoot, ['diff', '--', 'README.md'])).toContain(
+      'second change',
+    )
+
+    database.close()
+  })
+
+  it('rejects file paths outside the workspace before running a Git mutation', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.stageWorkspaceFile({
+        filePath: '../outside.txt',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      code: 'invalid-input',
+      error: 'File path must name a changed file inside the workspace.',
+      ok: false,
+    })
+
+    database.close()
+  })
+
+  it('uses argument arrays for GitHub authentication, pull request creation, and checks', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const commands: string[][] = []
+    const service = new GitWorkspaceService(database, async (args) => {
+      commands.push([...args])
+      if (args[0] === 'auth') return ''
+      if (args[1] === 'create') return 'https://github.com/example/aide/pull/7'
+      return JSON.stringify({
+        baseRefName: 'main',
+        headRefName: 'feature/review',
+        number: 7,
+        state: 'OPEN',
+        statusCheckRollup: [
+          {
+            conclusion: null,
+            detailsUrl: 'https://github.com/example/aide/actions/runs/1',
+            name: 'test',
+            status: 'IN_PROGRESS',
+          },
+        ],
+        title: 'Review flow',
+        url: 'https://github.com/example/aide/pull/7',
+      })
+    })
+    const imported = await service.importProject(repoRoot)
+    runGit(repoRoot, ['checkout', '-b', 'feature/review'])
+
+    await expect(
+      service.createWorkspacePullRequest({
+        body: 'Review the staged changes.',
+        title: 'Review flow',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      pullRequest: { number: 7, title: 'Review flow' },
+    })
+    expect(commands).toEqual([
+      ['auth', 'status'],
+      [
+        'pr',
+        'create',
+        '--base',
+        'main',
+        '--head',
+        'feature/review',
+        '--title',
+        'Review flow',
+        '--body',
+        'Review the staged changes.',
+      ],
+      ['auth', 'status'],
+      [
+        'pr',
+        'view',
+        '--json',
+        'number,title,url,state,headRefName,baseRefName,statusCheckRollup',
+      ],
+    ])
+
+    database.close()
+  })
 })

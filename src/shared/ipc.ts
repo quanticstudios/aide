@@ -22,7 +22,13 @@ import type {
   DetectWorktreeBranchResult,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceGitCommitInput,
   WorkspaceGitDiffResult,
+  WorkspaceGitFileMutationInput,
+  WorkspaceGitMutationResult,
+  WorkspaceGitPullRequestInput,
+  WorkspaceGitPullRequestResult,
+  WorkspaceGitRevertInput,
   WorkspaceGitStatusResult,
   WorktreeBranchStatsResult,
 } from './git'
@@ -112,6 +118,13 @@ export const IPC_CHANNELS = {
   listProjectRefs: 'app:list-project-refs',
   getWorkspaceGitStatus: 'app:get-workspace-git-status',
   getWorkspaceGitDiff: 'app:get-workspace-git-diff',
+  stageWorkspaceGitFile: 'app:stage-workspace-git-file',
+  unstageWorkspaceGitFile: 'app:unstage-workspace-git-file',
+  revertWorkspaceGitFile: 'app:revert-workspace-git-file',
+  commitWorkspaceGitIndex: 'app:commit-workspace-git-index',
+  pushWorkspaceGitBranch: 'app:push-workspace-git-branch',
+  createWorkspaceGitPullRequest: 'app:create-workspace-git-pull-request',
+  getWorkspaceGitPullRequest: 'app:get-workspace-git-pull-request',
   getWorktreeBranchStats: 'app:get-worktree-branch-stats',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
@@ -199,6 +212,27 @@ export interface AideApi {
     workspaceId: string,
     filePath: string,
   ) => Promise<WorkspaceGitDiffResult>
+  stageWorkspaceGitFile: (
+    input: WorkspaceGitFileMutationInput,
+  ) => Promise<WorkspaceGitMutationResult>
+  unstageWorkspaceGitFile: (
+    input: WorkspaceGitFileMutationInput,
+  ) => Promise<WorkspaceGitMutationResult>
+  revertWorkspaceGitFile: (
+    input: WorkspaceGitRevertInput,
+  ) => Promise<WorkspaceGitMutationResult>
+  commitWorkspaceGitIndex: (
+    input: WorkspaceGitCommitInput,
+  ) => Promise<WorkspaceGitMutationResult>
+  pushWorkspaceGitBranch: (
+    workspaceId: string,
+  ) => Promise<WorkspaceGitMutationResult>
+  createWorkspaceGitPullRequest: (
+    input: WorkspaceGitPullRequestInput,
+  ) => Promise<WorkspaceGitPullRequestResult>
+  getWorkspaceGitPullRequest: (
+    workspaceId: string,
+  ) => Promise<WorkspaceGitPullRequestResult>
   getWorktreeBranchStats: (
     workspaceId: string,
   ) => Promise<WorktreeBranchStatsResult>
