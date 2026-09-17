@@ -1,7 +1,8 @@
 # Shared model chat and context preparation
 
-Status: Draft. Shared chat and a Linux private-team alpha are recommended
-defaults pending confirmation. No runtime implementation is included.
+Status: Implementation goal. Users choose the orchestrator and agent models.
+Jev is a required internal service beneath the orchestrator. Production-grade
+behavior is required; a Linux private-team alpha is the first acceptance stage.
 
 ## Problem Statement
 
@@ -15,7 +16,7 @@ complete task cost and select useful original excerpts before model execution.
 ## Solution
 
 Extend the existing managed-agent pane with one shared conversation, a default
-model, and explicit recipients for individual messages. Start with the existing
+orchestrator, configured agent models, and per-message recipients. Start with the existing
 Claude and Codex providers. Provider aliases resolve to configured model IDs;
 autocomplete also exposes those model IDs when a user wants a specific model.
 
@@ -31,8 +32,8 @@ A mention does not change the conversation default. The existing model picker
 sets the default explicitly. Display the selected recipients before submission
 and label each answer with the provider and actual model used.
 
-Prepare task context inside Aide. Deterministic retrieval runs first. An optional
-Jev selector ranks excess optional excerpts. Required project instructions and
+Prepare task context inside Aide. Deterministic retrieval runs first. The required
+Jev service selects optional evidence before orchestrator execution. Required project instructions and
 explicitly referenced evidence remain included. Return original text with paths
 and line ranges, never a selector-generated summary.
 
@@ -58,6 +59,9 @@ and line ranges, never a selector-generated summary.
    attempts, so that retries count toward the cost of an accepted fix.
 10. As a workspace owner, I want to control external context processing,
     so that code reaches TypeSafe only under the workspace's approved policy.
+11. As a developer, I want to choose orchestrator and agent models while Aide
+    always supplies Jev beneath the orchestrator, so that I do not manage an
+    optimizer separately for each task.
 
 ## Navigation and Interaction Model
 
@@ -138,27 +142,29 @@ exclude ignored files, secrets, binary content, and symlink escapes. Limit file
 count, excerpt size, total input size, and elapsed retrieval time. Identify each
 excerpt by path, line range, and content revision. Invalidate stale results.
 
-Skip Jev when the eligible candidates already fit the context budget. The fixed
-rubric asks whether an identified excerpt helps investigate or implement the
-task. Required instructions and explicit evidence never compete for ranking.
+Every orchestrator request passes through the required Jev preparation step.
+The fixed rubric asks whether an identified excerpt helps investigate or
+implement the task. Without optional excerpts, evaluate the available task and
+conversation evidence. Required instructions and explicit evidence never compete for ranking.
 Preserve a deterministic baseline allocation when applying selection.
 
-Use the following developer-controlled rollout modes:
-
-- `off`: deterministic preparation only, with no Jev calls.
-- `shadow`: record Jev selection but deliver the deterministic result.
-- `active`: deliver the evaluated selection.
+Jev has no user-selectable off mode and is not an orchestrator or agent choice.
+Deterministic-only preparation exists only as an evaluation control. Jev does
+not authorize tools, replace permissions, or certify a patch. The orchestrator
+retains reasoning and delegation responsibility.
 
 Start with two calls per task and a two-second per-call deadline, subject to
 synthetic validation. Cache exact requests by task, snapshot, model, rubric,
-and candidate content. A timeout, malformed response, or exhausted budget uses
-the deterministic fallback. Cancellation stops dispatch rather than falling
-through to an unwanted coding request.
+and candidate content. A missing credential, timeout, malformed response, or
+exhausted budget pauses dispatch with an actionable retry state. Do not bypass
+Jev silently. Cancellation stops preparation and provider dispatch. The default
+outage policy pauses; the user may explicitly select a degraded fallback policy.
 
 Keep the TypeSafe credential in main-process credential storage. Do not place
 it in renderer state, transcripts, logs, or repository configuration. Live
 validation starts with synthetic input. External workspace processing defaults
-off until the workspace policy permits TypeSafe processing.
+off until the workspace policy permits TypeSafe processing. Onboarding must
+resolve this requirement before the workspace can start an orchestrated task.
 
 ### Delivery order
 
@@ -167,8 +173,9 @@ off until the workspace policy permits TypeSafe processing.
 3. Add a default model and single-recipient mentions in the existing composer.
 4. Add two-recipient read-only comparison with independent failure/cancellation.
 5. Implement deterministic context preparation and the Claude query-only tool.
-6. Add Jev behind `off`/`shadow`/`active` modes and validate synthetic requests.
-7. Run the paired evaluation before enabling Jev for approved workspaces.
+6. Connect required Jev and validate synthetic requests, retry, cancellation,
+   credential storage, and workspace processing policy.
+7. Run the paired evaluation before releasing orchestration to approved workspaces.
 
 Each slice needs a bead with acceptance criteria before implementation. The
 conversation work and context work reuse accounting but can ship separately.
@@ -194,7 +201,8 @@ conversation work and context work reuse accounting but can ship separately.
   latency, and human correction time. Record failures and uncertainty.
 - Treat 20% lower cost versus deterministic preparation as a proposed activation
   target, not a forecast. Define acceptable quality/latency thresholds before
-  the pilot. Keep Jev off when deterministic preparation performs equally well.
+  the pilot. If Jev misses those thresholds, report the measurements and improve
+  the required integration without claiming savings or disabling it.
 - Run repository quality gates and the applicable Electron scenarios before
   closing implementation beads. Validate with real provider sessions before
   claiming production readiness.
@@ -210,10 +218,10 @@ conversation work and context work reuse accounting but can ship separately.
 
 ## Further Notes
 
-Locked requirements are the existing managed-agent UI, easy access to two
-models, a default recipient, optional mentions, and context selection before
-expensive model reading. Shared history, comparison defaults, and release
-audience remain proposed decisions until confirmed.
+Locked requirements are production-grade behavior, the existing managed-agent
+UI, selected orchestrator and agent models, a default recipient, mentions,
+and required Jev preparation before expensive model reading. Shared history
+and read-only comparison are the implementation defaults.
 
 Open questions and recommended defaults:
 
@@ -223,8 +231,8 @@ Open questions and recommended defaults:
 - Initial audience? Use a small trusted Linux team before public distribution.
 - Mention behavior? Override only the current message; retain the default.
 - Opinion permissions? Use read-only tools with one writer for Build turns.
-- Jev activation? Keep it off until external processing is approved and the
-  pilot meets predeclared quality and cost thresholds.
+- Jev availability? Require setup before orchestration; pause and offer retry
+  on failure. The service always belongs beneath the orchestrator.
 
 The supplied text describes a starter package with 35 tests, but the supplied
 attachments contain only duplicate prose. Inspect the actual package if it
@@ -233,6 +241,6 @@ Confirm API semantics and a pinned available model against official TypeSafe
 documentation during implementation. [TypeSafe](https://typesafe.ai/) describes
 Jev as a typed decision model, which supports its proposed internal role.
 
-Suggested next step: confirm the product defaults, then use `prd-to-beads` to
-create the slices above. The [readiness assessment](../19-production-readiness.md)
-lists the release work separately.
+Use `prd-to-beads` and `ship-bead` to implement the slices above. The
+[readiness assessment](../19-production-readiness.md) lists release work
+separately. Completion requires verified behavior and release gates.
