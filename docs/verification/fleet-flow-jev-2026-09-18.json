@@ -1,0 +1,53 @@
+{
+  "purpose": "Independent synthetic animation truthfulness cases for fleet flowchart",
+  "model": "jev-1.13.0",
+  "elapsedSeconds": 0.715,
+  "cases": {
+    "old_start": "Prior turn: agent started without terminal event. Session is now ready, no active opinion. Should UI animate?",
+    "active_agent": "Current snapshot opinion has status running. Its matching agent event is started. Should UI animate?",
+    "configured_only": "Agent is configured but has no runtime events and no active opinion. Should UI animate?",
+    "terminal": "Current agent event completed and session is ready. Should UI animate?"
+  },
+  "answers": {
+    "old_start": {
+      "type": "choice",
+      "choice": "static",
+      "confidence": 0.79,
+      "probabilities": {
+        "animate": 0.11,
+        "static": 0.89
+      }
+    },
+    "active_agent": {
+      "type": "choice",
+      "choice": "animate",
+      "confidence": 0.99,
+      "probabilities": {
+        "animate": 0.99,
+        "static": 0.01
+      }
+    },
+    "configured_only": {
+      "type": "choice",
+      "choice": "static",
+      "confidence": 1.0,
+      "probabilities": {
+        "animate": 0.0,
+        "static": 1.0
+      }
+    },
+    "terminal": {
+      "type": "choice",
+      "choice": "static",
+      "confidence": 0.96,
+      "probabilities": {
+        "animate": 0.02,
+        "static": 0.98
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 630,
+    "output_tokens": 118
+  }
+}

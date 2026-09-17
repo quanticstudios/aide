@@ -1842,6 +1842,23 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       })
     }
 
+    if (trimmed === 'fleet consult' && this.tools) {
+      await this.tools.codex.handleCall({
+        threadId: 'fake',
+        turnId,
+        callId: randomUUID(),
+        namespace: null,
+        tool: 'ask_agent',
+        arguments: {
+          alias: 'claude',
+          prompt: 'wait-claude',
+          nodeId: 'drawer',
+          reason: 'Check the drawer accessibility before implementation.',
+          risk: 'routine',
+        },
+      })
+    }
+
     if (trimmed === 'approval') {
       this.activeRequestId = randomUUID()
       this.emitRuntimeEvent({
@@ -2061,6 +2078,7 @@ export class ManagedSessionManager {
     const updatedAt = this.getNow()
     const restoredSnapshot = structuredClone({
       ...snapshot,
+      preparingActivityId: undefined,
       detail:
         'Restored from a turn checkpoint. Review the draft before sending.',
       pendingApprovals: [],
@@ -2644,6 +2662,8 @@ export class ManagedSessionManager {
       state.preparationAbortController = preparationAbortController
       this.recordFleetEvent(state, {
         type: 'preparation',
+        activityId: promptItemId,
+        requestedBy: 'user',
         status: 'started',
         label: 'Jev preparation',
         detail: 'Preparing authorized context for the orchestrator.',
@@ -2666,6 +2686,8 @@ export class ManagedSessionManager {
         const agents = state.config.agents ?? []
         this.recordFleetEvent(state, {
           type: 'preparation',
+          activityId: promptItemId,
+          requestedBy: 'user',
           status: 'completed',
           label: 'Jev preparation',
           detail: 'Context preparation completed.',
@@ -2689,6 +2711,8 @@ export class ManagedSessionManager {
       } catch (error) {
         this.recordFleetEvent(state, {
           type: 'preparation',
+          activityId: promptItemId,
+          requestedBy: 'user',
           status: preparationAbortController.signal.aborted
             ? 'cancelled'
             : 'failed',
@@ -3040,6 +3064,7 @@ export class ManagedSessionManager {
     const attempts = metadata?.nodeId
       ? (state.snapshot.fleet?.attemptCounts?.[metadata.nodeId] ?? 0)
       : 0
+    const activityId = `opinion:${randomUUID()}`
     const route = chooseFleetRoute({
       risk: metadata?.risk ?? 'routine',
       failure: metadata?.failure,
@@ -3050,6 +3075,9 @@ export class ManagedSessionManager {
     })
     this.recordFleetEvent(state, {
       type: 'decision',
+      activityId,
+      agentAlias: agent.alias,
+      requestedBy: 'orchestrator',
       status: route.action === 'dispatch' ? 'completed' : 'blocked',
       label: `Route @${agent.alias}`,
       nodeId: metadata?.nodeId,
@@ -3083,6 +3111,7 @@ export class ManagedSessionManager {
       [],
       undefined,
       metadata?.nodeId,
+      activityId,
     )
   }
 
@@ -3096,6 +3125,7 @@ export class ManagedSessionManager {
     attachments: readonly ManagedSessionAttachment[] = [],
     checkpointId?: string,
     nodeId?: string,
+    activityId = `opinion:${randomUUID()}`,
   ): Promise<string> {
     if (state.closing || state.agentRuns.has(agent.alias.toLowerCase()))
       throw new Error('Agent is already running.')
@@ -3106,7 +3136,7 @@ export class ManagedSessionManager {
       controller.signal,
       ...(parentSignal ? [parentSignal] : []),
     ])
-    const turnId = `opinion:${randomUUID()}`
+    const turnId = activityId
     const startedAt = this.getNow()
     const attempt = nodeId
       ? state.snapshot.fleet?.attemptCounts?.[nodeId]
@@ -3114,6 +3144,9 @@ export class ManagedSessionManager {
     const recordAgent = (status: FleetEvent['status']) =>
       this.recordFleetEvent(state, {
         type: 'agent',
+        activityId,
+        agentAlias: agent.alias,
+        requestedBy: source,
         status,
         nodeId,
         attempt,
@@ -3149,6 +3182,9 @@ export class ManagedSessionManager {
           }
         this.recordFleetEvent(state, {
           type: 'preparation',
+          activityId,
+          agentAlias: agent.alias,
+          requestedBy: source,
           status: 'started',
           nodeId,
           label: `Jev for @${agent.alias}`,
@@ -3160,6 +3196,9 @@ export class ManagedSessionManager {
           const prepared = await this.options.prepareInput(preparedInput)
           this.recordFleetEvent(state, {
             type: 'preparation',
+            activityId,
+            agentAlias: agent.alias,
+            requestedBy: source,
             status: 'completed',
             nodeId,
             label: `Jev for @${agent.alias}`,
@@ -3171,6 +3210,9 @@ export class ManagedSessionManager {
         } catch (error) {
           this.recordFleetEvent(state, {
             type: 'preparation',
+            activityId,
+            agentAlias: agent.alias,
+            requestedBy: source,
             status: input.signal.aborted ? 'cancelled' : 'failed',
             nodeId,
             label: `Jev for @${agent.alias}`,
@@ -3673,8 +3715,11 @@ export class ManagedSessionManager {
               const state = this.sessions.get(config.sessionId)
               if (!state || !this.options.prepareInput)
                 throw new Error('Context preparation is unavailable.')
+              const activityId = randomUUID()
               this.recordFleetEvent(state, {
                 type: 'context',
+                activityId,
+                requestedBy: 'orchestrator',
                 status: 'started',
                 label: 'Jev context lookup',
                 detail: 'Retrieving authorized workspace context.',
@@ -3710,6 +3755,8 @@ export class ManagedSessionManager {
                 })
                 this.recordFleetEvent(state, {
                   type: 'context',
+                  activityId,
+                  requestedBy: 'orchestrator',
                   status: 'completed',
                   label: 'Jev context lookup returned',
                   detail: 'Authorized context returned to the orchestrator.',
@@ -3720,6 +3767,8 @@ export class ManagedSessionManager {
               } catch (error) {
                 this.recordFleetEvent(state, {
                   type: 'context',
+                  activityId,
+                  requestedBy: 'orchestrator',
                   status: signal.aborted ? 'cancelled' : 'failed',
                   label: 'Jev context lookup',
                   detail: 'Context lookup did not complete.',
@@ -3849,6 +3898,14 @@ export class ManagedSessionManager {
 
     if (event.type === 'turn.started') {
       state.activeTurnId = event.turnId
+      if (state.snapshot.fleet && state.pendingUserPromptItemId) {
+        state.snapshot.fleet.events = state.snapshot.fleet.events.map(
+          (activity) =>
+            activity.activityId === state.pendingUserPromptItemId
+              ? { ...activity, turnId: event.turnId }
+              : activity,
+        )
+      }
       this.recordFleetEvent(state, {
         type: 'turn',
         status: 'started',
@@ -4137,6 +4194,11 @@ export class ManagedSessionManager {
       (approval) => approval.requestType === 'plan-approval',
     )
     state.snapshot = {
+      ...(state.preparationAbortController &&
+      !state.preparationAbortController.signal.aborted &&
+      state.pendingUserPromptItemId
+        ? { preparingActivityId: state.pendingUserPromptItemId }
+        : {}),
       ...(state.snapshot.fleet ? { fleet: state.snapshot.fleet } : {}),
       ...(state.config.agents ? { agents: state.config.agents } : {}),
       content: state.orderedContentKeys
@@ -4208,7 +4270,7 @@ export class ManagedSessionManager {
     }
     const persisted = this.options.store?.saveManagedSession({
       config: state.config,
-      snapshot: state.snapshot,
+      snapshot: { ...state.snapshot, preparingActivityId: undefined },
     })
     if (persisted) {
       this.persistedSessions.set(persisted.config.sessionId, persisted)

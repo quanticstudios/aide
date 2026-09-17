@@ -75,50 +75,8 @@ function createNodeId(
   }
 }
 
-function collectAllViewIds(layout: WorkspaceLayoutRecord): Set<string> {
-  const ids = new Set<string>()
-
-  for (const node of layout.nodes) {
-    if (node.type === 'pane') {
-      for (const viewId of node.viewIds) {
-        ids.add(viewId)
-      }
-    }
-  }
-
-  return ids
-}
-
-function createSplitPaneId(
-  layout: WorkspaceLayoutRecord,
-  paneId: string,
-): string {
-  const existingIds = collectAllViewIds(layout)
-  const templateId = getPaneTemplateId(paneId)
-  let counter = 1
-
-  while (true) {
-    const candidate = `${templateId}::copy-${counter}`
-
-    if (!existingIds.has(candidate)) {
-      return candidate
-    }
-
-    counter += 1
-  }
-}
-
-function createPaneIdForTemplate(
-  layout: WorkspaceLayoutRecord,
-  templatePaneId: string,
-): string {
-  const existingIds = collectAllViewIds(layout)
-
-  if (!existingIds.has(templatePaneId)) {
-    return templatePaneId
-  }
-
-  return createSplitPaneId(layout, templatePaneId)
+export function createWorkspacePaneInstanceId(templatePaneId: string): string {
+  return `${getPaneTemplateId(templatePaneId)}::copy-instance-${crypto.randomUUID()}`
 }
 
 function createSinglePaneLayout(
@@ -203,9 +161,9 @@ export function splitWorkspacePane(
 
   const splitNodeId = createNodeId(nextLayout, 'split-node')
   const duplicatePaneNodeId = createNodeId(nextLayout, 'pane-node')
-  const duplicatePaneId = targetTemplatePaneId
-    ? createPaneIdForTemplate(nextLayout, targetTemplatePaneId)
-    : createSplitPaneId(nextLayout, paneId)
+  const duplicatePaneId = createWorkspacePaneInstanceId(
+    targetTemplatePaneId ?? paneId,
+  )
   const parentNode =
     paneNode.parentId !== null ? (nodeMap.get(paneNode.parentId) ?? null) : null
   const updatedPaneNode = {
@@ -269,19 +227,20 @@ export function addWorkspacePane(
   _activePaneId: string | null,
   _splitType: PersistedSplitLayoutNode['type'] = 'split-horizontal',
 ): WorkspaceLayoutMutationResult {
+  const newPaneId = createWorkspacePaneInstanceId(templatePaneId)
+
   if (!layout) {
     return {
       blockedReason: null,
       didChange: true,
-      layout: createSinglePaneLayout(workspaceId, templatePaneId),
-      nextActivePaneId: templatePaneId,
+      layout: createSinglePaneLayout(workspaceId, newPaneId),
+      nextActivePaneId: newPaneId,
     }
   }
 
   const nextLayout = cloneLayout(layout)
   const nodeMap = createNodeMap(nextLayout)
   const newPaneNodeId = createNodeId(nextLayout, 'pane-node')
-  const newPaneId = createPaneIdForTemplate(nextLayout, templatePaneId)
   const newPaneNode: PersistedLayoutNode = {
     activeViewIndex: 0,
     children: [] as [],
@@ -636,7 +595,7 @@ export function addPaneView(
     }
   }
 
-  const newViewId = createPaneIdForTemplate(nextLayout, templateViewId)
+  const newViewId = createWorkspacePaneInstanceId(templateViewId)
 
   nodeMap.set(paneNode.id, {
     ...paneNode,

@@ -179,6 +179,48 @@ describe('ManagedSessionManager', () => {
     ).rejects.toThrow()
     const fleet = manager.getSnapshots()[config.sessionId]?.fleet
     expect(fleet?.attemptCounts?.drawer).toBe(3)
+    const initialPreparation = fleet?.events.find(
+      (event) => event.type === 'preparation',
+    )
+    expect(initialPreparation?.turnId).toBeTruthy()
+    expect(fleet?.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'turn',
+          status: 'started',
+          turnId: initialPreparation?.turnId,
+        }),
+      ]),
+    )
+    const completedConsultations =
+      fleet?.events.filter(
+        (event) => event.type === 'agent' && event.status === 'completed',
+      ) ?? []
+    expect(
+      new Set(completedConsultations.map((event) => event.activityId)).size,
+    ).toBe(3)
+    for (const consultation of completedConsultations) {
+      expect(consultation).toMatchObject({
+        agentAlias: 'Sol',
+        activityId: expect.stringMatching(/^opinion:/),
+        requestedBy: 'orchestrator',
+      })
+      expect(manager.getSnapshots()[config.sessionId]?.turns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: consultation.activityId }),
+        ]),
+      )
+      const activity = fleet?.events.filter(
+        (event) => event.activityId === consultation.activityId,
+      )
+      expect(activity?.map((event) => [event.type, event.status])).toEqual([
+        ['decision', 'completed'],
+        ['agent', 'started'],
+        ['preparation', 'started'],
+        ['preparation', 'completed'],
+        ['agent', 'completed'],
+      ])
+    }
     expect(
       fleet?.events
         .filter(
@@ -1204,7 +1246,10 @@ createInterface({ input: process.stdin }).on('line', line => {
     const preparationStarted = createDeferred()
     const releasePreparation = createDeferred()
     const sent: string[] = []
+    const store = createMemoryStore()
+    const save = vi.spyOn(store, 'saveManagedSession')
     const manager = new ManagedSessionManager({
+      store,
       createBackend: (config, emit) => ({
         close: async () => undefined,
         interrupt: async () => undefined,
@@ -1234,6 +1279,16 @@ createInterface({ input: process.stdin }).on('line', line => {
     await manager.createSession(config)
     const send = manager.sendInput(config.sessionId, 'cancel during Jev')
     await preparationStarted.promise
+    const preparing = manager.getSnapshots()[config.sessionId]
+    expect(preparing?.preparingActivityId).toMatch(/^user-prompt:/)
+    expect(preparing?.fleet?.events.at(-1)).toMatchObject({
+      activityId: preparing?.preparingActivityId,
+      status: 'started',
+      requestedBy: 'user',
+    })
+    expect(
+      save.mock.calls.at(-1)?.[0].snapshot.preparingActivityId,
+    ).toBeUndefined()
     const queuedInputId =
       manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id ?? ''
     manager.cancelQueuedInput(config.sessionId, queuedInputId)
@@ -1241,6 +1296,9 @@ createInterface({ input: process.stdin }).on('line', line => {
     await send
 
     expect(sent).toEqual([])
+    expect(
+      manager.getSnapshots()[config.sessionId]?.preparingActivityId,
+    ).toBeUndefined()
     expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
   })
 

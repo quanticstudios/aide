@@ -48,8 +48,19 @@ describe('createAideDatabase', () => {
         windowId: null,
         worktreePath: '/workspace/aide',
       })
+      const agents = [
+        {
+          alias: 'reviewer',
+          selection: {
+            mode: 'codex' as const,
+            model: 'gpt-5.6-sol',
+            effort: 'medium',
+          },
+        },
+      ]
       const persisted: PersistedManagedSession = {
         config: {
+          agents,
           cwd: '/workspace/aide',
           mode: 'claude',
           paneId: 'pane-1',
@@ -57,6 +68,7 @@ describe('createAideDatabase', () => {
           workspaceId: workspace.id,
         },
         snapshot: {
+          agents,
           fleet: {
             plan: {
               summary: 'Saved architecture',

@@ -194,6 +194,7 @@ export interface ManagedSessionUsage {
 }
 
 export interface ManagedSessionSnapshot {
+  preparingActivityId?: string
   fleet?: FleetState
   agents?: readonly ManagedSessionAgentConfig[]
   content: ManagedSessionContentItem[]

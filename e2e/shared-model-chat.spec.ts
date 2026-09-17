@@ -253,11 +253,72 @@ test.describe('shared model chat', () => {
     })
     await drawer.getByRole('tab', { name: 'Live flow', exact: true }).click()
     await expect(drawer).toContainText('Jev')
-    await expect(drawer).toContainText('Orchestrator turn')
+    const flow = drawer.getByTestId('fleet-live-flow')
+    await expect(flow).toBeVisible()
+    await expect(flow.locator('[data-state="running"]')).toHaveCount(0)
+    await app.evaluate(() => {
+      const runtime = globalThis as typeof globalThis & {
+        releaseFleetPreparation?: () => void
+      }
+      const fetch = runtime.fetch
+      let isFirstRequest = true
+      runtime.fetch = async (url, options) => {
+        if (url === 'https://api.typesafe.ai/v1/systemone' && isFirstRequest) {
+          isFirstRequest = false
+          await new Promise<void>((resolve) => {
+            runtime.releaseFleetPreparation = resolve
+            options?.signal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            })
+          })
+        }
+        return fetch(url, options)
+      }
+    })
+    await page.evaluate((sessionId) => {
+      void window.aide.sendManagedSessionInput(sessionId, 'fleet consult')
+    }, session.sessionId)
+    await expect(
+      flow.getByRole('button', {
+        name: 'Required Jev context, running',
+        exact: true,
+      }),
+    ).toBeVisible()
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect
+      .poll(() =>
+        flow
+          .locator('path[data-state="running"]')
+          .first()
+          .evaluate((element) => getComputedStyle(element).animationName),
+      )
+      .toBe('none')
+    await app.evaluate(() => {
+      const runtime = globalThis as typeof globalThis & {
+        releaseFleetPreparation?: () => void
+      }
+      runtime.releaseFleetPreparation?.()
+      delete runtime.releaseFleetPreparation
+    })
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await expect(
+      flow.getByRole('button', { name: 'Agent claude, running', exact: true }),
+    ).toBeVisible()
+    await flow.getByRole('button', { name: /^Routing decision,/ }).click()
+    await expect(flow).toContainText(
+      'Check the drawer accessibility before implementation.',
+    )
     await expect(drawer).toContainText('remainder unknown')
     await page.screenshot({
       path: 'docs/verification/fleet-live-2026-09-18.png',
     })
+    await page.getByRole('button', { name: 'Interrupt @claude' }).click()
+    await expect(flow.locator('[data-state="running"]')).toHaveCount(0)
+    await expect(
+      flow.getByTestId('fleet-live-edge-return-agent-claude'),
+    ).toHaveAttribute('data-state', 'cancelled')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(flow).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)
     await expect(
@@ -270,6 +331,27 @@ test.describe('shared model chat', () => {
       .click()
     await page
       .getByRole('button', { name: 'Open agent fleet', exact: true })
+      .click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async ({ workspaceId, paneId }) => {
+            const storage = await window.aide.getStorageSnapshot()
+            const activePaneId =
+              storage.lastActivePaneIdsByWorkspace[workspaceId]
+            return Boolean(
+              activePaneId &&
+                activePaneId !== paneId &&
+                activePaneId.startsWith('agent::copy-'),
+            )
+          },
+          { workspaceId: session.workspaceId, paneId: session.paneId },
+        ),
+      )
+      .toBe(true)
+    await page
+      .getByTestId('fleet-drawer')
+      .getByRole('tab', { name: 'Plan', exact: true })
       .click()
     await expect(page.getByTestId('fleet-drawer')).toContainText(
       'No fleet plan has been recorded',
@@ -298,6 +380,28 @@ test.describe('shared model chat', () => {
         .getByTestId('fleet-drawer')
         .getByRole('button', { name: 'Close agent fleet', exact: true }),
     ).toBeVisible()
+    await reopened.page
+      .getByTestId('fleet-drawer')
+      .getByRole('tab', { name: 'Live flow', exact: true })
+      .click()
+    await expect(
+      reopened.page
+        .getByTestId('fleet-live-flow')
+        .locator('[data-state="running"]'),
+    ).toHaveCount(0)
+    await expect(
+      reopened.page
+        .getByTestId('fleet-live-flow')
+        .getByRole('button', { name: /^Agent claude,/ }),
+    ).toBeVisible()
+    await expect(
+      reopened.page
+        .getByTestId('fleet-live-flow')
+        .getByRole('button', { name: /^Agent codex,/ }),
+    ).toBeVisible()
+    expect(
+      await reopened.page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBeLessThanOrEqual(760)
     await reopened.page.screenshot({
       path: 'docs/verification/fleet-narrow-2026-09-18.png',
     })

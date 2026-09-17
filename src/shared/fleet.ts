@@ -148,6 +148,9 @@ export const FleetEventSchema = z
     createdAt: z.iso.datetime(),
     turnId: z.string().max(256).nullable(),
     nodeId: FleetNodeIdSchema.optional(),
+    activityId: z.string().min(1).max(256).optional(),
+    agentAlias: z.string().min(1).max(200).optional(),
+    requestedBy: z.enum(['user', 'orchestrator']).optional(),
     attempt: z.number().int().positive().optional(),
     type: z.enum([
       'preparation',

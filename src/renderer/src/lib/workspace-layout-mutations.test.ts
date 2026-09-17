@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import type { WorkspaceLayoutRecord } from '../../../shared/persistence'
 import {
+  addPaneView,
   addWorkspacePane,
   closeWorkspacePane,
+  createWorkspacePaneInstanceId,
   resizeWorkspacePane,
   splitWorkspacePane,
 } from './workspace-layout-mutations'
+
+const INSTANCE_ID_PATTERN =
+  /^[a-z-]+::copy-instance-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 function createSinglePaneLayout(): WorkspaceLayoutRecord {
   return {
@@ -93,11 +98,11 @@ describe('splitWorkspacePane', () => {
       activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
-      paneId: 'chat::copy-1',
+      paneId: expect.stringMatching(INSTANCE_ID_PATTERN),
       parentId: 'workspace-1:split-node:1',
       sizeWeights: [],
       type: 'pane',
-      viewIds: ['chat::copy-1'],
+      viewIds: [expect.stringMatching(INSTANCE_ID_PATTERN)],
       workspaceId: 'workspace-1',
     })
   })
@@ -115,18 +120,18 @@ describe('addWorkspacePane', () => {
 
     expect(result.didChange).toBe(true)
     expect(result.blockedReason).toBeNull()
-    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.nextActivePaneId).toMatch(INSTANCE_ID_PATTERN)
     expect(result.layout).toEqual({
       nodes: [
         {
           activeViewIndex: 0,
           children: [],
           id: 'workspace-1:pane-node:1',
-          paneId: 'terminal',
+          paneId: result.nextActivePaneId,
           parentId: null,
           sizeWeights: [],
           type: 'pane',
-          viewIds: ['terminal'],
+          viewIds: [result.nextActivePaneId],
           workspaceId: 'workspace-1',
         },
       ],
@@ -146,7 +151,7 @@ describe('addWorkspacePane', () => {
 
     expect(result.didChange).toBe(true)
     expect(result.blockedReason).toBeNull()
-    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.nextActivePaneId).toMatch(INSTANCE_ID_PATTERN)
     expect(result.layout.nodes).toContainEqual({
       children: ['root-pane', 'workspace-1:pane-node:1'],
       id: 'workspace-1:split-node:1',
@@ -160,11 +165,11 @@ describe('addWorkspacePane', () => {
       activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
-      paneId: 'terminal',
+      paneId: result.nextActivePaneId,
       parentId: 'workspace-1:split-node:1',
       sizeWeights: [],
       type: 'pane',
-      viewIds: ['terminal'],
+      viewIds: [result.nextActivePaneId],
       workspaceId: 'workspace-1',
     })
   })
@@ -180,7 +185,7 @@ describe('addWorkspacePane', () => {
 
     expect(result.didChange).toBe(true)
     expect(result.blockedReason).toBeNull()
-    expect(result.nextActivePaneId).toBe('terminal')
+    expect(result.nextActivePaneId).toMatch(INSTANCE_ID_PATTERN)
     expect(result.layout.rootNodeId).toBe('root-split')
     expect(result.layout.nodes).toContainEqual({
       children: ['left-pane', 'right-pane', 'workspace-1:pane-node:1'],
@@ -195,13 +200,40 @@ describe('addWorkspacePane', () => {
       activeViewIndex: 0,
       children: [],
       id: 'workspace-1:pane-node:1',
-      paneId: 'terminal',
+      paneId: result.nextActivePaneId,
       parentId: 'root-split',
       sizeWeights: [],
       type: 'pane',
-      viewIds: ['terminal'],
+      viewIds: [result.nextActivePaneId],
       workspaceId: 'workspace-1',
     })
+  })
+})
+
+describe('workspace pane identities', () => {
+  it('does not reuse an identity after a pane closes', () => {
+    const closedPaneId = createWorkspacePaneInstanceId('chat')
+    const replacementPaneId = createWorkspacePaneInstanceId('chat')
+
+    expect(closedPaneId).toMatch(INSTANCE_ID_PATTERN)
+    expect(replacementPaneId).toMatch(INSTANCE_ID_PATTERN)
+    expect(replacementPaneId).not.toBe(closedPaneId)
+  })
+
+  it('assigns a unique identity to a view added to a pane', () => {
+    const result = addPaneView(createSinglePaneLayout(), 'chat', 'terminal')
+    const paneNode = result.layout.nodes.find(
+      (node) => node.type === 'pane' && node.paneId === 'chat',
+    )
+
+    expect(result.didChange).toBe(true)
+    expect(paneNode?.type).toBe('pane')
+
+    if (paneNode?.type !== 'pane') {
+      throw new Error('Expected a pane node.')
+    }
+
+    expect(paneNode.viewIds[1]).toMatch(INSTANCE_ID_PATTERN)
   })
 })
 

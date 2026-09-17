@@ -6,10 +6,15 @@ import {
 } from '../../../shared/persistence'
 import {
   createLegacySurfaceId,
+  createSinglePaneSurface,
   findWorkspaceIdForSurface,
   resolveSurfaceLayout,
   resolveWorkspaceSurfaces,
 } from './workspace-surfaces'
+import { createWorkspacePaneInstanceId } from './workspace-layout-mutations'
+
+const AGENT_INSTANCE_ID_PATTERN =
+  /^agent::copy-instance-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 describe('workspace surface resolution', () => {
   function createLegacyLayout(): WorkspaceLayoutRecord {
@@ -80,6 +85,46 @@ describe('workspace surface resolution', () => {
     })
     expect(findWorkspaceIdForSurface(snapshot, legacySurfaceId)).toBe(
       'workspace-1',
+    )
+  })
+})
+
+describe('workspace surface pane identity', () => {
+  it('preserves distinct pane identities across surfaces', () => {
+    const firstPaneId = createWorkspacePaneInstanceId('agent')
+    const secondPaneId = createWorkspacePaneInstanceId('agent')
+    const firstSurface = createSinglePaneSurface({
+      orderIndex: 0,
+      paneId: firstPaneId,
+      title: 'Agent',
+      workspaceId: 'workspace-1',
+    })
+    const secondSurface = createSinglePaneSurface({
+      orderIndex: 1,
+      paneId: secondPaneId,
+      title: 'Agent',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(firstPaneId).toMatch(AGENT_INSTANCE_ID_PATTERN)
+    expect(secondPaneId).toMatch(AGENT_INSTANCE_ID_PATTERN)
+    expect(secondPaneId).not.toBe(firstPaneId)
+    expect(firstSurface.layout.nodes[0]?.paneId).toBe(firstPaneId)
+    expect(secondSurface.layout.nodes[0]?.paneId).toBe(secondPaneId)
+  })
+
+  it('keeps a saved task pane identity when reopening its surface', () => {
+    const savedPaneId = 'agent::copy-7'
+    const { layout } = createSinglePaneSurface({
+      orderIndex: 0,
+      paneId: savedPaneId,
+      title: 'Saved task',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(layout.nodes[0]?.paneId).toBe(savedPaneId)
+    expect(layout.nodes[0]?.type === 'pane' && layout.nodes[0].viewIds).toEqual(
+      [savedPaneId],
     )
   })
 })

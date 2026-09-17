@@ -15,6 +15,19 @@ consultations, provider turns, errors, and concise routing explanations.
 Selecting a node shows its details. The active workspace and pane own the view.
 Closing the drawer returns focus. Narrow windows retain access to Close.
 
+Both tabs use connected flowcharts. Plan places dependencies above their work
+and uses separate columns for parallel steps. Live flow keeps Jev directly
+below the orchestrator, explains the routing decision, and shows configured
+agent branches with their actual model. A selected node opens its recorded
+reason and evidence. The chronological event list stays collapsed by default.
+
+Only observed active work animates. Terminal and unvisited paths stay still.
+A consultation activity id links its routing decision, Jev preparation, and
+agent result to the corresponding opinion turn. Old events without correlation
+fields remain readable without implying an observed path. Reduced-motion
+preferences disable moving traces. A plan report is distinct from provider
+activity and user acceptance.
+
 The orchestrator publishes plans through validated provider tools. Main stamps
 runtime events and persists the plan in existing session JSON. Old sessions
 remain readable. Plans reject duplicate identifiers, missing dependencies,

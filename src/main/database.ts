@@ -2243,7 +2243,15 @@ export class AideDatabase {
       throw new Error('Invalid managed session.')
     }
 
-    return parsed.data
+    return {
+      ...parsed.data,
+      snapshot: {
+        ...parsed.data.snapshot,
+        ...(parsed.data.config.agents
+          ? { agents: parsed.data.config.agents }
+          : {}),
+      },
+    }
   }
 
   private normalizeWorkspaceSurface(

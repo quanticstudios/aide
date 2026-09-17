@@ -73,6 +73,7 @@ import { collectWorkspaceLayoutPaneIds } from './lib/workspace-layout'
 import {
   addPaneView,
   closeWorkspacePane,
+  createWorkspacePaneInstanceId,
   removePaneView,
   resizeWorkspacePane,
   splitWorkspacePane,
@@ -1356,9 +1357,10 @@ function WorkspaceApp() {
             currentSnapshot,
             workspaceId,
           )
+          const paneId = createWorkspacePaneInstanceId(templatePaneId)
           const { layout, surface } = createSinglePaneSurface({
             orderIndex: surfaces.length,
-            paneId: templatePaneId,
+            paneId,
             title:
               resolvePaneMetadata(templatePaneId).label ??
               getPaneCatalogEntryForTemplate(templatePaneId)?.defaultMetadata
