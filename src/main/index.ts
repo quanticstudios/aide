@@ -86,7 +86,7 @@ const rendererLocation = {
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
-const AGENT_ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/
+const AGENT_ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 const MAX_CONFIGURED_AGENTS = 2
 
 function releaseConfiguration(): UpdateReleaseOptions | null {
@@ -163,7 +163,7 @@ async function resolveConfiguredAgents(
       }
 
       return {
-        alias,
+        alias: normalizedAlias,
         selection: {
           effort: selection.effort,
           mode: selection.mode,
@@ -811,8 +811,14 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionInterrupt,
-    (_event, sessionId: string) =>
-      managedSessionManager.interruptSession(sessionId),
+    (_event, sessionId: unknown, recipientAlias: unknown) => {
+      const id = requireRuntimeId(sessionId, 'managed-session id')
+      const aliases =
+        recipientAlias === undefined
+          ? []
+          : requireRecipientAliases([recipientAlias])
+      return managedSessionManager.interruptSession(id, aliases[0])
+    },
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
@@ -821,7 +827,22 @@ function registerIpcHandlers(): void {
       if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
         throw new Error('Enter a message between 1 and 65,536 characters.')
       }
-      return managedSessionManager.sendInput(id, text, requireRecipientAliases(recipients))
+      return managedSessionManager.sendInput(
+        id,
+        text,
+        requireRecipientAliases(recipients),
+      )
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionConfigureMode,
+    (_event, sessionId: unknown, interactionMode: unknown) => {
+      if (interactionMode !== 'build' && interactionMode !== 'plan')
+        throw new Error('Invalid interaction mode.')
+      return managedSessionManager.configureSessionMode(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        interactionMode,
+      )
     },
   )
   ipcMain.handle(

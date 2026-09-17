@@ -91,6 +91,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       kind: ManagedProviderRuntimeContentKind
+      model?: string
       itemId: string
       text: string
       type: 'content.delta'

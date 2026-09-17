@@ -509,6 +509,8 @@ const persistedManagedSessionSchema = z
           id: persistedIdentifier,
           provider: persistedProvider,
           startedAt: persistedTimestamp,
+          recipientAlias: z.string().max(64).optional(),
+          requestText: z.string().max(65_536).optional(),
           state: z.enum([
             'running',
             'completed',

@@ -6,7 +6,8 @@ const { results } = vi.hoisted(() => ({
   results: [] as Record<string, unknown>[],
 }))
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@anthropic-ai/claude-agent-sdk')>()),
   query: vi.fn(({ prompt }: { prompt: AsyncIterable<unknown> }) => ({
     close: vi.fn(),
     interrupt: vi.fn(),

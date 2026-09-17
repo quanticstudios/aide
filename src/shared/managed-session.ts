@@ -68,6 +68,7 @@ export interface ManagedSessionConfig {
   orchestratorSelection?: ManagedSessionProviderSelection
   paneId: string
   permissionMode?: ManagedSessionPermissionMode
+  readOnly?: boolean
   /** Codex app-server `model/list` service tier identifier. */
   serviceTier?: string
   sessionId: string
@@ -97,6 +98,8 @@ export type ManagedSessionTurnState =
   | 'interrupted'
 
 export interface ManagedSessionTurnSummary {
+  recipientAlias?: string
+  requestText?: string
   completedAt: string | null
   id: string
   provider: ManagedSessionProvider

@@ -42,6 +42,17 @@ import type {
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
 import { parseCodexUsage } from './codex-usage'
+import {
+  createReadOnlyClaudeOptions,
+  createReadOnlyCodexRuntimePolicy,
+  type ReadOnlyCodexRuntimePolicy,
+  sanitizeProviderEnvironment,
+} from './managed-runtime-policy'
+import {
+  type CodexDynamicToolCallParams,
+  createOrchestratorTools,
+  type OrchestratorTools,
+} from './orchestrator-tools'
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 import { resolveTerminalWorkingDirectory } from './terminal-shell'
 
@@ -103,9 +114,11 @@ interface ManagedSessionManagerOptions {
 }
 
 interface ManagedSessionMutableState {
+  agentRuns: Map<string, AbortController>
   activeTurnId: string | null
   backend: ManagedSessionBackend
   closed: boolean
+  closing: boolean
   config: ManagedSessionConfig
   contentByKey: Map<string, ManagedSessionContentItem>
   emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void
@@ -360,7 +373,11 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private contextModel: string | undefined
   private readonly promptQueue = new AsyncQueue<SDKUserMessage>()
   private queryRuntime: ReturnType<typeof query> | null = null
-  private readonly streamedMessageUuids = new Set<string>()
+  private readonly streamedMessageIds = new Set<string>()
+  private readonly streamMessages = new Map<
+    string | null,
+    { id: string; model?: string }
+  >()
   private readonly pendingApprovals = new Map<
     string,
     {
@@ -382,6 +399,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       event: ManagedProviderRuntimeEvent,
     ) => void,
     private readonly getNow: () => string,
+    private readonly orchestratorTools?: OrchestratorTools,
   ) {}
 
   public async start(): Promise<void> {
@@ -391,6 +409,20 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       process.env.HOME ?? process.cwd(),
     )
     const canUseTool: CanUseTool = async (toolName, input, callbackOptions) => {
+      if (this.config.readOnly)
+        return {
+          behavior: 'deny',
+          message:
+            'Opinion agents use the supplied conversation and workspace evidence.',
+        }
+      if (
+        this.orchestratorTools &&
+        [
+          'mcp__aide-orchestrator__ask_agent',
+          'mcp__aide-orchestrator__find_relevant_context',
+        ].includes(toolName)
+      )
+        return { behavior: 'allow', updatedInput: input }
       if (toolName === 'AskUserQuestion') {
         const requestId = randomUUID()
         const questions = normalizeClaudeQuestions(input.questions)
@@ -498,12 +530,22 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           | 'max'
           | 'medium'
           | undefined,
-        env: process.env,
+        env: sanitizeProviderEnvironment(process.env),
         includePartialMessages: true,
+        ...(this.orchestratorTools
+          ? {
+              mcpServers: {
+                'aide-orchestrator': this.orchestratorTools.claude,
+              },
+            }
+          : {}),
         ...(this.config.model ? { model: this.config.model } : {}),
         pathToClaudeCodeExecutable: cliPath,
         permissionMode: this.config.permissionMode,
         settingSources: ['user', 'project', 'local'],
+        ...(this.config.readOnly
+          ? { ...createReadOnlyClaudeOptions(process.env), tools: [] }
+          : {}),
         ...(thinking ? { thinking } : {}),
       },
       prompt: this.promptQueue,
@@ -513,6 +555,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async sendInput(text: string): Promise<void> {
+    this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
 
     if (!trimmed) {
@@ -592,10 +635,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async interrupt(): Promise<void> {
+    this.orchestratorTools?.interrupt()
     await this.queryRuntime?.interrupt()
   }
 
   public async close(): Promise<void> {
+    this.orchestratorTools?.interrupt()
     this.promptQueue.end()
     this.queryRuntime?.close()
   }
@@ -630,6 +675,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private handleStreamEvent(message: {
     readonly uuid: string
     readonly event: unknown
+    readonly parent_tool_use_id?: string | null
   }): void {
     const event = message.event
 
@@ -638,6 +684,23 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     const record = event as Record<string, unknown>
+    const streamKey = message.parent_tool_use_id ?? null
+    if (
+      record.type === 'message_start' &&
+      record.message &&
+      typeof record.message === 'object' &&
+      'id' in record.message &&
+      typeof record.message.id === 'string'
+    ) {
+      const model =
+        'model' in record.message && typeof record.message.model === 'string'
+          ? record.message.model
+          : undefined
+      this.streamMessages.set(streamKey, { id: record.message.id, model })
+      this.contextModel = model
+    }
+    const stream = this.streamMessages.get(streamKey)
+    const itemId = stream?.id ?? message.uuid
 
     if (record.type === 'content_block_delta') {
       const delta = record.delta
@@ -653,11 +716,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           return
         }
 
-        this.streamedMessageUuids.add(message.uuid)
+        this.streamedMessageIds.add(itemId)
         this.emitRuntimeEvent({
           createdAt: this.getNow(),
-          itemId: message.uuid,
+          itemId,
           kind: 'assistant-text',
+          model: stream?.model,
           provider: 'claude',
           text,
           type: 'content.delta',
@@ -671,10 +735,9 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           return
         }
 
-        this.streamedMessageUuids.add(message.uuid)
         this.emitRuntimeEvent({
           createdAt: this.getNow(),
-          itemId: `${message.uuid}:thinking`,
+          itemId: `${itemId}:thinking`,
           kind: 'reasoning-text',
           provider: 'claude',
           text: thinking,
@@ -686,6 +749,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
 
   private handleMessage(message: SDKMessage): void {
     if (message.type === 'system' && message.subtype === 'init') {
+      this.contextModel = message.model
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         provider: 'claude',
@@ -714,12 +778,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'stream_event') {
-      this.streamedMessageUuids.add(message.uuid)
       this.handleStreamEvent(message)
       return
     }
 
     if (message.type === 'assistant') {
+      this.streamMessages.delete(message.parent_tool_use_id ?? null)
       const usage = message.message.usage
       this.contextModel = message.message.model
       this.contextTokens =
@@ -727,8 +791,8 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         usage.output_tokens +
         (usage.cache_read_input_tokens ?? 0) +
         (usage.cache_creation_input_tokens ?? 0)
-      if (this.streamedMessageUuids.has(message.uuid)) {
-        this.streamedMessageUuids.delete(message.uuid)
+      if (this.streamedMessageIds.has(message.message.id)) {
+        this.streamedMessageIds.delete(message.message.id)
         return
       }
 
@@ -747,8 +811,9 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         ) {
           this.emitRuntimeEvent({
             createdAt: this.getNow(),
-            itemId: message.uuid,
+            itemId: message.message.id,
             kind: 'assistant-text',
+            model: this.contextModel,
             provider: 'claude',
             text: block.text,
             type: 'content.delta',
@@ -784,6 +849,8 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'result') {
+      this.streamMessages.clear()
+      this.streamedMessageIds.clear()
       const models = Object.entries<ModelUsage>(message.modelUsage ?? {}).map(
         ([model, usage]) => ({
           model,
@@ -892,6 +959,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   private output: readline.Interface | null = null
   private providerThreadId: string | null = null
   private providerModel: string | null = null
+  private readOnlyPolicy: ReadOnlyCodexRuntimePolicy<never> | null = null
 
   public constructor(
     private readonly config: ManagedSessionConfig,
@@ -899,6 +967,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       event: ManagedProviderRuntimeEvent,
     ) => void,
     private readonly getNow: () => string,
+    private readonly orchestratorTools?: OrchestratorTools,
   ) {}
 
   public async start(): Promise<void> {
@@ -907,11 +976,17 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       this.config.cwd,
       process.env.HOME ?? process.cwd(),
     )
-    const args = ['app-server']
+    if (this.config.readOnly)
+      this.readOnlyPolicy = createReadOnlyCodexRuntimePolicy([], process.env)
+    const args = this.readOnlyPolicy
+      ? [...this.readOnlyPolicy.appServerArguments]
+      : ['app-server']
 
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env:
+        this.readOnlyPolicy?.environment ??
+        sanitizeProviderEnvironment(process.env),
       shell: process.platform === 'win32',
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -939,10 +1014,14 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     })
 
     child.on('error', (error) => {
+      this.readOnlyPolicy?.dispose()
+      this.readOnlyPolicy = null
       this.rejectPendingRequests(error)
     })
 
     child.on('exit', (code) => {
+      this.readOnlyPolicy?.dispose()
+      this.readOnlyPolicy = null
       this.rejectPendingRequests(
         new Error(
           code === null
@@ -965,7 +1044,12 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       cwd,
       ...(this.config.effort ? { reasoningEffort: this.config.effort } : {}),
       ...(this.config.model ? { model: this.config.model } : {}),
-      sandbox: 'workspace-write',
+      sandbox:
+        this.config.permissionMode === 'plan' ? 'read-only' : 'workspace-write',
+      ...(this.readOnlyPolicy?.threadStart ?? {}),
+      ...(this.orchestratorTools
+        ? { dynamicTools: this.orchestratorTools.codex.tools }
+        : {}),
       ...(this.config.serviceTier
         ? { serviceTier: this.config.serviceTier }
         : {}),
@@ -986,6 +1070,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async sendInput(text: string): Promise<void> {
+    this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
 
     if (!trimmed || !this.providerThreadId) {
@@ -1062,6 +1147,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async interrupt(): Promise<void> {
+    this.orchestratorTools?.interrupt()
     if (!this.providerThreadId || !this.activeTurnId) {
       return
     }
@@ -1073,12 +1159,24 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async close(): Promise<void> {
+    this.orchestratorTools?.interrupt()
     this.output?.close()
     this.rejectPendingRequests(new Error('Codex app-server session closed.'))
 
-    if (this.child && !this.child.killed) {
-      this.child.kill()
+    const child = this.child
+    if (child && child.exitCode === null && child.signalCode === null) {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => child.kill('SIGKILL'), 1_000)
+        timeout.unref()
+        child.once('close', () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+        child.kill()
+      })
     }
+    this.readOnlyPolicy?.dispose()
+    this.readOnlyPolicy = null
   }
 
   private handleStdoutLine(line: string): void {
@@ -1205,6 +1303,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
         createdAt: this.getNow(),
         itemId: stableItemId,
         kind: contentKind,
+        model: this.providerModel ?? undefined,
         provider: 'codex',
         text: delta,
         type: 'content.delta',
@@ -1231,6 +1330,46 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     params?: unknown
   }): void {
     const params = this.readObject(request.params)
+    if (this.config.readOnly) {
+      this.writeMessage({
+        id: request.id,
+        error: {
+          code: -32601,
+          message: 'Opinion agents cannot request tools or approvals.',
+        },
+      })
+      return
+    }
+    if (request.method === 'item/tool/call' && this.orchestratorTools) {
+      if (
+        params?.threadId !== this.providerThreadId ||
+        params.turnId !== this.activeTurnId
+      ) {
+        this.writeMessage({
+          id: request.id,
+          result: {
+            success: false,
+            contentItems: [
+              {
+                type: 'inputText',
+                text: 'Tool call does not belong to the active turn.',
+              },
+            ],
+          },
+        })
+        return
+      }
+      void this.orchestratorTools.codex
+        .handleCall(params as unknown as CodexDynamicToolCallParams)
+        .then((result) => this.writeMessage({ id: request.id, result }))
+        .catch(() =>
+          this.writeMessage({
+            id: request.id,
+            error: { code: -32603, message: 'Tool execution failed.' },
+          }),
+        )
+      return
+    }
 
     if (
       request.method === 'item/commandExecution/requestApproval' ||
@@ -1551,6 +1690,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     const trimmed = text
       .split('\n\nQuoted prior conversation,', 1)[0]
       ?.split('\n\nWorkspace evidence.', 1)[0]
+      ?.split('\n\nConfigured read-only agents', 1)[0]
       ?.trim()
 
     if (!trimmed) {
@@ -1616,6 +1756,17 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       turnId,
       type: 'turn.started',
     })
+    if (trimmed === `wait-${this.provider}`) return
+    if (trimmed === `fail-${this.provider}`) {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        provider: this.provider,
+        turnId,
+        state: 'failed',
+        type: 'turn.completed',
+      })
+      return
+    }
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       itemId: randomUUID(),
@@ -1744,8 +1895,10 @@ export class ManagedSessionManager {
       : config
     const state: ManagedSessionMutableState = {
       activeTurnId: null,
+      agentRuns: new Map(),
       backend: null as never,
       closed: false,
+      closing: false,
       config: sessionConfig,
       contentByKey: new Map(
         (persisted?.snapshot.content ?? []).map((item) => [
@@ -1868,7 +2021,9 @@ export class ManagedSessionManager {
       return
     }
 
+    state.closing = true
     state.preparationAbortController?.abort()
+    for (const controller of state.agentRuns.values()) controller.abort()
     await state.backend.close()
     if (state.closed || this.sessions.get(sessionId) !== state) {
       return
@@ -1884,8 +2039,16 @@ export class ManagedSessionManager {
     })
   }
 
-  public async interruptSession(sessionId: string): Promise<void> {
+  public async interruptSession(
+    sessionId: string,
+    recipientAlias?: string,
+  ): Promise<void> {
     const state = this.sessions.get(sessionId)
+    if (recipientAlias) {
+      state?.agentRuns.get(recipientAlias.toLowerCase())?.abort()
+      return
+    }
+    for (const controller of state?.agentRuns.values() ?? []) controller.abort()
     state?.preparationAbortController?.abort()
     await state?.backend.interrupt()
   }
@@ -1904,18 +2067,39 @@ export class ManagedSessionManager {
       state.activeTurnId ||
       state.pendingApprovals.size > 0 ||
       state.pendingUserInputs.size > 0 ||
-      state.preparationAbortController
+      state.preparationAbortController ||
+      state.agentRuns.size > 0
     ) {
       throw new Error('Cannot change configured agents while a turn is active.')
     }
 
-    state.config = { ...state.config, agents: [...agents] }
+    if (
+      state.closing ||
+      agents.length > 2 ||
+      agents.some(
+        (agent) => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(agent.alias),
+      ) ||
+      new Set(agents.map((agent) => agent.alias.toLowerCase())).size !==
+        agents.length
+    )
+      throw new Error('Choose at most two agents with distinct valid aliases.')
+    state.config = {
+      ...state.config,
+      agents: agents.map((agent) => ({
+        alias: agent.alias.toLowerCase(),
+        selection: { ...agent.selection },
+      })),
+    }
     this.publishSnapshot(state, this.getNow())
     this.persistSession(state)
     return state.snapshot
   }
 
-  public async sendInput(sessionId: string, text: string): Promise<void> {
+  public async sendInput(
+    sessionId: string,
+    text: string,
+    recipients: readonly string[] = [],
+  ): Promise<void> {
     const state = this.sessions.get(sessionId)
 
     if (!state) {
@@ -1924,16 +2108,48 @@ export class ManagedSessionManager {
 
     if (
       this.quiescing ||
+      state.closing ||
       state.switchInProgress ||
       state.activeTurnId ||
       state.pendingApprovals.size > 0 ||
       state.pendingUserInputs.size > 0 ||
       state.preparationAbortController ||
-      state.pendingUserPromptItemId
+      state.pendingUserPromptItemId ||
+      state.agentRuns.size > 0
     ) {
       throw new Error(
         'A managed session turn is already being prepared or dispatched.',
       )
+    }
+
+    if (recipients.length > 0) {
+      if (
+        recipients.length > 2 ||
+        new Set(recipients.map((alias) => alias.toLowerCase())).size !==
+          recipients.length
+      ) {
+        throw new Error('Choose at most two distinct agents.')
+      }
+      if (
+        recipients.length > 1 &&
+        (state.config.interactionMode ?? 'build') === 'build'
+      ) {
+        throw new Error(
+          'Choose one agent in Build mode or switch to Plan to compare.',
+        )
+      }
+      const agents = recipients.map((alias) => {
+        const agent = state.config.agents?.find(
+          (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),
+        )
+        if (!agent) throw new Error(`Unknown agent @${alias}.`)
+        return agent
+      })
+      const history = this.getSafeHistory(state, '')
+      await Promise.allSettled(
+        agents.map((agent) => this.runOpinion(state, agent, text, history)),
+      )
+      return
     }
 
     const promptItemId = `user-prompt:${randomUUID()}`
@@ -1997,7 +2213,11 @@ export class ManagedSessionManager {
       if (preparationAbortController.signal.aborted) {
         throw new Error('Managed session preparation was interrupted.')
       }
-      await state.backend.sendInput(prepared.text)
+      const agents = state.config.agents ?? []
+      const agentDirectory = agents.length
+        ? `\n\nConfigured read-only agents for ask_agent: ${agents.map((agent) => `@${agent.alias} (${agent.selection.mode}/${agent.selection.model ?? 'default'})`).join(', ')}.`
+        : ''
+      await state.backend.sendInput(prepared.text + agentDirectory)
       state.historyDeliveredRuntimeGeneration = state.runtimeGeneration
     } catch (error) {
       state.pendingUserPromptItemId = null
@@ -2009,6 +2229,207 @@ export class ManagedSessionManager {
       if (state.preparationAbortController === preparationAbortController) {
         state.preparationAbortController = null
       }
+    }
+  }
+
+  public async askAgent(
+    sessionId: string,
+    alias: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const state = this.sessions.get(sessionId)
+    const agent = state?.config.agents?.find(
+      (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),
+    )
+    if (
+      !state ||
+      state.closing ||
+      state.config.readOnly ||
+      !agent ||
+      this.quiescing
+    )
+      throw new Error('Configured agent is unavailable.')
+    return this.runOpinion(
+      state,
+      agent,
+      prompt,
+      this.getSafeHistory(state, ''),
+      signal,
+    )
+  }
+
+  private async runOpinion(
+    state: ManagedSessionMutableState,
+    agent: ManagedSessionAgentConfig,
+    text: string,
+    history: ManagedSessionHistoryItem[],
+    parentSignal?: AbortSignal,
+  ): Promise<string> {
+    if (state.closing || state.agentRuns.has(agent.alias.toLowerCase()))
+      throw new Error('Agent is already running.')
+    const controller = new AbortController()
+    const signal = AbortSignal.any([
+      controller.signal,
+      ...(parentSignal ? [parentSignal] : []),
+    ])
+    const turnId = `opinion:${randomUUID()}`
+    const startedAt = this.getNow()
+    let finished = false
+    let latest: ManagedSessionSnapshot | undefined
+    let resolveCompletion!: () => void
+    let rejectCompletion!: (error: Error) => void
+    const completion = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve
+      rejectCompletion = reject
+    })
+    void completion.catch(() => undefined)
+    const fail = (message: string) => rejectCompletion(new Error(message))
+    const child = new ManagedSessionManager({
+      createBackend: this.options.createBackend,
+      getNow: this.getNow,
+      prepareInput: async (input) => {
+        const preparedInput = {
+          ...input,
+          history: history.map((item) => ({ ...item })),
+          shouldDeliverHistory: true,
+        }
+        return this.options.prepareInput
+          ? this.options.prepareInput(preparedInput)
+          : { text: this.formatInputWithHistory(input.text, history, true) }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: (event) => {
+        if (finished || state.closed || event.type !== 'snapshot') return
+        latest = event.snapshot
+        for (const item of latest.content) {
+          const id = `${turnId}:${item.id}`
+          const key = createContentKey(item.kind, id)
+          if (!state.contentByKey.has(key)) state.orderedContentKeys.push(key)
+          state.contentByKey.set(key, {
+            ...item,
+            id,
+            turnId,
+            model: item.model ?? latest.model,
+          })
+        }
+        for (const report of latest.usageReports ?? []) {
+          const id = `${turnId}:${report.id}`
+          state.usageReports.set(id, {
+            ...report,
+            id,
+            scopeId: `${turnId}:${report.scopeId}`,
+            turnId,
+            runtimeGeneration: state.runtimeGeneration,
+          })
+        }
+        const childTurn = latest.turns.at(-1)
+        if (childTurn)
+          state.turns.set(turnId, {
+            ...childTurn,
+            id: turnId,
+            recipientAlias: agent.alias,
+            requestText: text,
+          })
+        this.publishSnapshot(state, this.getNow())
+        if (latest.usageReports?.length || childTurn?.state !== 'running')
+          this.persistSession(state)
+        else this.schedulePersistence(state)
+        if (childTurn && childTurn.state !== 'running') {
+          if (childTurn.state === 'completed') resolveCompletion()
+          else fail('Agent response failed.')
+        }
+        if (
+          latest.sessionState === 'error' ||
+          latest.sessionState === 'stopped'
+        )
+          fail('Agent session stopped.')
+        if (latest.pendingApprovals.length || latest.pendingUserInputs.length)
+          fail('Read-only agents cannot request approval or user input.')
+      },
+    })
+    state.agentRuns.set(agent.alias.toLowerCase(), controller)
+    state.turns.set(turnId, {
+      id: turnId,
+      provider: agent.selection.mode,
+      startedAt,
+      completedAt: null,
+      state: 'running',
+      recipientAlias: agent.alias,
+      requestText: text,
+    })
+    this.publishSnapshot(state, startedAt)
+    this.persistSession(state)
+    const onAbort = () => {
+      fail('Agent response cancelled.')
+      void child.interruptSession(turnId).catch(() => undefined)
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    const timeout = setTimeout(() => controller.abort(), 180_000)
+    try {
+      if (signal.aborted) throw new Error('Agent response cancelled.')
+      await Promise.race([
+        child.createSession({
+          ...state.config,
+          ...agent.selection,
+          agents: [],
+          contextWindow: undefined,
+          thinkingBudget: undefined,
+          effort: agent.selection.effort,
+          serviceTier: agent.selection.serviceTier,
+          orchestratorSelection: agent.selection,
+          interactionMode: 'plan',
+          permissionMode: 'default',
+          readOnly: true,
+          paneId: turnId,
+          sessionId: turnId,
+        }),
+        completion,
+      ])
+      if (signal.aborted) throw new Error('Agent response cancelled.')
+      await Promise.race([child.sendInput(turnId, text), completion])
+      await completion
+      return `@${agent.alias} (${latest?.model ?? agent.selection.model ?? agent.selection.mode}):\n${
+        latest?.content
+          .filter((item) => item.kind === 'assistant-text')
+          .map((item) => item.text)
+          .join('\n') ?? ''
+      }`
+    } catch (error) {
+      state.turns.set(turnId, {
+        id: turnId,
+        provider: agent.selection.mode,
+        startedAt,
+        completedAt: this.getNow(),
+        state: signal.aborted ? 'cancelled' : 'failed',
+        recipientAlias: agent.alias,
+        requestText: text,
+      })
+      const key = createContentKey('system', turnId)
+      state.orderedContentKeys.push(key)
+      state.contentByKey.set(key, {
+        id: turnId,
+        kind: 'system',
+        provider: agent.selection.mode,
+        model: agent.selection.model,
+        text: signal.aborted
+          ? `@${agent.alias} was cancelled.`
+          : `@${agent.alias} could not complete the response. Retry this agent.`,
+        turnId,
+        updatedAt: this.getNow(),
+      })
+      throw error
+    } finally {
+      finished = true
+      clearTimeout(timeout)
+      signal.removeEventListener('abort', onAbort)
+      state.agentRuns.delete(agent.alias.toLowerCase())
+      state.historyDeliveredRuntimeGeneration = null
+      if (!state.closed) {
+        this.publishSnapshot(state, this.getNow())
+        this.persistSession(state)
+      }
+      await child.closeAll()
     }
   }
 
@@ -2074,10 +2495,27 @@ export class ManagedSessionManager {
     )
   }
 
+  public async configureSessionMode(
+    sessionId: string,
+    interactionMode: 'build' | 'plan',
+  ): Promise<ManagedSessionSnapshot> {
+    const state = this.sessions.get(sessionId)
+    if (!state) throw new Error('Managed session is unavailable.')
+    if (interactionMode === state.config.interactionMode) return state.snapshot
+    return this.switchSessionProvider(sessionId, {
+      mode: state.config.mode,
+      model: state.config.model,
+      effort: state.config.effort,
+      serviceTier: state.config.serviceTier,
+      interactionMode,
+    })
+  }
+
   public async switchSessionProvider(
     sessionId: string,
     selection: ManagedSessionProviderSelection & {
       selectionNotice?: string | null
+      interactionMode?: 'build' | 'plan'
     },
   ): Promise<ManagedSessionSnapshot> {
     if (this.quiescing) {
@@ -2091,7 +2529,7 @@ export class ManagedSessionManager {
       throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (state.switchInProgress) {
+    if (state.closing || state.switchInProgress) {
       throw new Error(
         'A provider switch is already in progress for this session',
       )
@@ -2101,7 +2539,8 @@ export class ManagedSessionManager {
       state.activeTurnId !== null ||
       state.pendingApprovals.size > 0 ||
       state.pendingUserInputs.size > 0 ||
-      state.pendingUserPromptText !== null
+      state.pendingUserPromptText !== null ||
+      state.agentRuns.size > 0
     ) {
       throw new Error(
         'Cannot switch provider while a turn is active or approvals/inputs are pending',
@@ -2126,6 +2565,19 @@ export class ManagedSessionManager {
         effort: selection.effort,
         mode: newMode,
         model: selection.model,
+        orchestratorSelection: {
+          mode: selection.mode,
+          model: selection.model,
+          effort: selection.effort,
+          serviceTier: selection.serviceTier,
+        },
+        ...(selection.interactionMode
+          ? {
+              interactionMode: selection.interactionMode,
+              permissionMode:
+                selection.interactionMode === 'plan' ? 'plan' : 'default',
+            }
+          : {}),
         selectionNotice: selection.selectionNotice ?? null,
         serviceTier: selection.serviceTier,
       }
@@ -2323,9 +2775,59 @@ export class ManagedSessionManager {
       )
     }
 
+    const tools = config.readOnly
+      ? undefined
+      : createOrchestratorTools(
+          {
+            askAgent: (alias, prompt, signal) =>
+              this.askAgent(config.sessionId, alias, prompt, signal),
+            findRelevantContext: async (text, signal) => {
+              const state = this.sessions.get(config.sessionId)
+              if (!state || !this.options.prepareInput)
+                throw new Error('Context preparation is unavailable.')
+              const prepared = await this.options.prepareInput({
+                config: state.config,
+                text,
+                signal,
+                history: [],
+                shouldDeliverHistory: false,
+                reportUsage: (report) => {
+                  if (state.closed) return
+                  const persistedReport = {
+                    ...report,
+                    runtimeGeneration: state.runtimeGeneration,
+                  }
+                  state.usageReports.set(
+                    JSON.stringify([
+                      report.provider,
+                      state.runtimeGeneration,
+                      report.scopeId,
+                      report.id,
+                    ]),
+                    persistedReport,
+                  )
+                  this.publishSnapshot(state, this.getNow())
+                  this.persistSession(state)
+                },
+              })
+              return prepared.text
+            },
+          },
+          () => new AbortController().signal,
+        )
     return config.mode === 'claude'
-      ? new ClaudeManagedSessionBackend(config, emitRuntimeEvent, this.getNow)
-      : new CodexManagedSessionBackend(config, emitRuntimeEvent, this.getNow)
+      ? new ClaudeManagedSessionBackend(
+          config,
+          emitRuntimeEvent,
+          this.getNow,
+          tools,
+        )
+      : new CodexManagedSessionBackend(
+          config,
+          emitRuntimeEvent,
+          this.getNow,
+          tools,
+        )
   }
 
   private createRuntimeEventEmitter(
@@ -2457,6 +2959,7 @@ export class ManagedSessionManager {
         state.contentByKey.set(key, {
           id: event.itemId,
           kind: event.kind,
+          model: event.model ?? state.config.model,
           provider: state.config.mode,
           text: event.text,
           turnId: state.activeTurnId,
@@ -2639,7 +3142,7 @@ export class ManagedSessionManager {
       running:
         runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
       sessionId: state.config.sessionId,
-      sessionState: runtime.sessionState,
+      sessionState: state.agentRuns.size > 0 ? 'running' : runtime.sessionState,
       turns: [...state.turns.values()],
       updatedAt,
       ...(state.usage !== null ? { usage: state.usage } : {}),
