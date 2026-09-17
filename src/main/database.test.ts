@@ -146,7 +146,9 @@ describe('createAideDatabase', () => {
       platform: 'linux',
       targetVersion: null,
     })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
 
     expect(
       database.updateUpdatePreferences({
@@ -174,12 +176,16 @@ describe('createAideDatabase', () => {
       platform: 'linux',
       targetVersion: null,
     })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toHaveLength(1)
+    expect(
+      database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z'),
+    ).toHaveLength(1)
 
     expect(
       database.updateUpdatePreferences({ healthDisclosureAcknowledged: false }),
     ).toMatchObject({ healthDisclosureAcknowledged: false, revision: 2 })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
 
     database.updateUpdatePreferences({ healthDisclosureAcknowledged: true })
     database.appendUpdateHealthEvent({
@@ -194,11 +200,15 @@ describe('createAideDatabase', () => {
       platform: 'linux',
       targetVersion: null,
     })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toHaveLength(1)
+    expect(
+      database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z'),
+    ).toHaveLength(1)
     expect(
       database.updateUpdatePreferences({ healthReportingEnabled: false }),
     ).toMatchObject({ healthReportingEnabled: false })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
     database.close()
   })
 
@@ -288,7 +298,9 @@ describe('createAideDatabase', () => {
         platform: 'linux',
       }),
     ).toBeNull()
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
 
     database.commitUpdateInstallStart({
       arch: 'x64',
@@ -298,7 +310,9 @@ describe('createAideDatabase', () => {
       platform: 'linux',
       targetVersion: '0.2.1',
     })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
     expect(
       database.reconcilePendingUpdateInstall({
         arch: 'x64',
@@ -307,7 +321,9 @@ describe('createAideDatabase', () => {
         platform: 'linux',
       }),
     ).toBeNull()
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual([])
+    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toEqual(
+      [],
+    )
 
     database.updateUpdateState({ healthDisclosureAcknowledged: true })
     database.commitUpdateInstallStart({
@@ -318,9 +334,9 @@ describe('createAideDatabase', () => {
       platform: 'linux',
       targetVersion: '0.2.1',
     })
-    expect(database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z')).toMatchObject([
-      { lifecycle: 'install-started', targetVersion: '0.2.1' },
-    ])
+    expect(
+      database.listUpdateHealthEvents('2026-07-24T14:00:00.000Z'),
+    ).toMatchObject([{ lifecycle: 'install-started', targetVersion: '0.2.1' }])
     expect(
       database.reconcilePendingUpdateInstall({
         arch: 'x64',
