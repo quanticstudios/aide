@@ -104,6 +104,7 @@ interface ManagedSessionManagerOptions {
 interface ManagedSessionMutableState {
   activeTurnId: string | null
   backend: ManagedSessionBackend
+  closed: boolean
   config: ManagedSessionConfig
   contentByKey: Map<string, ManagedSessionContentItem>
   emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void
@@ -1542,7 +1543,10 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async sendInput(text: string): Promise<void> {
-    const trimmed = text.trim()
+    const trimmed = text
+      .split('\n\nQuoted prior conversation,', 1)[0]
+      ?.split('\n\nWorkspace evidence.', 1)[0]
+      ?.trim()
 
     if (!trimmed) {
       return
@@ -1736,6 +1740,7 @@ export class ManagedSessionManager {
     const state: ManagedSessionMutableState = {
       activeTurnId: null,
       backend: null as never,
+      closed: false,
       config: sessionConfig,
       contentByKey: new Map(
         (persisted?.snapshot.content ?? []).map((item) => [
@@ -1859,8 +1864,9 @@ export class ManagedSessionManager {
     }
 
     state.preparationAbortController?.abort()
-    this.persistSession(state)
     await state.backend.close()
+    this.persistSession(state)
+    state.closed = true
     this.sessions.delete(sessionId)
     state.revision += 1
     this.options.onUpdate({
@@ -1922,6 +1928,9 @@ export class ManagedSessionManager {
             config: state.config,
             history,
             reportUsage: (report) => {
+              if (state.closed || this.sessions.get(sessionId) !== state) {
+                return
+              }
               const persistedReport = {
                 ...report,
                 runtimeGeneration: state.runtimeGeneration,
@@ -2622,9 +2631,19 @@ export class ManagedSessionManager {
   }
 
   private schedulePersistence(state: ManagedSessionMutableState): void {
-    if (!this.options.store || state.persistenceTimer) return
+    if (
+      !this.options.store ||
+      state.closed ||
+      this.sessions.get(state.config.sessionId) !== state ||
+      state.persistenceTimer
+    ) {
+      return
+    }
     state.persistenceTimer = setTimeout(() => {
       state.persistenceTimer = null
+      if (state.closed || this.sessions.get(state.config.sessionId) !== state) {
+        return
+      }
       this.persistSession(state)
     }, 500)
   }
