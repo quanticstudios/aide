@@ -52,7 +52,7 @@ test.describe('turn checkpoints', () => {
       path.join(tmpdir(), 'aide-checkpoint-e2e-data-'),
     )
     app = await electron.launch({
-      args: [workspaceDirectory],
+      args: [workspaceDirectory, '--force-device-scale-factor=1'],
       executablePath: path.join(
         workspaceDirectory,
         'node_modules/electron/dist/electron',
