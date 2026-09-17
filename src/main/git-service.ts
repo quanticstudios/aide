@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { constants, existsSync } from 'node:fs'
+import { lstat, open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -267,6 +267,65 @@ function buildUntrackedPatch(filePath: string, content: string): string {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+function isInsideRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return (
+    relative === '' ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== '..' &&
+      !path.isAbsolute(relative))
+  )
+}
+
+function buildUntrackedSymlinkPatch(filePath: string): string {
+  return [
+    `diff --git a/${filePath} b/${filePath}`,
+    'new file mode 120000',
+    '--- /dev/null',
+    `+++ b/${filePath}`,
+    '@@ -0,0 +1 @@',
+    '+[symbolic link]',
+  ].join('\n')
+}
+
+async function readUntrackedPatch(
+  workspaceRoot: string,
+  filePath: string,
+): Promise<string> {
+  const requestedPath = path.resolve(workspaceRoot, filePath)
+  const resolvedRoot = path.resolve(workspaceRoot)
+  if (!isInsideRoot(resolvedRoot, requestedPath)) {
+    throw new Error('Untracked file path must stay inside the workspace root.')
+  }
+
+  if ((await lstat(requestedPath)).isSymbolicLink()) {
+    return buildUntrackedSymlinkPatch(filePath)
+  }
+
+  const [realWorkspaceRoot, resolvedPath] = await Promise.all([
+    realpath(workspaceRoot),
+    realpath(requestedPath),
+  ])
+  if (!isInsideRoot(realWorkspaceRoot, resolvedPath)) {
+    throw new Error('Untracked file path must stay inside the workspace root.')
+  }
+
+  const noFollow =
+    typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+  const file = await open(resolvedPath, constants.O_RDONLY | noFollow)
+  try {
+    if (!(await file.stat()).isFile()) {
+      throw new Error('Untracked path must be a regular file.')
+    }
+    return buildUntrackedPatch(
+      filePath,
+      await file.readFile({ encoding: 'utf8' }),
+    )
+  } finally {
+    await file.close()
+  }
 }
 
 export class GitWorkspaceService {
@@ -759,12 +818,8 @@ export class GitWorkspaceService {
 
     if (file.isUnstaged) {
       if (file.unstaged === 'untracked') {
-        const content = await readFile(
-          path.join(workspace.worktreePath, file.path),
-          'utf8',
-        )
         const truncated = truncateDiffOutput(
-          buildUntrackedPatch(file.path, content),
+          await readUntrackedPatch(workspace.worktreePath, file.path),
         )
 
         sections.push({

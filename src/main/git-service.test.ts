@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -470,6 +476,41 @@ describe('GitWorkspaceService', () => {
       }),
       ok: true,
     })
+
+    database.close()
+  })
+
+  it('renders an untracked symlink without reading its target', async () => {
+    const repoRoot = createGitRepository()
+    const hostRoot = createTempDirectory('aide-git-host-')
+    const secretPath = path.join(hostRoot, 'host-secret.txt')
+    writeFileSync(secretPath, 'host sentinel')
+    symlinkSync(secretPath, path.join(repoRoot, 'secret-link'))
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    const result = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'secret-link',
+    )
+    expect(result).toEqual({
+      diff: expect.objectContaining({
+        path: 'secret-link',
+        sections: [
+          expect.objectContaining({
+            isTruncated: false,
+            kind: 'untracked',
+            patch: expect.stringContaining('+[symbolic link]'),
+            title: 'Untracked file',
+          }),
+        ],
+      }),
+      ok: true,
+    })
+    expect(result.ok && result.diff.sections[0]?.patch).not.toContain(
+      'host sentinel',
+    )
 
     database.close()
   })
