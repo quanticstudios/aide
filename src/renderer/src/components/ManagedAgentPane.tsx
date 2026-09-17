@@ -43,6 +43,7 @@ import type {
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
+  ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
@@ -52,6 +53,10 @@ import {
 } from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
+import {
+  groupContentByTurn,
+  type TurnGroup,
+} from '../lib/managed-session-grouping'
 import {
   canChangeManagedSessionSelection,
   isProviderSelectionHydrated,
@@ -321,27 +326,9 @@ function PermissionDropdown({
   )
 }
 
-interface TurnGroup {
-  items: ManagedSessionContentItem[]
-  turnId: string | null
-}
-
-function groupContentByTurn(
-  content: readonly ManagedSessionContentItem[],
-): TurnGroup[] {
-  const groups: TurnGroup[] = []
-  let currentGroup: TurnGroup | null = null
-
-  for (const item of content) {
-    if (currentGroup && currentGroup.turnId === item.turnId) {
-      currentGroup.items.push(item)
-    } else {
-      currentGroup = { items: [item], turnId: item.turnId }
-      groups.push(currentGroup)
-    }
-  }
-
-  return groups
+interface RecipientTurnSummary extends ManagedSessionTurnSummary {
+  readonly recipientAlias?: string
+  readonly requestText?: string
 }
 
 function ContentItemBlock({
@@ -479,21 +466,26 @@ function ContentItemBlock({
 
 function TurnGroupBlock({
   group,
-  isRetryReady,
+  isFailed,
   isRunning,
+  onInterrupt,
   onRetry,
   providerLabel,
+  recipientAlias,
+  requestText,
 }: {
   readonly group: TurnGroup
-  readonly isRetryReady: boolean
+  readonly isFailed: boolean
   readonly isRunning: boolean
-  readonly onRetry: (text: string) => void
+  readonly onInterrupt: (recipientAlias: string) => void
+  readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
+  readonly recipientAlias: string | null
+  readonly requestText: string | null
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
-  const userPromptItem = group.items.find((item) => item.kind === 'user-prompt')
-  const canRetry = isRetryReady && Boolean(userPromptItem) && !isRunning
+  const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
 
   useEffect(() => {
     return () => {
@@ -539,15 +531,24 @@ function TurnGroupBlock({
         <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin text-primary" />
           {providerLabel} is working...
+          {recipientAlias ? (
+            <button
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => onInterrupt(recipientAlias)}
+              type="button"
+            >
+              Interrupt @{recipientAlias}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {group.items.length > 0 ? (
         <div className="pointer-events-none absolute right-0 top-0 flex gap-1 opacity-0 transition-opacity group-hover/turn:pointer-events-auto group-hover/turn:opacity-100">
-          {canRetry && userPromptItem ? (
+          {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
               className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-              onClick={() => onRetry(userPromptItem.text)}
+              onClick={() => onRetry(requestText, recipientAlias)}
               type="button"
             >
               <RefreshCw className="size-3" />
@@ -984,10 +985,20 @@ export default function ManagedAgentPane({
   ])
 
   const handleRetryTurn = useCallback(
-    async (text: string) => {
-      await sendPromptText(text)
+    async (text: string, recipientAlias: string) => {
+      await sendPromptText(text, [recipientAlias])
     },
     [sendPromptText],
+  )
+
+  const handleInterruptRecipient = useCallback(
+    (recipientAlias: string) => {
+      const api = getAideApi()
+      if (api) {
+        void api.interruptManagedSession(sessionId, recipientAlias)
+      }
+    },
+    [sessionId],
   )
 
   const handleConfiguredAgentsChange = useCallback(
@@ -1390,21 +1401,27 @@ export default function ManagedAgentPane({
       >
         {turnGroups.length > 0 ? (
           <div className="mx-auto max-w-3xl space-y-4">
-            {turnGroups.map((group) => (
-              <TurnGroupBlock
-                group={group}
-                isRetryReady={
-                  snapshot?.sessionState === 'ready' ||
-                  snapshot?.sessionState === 'stopped'
-                }
-                isRunning={
-                  group.turnId !== null && group.turnId === runningTurnId
-                }
-                key={group.turnId ?? `system-${group.items[0]?.id}`}
-                onRetry={(text) => void handleRetryTurn(text)}
-                providerLabel={providerLabel}
-              />
-            ))}
+            {turnGroups.map((group) => {
+              const turn = snapshot?.turns.find(
+                (candidate) => candidate.id === group.turnId,
+              ) as RecipientTurnSummary | undefined
+
+              return (
+                <TurnGroupBlock
+                  group={group}
+                  isFailed={turn?.state === 'failed'}
+                  isRunning={turn?.state === 'running'}
+                  key={group.turnId ?? `system-${group.items[0]?.id}`}
+                  onInterrupt={handleInterruptRecipient}
+                  onRetry={(text, recipientAlias) =>
+                    void handleRetryTurn(text, recipientAlias)
+                  }
+                  providerLabel={providerLabel}
+                  recipientAlias={turn?.recipientAlias ?? null}
+                  requestText={turn?.requestText ?? null}
+                />
+              )
+            })}
 
             {snapshot?.sessionState === 'running' && runningTurnId === null ? (
               <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">

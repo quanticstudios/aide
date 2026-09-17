@@ -244,7 +244,10 @@ export interface AideApi {
   runWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
   cancelWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
   closeManagedSession: (sessionId: string) => Promise<void>
-  interruptManagedSession: (sessionId: string) => Promise<void>
+  interruptManagedSession: (
+    sessionId: string,
+    recipientAlias?: string,
+  ) => Promise<void>
   killTerminalSession: (sessionId: string) => Promise<void>
   onManagedSessionEvent: (
     callback: (event: ManagedSessionEvent) => void,
