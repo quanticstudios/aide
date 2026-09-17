@@ -152,6 +152,7 @@ export const IPC_CHANNELS = {
   runWorkspaceSetup: 'workspace-setup:run',
   cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
+  managedFleetAcceptNode: 'managed-session:accept-fleet-node',
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
@@ -188,6 +189,11 @@ export interface AvailableEditorDescriptor {
 }
 
 export interface AideApi {
+  acceptManagedFleetNode: (input: {
+    sessionId: string
+    nodeId: string
+    accepted: boolean
+  }) => Promise<void>
   getPersistedStateRecovery: () => Promise<PersistedStateRecovery | null>
   openPersistedStateDataFolder: () => Promise<void>
   quitPersistedStateRecovery: () => Promise<void>

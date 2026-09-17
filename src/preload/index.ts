@@ -68,6 +68,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
   createManagedSession: (input: ManagedSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionCreate, input),
+  acceptManagedFleetNode: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedFleetAcceptNode, input),
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],

@@ -26,6 +26,10 @@ Preferred order:
 
 Details live in `docs/10-agent-skill-workflow.md`.
 
+For fleet delegation, read `src/shared/fleet-policy.json` and the Fleet policy
+section of `docs/prd/fleet-policy-drawer.md`. Record actual model, effort,
+routing reason, attempts, verification, and accepted outcome for each task.
+
 ## Behavioral Guidelines
 
 These guidelines reduce common LLM coding mistakes. Merge them with project-specific instructions as needed.

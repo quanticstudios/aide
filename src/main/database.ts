@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
+import { FleetStateSchema } from '../shared/fleet'
 
 import type { PersistedManagedSession } from '../shared/managed-session'
 import type {
@@ -485,6 +486,7 @@ const persistedManagedSessionSchema = z
         }),
       ),
       detail: z.string().max(2_000).nullable(),
+      fleet: FleetStateSchema.optional(),
       effort: z.string().max(200).nullable(),
       interactionMode: z.enum(['build', 'plan']),
       lastCompletedAt: persistedTimestamp.nullable(),

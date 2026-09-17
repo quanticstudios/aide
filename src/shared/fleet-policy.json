@@ -1,0 +1,17 @@
+{
+  "workerFamily": "sol",
+  "alternateFamily": "opus",
+  "requiredPreparation": "jev",
+  "defaultEffort": "medium",
+  "maxConcurrentAgents": 2,
+  "maxAttemptsPerTask": 3,
+  "agentTimeoutMs": 180000,
+  "failureCategories": [
+    "context",
+    "implementation",
+    "reasoning",
+    "wrong-hypothesis",
+    "infrastructure",
+    "architecture"
+  ]
+}

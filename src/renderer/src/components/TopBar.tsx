@@ -8,8 +8,10 @@ import {
   Plus,
   Rows2,
   Shrink,
+  Workflow,
   X,
 } from 'lucide-react'
+import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
@@ -32,11 +34,15 @@ interface TopBarProps {
   readonly activeSurfaceId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly fleetToggleRef: RefObject<HTMLButtonElement | null>
+  readonly isFleetAvailable: boolean
+  readonly isFleetOpen: boolean
   readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
   readonly onOpenDiagnostics: () => void
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
+  readonly onToggleFleet: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
     paneId: string,
@@ -250,11 +256,15 @@ export default function TopBar({
   activeSurfaceId,
   activeProject,
   activeWorkspace,
+  fleetToggleRef,
+  isFleetAvailable,
+  isFleetOpen,
   onClosePane,
   onCreatePane,
   onOpenDiagnostics,
   onOpenTask,
   onOpenUpdate,
+  onToggleFleet,
   onResizePane,
   onSplitPane,
   surfaces,
@@ -320,6 +330,18 @@ export default function TopBar({
           onSplitPane={onSplitPane}
         />
         <TaskLibraryControl onOpenTask={onOpenTask} />
+        <Button
+          aria-label={isFleetOpen ? 'Close agent fleet' : 'Open agent fleet'}
+          className="size-8 shrink-0 rounded-md"
+          isDisabled={!isFleetAvailable && !isFleetOpen}
+          isIconOnly
+          onPress={onToggleFleet}
+          ref={fleetToggleRef}
+          size="sm"
+          variant={isFleetOpen ? 'secondary' : 'ghost'}
+        >
+          <Workflow aria-hidden="true" className="size-4" />
+        </Button>
         <UpdateIndicator
           onOpen={onOpenUpdate}
           presentation={updatePresentation}

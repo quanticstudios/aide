@@ -13,6 +13,16 @@ import {
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
+import {
+  chooseFleetRoute,
+  FLEET_INSTRUCTIONS,
+  FLEET_MAX_EVENTS,
+  FLEET_POLICY,
+  type FleetEvent,
+  type FleetPlan,
+  FleetPlanSchema,
+  type FleetState,
+} from '../shared/fleet'
 import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
@@ -55,6 +65,7 @@ import {
 import {
   type CodexDynamicToolCallParams,
   createOrchestratorTools,
+  FleetDispatchError,
   type OrchestratorTools,
 } from './orchestrator-tools'
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
@@ -76,6 +87,24 @@ function resolveClaudeThinkingOption(
   }
 
   return { type: 'enabled', budgetTokens: 32_000 }
+}
+
+function retainFleetAcceptance(
+  plan: FleetPlan,
+  candidates: readonly string[],
+): string[] {
+  const accepted = new Set(
+    candidates.filter((id) =>
+      plan.nodes.some((node) => node.id === id && node.status === 'completed'),
+    ),
+  )
+  for (let pass = 0; pass < plan.nodes.length; pass += 1) {
+    for (const node of plan.nodes) {
+      if (node.dependsOn.some((id) => !accepted.has(id)))
+        accepted.delete(node.id)
+    }
+  }
+  return [...accepted]
 }
 
 export interface ManagedSessionPersistenceStore {
@@ -478,6 +507,8 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         [
           'mcp__aide-orchestrator__ask_agent',
           'mcp__aide-orchestrator__find_relevant_context',
+          'mcp__aide-orchestrator__set_fleet_plan',
+          'mcp__aide-orchestrator__update_fleet_node',
         ].includes(toolName)
       )
         return { behavior: 'allow', updatedInput: input }
@@ -1742,6 +1773,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       event: ManagedProviderRuntimeEvent,
     ) => void,
     private readonly getNow: () => string,
+    private readonly tools?: OrchestratorTools,
   ) {}
 
   public async start(): Promise<void> {
@@ -1762,6 +1794,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       .split('\n\nQuoted prior conversation,', 1)[0]
       ?.split('\n\nWorkspace evidence.', 1)[0]
       ?.split('\n\nConfigured read-only agents', 1)[0]
+      ?.split('\n\nFleet policy.', 1)[0]
       ?.trim()
 
     if (!trimmed) {
@@ -1776,6 +1809,38 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       turnId,
       type: 'turn.started',
     })
+
+    this.tools?.beginTurn()
+    if (trimmed === 'fleet plan' && this.tools) {
+      await this.tools.codex.handleCall({
+        threadId: 'fake',
+        turnId,
+        callId: randomUUID(),
+        namespace: null,
+        tool: 'set_fleet_plan',
+        arguments: {
+          summary: 'UI reads a persisted plan from the managed session.',
+          nodes: [
+            {
+              id: 'storage',
+              title: 'Persist plan',
+              detail: 'Store validated plan JSON.',
+              dependsOn: [],
+              status: 'completed',
+              evidence: 'Synthetic persistence check passed.',
+            },
+            {
+              id: 'drawer',
+              title: 'Render drawer',
+              detail: 'Show saved nodes and routing events.',
+              dependsOn: ['storage'],
+              status: 'planned',
+              evidence: '',
+            },
+          ],
+        },
+      })
+    }
 
     if (trimmed === 'approval') {
       this.activeRequestId = randomUUID()
@@ -2331,6 +2396,13 @@ export class ManagedSessionManager {
   public async resumeQueue(sessionId: string): Promise<void> {
     const state = this.sessions.get(sessionId)
     if (!state) return
+    this.recordFleetEvent(state, {
+      type: 'decision',
+      status: 'started',
+      label: 'Queue resumed',
+      detail: 'The user explicitly resumed pending messages.',
+      source: 'runtime',
+    })
     state.queuePaused = false
     for (const input of state.queuedInputs) delete input.lastError
     this.publishSnapshot(state, this.getNow())
@@ -2570,6 +2642,14 @@ export class ManagedSessionManager {
       state.pendingCheckpointId = queuedInput.checkpointId ?? null
       const preparationAbortController = new AbortController()
       state.preparationAbortController = preparationAbortController
+      this.recordFleetEvent(state, {
+        type: 'preparation',
+        status: 'started',
+        label: 'Jev preparation',
+        detail: 'Preparing authorized context for the orchestrator.',
+        model: 'jev',
+        source: 'runtime',
+      })
       try {
         const prepared = await this.prepareQueuedInput(
           state,
@@ -2584,16 +2664,40 @@ export class ManagedSessionManager {
           throw new Error('Managed session preparation was interrupted.')
         }
         const agents = state.config.agents ?? []
+        this.recordFleetEvent(state, {
+          type: 'preparation',
+          status: 'completed',
+          label: 'Jev preparation',
+          detail: 'Context preparation completed.',
+          model: 'jev',
+          source: 'runtime',
+        })
         const agentDirectory = agents.length
           ? `\n\nConfigured read-only agents for ask_agent: ${agents.map((agent) => `@${agent.alias} (${agent.selection.mode}/${agent.selection.model ?? 'default'})`).join(', ')}.`
           : ''
         state.queuedInputCommittedId = queuedInput.id
         this.consumeQueuedInput(state, queuedInput.id)
         await state.backend.sendInput(
-          prepared.text + agentDirectory,
+          prepared.text +
+            agentDirectory +
+            (state.config.readOnly
+              ? ''
+              : `\n\nFleet policy.\n${FLEET_INSTRUCTIONS}`),
           prepared.images,
         )
         state.historyDeliveredRuntimeGeneration = state.runtimeGeneration
+      } catch (error) {
+        this.recordFleetEvent(state, {
+          type: 'preparation',
+          status: preparationAbortController.signal.aborted
+            ? 'cancelled'
+            : 'failed',
+          label: 'Turn dispatch',
+          detail:
+            'Preparation or provider dispatch did not complete. Inspect the conversation error before retrying.',
+          source: 'runtime',
+        })
+        throw error
       } finally {
         if (state.preparationAbortController === preparationAbortController) {
           state.preparationAbortController = null
@@ -2699,11 +2803,210 @@ export class ManagedSessionManager {
     }
   }
 
+  private fleetState(state: ManagedSessionMutableState): FleetState {
+    state.snapshot.fleet ??= {
+      plan: null,
+      events: [],
+      acceptedNodeIds: [],
+      updatedAt: this.getNow(),
+    }
+    return state.snapshot.fleet
+  }
+
+  private recordFleetEvent(
+    state: ManagedSessionMutableState,
+    event: Omit<FleetEvent, 'id' | 'createdAt' | 'turnId'>,
+  ): void {
+    if (state.config.readOnly || state.closed) return
+    const fleet = this.fleetState(state)
+    const createdAt = this.getNow()
+    const events = [
+      ...fleet.events,
+      {
+        ...event,
+        id: randomUUID(),
+        createdAt,
+        turnId: state.activeTurnId,
+      },
+    ]
+    const dropped = Math.max(0, events.length - FLEET_MAX_EVENTS)
+    state.snapshot.fleet = {
+      ...fleet,
+      events: events.slice(-FLEET_MAX_EVENTS),
+      droppedEventCount: (fleet.droppedEventCount ?? 0) + dropped,
+      updatedAt: createdAt,
+    }
+    this.publishSnapshot(state, createdAt)
+    this.persistSession(state)
+  }
+
+  public setFleetPlan(sessionId: string, input: unknown): string {
+    const state = this.sessions.get(sessionId)
+    if (!state || state.config.readOnly || state.closing)
+      throw new Error('Orchestrator is unavailable.')
+    const plan = FleetPlanSchema.parse(input)
+    const fleet = this.fleetState(state)
+    const previousNodes = new Map(
+      fleet.plan?.nodes.map((node) => [node.id, node]),
+    )
+    state.snapshot.fleet = {
+      ...fleet,
+      plan,
+      acceptedNodeIds: retainFleetAcceptance(
+        plan,
+        fleet.acceptedNodeIds.filter(
+          (id) =>
+            JSON.stringify(previousNodes.get(id)) ===
+            JSON.stringify(plan.nodes.find((node) => node.id === id)),
+        ),
+      ),
+      attemptCounts: Object.fromEntries(
+        plan.nodes.map((node) => [
+          node.id,
+          previousNodes.get(node.id)?.title === node.title &&
+          JSON.stringify(previousNodes.get(node.id)?.dependsOn) ===
+            JSON.stringify(node.dependsOn)
+            ? (fleet.attemptCounts?.[node.id] ?? 0)
+            : 0,
+        ]),
+      ),
+    }
+    this.recordFleetEvent(state, {
+      type: 'decision',
+      status: 'completed',
+      label: 'Plan published',
+      detail:
+        'The orchestrator reported this plan. Changed plans require acceptance again.',
+      source: 'orchestrator',
+    })
+    return 'Plan saved. Completion reports require user acceptance.'
+  }
+
+  public updateFleetNode(
+    sessionId: string,
+    input: {
+      nodeId: string
+      status: FleetPlan['nodes'][number]['status']
+      detail: string
+      evidence: string
+    },
+  ): string {
+    const state = this.sessions.get(sessionId)
+    const fleet = state?.snapshot.fleet
+    const node = fleet?.plan?.nodes.find((node) => node.id === input.nodeId)
+    if (
+      !state ||
+      state.config.readOnly ||
+      state.closing ||
+      !fleet?.plan ||
+      !node
+    )
+      throw new Error('Unknown plan node.')
+    const plan = FleetPlanSchema.parse({
+      ...fleet.plan,
+      nodes: fleet.plan.nodes.map((node) =>
+        node.id === input.nodeId
+          ? {
+              ...node,
+              status: input.status,
+              detail: input.detail,
+              evidence: input.evidence,
+            }
+          : node,
+      ),
+    })
+    const changed =
+      JSON.stringify(node) !==
+      JSON.stringify(
+        plan.nodes.find((candidate) => candidate.id === input.nodeId),
+      )
+    state.snapshot.fleet = {
+      ...fleet,
+      plan,
+      acceptedNodeIds: retainFleetAcceptance(
+        plan,
+        fleet.acceptedNodeIds.filter((id) => !changed || id !== input.nodeId),
+      ),
+    }
+    this.recordFleetEvent(state, {
+      nodeId: input.nodeId,
+      type: 'decision',
+      status: 'completed',
+      label: `${node.title}: ${input.status}`,
+      detail:
+        input.evidence ||
+        input.detail ||
+        'Progress reported by the orchestrator.',
+      source: 'orchestrator',
+    })
+    return 'Progress saved as an orchestrator report.'
+  }
+
+  public acceptFleetNode(
+    sessionId: string,
+    nodeId: string,
+    accepted: boolean,
+  ): void {
+    const state = this.sessions.get(sessionId)
+    const saved = this.persistedSessions.get(sessionId)
+    const snapshot = state?.snapshot ?? saved?.snapshot
+    const fleet = snapshot?.fleet
+    const node = fleet?.plan?.nodes.find((node) => node.id === nodeId)
+    if (!snapshot || !fleet || !node || typeof accepted !== 'boolean')
+      throw new Error('Unknown plan node.')
+    if (accepted && node.status !== 'completed')
+      throw new Error('Only completed nodes can be accepted.')
+    if (
+      accepted &&
+      node.dependsOn.some((id) => !fleet.acceptedNodeIds.includes(id))
+    )
+      throw new Error('Accept the dependencies first.')
+    const acceptedIds = new Set(fleet.acceptedNodeIds)
+    if (accepted) acceptedIds.add(nodeId)
+    else acceptedIds.delete(nodeId)
+    snapshot.fleet = {
+      ...fleet,
+      acceptedNodeIds: fleet.plan
+        ? retainFleetAcceptance(fleet.plan, [...acceptedIds])
+        : [],
+      updatedAt: this.getNow(),
+    }
+    if (state) {
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+    } else if (saved) {
+      snapshot.revision += 1
+      snapshot.updatedAt = this.getNow()
+      const persisted = this.options.store?.saveManagedSession({
+        ...saved,
+        snapshot,
+      }) ?? { ...saved, snapshot }
+      this.persistedSessions.set(sessionId, persisted)
+      this.options.onUpdate({
+        type: 'snapshot',
+        snapshot,
+        revision: snapshot.revision,
+      })
+    }
+  }
+
   public async askAgent(
     sessionId: string,
     alias: string,
     prompt: string,
     signal: AbortSignal,
+    metadata?: {
+      nodeId?: string
+      reason?: string
+      risk?: 'routine' | 'high' | 'critical'
+      failure?:
+        | 'context'
+        | 'implementation'
+        | 'reasoning'
+        | 'wrong-hypothesis'
+        | 'infrastructure'
+        | 'architecture'
+    },
   ): Promise<string> {
     const state = this.sessions.get(sessionId)
     const agent = state?.config.agents?.find(
@@ -2717,6 +3020,59 @@ export class ManagedSessionManager {
       this.quiescing
     )
       throw new Error('Configured agent is unavailable.')
+    if (signal.aborted)
+      throw new FleetDispatchError('Agent consultation was cancelled.')
+    if (state.agentRuns.has(agent.alias.toLowerCase()))
+      throw new FleetDispatchError('That agent is already being consulted.')
+    if (state.agentRuns.size >= FLEET_POLICY.maxConcurrentAgents)
+      throw new FleetDispatchError('Fleet concurrency limit reached.')
+    if (state.snapshot.fleet?.plan?.nodes.length && !metadata?.nodeId)
+      throw new FleetDispatchError(
+        'Specify the plan node for this consultation.',
+      )
+    if (
+      metadata?.nodeId &&
+      !state.snapshot.fleet?.plan?.nodes.some(
+        (node) => node.id === metadata.nodeId,
+      )
+    )
+      throw new Error('Unknown plan node.')
+    const attempts = metadata?.nodeId
+      ? (state.snapshot.fleet?.attemptCounts?.[metadata.nodeId] ?? 0)
+      : 0
+    const route = chooseFleetRoute({
+      risk: metadata?.risk ?? 'routine',
+      failure: metadata?.failure,
+      attempt: attempts,
+      alternateAvailable: (state.config.agents ?? []).some((candidate) =>
+        candidate.selection.model?.includes('opus'),
+      ),
+    })
+    this.recordFleetEvent(state, {
+      type: 'decision',
+      status: route.action === 'dispatch' ? 'completed' : 'blocked',
+      label: `Route @${agent.alias}`,
+      nodeId: metadata?.nodeId,
+      detail:
+        `${route.reason} ${metadata?.reason ?? 'The orchestrator selected this configured agent.'} Configured selection: ${agent.selection.model ?? agent.selection.mode}/${agent.selection.effort ?? 'default'}.`.slice(
+          0,
+          2000,
+        ),
+      model: agent.selection.model,
+      effort: agent.selection.effort,
+      source: 'orchestrator',
+    })
+    if (route.action !== 'dispatch') throw new FleetDispatchError(route.reason)
+    if (metadata?.nodeId) {
+      const fleet = this.fleetState(state)
+      state.snapshot.fleet = {
+        ...fleet,
+        attemptCounts: {
+          ...fleet.attemptCounts,
+          [metadata.nodeId]: attempts + 1,
+        },
+      }
+    }
     return this.runOpinion(
       state,
       agent,
@@ -2724,6 +3080,9 @@ export class ManagedSessionManager {
       this.getSafeHistory(state, ''),
       'orchestrator',
       signal,
+      [],
+      undefined,
+      metadata?.nodeId,
     )
   }
 
@@ -2736,9 +3095,12 @@ export class ManagedSessionManager {
     parentSignal?: AbortSignal,
     attachments: readonly ManagedSessionAttachment[] = [],
     checkpointId?: string,
+    nodeId?: string,
   ): Promise<string> {
     if (state.closing || state.agentRuns.has(agent.alias.toLowerCase()))
       throw new Error('Agent is already running.')
+    if (state.agentRuns.size >= FLEET_POLICY.maxConcurrentAgents)
+      throw new Error('Fleet concurrency limit reached.')
     const controller = new AbortController()
     const signal = AbortSignal.any([
       controller.signal,
@@ -2746,6 +3108,22 @@ export class ManagedSessionManager {
     ])
     const turnId = `opinion:${randomUUID()}`
     const startedAt = this.getNow()
+    const attempt = nodeId
+      ? state.snapshot.fleet?.attemptCounts?.[nodeId]
+      : undefined
+    const recordAgent = (status: FleetEvent['status']) =>
+      this.recordFleetEvent(state, {
+        type: 'agent',
+        status,
+        nodeId,
+        attempt,
+        label: `@${agent.alias}`,
+        detail: `Read-only consultation ${status}.`,
+        model: agent.selection.model,
+        effort: agent.selection.effort,
+        source: 'runtime',
+      })
+    recordAgent('started')
     let finished = false
     let latest: ManagedSessionSnapshot | undefined
     let resolveCompletion!: () => void
@@ -2765,9 +3143,43 @@ export class ManagedSessionManager {
           history: history.map((item) => ({ ...item })),
           shouldDeliverHistory: true,
         }
-        return this.options.prepareInput
-          ? this.options.prepareInput(preparedInput)
-          : { text: this.formatInputWithHistory(input.text, history, true) }
+        if (!this.options.prepareInput)
+          return {
+            text: this.formatInputWithHistory(input.text, history, true),
+          }
+        this.recordFleetEvent(state, {
+          type: 'preparation',
+          status: 'started',
+          nodeId,
+          label: `Jev for @${agent.alias}`,
+          detail: 'Preparing authorized context for the read-only agent.',
+          model: 'jev',
+          source: 'runtime',
+        })
+        try {
+          const prepared = await this.options.prepareInput(preparedInput)
+          this.recordFleetEvent(state, {
+            type: 'preparation',
+            status: 'completed',
+            nodeId,
+            label: `Jev for @${agent.alias}`,
+            detail: 'Agent context preparation completed.',
+            model: 'jev',
+            source: 'runtime',
+          })
+          return prepared
+        } catch (error) {
+          this.recordFleetEvent(state, {
+            type: 'preparation',
+            status: input.signal.aborted ? 'cancelled' : 'failed',
+            nodeId,
+            label: `Jev for @${agent.alias}`,
+            detail: 'Agent context preparation did not complete.',
+            model: 'jev',
+            source: 'runtime',
+          })
+          throw error
+        }
       },
       onRuntimeEvent: () => undefined,
       onUpdate: (event) => {
@@ -2839,7 +3251,10 @@ export class ManagedSessionManager {
       void child.interruptSession(turnId).catch(() => undefined)
     }
     signal.addEventListener('abort', onAbort, { once: true })
-    const timeout = setTimeout(() => controller.abort(), 180_000)
+    const timeout = setTimeout(
+      () => controller.abort(),
+      FLEET_POLICY.agentTimeoutMs,
+    )
     try {
       if (signal.aborted) throw new Error('Agent response cancelled.')
       await Promise.race([
@@ -2866,6 +3281,7 @@ export class ManagedSessionManager {
         completion,
       ])
       await completion
+      recordAgent('completed')
       return `@${agent.alias} (${latest?.model ?? agent.selection.model ?? agent.selection.mode}):\n${
         latest?.content
           .filter((item) => item.kind === 'assistant-text')
@@ -2873,6 +3289,7 @@ export class ManagedSessionManager {
           .join('\n') ?? ''
       }`
     } catch (error) {
+      recordAgent(signal.aborted ? 'cancelled' : 'failed')
       state.turns.set(turnId, {
         ...(checkpointId ? { checkpointId } : {}),
         id: turnId,
@@ -3242,6 +3659,79 @@ export class ManagedSessionManager {
       return injectedBackend
     }
 
+    const tools = config.readOnly
+      ? undefined
+      : createOrchestratorTools(
+          {
+            askAgent: (alias, prompt, signal, metadata) =>
+              this.askAgent(config.sessionId, alias, prompt, signal, metadata),
+            setFleetPlan: async (plan) =>
+              this.setFleetPlan(config.sessionId, plan),
+            updateFleetNode: async (input) =>
+              this.updateFleetNode(config.sessionId, input),
+            findRelevantContext: async (text, signal) => {
+              const state = this.sessions.get(config.sessionId)
+              if (!state || !this.options.prepareInput)
+                throw new Error('Context preparation is unavailable.')
+              this.recordFleetEvent(state, {
+                type: 'context',
+                status: 'started',
+                label: 'Jev context lookup',
+                detail: 'Retrieving authorized workspace context.',
+                model: 'jev',
+                source: 'runtime',
+              })
+              try {
+                const prepared = await this.options.prepareInput({
+                  attachments: [],
+                  config: state.config,
+                  text,
+                  signal,
+                  history: [],
+                  shouldDeliverHistory: false,
+                  reportUsage: (report) => {
+                    if (state.closed) return
+                    const persistedReport = {
+                      ...report,
+                      runtimeGeneration: state.runtimeGeneration,
+                    }
+                    state.usageReports.set(
+                      JSON.stringify([
+                        report.provider,
+                        state.runtimeGeneration,
+                        report.scopeId,
+                        report.id,
+                      ]),
+                      persistedReport,
+                    )
+                    this.publishSnapshot(state, this.getNow())
+                    this.persistSession(state)
+                  },
+                })
+                this.recordFleetEvent(state, {
+                  type: 'context',
+                  status: 'completed',
+                  label: 'Jev context lookup returned',
+                  detail: 'Authorized context returned to the orchestrator.',
+                  model: 'jev',
+                  source: 'runtime',
+                })
+                return prepared.text
+              } catch (error) {
+                this.recordFleetEvent(state, {
+                  type: 'context',
+                  status: signal.aborted ? 'cancelled' : 'failed',
+                  label: 'Jev context lookup',
+                  detail: 'Context lookup did not complete.',
+                  model: 'jev',
+                  source: 'runtime',
+                })
+                throw error
+              }
+            },
+          },
+          () => new AbortController().signal,
+        )
     if (
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
@@ -3250,50 +3740,10 @@ export class ManagedSessionManager {
         config.mode,
         emitRuntimeEvent,
         this.getNow,
+        tools,
       )
     }
 
-    const tools = config.readOnly
-      ? undefined
-      : createOrchestratorTools(
-          {
-            askAgent: (alias, prompt, signal) =>
-              this.askAgent(config.sessionId, alias, prompt, signal),
-            findRelevantContext: async (text, signal) => {
-              const state = this.sessions.get(config.sessionId)
-              if (!state || !this.options.prepareInput)
-                throw new Error('Context preparation is unavailable.')
-              const prepared = await this.options.prepareInput({
-                attachments: [],
-                config: state.config,
-                text,
-                signal,
-                history: [],
-                shouldDeliverHistory: false,
-                reportUsage: (report) => {
-                  if (state.closed) return
-                  const persistedReport = {
-                    ...report,
-                    runtimeGeneration: state.runtimeGeneration,
-                  }
-                  state.usageReports.set(
-                    JSON.stringify([
-                      report.provider,
-                      state.runtimeGeneration,
-                      report.scopeId,
-                      report.id,
-                    ]),
-                    persistedReport,
-                  )
-                  this.publishSnapshot(state, this.getNow())
-                  this.persistSession(state)
-                },
-              })
-              return prepared.text
-            },
-          },
-          () => new AbortController().signal,
-        )
     return config.mode === 'claude'
       ? new ClaudeManagedSessionBackend(
           config,
@@ -3383,12 +3833,31 @@ export class ManagedSessionManager {
           : undefined
 
     if (terminalTurnState) {
+      if (state.activeTurnId)
+        this.recordFleetEvent(state, {
+          type: 'turn',
+          status: terminalTurnState === 'failed' ? 'failed' : 'cancelled',
+          label: 'Orchestrator stopped',
+          detail: 'The runtime stopped before completing its active turn.',
+          model: state.config.model,
+          effort: state.config.effort,
+          source: 'runtime',
+        })
       this.terminalizeRuntimeState(state, event.createdAt, terminalTurnState)
       if (state.queuedInputs.length > 0) state.queuePaused = true
     }
 
     if (event.type === 'turn.started') {
       state.activeTurnId = event.turnId
+      this.recordFleetEvent(state, {
+        type: 'turn',
+        status: 'started',
+        label: 'Orchestrator turn',
+        detail: 'The provider started this turn.',
+        model: state.config.model,
+        effort: state.config.effort,
+        source: 'runtime',
+      })
       state.turns.set(event.turnId, {
         ...(state.pendingCheckpointId
           ? { checkpointId: state.pendingCheckpointId }
@@ -3429,6 +3898,20 @@ export class ManagedSessionManager {
     }
 
     if (event.type === 'turn.completed') {
+      this.recordFleetEvent(state, {
+        type: 'turn',
+        status:
+          event.state === 'completed'
+            ? 'completed'
+            : event.state === 'failed'
+              ? 'failed'
+              : 'cancelled',
+        label: 'Orchestrator turn',
+        detail: 'Provider-reported turn outcome. Plan acceptance is separate.',
+        model: state.config.model,
+        effort: state.config.effort,
+        source: 'runtime',
+      })
       const turn = state.turns.get(event.turnId)
 
       if (turn) {
@@ -3445,6 +3928,21 @@ export class ManagedSessionManager {
     if (event.type === 'content.delta') {
       const key = createContentKey(event.kind, event.itemId)
       const existing = state.contentByKey.get(key)
+      if (
+        !existing &&
+        (event.kind === 'command-output' || event.kind === 'file-change-output')
+      ) {
+        this.recordFleetEvent(state, {
+          type: 'tool',
+          status: 'completed',
+          label:
+            event.kind === 'command-output'
+              ? 'Command output received'
+              : 'File change reported',
+          detail: `Provider item ${event.itemId}. Inspect the conversation for output. Receiving output does not verify acceptance.`,
+          source: 'runtime',
+        })
+      }
 
       if (existing) {
         existing.text = `${existing.text}${event.text}`
@@ -3639,6 +4137,7 @@ export class ManagedSessionManager {
       (approval) => approval.requestType === 'plan-approval',
     )
     state.snapshot = {
+      ...(state.snapshot.fleet ? { fleet: state.snapshot.fleet } : {}),
       ...(state.config.agents ? { agents: state.config.agents } : {}),
       content: state.orderedContentKeys
         .map((key) => state.contentByKey.get(key) ?? null)

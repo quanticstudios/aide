@@ -1136,6 +1136,19 @@ function registerIpcHandlers(): void {
       managedSessionManager.closeSession(sessionId),
   )
   ipcMain.handle(
+    IPC_CHANNELS.managedFleetAcceptNode,
+    (_event, input: unknown) => {
+      if (!isRecord(input) || typeof input.accepted !== 'boolean') {
+        throw new Error('Invalid fleet acceptance.')
+      }
+      return managedSessionManager.acceptFleetNode(
+        requireRuntimeId(input.sessionId, 'Session id'),
+        requireRuntimeId(input.nodeId, 'Node id'),
+        input.accepted,
+      )
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.managedSessionInterrupt,
     (_event, sessionId: unknown, recipientAlias: unknown) => {
       const id = requireRuntimeId(sessionId, 'managed-session id')

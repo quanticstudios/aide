@@ -78,6 +78,199 @@ describe('ManagedSessionManager', () => {
     process.env.AIDE_CODEX_COMMAND = undefined
   })
 
+  it('persists fleet tools and separates completion from acceptance', async () => {
+    const store = createMemoryStore()
+    const options = {
+      store,
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    }
+    const manager = new ManagedSessionManager(options)
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'fleet plan')
+    const fleet = manager.getSnapshots()[config.sessionId]?.fleet
+    expect(fleet?.plan?.nodes).toHaveLength(2)
+    expect(fleet?.acceptedNodeIds).toEqual([])
+    expect(() =>
+      manager.acceptFleetNode(config.sessionId, 'drawer', true),
+    ).toThrow('Only completed')
+    manager.updateFleetNode(config.sessionId, {
+      nodeId: 'drawer',
+      status: 'completed',
+      detail: 'Rendered',
+      evidence: 'Reported smoke result',
+    })
+    expect(() =>
+      manager.acceptFleetNode(config.sessionId, 'drawer', true),
+    ).toThrow('dependencies')
+    manager.acceptFleetNode(config.sessionId, 'storage', true)
+    manager.acceptFleetNode(config.sessionId, 'drawer', true)
+    await manager.closeAll()
+    const reopened = new ManagedSessionManager(options)
+    reopened.acceptFleetNode(config.sessionId, 'storage', false)
+    expect(reopened.getActiveSessionCount()).toBe(0)
+    await reopened.createSession(config)
+    expect(
+      reopened.getSnapshots()[config.sessionId]?.fleet?.acceptedNodeIds,
+    ).toEqual([])
+    expect(
+      reopened.getSnapshots()[config.sessionId]?.fleet?.plan?.nodes[1]?.status,
+    ).toBe('completed')
+    reopened.acceptFleetNode(config.sessionId, 'storage', true)
+    reopened.updateFleetNode(config.sessionId, {
+      nodeId: 'storage',
+      status: 'blocked',
+      detail: 'New failure',
+      evidence: '',
+    })
+    expect(
+      reopened.getSnapshots()[config.sessionId]?.fleet?.acceptedNodeIds,
+    ).toEqual([])
+    await reopened.closeAll()
+  })
+
+  it('records preparation and enforces fleet attempt and failure limits', async () => {
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => ({ text }),
+    })
+    const config = {
+      ...createConfig(),
+      agents: [
+        {
+          alias: 'Sol',
+          selection: {
+            mode: 'codex' as const,
+            model: 'gpt-5.6-sol',
+            effort: 'medium',
+          },
+        },
+      ],
+    }
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'fleet plan')
+    const signal = new AbortController().signal
+    await expect(
+      manager.askAgent(config.sessionId, 'Sol', 'check', signal),
+    ).rejects.toThrow('Specify the plan node')
+    await expect(
+      manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+        nodeId: 'missing',
+      }),
+    ).rejects.toThrow('Unknown plan')
+    for (let index = 0; index < 3; index += 1) {
+      await manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+        nodeId: 'drawer',
+        reason: 'Review the drawer',
+        risk: 'high',
+      })
+    }
+    await expect(
+      manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+        nodeId: 'drawer',
+      }),
+    ).rejects.toThrow()
+    await expect(
+      manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+        failure: 'infrastructure',
+      }),
+    ).rejects.toThrow()
+    const fleet = manager.getSnapshots()[config.sessionId]?.fleet
+    expect(fleet?.attemptCounts?.drawer).toBe(3)
+    expect(
+      fleet?.events
+        .filter(
+          (event) => event.type === 'agent' && event.status === 'completed',
+        )
+        .map((event) => event.attempt),
+    ).toEqual([1, 2, 3])
+    expect(
+      fleet?.events.filter(
+        (event) => event.type === 'agent' && event.status === 'completed',
+      ),
+    ).toHaveLength(3)
+    expect(
+      fleet?.events.some(
+        (event) =>
+          event.type === 'preparation' &&
+          event.status === 'completed' &&
+          event.source === 'runtime',
+      ),
+    ).toBe(true)
+    expect(
+      fleet?.events.some(
+        (event) => event.type === 'decision' && event.status === 'blocked',
+      ),
+    ).toBe(true)
+    manager.setFleetPlan(config.sessionId, fleet?.plan)
+    await expect(
+      manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+        nodeId: 'drawer',
+      }),
+    ).rejects.toThrow()
+    manager.setFleetPlan(config.sessionId, {
+      ...fleet?.plan,
+      nodes: fleet?.plan?.nodes.map((node) =>
+        node.id === 'drawer' ? { ...node, title: 'A different task' } : node,
+      ),
+    })
+    await manager.askAgent(config.sessionId, 'Sol', 'check', signal, {
+      nodeId: 'drawer',
+    })
+    expect(
+      manager.getSnapshots()[config.sessionId]?.fleet?.attemptCounts?.drawer,
+    ).toBe(1)
+    await manager.closeAll()
+  })
+
+  it('preserves unrelated acceptance and revokes transitive dependents after changes', async () => {
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    const node = {
+      id: 'first',
+      title: 'First',
+      dependsOn: [],
+      detail: '',
+      evidence: 'reported',
+      status: 'completed',
+    }
+    manager.setFleetPlan(config.sessionId, {
+      summary: 'Tasks',
+      nodes: [
+        node,
+        { ...node, id: 'other' },
+        { ...node, id: 'child', dependsOn: ['first'] },
+      ],
+    })
+    for (const id of ['first', 'other', 'child'])
+      manager.acceptFleetNode(config.sessionId, id, true)
+    manager.updateFleetNode(config.sessionId, {
+      nodeId: 'first',
+      status: 'completed',
+      detail: '',
+      evidence: 'reported',
+    })
+    expect(
+      manager.getSnapshots()[config.sessionId]?.fleet?.acceptedNodeIds,
+    ).toEqual(['first', 'other', 'child'])
+    manager.updateFleetNode(config.sessionId, {
+      nodeId: 'first',
+      status: 'blocked',
+      detail: 'needs changes',
+      evidence: '',
+    })
+    expect(
+      manager.getSnapshots()[config.sessionId]?.fleet?.acceptedNodeIds,
+    ).toEqual(['other'])
+    await manager.closeAll()
+  })
+
   it('builds native Claude and Codex image payloads', () => {
     const pastedImage = {
       data: 'iVBORw0KGgo=',
@@ -945,7 +1138,7 @@ createInterface({ input: process.stdin }).on('line', line => {
       type: 'turn.completed',
     })
     await vi.waitFor(() => expect(sent).toHaveLength(2))
-    expect(sent[0]).toBe('first')
+    expect(sent[0]?.split('\n\nFleet policy.')[0]).toBe('first')
     expect(sent[1]).toContain('third')
     expect(sent.join('\n')).not.toContain('cancel me')
   })
@@ -1001,7 +1194,9 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
     shouldFail = false
     await manager.resumeQueue(config.sessionId)
-    expect(sent).toEqual(['retry me'])
+    expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
+      'retry me',
+    ])
     expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
   })
 
@@ -1078,7 +1273,9 @@ createInterface({ input: process.stdin }).on('line', line => {
     await manager.sendInput(config.sessionId, 'send at most once')
     await manager.resumeQueue(config.sessionId)
 
-    expect(sent).toEqual(['send at most once'])
+    expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
+      'send at most once',
+    ])
     expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
       queuedInputs: [],
       content: [
@@ -1212,7 +1409,9 @@ createInterface({ input: process.stdin }).on('line', line => {
     await checkpointCaptureStarted.promise
 
     await manager.resumeQueue(config.sessionId)
-    expect(sent).toEqual(['first'])
+    expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
+      'first',
+    ])
 
     completeCheckpointCapture.resolve()
     await vi.waitFor(() => expect(sent).toHaveLength(2))

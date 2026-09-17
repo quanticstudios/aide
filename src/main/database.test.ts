@@ -57,6 +57,36 @@ describe('createAideDatabase', () => {
           workspaceId: workspace.id,
         },
         snapshot: {
+          fleet: {
+            plan: {
+              summary: 'Saved architecture',
+              nodes: [
+                {
+                  id: 'node-1',
+                  title: 'Storage',
+                  detail: 'Persist JSON',
+                  dependsOn: [],
+                  status: 'completed',
+                  evidence: 'Reported check',
+                },
+              ],
+            },
+            events: [
+              {
+                id: 'event-1',
+                createdAt: '2026-04-11T10:00:00.000Z',
+                turnId: null,
+                type: 'preparation',
+                status: 'completed',
+                label: 'Jev',
+                detail: 'Prepared',
+                source: 'runtime',
+              },
+            ],
+            acceptedNodeIds: ['node-1'],
+            attemptCounts: { 'node-1': 2 },
+            updatedAt: '2026-04-11T10:00:00.000Z',
+          },
           content: [],
           detail: null,
           effort: null,

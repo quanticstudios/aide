@@ -214,6 +214,95 @@ test.describe('shared model chat', () => {
     repository = null
   })
 
+  test('opens fleet Plan first, accepts reported work, and shows actual routing after restart', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const session = await startSharedChat(page, app)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.evaluate(async (sessionId) => {
+      await window.aide.sendManagedSessionInput(sessionId, 'fleet plan')
+    }, session.sessionId)
+    await page
+      .getByRole('button', { name: 'Open agent fleet', exact: true })
+      .click()
+    const drawer = page.getByTestId('fleet-drawer')
+    await expect(
+      drawer.getByRole('tab', { name: 'Plan', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true')
+    await expect(drawer.getByTestId('fleet-plan-flow')).toContainText(
+      'Persist plan',
+    )
+    await drawer.getByRole('button', { name: /Render drawer/ }).click()
+    await expect(drawer).toContainText('Show saved nodes and routing events.')
+    await expect(
+      drawer.getByRole('button', {
+        name: 'Accept completed work',
+        exact: true,
+      }),
+    ).toBeDisabled()
+    await drawer.getByRole('button', { name: /Persist plan/ }).click()
+    await drawer
+      .getByRole('button', { name: 'Accept completed work', exact: true })
+      .click()
+    await expect(drawer).toContainText('1 / 2 accepted')
+    await page.screenshot({
+      path: 'docs/verification/fleet-plan-2026-09-18.png',
+    })
+    await drawer.getByRole('tab', { name: 'Live flow', exact: true }).click()
+    await expect(drawer).toContainText('Jev')
+    await expect(drawer).toContainText('Orchestrator turn')
+    await expect(drawer).toContainText('remainder unknown')
+    await page.screenshot({
+      path: 'docs/verification/fleet-live-2026-09-18.png',
+    })
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: 'Open agent fleet', exact: true }),
+    ).toBeFocused()
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page
+      .getByRole('dialog', { name: 'Add pane' })
+      .getByRole('button', { name: /^agent\b/i })
+      .click()
+    await page
+      .getByRole('button', { name: 'Open agent fleet', exact: true })
+      .click()
+    await expect(page.getByTestId('fleet-drawer')).toContainText(
+      'No fleet plan has been recorded',
+    )
+    await page
+      .getByRole('toolbar', { name: 'Pane selector' })
+      .getByRole('button')
+      .first()
+      .click()
+    await expect(page.getByTestId('fleet-drawer')).toContainText(
+      '1 / 2 accepted',
+    )
+    await app.close()
+    app = null
+    const reopened = await launchAideApp(repository, dataDirectory)
+    app = reopened.app
+    await reopened.page
+      .getByRole('button', { name: 'Open agent fleet', exact: true })
+      .click()
+    await expect(reopened.page.getByTestId('fleet-drawer')).toContainText(
+      '1 / 2 accepted',
+    )
+    await reopened.page.setViewportSize({ width: 760, height: 620 })
+    await expect(
+      reopened.page
+        .getByTestId('fleet-drawer')
+        .getByRole('button', { name: 'Close agent fleet', exact: true }),
+    ).toBeVisible()
+    await reopened.page.screenshot({
+      path: 'docs/verification/fleet-narrow-2026-09-18.png',
+    })
+  })
+
   test('searches, archives and reopens saved tasks with durable attention state', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)

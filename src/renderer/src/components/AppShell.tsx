@@ -9,6 +9,8 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import type { SavedTask } from '../../../shared/task-library'
+import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import FleetDrawer from './FleetDrawer'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
@@ -77,9 +79,11 @@ export default function AppShell({
   children,
 }: AppShellProps) {
   const sidebarShellRef = useRef<HTMLDivElement | null>(null)
+  const fleetToggleRef = useRef<HTMLButtonElement | null>(null)
   const collapseTimerRef = useRef<number | null>(null)
   const [isSidebarHovered, setIsSidebarHovered] = useState(false)
   const [isSidebarFocusWithin, setIsSidebarFocusWithin] = useState(false)
+  const [isFleetOpen, setIsFleetOpen] = useState(false)
   const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -90,6 +94,17 @@ export default function AppShell({
 
   const isSidebarExpanded =
     isSidebarPinnedOpen || isSidebarHovered || isSidebarFocusWithin
+  const activeManagedSessionId =
+    activeWorkspace &&
+    activePaneId &&
+    resolveTerminalLaunchModeForPaneId(activePaneId) !== 'shell'
+      ? `${activeWorkspace.id}:${activePaneId}`
+      : null
+
+  const closeFleet = useCallback((): void => {
+    setIsFleetOpen(false)
+    window.requestAnimationFrame(() => fleetToggleRef.current?.focus())
+  }, [])
 
   const sidebarContainsActiveElement = useCallback((): boolean => {
     if (typeof document === 'undefined') {
@@ -294,11 +309,17 @@ export default function AppShell({
           activeSurfaceId={activeSurfaceId}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
+          fleetToggleRef={fleetToggleRef}
+          isFleetAvailable={Boolean(activeManagedSessionId)}
+          isFleetOpen={isFleetOpen}
           onClosePane={onClosePane}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
           onOpenTask={onOpenTask}
           onOpenUpdate={onOpenUpdate}
+          onToggleFleet={() =>
+            isFleetOpen ? closeFleet() : setIsFleetOpen(true)
+          }
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
           surfaces={surfaces}
@@ -307,8 +328,16 @@ export default function AppShell({
           onSelectPane={onSelectPane}
         />
 
-        <main className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
-          {children}
+        <main className="relative flex min-h-0 w-full flex-1 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            {children}
+          </div>
+          {isFleetOpen ? (
+            <FleetDrawer
+              onClose={closeFleet}
+              sessionId={activeManagedSessionId}
+            />
+          ) : null}
         </main>
       </div>
     </div>

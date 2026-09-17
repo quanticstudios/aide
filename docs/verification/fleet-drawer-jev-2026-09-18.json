@@ -1,0 +1,30 @@
+{
+  "purpose": "Classify persistence boundary and opinion permission constraints for fleet drawer implementation",
+  "elapsedSeconds": 0.882,
+  "model": "jev-1.13.0",
+  "answers": {
+    "persistence": {
+      "type": "choice",
+      "choice": "schema",
+      "confidence": 0.95,
+      "probabilities": {
+        "schema": 0.97,
+        "manager": 0.03,
+        "tools": 0.0
+      }
+    },
+    "execution": {
+      "type": "choice",
+      "choice": "read_only",
+      "confidence": 0.6,
+      "probabilities": {
+        "write_capable": 0.2,
+        "read_only": 0.8
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 6568,
+    "output_tokens": 72
+  }
+}

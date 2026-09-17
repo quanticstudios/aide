@@ -1,4 +1,5 @@
 import type { ManagedSessionAgentConfig } from './conversation-routing'
+import type { FleetState } from './fleet'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
@@ -193,6 +194,7 @@ export interface ManagedSessionUsage {
 }
 
 export interface ManagedSessionSnapshot {
+  fleet?: FleetState
   agents?: readonly ManagedSessionAgentConfig[]
   content: ManagedSessionContentItem[]
   detail: string | null
