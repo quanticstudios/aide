@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -52,5 +52,18 @@ describe('readProjectFile', () => {
       content: '# aide\n',
       relativePath: 'README.md',
     })
+  })
+
+  it('rejects a symlink that resolves outside the project root', async () => {
+    const projectRoot = await createTempRoot()
+    const hostRoot = await createTempRoot()
+    const secretPath = path.join(hostRoot, 'host-secret.txt')
+
+    await writeFile(secretPath, 'host sentinel')
+    await symlink(secretPath, path.join(projectRoot, 'escape.txt'))
+
+    await expect(readProjectFile(projectRoot, 'escape.txt')).rejects.toThrow(
+      'File path must stay inside the project root',
+    )
   })
 })
