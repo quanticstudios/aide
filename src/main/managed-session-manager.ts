@@ -2122,6 +2122,7 @@ export class ManagedSessionManager {
       )
     }
 
+    let agents: readonly ManagedSessionAgentConfig[] = []
     if (recipients.length > 0) {
       if (
         recipients.length > 2 ||
@@ -2138,18 +2139,13 @@ export class ManagedSessionManager {
           'Choose one agent in Build mode or switch to Plan to compare.',
         )
       }
-      const agents = recipients.map((alias) => {
+      agents = recipients.map((alias) => {
         const agent = state.config.agents?.find(
           (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),
         )
         if (!agent) throw new Error(`Unknown agent @${alias}.`)
         return agent
       })
-      const history = this.getSafeHistory(state, '')
-      await Promise.allSettled(
-        agents.map((agent) => this.runOpinion(state, agent, text, history)),
-      )
-      return
     }
 
     const promptItemId = `user-prompt:${randomUUID()}`
@@ -2163,6 +2159,17 @@ export class ManagedSessionManager {
       updatedAt: this.getNow(),
     })
     state.orderedContentKeys.push(promptKey)
+    if (agents.length > 0) {
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+      const history = this.getSafeHistory(state, promptItemId)
+      await Promise.allSettled(
+        agents.map((agent) =>
+          this.runOpinion(state, agent, text, history, 'user'),
+        ),
+      )
+      return
+    }
     state.pendingUserPromptText = text
     state.pendingUserPromptItemId = promptItemId
     this.publishSnapshot(state, this.getNow())
@@ -2255,6 +2262,7 @@ export class ManagedSessionManager {
       agent,
       prompt,
       this.getSafeHistory(state, ''),
+      'orchestrator',
       signal,
     )
   }
@@ -2264,6 +2272,7 @@ export class ManagedSessionManager {
     agent: ManagedSessionAgentConfig,
     text: string,
     history: ManagedSessionHistoryItem[],
+    source: 'user' | 'orchestrator',
     parentSignal?: AbortSignal,
   ): Promise<string> {
     if (state.closing || state.agentRuns.has(agent.alias.toLowerCase()))
@@ -2303,6 +2312,7 @@ export class ManagedSessionManager {
         if (finished || state.closed || event.type !== 'snapshot') return
         latest = event.snapshot
         for (const item of latest.content) {
+          if (item.kind !== 'assistant-text') continue
           const id = `${turnId}:${item.id}`
           const key = createContentKey(item.kind, id)
           if (!state.contentByKey.has(key)) state.orderedContentKeys.push(key)
@@ -2329,7 +2339,7 @@ export class ManagedSessionManager {
             ...childTurn,
             id: turnId,
             recipientAlias: agent.alias,
-            requestText: text,
+            ...(source === 'user' ? { requestText: text } : {}),
           })
         this.publishSnapshot(state, this.getNow())
         if (latest.usageReports?.length || childTurn?.state !== 'running')
@@ -2356,7 +2366,7 @@ export class ManagedSessionManager {
       completedAt: null,
       state: 'running',
       recipientAlias: agent.alias,
-      requestText: text,
+      ...(source === 'user' ? { requestText: text } : {}),
     })
     this.publishSnapshot(state, startedAt)
     this.persistSession(state)
@@ -2403,7 +2413,7 @@ export class ManagedSessionManager {
         completedAt: this.getNow(),
         state: signal.aborted ? 'cancelled' : 'failed',
         recipientAlias: agent.alias,
-        requestText: text,
+        ...(source === 'user' ? { requestText: text } : {}),
       })
       const key = createContentKey('system', turnId)
       state.orderedContentKeys.push(key)

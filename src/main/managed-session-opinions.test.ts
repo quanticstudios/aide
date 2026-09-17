@@ -164,6 +164,17 @@ describe('managed session opinions', () => {
       2,
     )
     const snapshot = manager.getSnapshots()[config.sessionId]
+    expect(
+      snapshot.content.filter(
+        (item) => item.kind === 'user-prompt' && item.text === 'compare',
+      ),
+    ).toHaveLength(1)
+    expect(
+      snapshot.content.filter(
+        (item) =>
+          item.turnId?.startsWith('opinion:') && item.kind !== 'assistant-text',
+      ),
+    ).toEqual([])
     expect(snapshot).toMatchObject({
       model: 'orchestrator',
       orchestratorSelection: config.orchestratorSelection,
@@ -391,6 +402,13 @@ describe('managed session opinions', () => {
     alphaAbort.abort()
     await expect(alpha).rejects.toThrow('cancelled')
     await expect(beta).resolves.toContain('@beta (beta):')
+    const shared = manager.getSnapshots()[config.sessionId]
+    expect(
+      shared.content.filter((item) => item.kind === 'user-prompt'),
+    ).toEqual([])
+    expect(shared.turns.every((turn) => turn.requestText === undefined)).toBe(
+      true,
+    )
     expect(manager.getSnapshots()[config.sessionId].turns).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
