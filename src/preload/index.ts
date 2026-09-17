@@ -214,8 +214,8 @@ const aideApi: AideApi = {
   },
   probeExecutableCommand: (input: ExecutableProbeInput) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableProbe, input),
-  readProjectFile: (relativePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, relativePath),
+  readProjectFile: (workspaceId, relativePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.readProjectFile, workspaceId, relativePath),
   closePreviewTab: (workspaceId: string, tabId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewCloseTab, workspaceId, tabId),
   navigatePreviewTab: (workspaceId: string, tabId: string, url: string) =>

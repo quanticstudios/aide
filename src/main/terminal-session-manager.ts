@@ -17,6 +17,8 @@ interface TerminalSessionManagerOptions {
 }
 
 interface TerminalSessionState {
+  workspaceId: string
+  paneId: string
   buffer: string
   exitCode: number | null
   pty: IPty | null
@@ -36,6 +38,15 @@ export class TerminalSessionManager {
     }
     const existingSession = this.sessions.get(config.sessionId)
 
+    if (
+      existingSession &&
+      (existingSession.workspaceId !== config.workspaceId ||
+        existingSession.paneId !== config.paneId)
+    )
+      throw new Error(
+        'Terminal session does not belong to this workspace pane.',
+      )
+
     if (existingSession && existingSession.pty !== null) {
       return this.toSnapshot(existingSession)
     }
@@ -50,6 +61,8 @@ export class TerminalSessionManager {
       config.mode,
     )
     const sessionState: TerminalSessionState = {
+      workspaceId: config.workspaceId,
+      paneId: config.paneId,
       buffer: '',
       exitCode: null,
       pty: null,

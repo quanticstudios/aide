@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -68,6 +69,15 @@ import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+if (process.env.AIDE_DATABASE_PATH) {
+  const userDataPath = path.dirname(
+    path.resolve(process.env.AIDE_DATABASE_PATH),
+  )
+  mkdirSync(userDataPath, { recursive: true })
+  app.setPath('userData', userDataPath)
+}
+const hasInstanceLock = app.requestSingleInstanceLock()
+if (!hasInstanceLock) app.exit(0)
 let database: ReturnType<typeof createAideDatabase>
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
@@ -120,6 +130,22 @@ function requireRuntimeId(value: unknown, label: string): string {
   }
 
   return value
+}
+
+function requireTerminalSize(value: unknown): TerminalResizeInput {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.cols) ||
+    !Number.isInteger(value.rows) ||
+    typeof value.cols !== 'number' ||
+    typeof value.rows !== 'number' ||
+    value.cols < 1 ||
+    value.rows < 1 ||
+    value.cols > 1_000 ||
+    value.rows > 1_000
+  )
+    throw new Error('Invalid terminal dimensions.')
+  return { cols: value.cols, rows: value.rows }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -742,38 +768,49 @@ function registerIpcHandlers(): void {
       }
     },
   )
-  ipcMain.handle(
-    IPC_CHANNELS.terminalCreate,
-    (_event, input: TerminalSessionConfig) => {
-      if (input.mode !== 'shell') {
-        throw new Error(
-          `Managed provider mode "${input.mode}" must use managed-session:create.`,
-        )
-      }
-
-      workspaceActivityService.trackSession(input)
-
-      try {
-        return terminalSessionManager.createSession(input)
-      } catch (error) {
-        workspaceActivityService.handleSessionLaunchFailure(input, error)
-        throw error
-      }
-    },
-  )
+  ipcMain.handle(IPC_CHANNELS.terminalCreate, (event, input: unknown) => {
+    if (!isRecord(input) || input.mode !== 'shell')
+      throw new Error('Invalid terminal configuration.')
+    const workspace = requireWorkspaceForSetup(event, input.workspaceId)
+    const config: TerminalSessionConfig = {
+      ...requireTerminalSize(input),
+      cwd: workspace.worktreePath,
+      mode: 'shell',
+      paneId: requireRuntimeId(input.paneId, 'pane id'),
+      sessionId: requireRuntimeId(input.sessionId, 'terminal session id'),
+      workspaceId: workspace.id,
+    }
+    workspaceActivityService.trackSession(config)
+    try {
+      return terminalSessionManager.createSession(config)
+    } catch (error) {
+      workspaceActivityService.handleSessionLaunchFailure(config, error)
+      throw error
+    }
+  })
   ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {
-    terminalSessionManager.killSession(sessionId)
+    terminalSessionManager.killSession(
+      requireRuntimeId(sessionId, 'terminal session id'),
+    )
   })
   ipcMain.handle(
     IPC_CHANNELS.terminalResize,
     (_event, sessionId: string, size: TerminalResizeInput) => {
-      terminalSessionManager.resizeSession(sessionId, size)
+      terminalSessionManager.resizeSession(
+        requireRuntimeId(sessionId, 'terminal session id'),
+        requireTerminalSize(size),
+      )
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.terminalWrite,
     (_event, sessionId: string, data: string) => {
-      terminalSessionManager.writeToSession(sessionId, data)
+      if (typeof data !== 'string' || data.length > 1_048_576)
+        throw new Error('Invalid terminal input.')
+      terminalSessionManager.writeToSession(
+        requireRuntimeId(sessionId, 'terminal session id'),
+        data,
+      )
     },
   )
   ipcMain.handle(
@@ -884,8 +921,18 @@ function registerIpcHandlers(): void {
       return managedSessionManager.switchSessionProvider(sessionId, selection)
     },
   )
-  ipcMain.handle(IPC_CHANNELS.readProjectFile, (_event, relativePath: string) =>
-    readProjectFile(process.cwd(), relativePath),
+  ipcMain.handle(
+    IPC_CHANNELS.readProjectFile,
+    (event, workspaceId: unknown, relativePath: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      if (
+        typeof relativePath !== 'string' ||
+        !relativePath ||
+        relativePath.length > 4_096
+      )
+        throw new Error('Invalid project file path.')
+      return readProjectFile(workspace.worktreePath, relativePath)
+    },
   )
   ipcMain.handle(
     IPC_CHANNELS.getWorktreeBranchStats,
@@ -922,7 +969,21 @@ const applicationRuntime = new ApplicationRuntime({
   startReaper: setInterval,
 })
 
+app.on('second-instance', () => {
+  const window = BrowserWindow.getAllWindows().find(
+    (candidate) => !candidate.isDestroyed(),
+  )
+  if (window) {
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+  } else if (app.isReady() && !applicationRuntime.isShutdownComplete()) {
+    applicationRuntime.ensureMainWindow()
+  }
+})
+
 app.whenReady().then(() => {
+  if (!hasInstanceLock) return
   Menu.setApplicationMenu(null)
   applicationRuntime.start()
   updateHealthReporter.start()
@@ -941,6 +1002,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  if (!hasInstanceLock) return
   if (applicationRuntime.isShutdownComplete()) {
     return
   }

@@ -271,7 +271,10 @@ export interface AideApi {
   onWorkspaceSetup: (
     callback: (event: WorkspaceSetupEvent) => void,
   ) => () => void
-  readProjectFile: (relativePath: string) => Promise<ProjectTextFile>
+  readProjectFile: (
+    workspaceId: string,
+    relativePath: string,
+  ) => Promise<ProjectTextFile>
   closePreviewTab: (
     workspaceId: string,
     tabId: string,
