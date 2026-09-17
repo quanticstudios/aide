@@ -106,6 +106,43 @@ it('evaluates conversation evidence when there are no optional workspace excerpt
   )
 })
 
+it('sends explicit image evidence through Jev and preserves the native payload', async () => {
+  vi.mocked(retrieveContext).mockResolvedValue({
+    candidates: [],
+    mandatory: [],
+    omitted: [],
+  })
+  const png = Buffer.from('89504e470d0a1a0a', 'hex')
+  const prepared = await new ContextPreparation({
+    requireApiKey: () => 'test-key',
+  }).prepare({
+    ...input(),
+    attachments: [
+      {
+        data: png.toString('base64'),
+        id: 'pasted-image',
+        kind: 'image',
+        mimeType: 'image/png',
+        name: 'screen.png',
+        sizeBytes: png.byteLength,
+      },
+    ],
+  })
+  expect(JevClient.prototype.evaluateCandidates).toHaveBeenCalledWith(
+    expect.objectContaining({
+      candidates: [expect.objectContaining({ id: 'explicit:pasted-image' })],
+    }),
+    expect.any(AbortSignal),
+  )
+  expect(prepared.images).toEqual([
+    expect.objectContaining({
+      data: png.toString('base64'),
+      name: 'screen.png',
+    }),
+  ])
+  expect(prepared.text).toContain('Explicit evidence selected by the user')
+})
+
 it('pauses on unavailable Jev and honors Retry-After without returning a provider prompt', async () => {
   vi.mocked(JevClient.prototype.evaluateCandidates).mockRejectedValue(
     new JevClientError(

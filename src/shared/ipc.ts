@@ -22,6 +22,7 @@ import type {
 } from './git'
 import type { JevSettingsInput, JevSettingsStatus } from './jev'
 import type {
+  ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
   ManagedSessionEvent,
@@ -129,9 +130,13 @@ export const IPC_CHANNELS = {
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
+  managedSessionCancelQueuedInput: 'managed-session:cancel-queued-input',
+  managedSessionPickFiles: 'managed-session:pick-files',
+  managedSessionResumeQueue: 'managed-session:resume-queue',
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
+  managedSessionSendQueuedInputNow: 'managed-session:send-queued-input-now',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
   previewCloseTab: 'preview:close-tab',
   previewEvent: 'preview:event',
@@ -265,6 +270,16 @@ export interface AideApi {
     sessionId: string,
     recipientAlias?: string,
   ) => Promise<void>
+  cancelManagedSessionQueuedInput: (
+    sessionId: string,
+    queuedInputId: string,
+  ) => Promise<void>
+  pickManagedSessionFiles: (workspaceId: string) => Promise<string[]>
+  resumeManagedSessionQueue: (sessionId: string) => Promise<void>
+  sendManagedSessionQueuedInputNow: (
+    sessionId: string,
+    queuedInputId: string,
+  ) => Promise<void>
   killTerminalSession: (sessionId: string) => Promise<void>
   onManagedSessionEvent: (
     callback: (event: ManagedSessionEvent) => void,
@@ -325,6 +340,7 @@ export interface AideApi {
     sessionId: string,
     text: string,
     recipients?: readonly string[],
+    attachments?: readonly ManagedSessionAttachment[],
   ) => Promise<void>
   switchManagedSessionProvider: (
     sessionId: string,

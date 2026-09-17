@@ -14,6 +14,7 @@ import {
 
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
+  ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionContentItem,
   ManagedSessionDecision,
@@ -22,7 +23,10 @@ import type {
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
   ManagedSessionPlanApproval,
+  ManagedSessionPreparationResult,
+  ManagedSessionProviderImage,
   ManagedSessionProviderSelection,
+  ManagedSessionQueuedInput,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
@@ -82,6 +86,7 @@ export interface ManagedSessionPersistenceStore {
 }
 
 export interface ManagedSessionPreparationInput {
+  attachments?: readonly ManagedSessionAttachment[]
   config: ManagedSessionConfig
   history: ManagedSessionHistoryItem[]
   reportUsage: (report: Omit<ManagedUsageReport, 'runtimeGeneration'>) => void
@@ -91,6 +96,12 @@ export interface ManagedSessionPreparationInput {
 }
 
 interface ManagedSessionManagerOptions {
+  afterTurn?: (checkpointId: string) => Promise<void>
+  beforeInput?: (input: {
+    config: ManagedSessionConfig
+    snapshot: ManagedSessionSnapshot
+    text: string
+  }) => Promise<{ checkpointId: string } | undefined>
   createBackend?: (
     config: ManagedSessionConfig,
     emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
@@ -98,7 +109,7 @@ interface ManagedSessionManagerOptions {
   getNow?: () => string
   prepareInput?: (
     input: ManagedSessionPreparationInput,
-  ) => Promise<{ text: string }>
+  ) => Promise<{ images?: ManagedSessionProviderImage[]; text: string }>
   onRuntimeEvent: (
     meta: {
       mode: ManagedProviderRuntimeProvider
@@ -114,6 +125,8 @@ interface ManagedSessionManagerOptions {
 }
 
 interface ManagedSessionMutableState {
+  cancelledQueuedInputIds: Set<string>
+  checkpointCompletion: Promise<void> | null
   agentRuns: Map<string, AbortController>
   activeTurnId: string | null
   backend: ManagedSessionBackend
@@ -127,6 +140,12 @@ interface ManagedSessionMutableState {
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
   pendingUserPromptText: string | null
   pendingUserPromptItemId: string | null
+  pendingCheckpointId: string | null
+  queueDraining: boolean
+  queuePaused: boolean
+  queuedInputInProgressId: string | null
+  queuedInputCommittedId: string | null
+  queuedInputs: ManagedSessionQueuedInput[]
   persistenceTimer: ReturnType<typeof setTimeout> | null
   preparationAbortController: AbortController | null
   projector: ManagedTerminalProviderProjector
@@ -143,7 +162,14 @@ interface ManagedSessionMutableState {
 interface ManagedSessionBackend {
   close(): Promise<void>
   interrupt(): Promise<void>
-  sendInput(text: string): Promise<void>
+  sendInput(
+    text: string,
+    images?: readonly ManagedSessionProviderImage[],
+  ): Promise<void>
+  steerInput?(
+    text: string,
+    images?: readonly ManagedSessionProviderImage[],
+  ): Promise<void>
   resolveRequest(
     requestId: string,
     decision: ManagedSessionDecision,
@@ -231,6 +257,8 @@ function buildEmptySnapshot(
     pendingUserInputs: [],
     planApproval: null,
     provider: config.mode,
+    queuePaused: false,
+    queuedInputs: [],
     revision: 0,
     running: true,
     runtimeGeneration: 1,
@@ -365,6 +393,36 @@ function normalizeClaudeQuestions(
       },
     ]
   })
+}
+
+export function buildClaudeUserContent(
+  text: string,
+  images: readonly ManagedSessionProviderImage[],
+): SDKUserMessage['message']['content'] {
+  return [
+    { text, type: 'text' },
+    ...images.map((image) => ({
+      source: {
+        data: image.data,
+        media_type: image.mimeType,
+        type: 'base64' as const,
+      },
+      type: 'image' as const,
+    })),
+  ]
+}
+
+export function buildCodexTurnInput(
+  text: string,
+  images: readonly ManagedSessionProviderImage[],
+) {
+  return [
+    { text, type: 'text' as const },
+    ...images.map((image) => ({
+      type: 'image' as const,
+      url: `data:${image.mimeType};base64,${image.data}`,
+    })),
+  ]
 }
 
 class ClaudeManagedSessionBackend implements ManagedSessionBackend {
@@ -554,7 +612,10 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     void this.consumeQuery()
   }
 
-  public async sendInput(text: string): Promise<void> {
+  public async sendInput(
+    text: string,
+    images: readonly ManagedSessionProviderImage[] = [],
+  ): Promise<void> {
     this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
 
@@ -578,13 +639,19 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
 
     this.promptQueue.enqueue({
       message: {
-        content: [{ text: trimmed, type: 'text' }],
+        content: buildClaudeUserContent(trimmed, images),
         role: 'user',
       },
       parent_tool_use_id: null,
       session_id: '',
       type: 'user',
     })
+  }
+
+  public async steerInput(): Promise<void> {
+    throw new Error(
+      'Claude does not support safe mid-turn steering. Keep this message queued.',
+    )
   }
 
   public async resolveRequest(
@@ -1060,7 +1127,10 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     })
   }
 
-  public async sendInput(text: string): Promise<void> {
+  public async sendInput(
+    text: string,
+    images: readonly ManagedSessionProviderImage[] = [],
+  ): Promise<void> {
     this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
 
@@ -1069,12 +1139,21 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     }
 
     await this.sendRequest('turn/start', {
-      input: [
-        {
-          text: trimmed,
-          type: 'text',
-        },
-      ],
+      input: buildCodexTurnInput(trimmed, images),
+      threadId: this.providerThreadId,
+    })
+  }
+
+  public async steerInput(
+    text: string,
+    images: readonly ManagedSessionProviderImage[] = [],
+  ): Promise<void> {
+    if (!this.providerThreadId || !this.activeTurnId) {
+      throw new Error('Codex has no active turn to steer.')
+    }
+    await this.sendRequest('turn/steer', {
+      expectedTurnId: this.activeTurnId,
+      input: buildCodexTurnInput(text.trim(), images),
       threadId: this.providerThreadId,
     })
   }
@@ -1846,6 +1925,61 @@ export class ManagedSessionManager {
     return this.sessions.size
   }
 
+  public isSessionBusy(sessionId: string): boolean {
+    const state = this.sessions.get(sessionId)
+    return Boolean(
+      state &&
+        (this.isInputBusy(state) ||
+          state.queueDraining ||
+          state.switchInProgress ||
+          state.closing ||
+          ['connecting', 'running', 'waiting'].includes(
+            state.snapshot.sessionState,
+          )),
+    )
+  }
+
+  public registerRestoredSession(
+    config: ManagedSessionConfig,
+    snapshot: ManagedSessionSnapshot,
+  ): ManagedSessionSnapshot {
+    if (
+      this.sessions.has(config.sessionId) ||
+      this.persistedSessions.has(config.sessionId)
+    ) {
+      throw new Error('Restored session id must be new.')
+    }
+    if (
+      snapshot.sessionId !== config.sessionId ||
+      snapshot.workspaceId !== config.workspaceId ||
+      snapshot.paneId !== config.paneId ||
+      snapshot.provider !== config.mode
+    ) {
+      throw new Error('Restored session identity does not match its config.')
+    }
+    const updatedAt = this.getNow()
+    const restoredSnapshot = structuredClone({
+      ...snapshot,
+      detail:
+        'Restored from a turn checkpoint. Review the draft before sending.',
+      pendingApprovals: [],
+      pendingUserInputs: [],
+      planApproval: null,
+      queuePaused: (snapshot.queuedInputs?.length ?? 0) > 0,
+      revision: snapshot.revision + 1,
+      running: false,
+      sessionState: 'stopped' as const,
+      updatedAt,
+    })
+    const persisted = {
+      config: structuredClone(config),
+      snapshot: restoredSnapshot,
+    }
+    const saved = this.options.store?.saveManagedSession(persisted) ?? persisted
+    this.persistedSessions.set(config.sessionId, structuredClone(saved))
+    return structuredClone(saved.snapshot)
+  }
+
   /** Blocks new providers while an explicit update restart is being prepared. */
   public beginQuiescing(): () => void {
     this.quiescing = true
@@ -1888,6 +2022,8 @@ export class ManagedSessionManager {
       activeTurnId: null,
       agentRuns: new Map(),
       backend: null as never,
+      cancelledQueuedInputIds: new Set(),
+      checkpointCompletion: null,
       closed: false,
       closing: false,
       config: sessionConfig,
@@ -1904,15 +2040,30 @@ export class ManagedSessionManager {
       ),
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
+      pendingCheckpointId: null,
       pendingUserPromptText: null,
       pendingUserPromptItemId: null,
+      queueDraining: false,
+      queuePaused: (persisted?.snapshot.queuedInputs?.length ?? 0) > 0,
+      queuedInputInProgressId: null,
+      queuedInputCommittedId: null,
+      queuedInputs: (persisted?.snapshot.queuedInputs ?? []).map((input) => ({
+        ...input,
+        attachments: input.attachments.map((attachment) => ({ ...attachment })),
+        recipients: [...input.recipients],
+      })),
       persistenceTimer: null,
       preparationAbortController: null,
       projector: new ManagedTerminalProviderProjector(sessionConfig.mode),
       revision: persisted?.snapshot.revision ?? 0,
       runtimeGeneration: (persisted?.snapshot.runtimeGeneration ?? 0) + 1,
-      snapshot:
-        persisted?.snapshot ?? buildEmptySnapshot(sessionConfig, updatedAt),
+      snapshot: persisted
+        ? {
+            ...persisted.snapshot,
+            queuePaused: (persisted.snapshot.queuedInputs ?? []).length > 0,
+            queuedInputs: persisted.snapshot.queuedInputs ?? [],
+          }
+        : buildEmptySnapshot(sessionConfig, updatedAt),
       switchInProgress: false,
       turns: new Map(
         (persisted?.snapshot.turns ?? []).map((turn) => [turn.id, { ...turn }]),
@@ -2041,6 +2192,11 @@ export class ManagedSessionManager {
     }
     for (const controller of state?.agentRuns.values() ?? []) controller.abort()
     state?.preparationAbortController?.abort()
+    if (state && state.queuedInputs.length > 0) {
+      state.queuePaused = true
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+    }
     await state?.backend.interrupt()
   }
 
@@ -2090,6 +2246,7 @@ export class ManagedSessionManager {
     sessionId: string,
     text: string,
     recipients: readonly string[] = [],
+    attachments: readonly ManagedSessionAttachment[] = [],
   ): Promise<void> {
     const state = this.sessions.get(sessionId)
 
@@ -2097,136 +2254,419 @@ export class ManagedSessionManager {
       return
     }
 
+    if (this.quiescing || state.closing || state.switchInProgress) {
+      throw new Error('Managed sessions are unavailable while Aide restarts.')
+    }
+
+    this.resolveRecipientAgents(state, recipients)
+    state.queuedInputs.push({
+      attachments: attachments.map((attachment) => ({ ...attachment })),
+      createdAt: this.getNow(),
+      id: randomUUID(),
+      recipients: recipients.map((alias) => alias.toLowerCase()),
+      text,
+    })
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    await this.drainQueuedInputs(state)
+  }
+
+  public cancelQueuedInput(sessionId: string, queuedInputId: string): void {
+    const state = this.sessions.get(sessionId)
+    if (!state) return
+    const index = state.queuedInputs.findIndex(
+      (input) => input.id === queuedInputId,
+    )
+    if (index < 0) return
+    if (state.queuedInputCommittedId === queuedInputId) {
+      throw new Error('Queued message is already being sent.')
+    }
+    if (state.queuedInputInProgressId === queuedInputId) {
+      state.cancelledQueuedInputIds.add(queuedInputId)
+      state.preparationAbortController?.abort()
+      for (const controller of state.agentRuns.values()) controller.abort()
+    }
+    state.queuedInputs.splice(index, 1)
+    if (state.queuedInputs.length === 0) state.queuePaused = false
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+  }
+
+  public async resumeQueue(sessionId: string): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state) return
+    state.queuePaused = false
+    for (const input of state.queuedInputs) delete input.lastError
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    await this.drainQueuedInputs(state)
+  }
+
+  public async sendQueuedInputNow(
+    sessionId: string,
+    queuedInputId: string,
+  ): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    const queuedInput = state?.queuedInputs.find(
+      (input) => input.id === queuedInputId,
+    )
+    if (!state || !queuedInput) return
     if (
-      this.quiescing ||
-      state.closing ||
-      state.switchInProgress ||
-      state.activeTurnId ||
+      state.config.mode !== 'codex' ||
+      !state.activeTurnId ||
       state.pendingApprovals.size > 0 ||
       state.pendingUserInputs.size > 0 ||
       state.preparationAbortController ||
-      state.pendingUserPromptItemId ||
-      state.agentRuns.size > 0
+      state.agentRuns.size > 0 ||
+      !state.backend.steerInput
     ) {
       throw new Error(
-        'A managed session turn is already being prepared or dispatched.',
+        'Send now requires an active Codex turn without a pending approval or input request.',
       )
     }
-
-    let agents: readonly ManagedSessionAgentConfig[] = []
-    if (recipients.length > 0) {
-      if (
-        recipients.length > 2 ||
-        new Set(recipients.map((alias) => alias.toLowerCase())).size !==
-          recipients.length
-      ) {
-        throw new Error('Choose at most two distinct agents.')
-      }
-      if (
-        recipients.length > 1 &&
-        (state.config.interactionMode ?? 'build') === 'build'
-      ) {
-        throw new Error(
-          'Choose one agent in Build mode or switch to Plan to compare.',
-        )
-      }
-      agents = recipients.map((alias) => {
-        const agent = state.config.agents?.find(
-          (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),
-        )
-        if (!agent) throw new Error(`Unknown agent @${alias}.`)
-        return agent
-      })
+    if (queuedInput.recipients.length > 0) {
+      throw new Error(
+        'Agent-recipient messages cannot steer an orchestrator turn.',
+      )
+    }
+    if (state.queuedInputInProgressId) {
+      throw new Error('Another queued message is being prepared.')
     }
 
+    const preparationAbortController = new AbortController()
+    state.queuedInputInProgressId = queuedInput.id
+    state.preparationAbortController = preparationAbortController
+    try {
+      if (!queuedInput.checkpointId) {
+        const checkpoint = await this.options.beforeInput?.({
+          config: state.config,
+          snapshot: state.snapshot,
+          text: queuedInput.text,
+        })
+        queuedInput.checkpointId = checkpoint?.checkpointId
+      }
+      const prepared = await this.prepareQueuedInput(
+        state,
+        queuedInput,
+        preparationAbortController.signal,
+      )
+      if (
+        preparationAbortController.signal.aborted ||
+        state.cancelledQueuedInputIds.has(queuedInput.id)
+      ) {
+        throw new Error('Queued message was cancelled.')
+      }
+      state.queuedInputCommittedId = queuedInput.id
+      const promptItemId = `user-prompt:${randomUUID()}`
+      const promptKey = createContentKey('user-prompt', promptItemId)
+      state.contentByKey.set(promptKey, {
+        id: promptItemId,
+        kind: 'user-prompt',
+        provider: null,
+        text: queuedInput.text,
+        turnId: state.activeTurnId,
+        updatedAt: this.getNow(),
+      })
+      state.orderedContentKeys.push(promptKey)
+      this.consumeQueuedInput(state, queuedInput.id)
+      try {
+        await state.backend.steerInput(prepared.text, prepared.images)
+      } catch (error) {
+        this.recordAmbiguousDispatch(state, queuedInput.text)
+        throw error
+      }
+    } finally {
+      if (state.preparationAbortController === preparationAbortController) {
+        state.preparationAbortController = null
+      }
+      state.queuedInputInProgressId = null
+      state.queuedInputCommittedId = null
+      state.cancelledQueuedInputIds.delete(queuedInput.id)
+    }
+  }
+
+  private resolveRecipientAgents(
+    state: ManagedSessionMutableState,
+    recipients: readonly string[],
+  ): readonly ManagedSessionAgentConfig[] {
+    if (
+      recipients.length > 2 ||
+      new Set(recipients.map((alias) => alias.toLowerCase())).size !==
+        recipients.length
+    ) {
+      throw new Error('Choose at most two distinct agents.')
+    }
+    if (
+      recipients.length > 1 &&
+      (state.config.interactionMode ?? 'build') === 'build'
+    ) {
+      throw new Error(
+        'Choose one agent in Build mode or switch to Plan to compare.',
+      )
+    }
+    return recipients.map((alias) => {
+      const agent = state.config.agents?.find(
+        (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),
+      )
+      if (!agent) throw new Error(`Unknown agent @${alias}.`)
+      return agent
+    })
+  }
+
+  private isInputBusy(state: ManagedSessionMutableState): boolean {
+    return Boolean(
+      state.activeTurnId ||
+        state.pendingApprovals.size > 0 ||
+        state.pendingUserInputs.size > 0 ||
+        state.checkpointCompletion ||
+        state.preparationAbortController ||
+        state.pendingUserPromptItemId ||
+        state.agentRuns.size > 0,
+    )
+  }
+
+  private async drainQueuedInputs(
+    state: ManagedSessionMutableState,
+  ): Promise<void> {
+    if (
+      state.queueDraining ||
+      state.queuePaused ||
+      state.closed ||
+      state.closing ||
+      this.quiescing
+    ) {
+      return
+    }
+
+    state.queueDraining = true
+    try {
+      while (state.queuedInputs.length > 0 && !this.isInputBusy(state)) {
+        const queuedInput = state.queuedInputs[0]
+        if (!queuedInput) return
+        state.queuedInputInProgressId = queuedInput.id
+        try {
+          await this.dispatchQueuedInput(state, queuedInput)
+          if (state.queuedInputs.some((input) => input.id === queuedInput.id)) {
+            this.consumeQueuedInput(state, queuedInput.id)
+          }
+        } catch (error) {
+          if (state.cancelledQueuedInputIds.delete(queuedInput.id)) {
+            continue
+          }
+          if (state.queuedInputCommittedId === queuedInput.id) {
+            this.recordAmbiguousDispatch(state, queuedInput.text)
+            return
+          }
+          queuedInput.lastError =
+            error instanceof Error
+              ? error.message
+              : 'Queued message failed to send.'
+          state.queuePaused = true
+          this.publishSnapshot(state, this.getNow())
+          this.persistSession(state)
+          return
+        } finally {
+          state.queuedInputInProgressId = null
+          state.queuedInputCommittedId = null
+        }
+      }
+    } finally {
+      state.queueDraining = false
+    }
+  }
+
+  private async dispatchQueuedInput(
+    state: ManagedSessionMutableState,
+    queuedInput: ManagedSessionQueuedInput,
+  ): Promise<void> {
+    if (!queuedInput.checkpointId) {
+      const checkpoint = await this.options.beforeInput?.({
+        config: state.config,
+        snapshot: state.snapshot,
+        text: queuedInput.text,
+      })
+      queuedInput.checkpointId = checkpoint?.checkpointId
+    }
+
+    const agents = this.resolveRecipientAgents(state, queuedInput.recipients)
     const promptItemId = `user-prompt:${randomUUID()}`
     const promptKey = createContentKey('user-prompt', promptItemId)
     state.contentByKey.set(promptKey, {
       id: promptItemId,
       kind: 'user-prompt',
       provider: null,
-      text,
+      text: queuedInput.text,
       turnId: null,
       updatedAt: this.getNow(),
     })
     state.orderedContentKeys.push(promptKey)
-    if (agents.length > 0) {
-      this.publishSnapshot(state, this.getNow())
-      this.persistSession(state)
-      const history = this.getSafeHistory(state, promptItemId)
-      await Promise.allSettled(
-        agents.map((agent) =>
-          this.runOpinion(state, agent, text, history, 'user'),
-        ),
-      )
-      return
-    }
-    state.pendingUserPromptText = text
-    state.pendingUserPromptItemId = promptItemId
     this.publishSnapshot(state, this.getNow())
     this.persistSession(state)
 
-    const preparationAbortController = new AbortController()
-    state.preparationAbortController = preparationAbortController
     try {
-      const history = this.getSafeHistory(state, promptItemId)
-      const prepared = this.options.prepareInput
-        ? await this.options.prepareInput({
-            config: state.config,
-            history,
-            reportUsage: (report) => {
-              if (state.closed || this.sessions.get(sessionId) !== state) {
-                return
-              }
-              const persistedReport = {
-                ...report,
-                runtimeGeneration: state.runtimeGeneration,
-              }
-              state.usageReports.set(
-                JSON.stringify([
-                  persistedReport.provider,
-                  persistedReport.runtimeGeneration,
-                  persistedReport.scopeId,
-                  persistedReport.id,
-                ]),
-                persistedReport,
-              )
-              this.publishSnapshot(state, this.getNow())
-              this.persistSession(state)
-            },
-            shouldDeliverHistory:
-              state.historyDeliveredRuntimeGeneration !==
-              state.runtimeGeneration,
-            signal: preparationAbortController.signal,
-            text,
-          })
-        : {
-            text: this.formatInputWithHistory(
-              text,
+      if (agents.length > 0) {
+        const history = this.getSafeHistory(state, promptItemId)
+        if (state.cancelledQueuedInputIds.has(queuedInput.id)) {
+          throw new Error('Queued message was cancelled.')
+        }
+        state.queuedInputCommittedId = queuedInput.id
+        this.consumeQueuedInput(state, queuedInput.id)
+        const results = await Promise.allSettled(
+          agents.map((agent) =>
+            this.runOpinion(
+              state,
+              agent,
+              queuedInput.text,
               history,
-              state.historyDeliveredRuntimeGeneration !==
-                state.runtimeGeneration,
+              'user',
+              undefined,
+              queuedInput.attachments,
+              queuedInput.checkpointId,
             ),
-          }
-      if (preparationAbortController.signal.aborted) {
-        throw new Error('Managed session preparation was interrupted.')
+          ),
+        )
+        const failure = results.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === 'rejected',
+        )
+        if (failure) throw failure.reason
+        if (queuedInput.checkpointId) {
+          await this.options.afterTurn?.(queuedInput.checkpointId)
+        }
+        return
       }
-      const agents = state.config.agents ?? []
-      const agentDirectory = agents.length
-        ? `\n\nConfigured read-only agents for ask_agent: ${agents.map((agent) => `@${agent.alias} (${agent.selection.mode}/${agent.selection.model ?? 'default'})`).join(', ')}.`
-        : ''
-      await state.backend.sendInput(prepared.text + agentDirectory)
-      state.historyDeliveredRuntimeGeneration = state.runtimeGeneration
+
+      state.pendingUserPromptText = queuedInput.text
+      state.pendingUserPromptItemId = promptItemId
+      state.pendingCheckpointId = queuedInput.checkpointId ?? null
+      const preparationAbortController = new AbortController()
+      state.preparationAbortController = preparationAbortController
+      try {
+        const prepared = await this.prepareQueuedInput(
+          state,
+          queuedInput,
+          preparationAbortController.signal,
+          promptItemId,
+        )
+        if (
+          preparationAbortController.signal.aborted ||
+          state.cancelledQueuedInputIds.has(queuedInput.id)
+        ) {
+          throw new Error('Managed session preparation was interrupted.')
+        }
+        const agents = state.config.agents ?? []
+        const agentDirectory = agents.length
+          ? `\n\nConfigured read-only agents for ask_agent: ${agents.map((agent) => `@${agent.alias} (${agent.selection.mode}/${agent.selection.model ?? 'default'})`).join(', ')}.`
+          : ''
+        state.queuedInputCommittedId = queuedInput.id
+        this.consumeQueuedInput(state, queuedInput.id)
+        await state.backend.sendInput(
+          prepared.text + agentDirectory,
+          prepared.images,
+        )
+        state.historyDeliveredRuntimeGeneration = state.runtimeGeneration
+      } finally {
+        if (state.preparationAbortController === preparationAbortController) {
+          state.preparationAbortController = null
+        }
+      }
     } catch (error) {
-      state.pendingUserPromptItemId = null
-      state.pendingUserPromptText = null
-      this.publishSnapshot(state, this.getNow())
-      this.persistSession(state)
-      throw error
-    } finally {
-      if (state.preparationAbortController === preparationAbortController) {
-        state.preparationAbortController = null
+      if (state.pendingUserPromptItemId === promptItemId) {
+        state.pendingCheckpointId = null
+        state.pendingUserPromptItemId = null
+        state.pendingUserPromptText = null
       }
+      if (state.queuedInputCommittedId !== queuedInput.id) {
+        state.contentByKey.delete(promptKey)
+        state.orderedContentKeys = state.orderedContentKeys.filter(
+          (key) => key !== promptKey,
+        )
+      }
+      throw error
+    }
+  }
+
+  private consumeQueuedInput(
+    state: ManagedSessionMutableState,
+    queuedInputId: string,
+  ): void {
+    state.queuedInputs = state.queuedInputs.filter(
+      (input) => input.id !== queuedInputId,
+    )
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+  }
+
+  private recordAmbiguousDispatch(
+    state: ManagedSessionMutableState,
+    text: string,
+  ): void {
+    const updatedAt = this.getNow()
+    const itemId = `ambiguous-dispatch:${randomUUID()}`
+    const key = createContentKey('system', itemId)
+    state.contentByKey.set(key, {
+      id: itemId,
+      kind: 'system',
+      provider: null,
+      text: `Aide could not confirm whether the provider accepted “${text.slice(0, 120)}”. It will not resend this message automatically.`,
+      turnId: null,
+      updatedAt,
+    })
+    state.orderedContentKeys.push(key)
+    state.queuePaused = state.queuedInputs.length > 0
+    this.publishSnapshot(state, updatedAt)
+    this.persistSession(state)
+  }
+
+  private async prepareQueuedInput(
+    state: ManagedSessionMutableState,
+    queuedInput: ManagedSessionQueuedInput,
+    signal: AbortSignal,
+    excludedPromptItemId = '',
+  ): Promise<ManagedSessionPreparationResult> {
+    const history = this.getSafeHistory(state, excludedPromptItemId)
+    if (this.options.prepareInput) {
+      const prepared = await this.options.prepareInput({
+        attachments: queuedInput.attachments,
+        config: state.config,
+        history,
+        reportUsage: (report) => {
+          if (
+            state.closed ||
+            this.sessions.get(state.config.sessionId) !== state
+          ) {
+            return
+          }
+          const persistedReport = {
+            ...report,
+            runtimeGeneration: state.runtimeGeneration,
+          }
+          state.usageReports.set(
+            JSON.stringify([
+              persistedReport.provider,
+              persistedReport.runtimeGeneration,
+              persistedReport.scopeId,
+              persistedReport.id,
+            ]),
+            persistedReport,
+          )
+          this.publishSnapshot(state, this.getNow())
+          this.persistSession(state)
+        },
+        shouldDeliverHistory:
+          state.historyDeliveredRuntimeGeneration !== state.runtimeGeneration,
+        signal,
+        text: queuedInput.text,
+      })
+      return { images: prepared.images ?? [], text: prepared.text }
+    }
+    return {
+      images: [],
+      text: this.formatInputWithHistory(
+        queuedInput.text,
+        history,
+        state.historyDeliveredRuntimeGeneration !== state.runtimeGeneration,
+      ),
     }
   }
 
@@ -2265,6 +2705,8 @@ export class ManagedSessionManager {
     history: ManagedSessionHistoryItem[],
     source: 'user' | 'orchestrator',
     parentSignal?: AbortSignal,
+    attachments: readonly ManagedSessionAttachment[] = [],
+    checkpointId?: string,
   ): Promise<string> {
     if (state.closing || state.agentRuns.has(agent.alias.toLowerCase()))
       throw new Error('Agent is already running.')
@@ -2328,6 +2770,7 @@ export class ManagedSessionManager {
         if (childTurn)
           state.turns.set(turnId, {
             ...childTurn,
+            ...(checkpointId ? { checkpointId } : {}),
             id: turnId,
             recipientAlias: agent.alias,
             ...(source === 'user' ? { requestText: text } : {}),
@@ -2351,6 +2794,7 @@ export class ManagedSessionManager {
     })
     state.agentRuns.set(agent.alias.toLowerCase(), controller)
     state.turns.set(turnId, {
+      ...(checkpointId ? { checkpointId } : {}),
       id: turnId,
       provider: agent.selection.mode,
       startedAt,
@@ -2388,7 +2832,10 @@ export class ManagedSessionManager {
         completion,
       ])
       if (signal.aborted) throw new Error('Agent response cancelled.')
-      await Promise.race([child.sendInput(turnId, text), completion])
+      await Promise.race([
+        child.sendInput(turnId, text, [], attachments),
+        completion,
+      ])
       await completion
       return `@${agent.alias} (${latest?.model ?? agent.selection.model ?? agent.selection.mode}):\n${
         latest?.content
@@ -2398,6 +2845,7 @@ export class ManagedSessionManager {
       }`
     } catch (error) {
       state.turns.set(turnId, {
+        ...(checkpointId ? { checkpointId } : {}),
         id: turnId,
         provider: agent.selection.mode,
         startedAt,
@@ -2787,6 +3235,7 @@ export class ManagedSessionManager {
               if (!state || !this.options.prepareInput)
                 throw new Error('Context preparation is unavailable.')
               const prepared = await this.options.prepareInput({
+                attachments: [],
                 config: state.config,
                 text,
                 signal,
@@ -2875,6 +3324,7 @@ export class ManagedSessionManager {
     state.activeTurnId = null
     state.pendingApprovals.clear()
     state.pendingUserInputs.clear()
+    state.pendingCheckpointId = null
     state.pendingUserPromptText = null
   }
 
@@ -2896,14 +3346,24 @@ export class ManagedSessionManager {
               event.state === 'stopped')
           ? 'interrupted'
           : null
+    const terminalCheckpointId =
+      event.type === 'turn.completed'
+        ? state.turns.get(event.turnId)?.checkpointId
+        : terminalTurnState && state.activeTurnId
+          ? state.turns.get(state.activeTurnId)?.checkpointId
+          : undefined
 
     if (terminalTurnState) {
       this.terminalizeRuntimeState(state, event.createdAt, terminalTurnState)
+      if (state.queuedInputs.length > 0) state.queuePaused = true
     }
 
     if (event.type === 'turn.started') {
       state.activeTurnId = event.turnId
       state.turns.set(event.turnId, {
+        ...(state.pendingCheckpointId
+          ? { checkpointId: state.pendingCheckpointId }
+          : {}),
         completedAt: null,
         id: event.turnId,
         provider: state.config.mode,
@@ -2935,6 +3395,7 @@ export class ManagedSessionManager {
         }
         state.pendingUserPromptText = null
         state.pendingUserPromptItemId = null
+        state.pendingCheckpointId = null
       }
     }
 
@@ -2947,6 +3408,9 @@ export class ManagedSessionManager {
       }
 
       state.activeTurnId = null
+      if (event.state !== 'completed' && state.queuedInputs.length > 0) {
+        state.queuePaused = true
+      }
     }
 
     if (event.type === 'content.delta') {
@@ -3051,6 +3515,42 @@ export class ManagedSessionManager {
     } else {
       this.schedulePersistence(state)
     }
+    if (terminalCheckpointId && this.options.afterTurn) {
+      const shouldContinueQueue =
+        event.type === 'turn.completed' && event.state === 'completed'
+      const checkpointCompletion = this.completeCheckpoint(
+        state,
+        terminalCheckpointId,
+        shouldContinueQueue,
+      )
+      state.checkpointCompletion = checkpointCompletion
+      void checkpointCompletion
+    } else if (event.type === 'turn.completed' && event.state === 'completed') {
+      void this.drainQueuedInputs(state)
+    }
+  }
+
+  private async completeCheckpoint(
+    state: ManagedSessionMutableState,
+    checkpointId: string,
+    shouldContinueQueue: boolean,
+  ): Promise<void> {
+    try {
+      await this.options.afterTurn?.(checkpointId)
+    } catch (error) {
+      const queuedInput = state.queuedInputs[0]
+      if (queuedInput) {
+        queuedInput.lastError = `Checkpoint completion failed: ${error instanceof Error ? error.message : 'unknown error'}`
+        state.queuePaused = true
+      }
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+      return
+    } finally {
+      state.checkpointCompletion = null
+    }
+
+    if (shouldContinueQueue) await this.drainQueuedInputs(state)
   }
 
   private getSafeHistory(
@@ -3140,6 +3640,12 @@ export class ManagedSessionManager {
           } satisfies ManagedSessionPlanApproval)
         : null,
       provider: state.config.mode,
+      queuePaused: state.queuePaused,
+      queuedInputs: state.queuedInputs.map((input) => ({
+        ...input,
+        attachments: input.attachments.map((attachment) => ({ ...attachment })),
+        recipients: [...input.recipients],
+      })),
       running:
         runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
       sessionId: state.config.sessionId,

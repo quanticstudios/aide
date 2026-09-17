@@ -397,6 +397,34 @@ const persistedUsageModel = z.object({
   model: z.string().max(200).nullable(),
   outputTokens: z.number().finite().nonnegative(),
 })
+const persistedManagedAttachment = z.discriminatedUnion('kind', [
+  z.object({
+    data: z.string().max(7_000_000),
+    id: persistedIdentifier,
+    kind: z.literal('image'),
+    mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+    name: z.string().min(1).max(255),
+    sizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(5 * 1024 * 1024),
+  }),
+  z.object({
+    id: persistedIdentifier,
+    kind: z.literal('workspace-file'),
+    path: z.string().min(1).max(4_096),
+  }),
+])
+const persistedQueuedInput = z.object({
+  attachments: z.array(persistedManagedAttachment).max(8),
+  checkpointId: persistedIdentifier.optional(),
+  createdAt: persistedTimestamp,
+  id: persistedIdentifier,
+  lastError: z.string().max(2_000).optional(),
+  recipients: z.array(z.string().min(1).max(64)).max(2),
+  text: z.string().min(1).max(65_536),
+})
 const persistedManagedSessionSchema = z
   .object({
     config: z.object({
@@ -489,6 +517,8 @@ const persistedManagedSessionSchema = z
         })
         .nullable(),
       provider: persistedProvider,
+      queuePaused: z.boolean().optional(),
+      queuedInputs: z.array(persistedQueuedInput).optional(),
       revision: z.number().finite().int().nonnegative(),
       running: z.boolean(),
       runtimeGeneration: z.number().finite().int().positive(),
@@ -505,6 +535,7 @@ const persistedManagedSessionSchema = z
       ]),
       turns: z.array(
         z.object({
+          checkpointId: persistedIdentifier.optional(),
           completedAt: persistedTimestamp.nullable(),
           id: persistedIdentifier,
           provider: persistedProvider,
