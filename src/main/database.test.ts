@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite'
 
 import { describe, expect, it } from 'vitest'
 
+import type { PersistedManagedSession } from '../shared/managed-session'
 import { createAideDatabase } from './database'
 
 describe('createAideDatabase', () => {
@@ -20,12 +21,114 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 8,
+      schemaVersion: 9,
       workspaceLayouts: {},
       workspaces: [],
     })
 
     database.close()
+  })
+
+  it('reopens managed conversations from disk', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-session-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'main',
+        name: 'Main',
+        projectId: project.id,
+        windowId: null,
+        worktreePath: '/workspace/aide',
+      })
+      const persisted: PersistedManagedSession = {
+        config: {
+          cwd: '/workspace/aide',
+          mode: 'claude',
+          paneId: 'pane-1',
+          sessionId: 'session-1',
+          workspaceId: workspace.id,
+        },
+        snapshot: {
+          content: [],
+          detail: null,
+          effort: null,
+          interactionMode: 'build',
+          lastCompletedAt: null,
+          lastError: null,
+          lastErrorAt: null,
+          model: null,
+          paneId: 'pane-1',
+          pendingApprovals: [],
+          pendingUserInputs: [],
+          planApproval: null,
+          provider: 'claude',
+          revision: 1,
+          running: true,
+          runtimeGeneration: 1,
+          selectionNotice: null,
+          serviceTier: null,
+          sessionId: 'session-1',
+          sessionState: 'running',
+          turns: [
+            {
+              completedAt: null,
+              id: 'turn-1',
+              provider: 'claude',
+              startedAt: '2026-04-11T10:00:00.000Z',
+              state: 'running',
+            },
+          ],
+          updatedAt: '2026-04-11T10:00:00.000Z',
+          usage: { inputTokens: 3, outputTokens: 2 },
+          usageReports: [
+            {
+              createdAt: '2026-04-11T10:00:00.000Z',
+              estimatedCostUsd: 0.01,
+              id: 'usage-1',
+              models: [
+                {
+                  cachedInputTokens: null,
+                  cacheCreationInputTokens: null,
+                  estimatedCostUsd: 0.01,
+                  inputTokens: 3,
+                  model: 'claude-test',
+                  outputTokens: 2,
+                },
+              ],
+              provider: 'claude',
+              runtimeGeneration: 1,
+              scopeId: 'scope-1',
+              turnId: 'turn-1',
+            },
+          ],
+          workspaceId: workspace.id,
+        },
+      }
+      database.saveManagedSession(persisted)
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.listManagedSessions()).toEqual([persisted])
+      expect(
+        reopened.reconcileInterruptedManagedSessions(
+          '2026-04-11T11:00:00.000Z',
+        )[0]?.snapshot.turns[0],
+      ).toMatchObject({
+        completedAt: '2026-04-11T11:00:00.000Z',
+        state: 'interrupted',
+      })
+      reopened.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
   })
 
   it('stores and reloads projects plus workspaces', () => {

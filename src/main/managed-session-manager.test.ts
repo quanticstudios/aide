@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { ManagedSessionEvent } from '../shared/managed-session'
+import type {
+  ManagedSessionEvent,
+  PersistedManagedSession,
+} from '../shared/managed-session'
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
-import { ManagedSessionManager } from './managed-session-manager'
+import {
+  ManagedSessionManager,
+  type ManagedSessionPersistenceStore,
+} from './managed-session-manager'
 
 interface Deferred {
   promise: Promise<void>
@@ -29,6 +35,28 @@ function createConfig(mode: 'claude' | 'codex' = 'claude') {
     sessionId: `workspace-1:${mode}-session`,
     workspaceId: 'workspace-1',
   } as const
+}
+
+function createMemoryStore(): ManagedSessionPersistenceStore {
+  const persisted = new Map<string, PersistedManagedSession>()
+  return {
+    listManagedSessions: () => [...persisted.values()],
+    reconcileInterruptedManagedSessions: (now) =>
+      [...persisted.values()].map((entry) => {
+        const turns = entry.snapshot.turns.map((turn) =>
+          turn.state === 'running'
+            ? { ...turn, completedAt: now, state: 'interrupted' as const }
+            : turn,
+        )
+        const next = { ...entry, snapshot: { ...entry.snapshot, turns } }
+        persisted.set(entry.config.sessionId, next)
+        return next
+      }),
+    saveManagedSession: (entry) => {
+      persisted.set(entry.config.sessionId, structuredClone(entry))
+      return entry
+    },
+  }
 }
 
 describe('ManagedSessionManager', () => {
@@ -628,5 +656,95 @@ describe('ManagedSessionManager', () => {
       completedAt: '2026-04-11T10:00:00.000Z',
     })
     expect(snapshot.turns[0]?.id).toBeTruthy()
+  })
+
+  it('delivers an attributed visible answer to a provider after a switch', async () => {
+    const receivedByCodex: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          const turnId = `${config.mode}-turn`
+          if (config.mode === 'codex') receivedByCodex.push(text)
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId,
+            type: 'turn.started',
+          })
+          if (config.mode === 'claude') {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              itemId: 'claude-answer',
+              kind: 'assistant-text',
+              provider: 'claude',
+              text: 'The deployment fact is blue.',
+              type: 'content.delta',
+            })
+          }
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'completed',
+            turnId,
+            type: 'turn.completed',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'remember the deployment fact')
+    await manager.switchSessionProvider(config.sessionId, { mode: 'codex' })
+    await manager.sendInput(config.sessionId, 'what is the deployment fact?')
+
+    expect(receivedByCodex).toHaveLength(1)
+    expect(receivedByCodex[0]).toContain('Assistant (claude)')
+    expect(receivedByCodex[0]).toContain('The deployment fact is blue.')
+    expect(receivedByCodex[0]).toContain('what is the deployment fact?')
+  })
+
+  it('restores completed turns and marks running turns interrupted', async () => {
+    const store = createMemoryStore()
+    const config = createConfig('claude')
+    const first = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store,
+    })
+
+    await first.createSession(config)
+    await first.sendInput(config.sessionId, 'persist this answer')
+    await first.closeAll()
+
+    const second = new ManagedSessionManager({
+      getNow: () => '2026-04-11T11:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store,
+    })
+    const snapshot = await second.createSession(config)
+
+    expect(
+      snapshot.content.some((item) => item.text === 'persist this answer'),
+    ).toBe(true)
+    expect(snapshot.turns[0]?.state).toBe('completed')
+    await second.closeAll()
   })
 })
