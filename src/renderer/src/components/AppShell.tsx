@@ -1,14 +1,14 @@
 import type { FocusEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-
-import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type { UpdatePresentation } from '@/lib/update-presentation'
+import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   PersistedSplitLayoutNode,
   ProjectRecord,
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
+import type { SavedTask } from '../../../shared/task-library'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
@@ -41,6 +41,7 @@ interface AppShellProps {
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenDiagnostics: () => void
+  readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly updatePresentation: UpdatePresentation
   readonly workspaceSummaries: Record<string, WorkspaceSummary>
@@ -69,6 +70,7 @@ export default function AppShell({
   onCreateWorkspace,
   onConfigureProjectSetup,
   onOpenDiagnostics,
+  onOpenTask,
   onOpenUpdate,
   updatePresentation,
   workspaceSummaries,
@@ -295,6 +297,7 @@ export default function AppShell({
           onClosePane={onClosePane}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
+          onOpenTask={onOpenTask}
           onOpenUpdate={onOpenUpdate}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}

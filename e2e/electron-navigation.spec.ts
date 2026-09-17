@@ -71,7 +71,7 @@ async function launchAideApp(
   const tempDirectory =
     options.tempDirectory ?? mkdtempSync(path.join(tmpdir(), 'aide-electron-'))
   const app = await electron.launch({
-    args: [workspaceDir],
+    args: [workspaceDir, '--force-device-scale-factor=1'],
     executablePath: path.join(
       workspaceDir,
       'node_modules/electron/dist/electron',

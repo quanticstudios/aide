@@ -46,6 +46,7 @@ import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
+import type { TaskLibrarySnapshot, TaskMetadataUpdate } from './task-library'
 import type {
   TerminalEvent,
   TerminalResizeInput,
@@ -111,6 +112,12 @@ export const IPC_CHANNELS = {
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
+  getTaskLibrary: 'tasks:list',
+  getTaskTranscript: 'tasks:transcript',
+  updateTaskMetadata: 'tasks:update',
+  setTaskNotifications: 'tasks:notifications',
+  taskLibraryChanged: 'tasks:changed',
+  taskOpen: 'tasks:open',
   getProviderCapabilities: 'app:get-provider-capabilities',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
@@ -225,6 +232,17 @@ export interface AideApi {
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
+  getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
+  getTaskTranscript: (
+    sessionId: string,
+  ) => Promise<ManagedSessionSnapshot | null>
+  updateTaskMetadata: (
+    sessionId: string,
+    input: TaskMetadataUpdate,
+  ) => Promise<TaskLibrarySnapshot>
+  setTaskNotifications: (enabled: boolean) => Promise<TaskLibrarySnapshot>
+  onTaskLibraryChanged: (callback: () => void) => () => void
+  onTaskOpen: (callback: (sessionId: string) => void) => () => void
   getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,

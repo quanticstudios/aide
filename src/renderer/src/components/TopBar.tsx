@@ -22,7 +22,9 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
+import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import TaskLibraryControl from './TaskLibraryControl'
 import UpdateIndicator from './UpdateIndicator'
 
 interface TopBarProps {
@@ -33,6 +35,7 @@ interface TopBarProps {
   readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
   readonly onOpenDiagnostics: () => void
+  readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -250,6 +253,7 @@ export default function TopBar({
   onClosePane,
   onCreatePane,
   onOpenDiagnostics,
+  onOpenTask,
   onOpenUpdate,
   onResizePane,
   onSplitPane,
@@ -315,6 +319,7 @@ export default function TopBar({
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
         />
+        <TaskLibraryControl onOpenTask={onOpenTask} />
         <UpdateIndicator
           onOpen={onOpenUpdate}
           presentation={updatePresentation}

@@ -9,6 +9,7 @@ import {
   ipcMain as electronIpcMain,
   type IpcMainInvokeEvent,
   Menu,
+  Notification,
   safeStorage,
   shell,
 } from 'electron'
@@ -26,6 +27,10 @@ import type {
 } from '../shared/persistence'
 import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
+import {
+  getTaskActivity,
+  type TaskMetadataUpdate,
+} from '../shared/task-library'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -62,6 +67,7 @@ import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
+import { TaskLibrary } from './task-library'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
@@ -91,6 +97,7 @@ let runtimeInitialized = false
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
+let taskLibrary: TaskLibrary
 let jevSettings: JevSettings
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
@@ -318,12 +325,44 @@ function initializeServices(): void {
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
         workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
+        if (
+          taskLibrary?.shouldNotify(
+            event.snapshot,
+            BrowserWindow.getAllWindows().some((window) => window.isFocused()),
+          ) &&
+          Notification.isSupported()
+        ) {
+          const status = getTaskActivity(event.snapshot).status
+          const notification = new Notification({
+            title: 'Aide task activity',
+            body:
+              status === 'completed'
+                ? 'A task finished. Open Aide to review it.'
+                : 'A task needs your attention. Open Aide to continue.',
+          })
+          notification.on('click', () => {
+            const window = BrowserWindow.getAllWindows()[0]
+            if (!window) return
+            if (window.isMinimized()) window.restore()
+            window.show()
+            window.focus()
+            window.webContents.send(
+              IPC_CHANNELS.taskOpen,
+              event.snapshot.sessionId,
+            )
+          })
+          notification.show()
+        }
       } else {
         workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
       }
       windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
     },
   })
+  taskLibrary = new TaskLibrary(database, () =>
+    managedSessionManager.getSnapshots(),
+  )
   providerCapabilityService = new ProviderCapabilityService()
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
@@ -495,6 +534,41 @@ function registerIpcHandlers(): void {
   const ipcMain = createTrustedIpcRegistrar(
     electronIpcMain,
     requireTrustedRenderer,
+  )
+  ipcMain.handle(IPC_CHANNELS.getTaskLibrary, (_event, query?: string) =>
+    taskLibrary.getSnapshot(query),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.getTaskTranscript,
+    (_event, sessionId: unknown) => {
+      if (typeof sessionId !== 'string' || sessionId.length > 1024) {
+        throw new Error('Invalid conversation identifier.')
+      }
+      return (
+        managedSessionManager.getSnapshots()[sessionId] ??
+        database
+          .listManagedSessions()
+          .find((session) => session.config.sessionId === sessionId)
+          ?.snapshot ??
+        null
+      )
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.updateTaskMetadata,
+    (_event, sessionId: string, input: TaskMetadataUpdate) => {
+      const snapshot = taskLibrary.update(sessionId, input)
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      return snapshot
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.setTaskNotifications,
+    (_event, enabled: boolean) => {
+      database.setTaskNotificationsEnabled(enabled)
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      return taskLibrary.getSnapshot()
+    },
   )
   ipcMain.handle(IPC_CHANNELS.getJevSettings, (event, workspaceId: unknown) => {
     const workspace = requireWorkspaceForSetup(event, workspaceId)

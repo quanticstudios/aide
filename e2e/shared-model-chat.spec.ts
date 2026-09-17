@@ -54,7 +54,7 @@ async function launchAideApp(repository: string): Promise<{
 }> {
   const dataDirectory = mkdtempSync(path.join(tmpdir(), 'aide-shared-chat-'))
   const app = await electron.launch({
-    args: [workspaceDir],
+    args: [workspaceDir, '--force-device-scale-factor=1'],
     executablePath: path.join(
       workspaceDir,
       'node_modules/electron/dist/electron',
@@ -210,6 +210,58 @@ test.describe('shared model chat', () => {
     app = null
     dataDirectory = null
     repository = null
+  })
+
+  test('searches, archives and reopens saved tasks with durable attention state', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    const task = page.getByTestId('saved-task')
+    await expect(task).toContainText('initialize shared chat')
+    await task.getByRole('button', { name: 'Rename', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Task title' }).fill('Daily review')
+    await page.getByRole('button', { name: 'Save title' }).click()
+    await task.getByRole('button', { name: 'Pin', exact: true }).click()
+    await task.getByRole('button', { name: 'Mark read' }).click()
+    await task.getByRole('button', { name: 'Archive', exact: true }).click()
+    await expect(task).toHaveCount(0)
+    await page.getByRole('checkbox', { name: 'Archived', exact: true }).check()
+    await expect(task).toContainText('Pinned · Daily review')
+    await task.getByRole('button', { name: 'Restore', exact: true }).click()
+    await page
+      .getByRole('checkbox', { name: 'Archived', exact: true })
+      .uncheck()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.reload()
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    await expect(task).toContainText('Pinned · Daily review')
+    await expect(task).not.toContainText('Unread')
+    const snapshot = await page.evaluate(() =>
+      window.aide.getTaskLibrary('Handled: initialize'),
+    )
+    expect(snapshot.tasks.map((entry) => entry.sessionId)).toEqual([
+      session.sessionId,
+    ])
+    await task
+      .getByRole('button', { name: 'Pinned · Daily review', exact: true })
+      .click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'initialize shared chat',
+    )
+    await page.getByRole('button', { name: /Open activity inbox/ }).click()
+    await expect(page.getByText('No tasks need attention.')).toBeVisible()
+    await page
+      .getByRole('checkbox', { name: 'Notify when Aide is in the background' })
+      .uncheck()
+    expect(
+      await page.evaluate(
+        async () => (await window.aide.getTaskLibrary()).notificationsEnabled,
+      ),
+    ).toBe(false)
   })
 
   test('keeps the orchestrator while configured plan opinions retain model attribution', async () => {

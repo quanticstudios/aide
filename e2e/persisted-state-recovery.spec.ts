@@ -1,7 +1,7 @@
 import {
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -17,7 +17,7 @@ test('preserves corrupt saved data until an explicit reset', async () => {
   const damaged = 'synthetic damaged database'
   writeFileSync(databasePath, damaged)
   const app = await electron.launch({
-    args: [workspaceDir],
+    args: [workspaceDir, '--force-device-scale-factor=1'],
     executablePath: path.join(
       workspaceDir,
       'node_modules/electron/dist/electron',

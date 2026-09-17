@@ -23,6 +23,28 @@ import type { WorkspaceActivityEvent } from '../shared/workspace-activity'
 import type { WorkspaceSetupEvent } from '../shared/workspace-setup'
 
 const aideApi: AideApi = {
+  getTaskLibrary: (query) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getTaskLibrary, query),
+  getTaskTranscript: (sessionId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getTaskTranscript, sessionId),
+  updateTaskMetadata: (sessionId, input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateTaskMetadata, sessionId, input),
+  setTaskNotifications: (enabled) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setTaskNotifications, enabled),
+  onTaskLibraryChanged: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.taskLibraryChanged, listener)
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.taskLibraryChanged, listener)
+    }
+  },
+  onTaskOpen: (callback) => {
+    const listener = (_event: unknown, sessionId: string) => callback(sessionId)
+    ipcRenderer.on(IPC_CHANNELS.taskOpen, listener)
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.taskOpen, listener)
+    }
+  },
   getPersistedStateRecovery: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getPersistedStateRecovery),
   openPersistedStateDataFolder: () =>

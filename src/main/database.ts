@@ -24,6 +24,7 @@ import {
   cohortForInstallation,
   compareStableSemver,
 } from '../shared/release-envelope'
+import type { TaskMetadata, TaskMetadataUpdate } from '../shared/task-library'
 import type {
   UpdateHealthEvent,
   UpdatePreferencesInput,
@@ -340,6 +341,23 @@ const MIGRATIONS = [
 
       CREATE INDEX IF NOT EXISTS idx_managed_session_snapshots_workspace_pane
       ON managed_session_snapshots(workspace_id, pane_id);
+    `,
+  },
+  {
+    version: 10,
+    sql: `
+      CREATE TABLE IF NOT EXISTS managed_task_metadata (
+        session_id TEXT PRIMARY KEY,
+        title TEXT,
+        pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
+        archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+        read_activity_key TEXT
+      );
+      CREATE TABLE IF NOT EXISTS task_notification_preferences (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
+      );
+      INSERT OR IGNORE INTO task_notification_preferences (id, enabled) VALUES (1, 1);
     `,
   },
 ]
@@ -1187,6 +1205,73 @@ export class AideDatabase {
       )
 
     return normalized
+  }
+
+  public getTaskMetadata(sessionId: string): TaskMetadata {
+    const row = this.database
+      .prepare(
+        'SELECT title, pinned, archived, read_activity_key FROM managed_task_metadata WHERE session_id = ?',
+      )
+      .get(sessionId)
+    return {
+      title: typeof row?.title === 'string' ? row.title : null,
+      pinned: row?.pinned === 1,
+      archived: row?.archived === 1,
+      readActivityKey:
+        typeof row?.read_activity_key === 'string'
+          ? row.read_activity_key
+          : null,
+    }
+  }
+
+  public updateTaskMetadata(
+    sessionId: string,
+    input: TaskMetadataUpdate,
+  ): TaskMetadata {
+    const parsed = z
+      .object({
+        title: z.string().trim().min(1).max(160).optional(),
+        pinned: z.boolean().optional(),
+        archived: z.boolean().optional(),
+        readActivityKey: z.string().max(4096).nullable().optional(),
+      })
+      .strict()
+      .parse(input)
+    const next = { ...this.getTaskMetadata(sessionId), ...parsed }
+    this.database
+      .prepare(`
+      INSERT INTO managed_task_metadata (session_id, title, pinned, archived, read_activity_key)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET title = excluded.title,
+        pinned = excluded.pinned, archived = excluded.archived,
+        read_activity_key = excluded.read_activity_key
+    `)
+      .run(
+        sessionId,
+        next.title,
+        Number(next.pinned),
+        Number(next.archived),
+        next.readActivityKey,
+      )
+    return next
+  }
+
+  public getTaskNotificationsEnabled(): boolean {
+    return (
+      this.database
+        .prepare(
+          'SELECT enabled FROM task_notification_preferences WHERE id = 1',
+        )
+        .get()?.enabled === 1
+    )
+  }
+
+  public setTaskNotificationsEnabled(enabled: boolean): void {
+    this.database
+      .prepare(
+        'UPDATE task_notification_preferences SET enabled = ? WHERE id = 1',
+      )
+      .run(Number(z.boolean().parse(enabled)))
   }
 
   public listManagedSessions(): PersistedManagedSession[] {

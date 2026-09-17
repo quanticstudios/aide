@@ -23,6 +23,7 @@ import {
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import type { PersistedStateRecovery } from '../../shared/recovery'
+import type { SavedTask } from '../../shared/task-library'
 import {
   reconcileUpdatePreferencesSnapshot,
   reconcileUpdateSnapshot,
@@ -1281,6 +1282,64 @@ function WorkspaceApp() {
     [navigationSnapshot, persistWorkspaceSurfaceStateChange],
   )
 
+  const handleOpenTask = useCallback(
+    async (task: SavedTask) => {
+      await workspaceMutationQueue.enqueue(task.workspaceId, async () => {
+        const snapshot = storageSnapshotRef.current ?? navigationSnapshot
+        if (
+          !snapshot.workspaces.some(
+            (workspace) => workspace.id === task.workspaceId,
+          )
+        ) {
+          throw new Error('The conversation workspace is no longer available.')
+        }
+        const surfaces = resolveWorkspaceSurfaces(snapshot, task.workspaceId)
+        const layouts: Record<string, SurfaceLayoutRecord> = {}
+        for (const surface of surfaces) {
+          const layout = resolveSurfaceLayout(
+            snapshot,
+            task.workspaceId,
+            surface.id,
+          )
+          if (!layout) continue
+          layouts[surface.id] = layout
+          if (collectWorkspaceLayoutPaneIds(layout).includes(task.paneId)) {
+            const selection = resolveSelectionForSnapshot(
+              snapshot,
+              task.workspaceId,
+              surface.id,
+              task.paneId,
+            )
+            resolvedNavigationStateRef.current = selection
+            setSelection(selection)
+            return
+          }
+        }
+        const { surface, layout } = createSinglePaneSurface({
+          orderIndex: surfaces.length,
+          paneId: task.paneId,
+          title: 'Agent',
+          workspaceId: task.workspaceId,
+        })
+        layouts[surface.id] = layout
+        await persistWorkspaceSurfaceStateChange(
+          task.workspaceId,
+          [...surfaces, surface],
+          layouts,
+          surface.id,
+          task.paneId,
+        )
+      })
+    },
+    [
+      navigationSnapshot,
+      persistWorkspaceSurfaceStateChange,
+      workspaceMutationQueue,
+      resolveSelectionForSnapshot,
+      setSelection,
+    ],
+  )
+
   const handleCreatePane = useCallback(
     async (templatePaneId: string) => {
       const workspaceId = resolvedNavigationState.activeWorkspaceId
@@ -2260,6 +2319,7 @@ function WorkspaceApp() {
       onCreateWorkspace={createWorkspace}
       onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
+      onOpenTask={handleOpenTask}
       onOpenUpdate={openUpdateModal}
       onSelectProject={handleProjectSelection}
       onSelectWorkspace={handleWorkspaceSelection}
