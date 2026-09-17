@@ -4,6 +4,10 @@ import { resolve } from 'node:path'
 import test from 'node:test'
 
 import { validateUpdateHealthEndpoint } from '../src/shared/update-health-endpoint.mjs'
+import {
+  assertSuccessfulLinuxCiJob,
+  selectSuccessfulCiRun,
+} from './validate-release-ci.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -50,6 +54,93 @@ test('promotion trusts an immutable packaging workflow path rather than display 
     /jq -r \.path release-run\.json\).*\.github\/workflows\/release-packages\.yml/,
   )
   assert.doesNotMatch(workflow, /jq -r \.name release-run\.json/)
+})
+
+test('tagged packages require the successful Linux CI job for the tag commit', async () => {
+  const workflow = await readFile(
+    resolve(root, '.github/workflows/release-packages.yml'),
+    'utf8',
+  )
+  assert.match(
+    workflow,
+    /actions\/workflows\/ci\.yml\/runs\?head_sha=\$tag_commit&event=push/,
+  )
+  assert.match(workflow, /actions\/runs\/\$ci_run_id\/jobs/)
+  assert.match(workflow, /scripts\/validate-release-ci\.mjs/)
+  assert.doesNotMatch(workflow, /commits\/\$tag_commit\/check-runs/)
+})
+
+test('tagged packages require a successful CI workflow run for the tag commit', () => {
+  const commit = 'a'.repeat(40)
+  const successfulRun = {
+    conclusion: 'success',
+    event: 'push',
+    head_sha: commit,
+    id: 42,
+    status: 'completed',
+  }
+  assert.equal(
+    selectSuccessfulCiRun(commit, { workflow_runs: [successfulRun] }),
+    42,
+  )
+  assert.throws(
+    () =>
+      selectSuccessfulCiRun(commit, {
+        workflow_runs: [{ ...successfulRun, head_sha: 'b'.repeat(40) }],
+      }),
+    /needs a successful push run/,
+  )
+  assert.throws(
+    () =>
+      selectSuccessfulCiRun(commit, {
+        workflow_runs: [
+          { ...successfulRun, conclusion: null, status: 'in_progress' },
+        ],
+      }),
+    /needs a successful push run/,
+  )
+})
+
+test('tagged packages require the documented Linux security and quality job', () => {
+  assert.doesNotThrow(() =>
+    assertSuccessfulLinuxCiJob(42, {
+      jobs: [
+        {
+          conclusion: 'success',
+          name: 'Linux security and quality',
+          status: 'completed',
+        },
+      ],
+    }),
+  )
+  assert.throws(
+    () =>
+      assertSuccessfulLinuxCiJob(42, {
+        jobs: [
+          {
+            conclusion: 'success',
+            name: 'Unrelated successful check',
+            status: 'completed',
+          },
+        ],
+      }),
+    /needs one successful Linux security and quality job/,
+  )
+  for (const conclusion of ['skipped', 'cancelled']) {
+    assert.throws(
+      () =>
+        assertSuccessfulLinuxCiJob(42, {
+          jobs: [
+            {
+              conclusion,
+              name: 'Linux security and quality',
+              status: 'completed',
+            },
+          ],
+        }),
+      /needs one successful Linux security and quality job/,
+    )
+  }
 })
 
 test('health reporting endpoint is a fail-closed package-time main bundle value', async () => {
