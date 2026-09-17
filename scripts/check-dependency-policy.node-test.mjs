@@ -112,14 +112,14 @@ test('rejects an unpinned security override or a lockfile that did not resolve i
   }).join('\n')
 
   assert.match(errors, /overrides.hono must be exactly 4\.12\.25/)
-  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.4/)
+  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.6/)
 })
 
 test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
   const packageJson = createPackageJson()
-  packageJson.devDependencies.wrangler = '4.112.0'
+  packageJson.devDependencies.wrangler = '4.119.0'
   const lockfile = createLockfile()
-  lockfile.packages.wrangler = ['wrangler@4.112.0']
+  lockfile.packages.wrangler = ['wrangler@4.119.0']
 
   const errors = validateDependencyPolicy({
     packageJson,
@@ -127,6 +127,6 @@ test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
     lockfile,
   }).join('\n')
 
-  assert.match(errors, /devDependencies\.wrangler must be exactly 4\.113\.0/)
-  assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.113\.0/)
+  assert.match(errors, /devDependencies\.wrangler must be exactly 4\.120\.0/)
+  assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.120\.0/)
 })
