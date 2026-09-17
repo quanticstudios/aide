@@ -25,8 +25,10 @@ const preview: TurnCheckpointPreview = {
   createdAt: '2026-09-17T10:01:00.000Z',
   expiresAt: '2026-09-17T10:11:00.000Z',
   previewId: '11111111-1111-1111-1111-111111111111',
+  restorePatch: 'diff --git a/src/new.ts b/src/new.ts\n',
   sessionRevision: 3,
   turnChanges: [{ path: 'src/new.ts', status: 'added' }],
+  turnPatch: 'diff --git a/src/new.ts b/src/new.ts\n',
 }
 
 describe('CheckpointRestoreContent', () => {
@@ -46,6 +48,8 @@ describe('CheckpointRestoreContent', () => {
     expect(markup).toContain('src/old.ts')
     expect(markup).toContain('src/current.ts')
     expect(markup).toContain('current conversation remains unchanged')
+    expect(markup).toContain('Inspect diff')
+    expect(markup).toContain('diff --git a/src/new.ts b/src/new.ts')
   })
 
   it('labels renamed paths without hiding the original', () => {

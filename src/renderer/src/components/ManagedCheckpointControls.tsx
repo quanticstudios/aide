@@ -64,6 +64,20 @@ function CheckpointChangeList({
   )
 }
 
+function CheckpointPatch({ patch }: { readonly patch: string }) {
+  if (!patch) return null
+  return (
+    <details className="rounded-lg border border-border bg-surface-secondary">
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-foreground">
+        Inspect diff
+      </summary>
+      <pre className="max-h-80 overflow-auto border-t border-border p-3 text-xs text-foreground">
+        {patch}
+      </pre>
+    </details>
+  )
+}
+
 export function CheckpointRestoreContent({
   error,
   mode,
@@ -130,7 +144,10 @@ export function CheckpointRestoreContent({
             exact.
           </p>
         ) : preview?.turnChanges.length ? (
-          <CheckpointChangeList changes={preview.turnChanges} />
+          <div className="space-y-2">
+            <CheckpointChangeList changes={preview.turnChanges} />
+            <CheckpointPatch patch={preview.turnPatch ?? ''} />
+          </div>
         ) : (
           <p className="rounded-lg border border-border bg-surface-secondary p-3 text-sm text-muted-foreground">
             This turn has no file changes.
@@ -143,7 +160,10 @@ export function CheckpointRestoreContent({
           Restore preview
         </h3>
         {preview?.changes.length ? (
-          <CheckpointChangeList changes={preview.changes} />
+          <div className="space-y-2">
+            <CheckpointChangeList changes={preview.changes} />
+            <CheckpointPatch patch={preview.restorePatch} />
+          </div>
         ) : (
           <p className="rounded-lg border border-border bg-surface-secondary p-3 text-sm text-muted-foreground">
             Restoring code will not change workspace files.
