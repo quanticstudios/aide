@@ -177,6 +177,17 @@ export interface ManagedSessionSnapshot {
   workspaceId: string
 }
 
+export interface PersistedManagedSession {
+  config: ManagedSessionConfig
+  snapshot: ManagedSessionSnapshot
+}
+
+export interface ManagedSessionHistoryItem {
+  provider: ManagedSessionProvider | null
+  role: 'assistant' | 'user'
+  text: string
+}
+
 export type ManagedSessionDecision = 'accept' | 'accept-for-session' | 'deny'
 
 export type ManagedSessionEvent =

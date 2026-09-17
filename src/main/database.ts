@@ -2,6 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
 import type {
+  ManagedSessionConfig,
+  ManagedSessionContentItem,
+  ManagedSessionSnapshot,
+  ManagedSessionTurnSummary,
+  PersistedManagedSession,
+} from '../shared/managed-session'
+import type { ManagedUsageReport } from '../shared/managed-usage'
+import type {
   CreateProjectInput,
   CreateWorkspaceInput,
   PersistedLayoutNode,
@@ -138,6 +146,13 @@ interface SqlUpdateHealthEventRow {
 
 interface SqlQueuedUpdateHealthEventRow extends SqlUpdateHealthEventRow {
   id: number
+}
+
+interface SqlManagedSessionRow {
+  pane_id: string
+  payload_json: string
+  session_id: string
+  workspace_id: string
 }
 
 export interface QueuedUpdateHealthEvent {
@@ -315,6 +330,22 @@ const MIGRATIONS = [
 
       CREATE INDEX IF NOT EXISTS idx_app_update_health_queue_created_at
       ON app_update_health_queue(created_at);
+    `,
+  },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE IF NOT EXISTS managed_session_snapshots (
+        session_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        pane_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_managed_session_snapshots_workspace_pane
+      ON managed_session_snapshots(workspace_id, pane_id);
     `,
   },
 ]
@@ -930,6 +961,103 @@ export class AideDatabase {
         state: 'failed',
       })
       return updated ? [updated] : []
+    })
+  }
+
+  public saveManagedSession(
+    persisted: PersistedManagedSession,
+  ): PersistedManagedSession | null {
+    const normalized = this.normalizeManagedSession(persisted)
+
+    if (!this.getWorkspace(normalized.config.workspaceId)) {
+      return null
+    }
+
+    this.database
+      .prepare(
+        `
+          INSERT INTO managed_session_snapshots (
+            session_id, workspace_id, pane_id, payload_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(session_id) DO UPDATE SET
+            workspace_id = excluded.workspace_id,
+            pane_id = excluded.pane_id,
+            payload_json = excluded.payload_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        normalized.config.sessionId,
+        normalized.config.workspaceId,
+        normalized.config.paneId,
+        JSON.stringify(normalized),
+        normalized.snapshot.updatedAt,
+      )
+
+    return normalized
+  }
+
+  public listManagedSessions(): PersistedManagedSession[] {
+    const rows = this.database
+      .prepare(
+        `
+          SELECT session_id, workspace_id, pane_id, payload_json
+          FROM managed_session_snapshots
+          ORDER BY updated_at ASC, session_id ASC
+        `,
+      )
+      .all() as unknown as SqlManagedSessionRow[]
+
+    return rows.flatMap((row) => {
+      try {
+        const persisted = this.normalizeManagedSession(
+          JSON.parse(row.payload_json),
+        )
+
+        return persisted.config.sessionId === row.session_id &&
+          persisted.config.workspaceId === row.workspace_id &&
+          persisted.config.paneId === row.pane_id
+          ? [persisted]
+          : []
+      } catch {
+        return []
+      }
+    })
+  }
+
+  public reconcileInterruptedManagedSessions(
+    now: string,
+  ): PersistedManagedSession[] {
+    return this.listManagedSessions().map((persisted) => {
+      const turns = persisted.snapshot.turns.map((turn) =>
+        turn.state === 'running'
+          ? { ...turn, completedAt: now, state: 'interrupted' as const }
+          : turn,
+      )
+      const interrupted =
+        turns.some((turn, index) => turn !== persisted.snapshot.turns[index]) ||
+        persisted.snapshot.pendingApprovals.length > 0 ||
+        persisted.snapshot.pendingUserInputs.length > 0
+
+      if (!interrupted) return persisted
+
+      const next = this.normalizeManagedSession({
+        config: persisted.config,
+        snapshot: {
+          ...persisted.snapshot,
+          detail:
+            'The provider session stopped when Aide closed. A new provider session will receive the visible conversation.',
+          pendingApprovals: [],
+          pendingUserInputs: [],
+          planApproval: null,
+          running: false,
+          sessionState: 'stopped',
+          turns,
+          updatedAt: now,
+        },
+      })
+      this.saveManagedSession(next)
+      return next
     })
   }
 
@@ -1791,6 +1919,277 @@ export class AideDatabase {
       nodes,
       rootNodeId: input.rootNodeId,
       workspaceId,
+    }
+  }
+
+  private normalizeManagedSession(input: unknown): PersistedManagedSession {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid managed session.')
+    }
+
+    const persisted = input as {
+      config?: Record<string, unknown>
+      snapshot?: Record<string, unknown>
+    }
+    const config = persisted.config
+    const snapshot = persisted.snapshot
+
+    if (!config || !snapshot) {
+      throw new Error('Invalid managed session.')
+    }
+
+    const readString = (value: unknown): string => {
+      if (typeof value !== 'string' || value.length === 0) {
+        throw new Error('Invalid managed session.')
+      }
+      return value
+    }
+    const readNullableString = (value: unknown): string | null => {
+      if (value === null) return null
+      return readString(value)
+    }
+    const readNumber = (value: unknown): number => {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new Error('Invalid managed session.')
+      }
+      return value
+    }
+    const provider = readString(config.mode)
+    const snapshotProvider = readString(snapshot.provider)
+
+    if (
+      (provider !== 'claude' && provider !== 'codex') ||
+      snapshotProvider !== provider ||
+      readString(config.sessionId) !== readString(snapshot.sessionId) ||
+      readString(config.workspaceId) !== readString(snapshot.workspaceId) ||
+      readString(config.paneId) !== readString(snapshot.paneId)
+    ) {
+      throw new Error('Invalid managed session.')
+    }
+
+    const content = Array.isArray(snapshot.content)
+      ? snapshot.content.map((item) => {
+          if (!item || typeof item !== 'object') {
+            throw new Error('Invalid managed session.')
+          }
+          const record = item as Record<string, unknown>
+          const kind = readString(record.kind)
+          if (
+            ![
+              'assistant-text',
+              'reasoning-text',
+              'reasoning-summary-text',
+              'command-output',
+              'file-change-output',
+              'system',
+              'user-prompt',
+            ].includes(kind)
+          ) {
+            throw new Error('Invalid managed session.')
+          }
+          const itemProvider = readNullableString(record.provider)
+          if (
+            itemProvider !== null &&
+            itemProvider !== 'claude' &&
+            itemProvider !== 'codex'
+          ) {
+            throw new Error('Invalid managed session.')
+          }
+          return {
+            id: readString(record.id),
+            kind,
+            provider: itemProvider,
+            text: readString(record.text),
+            turnId: readNullableString(record.turnId),
+            updatedAt: readString(record.updatedAt),
+          } as ManagedSessionContentItem
+        })
+      : (() => {
+          throw new Error('Invalid managed session.')
+        })()
+    const turns = Array.isArray(snapshot.turns)
+      ? snapshot.turns.map((turn) => {
+          if (!turn || typeof turn !== 'object') {
+            throw new Error('Invalid managed session.')
+          }
+          const record = turn as Record<string, unknown>
+          const turnProvider = readString(record.provider)
+          const state = readString(record.state)
+          if (
+            (turnProvider !== 'claude' && turnProvider !== 'codex') ||
+            ![
+              'running',
+              'completed',
+              'failed',
+              'cancelled',
+              'interrupted',
+            ].includes(state)
+          ) {
+            throw new Error('Invalid managed session.')
+          }
+          return {
+            completedAt: readNullableString(record.completedAt),
+            id: readString(record.id),
+            provider: turnProvider,
+            startedAt: readString(record.startedAt),
+            state,
+          } as ManagedSessionTurnSummary
+        })
+      : (() => {
+          throw new Error('Invalid managed session.')
+        })()
+    const sessionState = readString(snapshot.sessionState)
+    if (
+      ![
+        'connecting',
+        'ready',
+        'running',
+        'waiting',
+        'stopped',
+        'error',
+      ].includes(sessionState)
+    ) {
+      throw new Error('Invalid managed session.')
+    }
+    const validSessionState =
+      sessionState as ManagedSessionSnapshot['sessionState']
+    const usage =
+      snapshot.usage && typeof snapshot.usage === 'object'
+        ? (() => {
+            const record = snapshot.usage as Record<string, unknown>
+            const value = {
+              inputTokens: readNumber(record.inputTokens),
+              outputTokens: readNumber(record.outputTokens),
+            } as NonNullable<ManagedSessionSnapshot['usage']>
+            if (typeof record.cachedInputTokens === 'number')
+              value.cachedInputTokens = readNumber(record.cachedInputTokens)
+            if (typeof record.contextTokens === 'number')
+              value.contextTokens = readNumber(record.contextTokens)
+            if (typeof record.maxTokens === 'number')
+              value.maxTokens = readNumber(record.maxTokens)
+            return value
+          })()
+        : undefined
+    const usageReports = Array.isArray(snapshot.usageReports)
+      ? snapshot.usageReports.map((report) => {
+          if (!report || typeof report !== 'object')
+            throw new Error('Invalid managed session.')
+          const record = report as Record<string, unknown>
+          const reportProvider = readString(record.provider)
+          const models = Array.isArray(record.models)
+            ? record.models.map((model) => {
+                if (!model || typeof model !== 'object')
+                  throw new Error('Invalid managed session.')
+                const usageModel = model as Record<string, unknown>
+                const nullableNumber = (value: unknown) =>
+                  value === null ? null : readNumber(value)
+                return {
+                  cachedInputTokens: nullableNumber(
+                    usageModel.cachedInputTokens,
+                  ),
+                  cacheCreationInputTokens: nullableNumber(
+                    usageModel.cacheCreationInputTokens,
+                  ),
+                  estimatedCostUsd: nullableNumber(usageModel.estimatedCostUsd),
+                  inputTokens: readNumber(usageModel.inputTokens),
+                  model:
+                    usageModel.model === null
+                      ? null
+                      : readString(usageModel.model),
+                  outputTokens: readNumber(usageModel.outputTokens),
+                }
+              })
+            : (() => {
+                throw new Error('Invalid managed session.')
+              })()
+          if (!['claude', 'codex', 'jev'].includes(reportProvider))
+            throw new Error('Invalid managed session.')
+          return {
+            createdAt: readString(record.createdAt),
+            estimatedCostUsd:
+              record.estimatedCostUsd === null
+                ? null
+                : readNumber(record.estimatedCostUsd),
+            id: readString(record.id),
+            models,
+            provider: reportProvider,
+            runtimeGeneration: Math.max(
+              1,
+              Math.trunc(readNumber(record.runtimeGeneration)),
+            ),
+            scopeId: readString(record.scopeId),
+            turnId: readNullableString(record.turnId),
+          } as ManagedUsageReport
+        })
+      : undefined
+
+    return {
+      config: {
+        cwd: readString(config.cwd),
+        effort: typeof config.effort === 'string' ? config.effort : undefined,
+        interactionMode:
+          config.interactionMode === 'build' ||
+          config.interactionMode === 'plan'
+            ? config.interactionMode
+            : undefined,
+        mode: provider,
+        model: typeof config.model === 'string' ? config.model : undefined,
+        paneId: readString(config.paneId),
+        permissionMode:
+          config.permissionMode === 'acceptEdits' ||
+          config.permissionMode === 'bypassPermissions' ||
+          config.permissionMode === 'default' ||
+          config.permissionMode === 'plan'
+            ? config.permissionMode
+            : undefined,
+        serviceTier:
+          typeof config.serviceTier === 'string'
+            ? config.serviceTier
+            : undefined,
+        sessionId: readString(config.sessionId),
+        selectionNotice:
+          config.selectionNotice === null ||
+          typeof config.selectionNotice === 'string'
+            ? config.selectionNotice
+            : undefined,
+        thinkingBudget:
+          config.thinkingBudget === 'default' ||
+          config.thinkingBudget === 'extra' ||
+          config.thinkingBudget === 'ultra'
+            ? config.thinkingBudget
+            : undefined,
+        workspaceId: readString(config.workspaceId),
+      } satisfies ManagedSessionConfig,
+      snapshot: {
+        content,
+        detail: readNullableString(snapshot.detail),
+        effort: readNullableString(snapshot.effort),
+        interactionMode: snapshot.interactionMode === 'plan' ? 'plan' : 'build',
+        lastCompletedAt: readNullableString(snapshot.lastCompletedAt),
+        lastError: readNullableString(snapshot.lastError),
+        lastErrorAt: readNullableString(snapshot.lastErrorAt),
+        model: readNullableString(snapshot.model),
+        paneId: readString(snapshot.paneId),
+        pendingApprovals: [],
+        pendingUserInputs: [],
+        planApproval: null,
+        provider: snapshotProvider,
+        revision: Math.max(0, Math.trunc(readNumber(snapshot.revision))),
+        running: snapshot.running === true,
+        runtimeGeneration: Math.max(
+          1,
+          Math.trunc(readNumber(snapshot.runtimeGeneration)),
+        ),
+        selectionNotice: readNullableString(snapshot.selectionNotice),
+        serviceTier: readNullableString(snapshot.serviceTier),
+        sessionId: readString(snapshot.sessionId),
+        sessionState: validSessionState,
+        turns,
+        updatedAt: readString(snapshot.updatedAt),
+        workspaceId: readString(snapshot.workspaceId),
+        ...(usage ? { usage } : {}),
+        ...(usageReports ? { usageReports } : {}),
+      } satisfies ManagedSessionSnapshot,
     }
   }
 
