@@ -40,7 +40,6 @@ function createConfig(mode: 'claude' | 'codex' = 'claude') {
 function createMemoryStore(): ManagedSessionPersistenceStore {
   const persisted = new Map<string, PersistedManagedSession>()
   return {
-    listManagedSessions: () => [...persisted.values()],
     reconcileInterruptedManagedSessions: (now) =>
       [...persisted.values()].map((entry) => {
         const turns = entry.snapshot.turns.map((turn) =>
@@ -431,7 +430,6 @@ describe('ManagedSessionManager', () => {
       turnId: 'turn-1',
       type: 'turn.started',
     })
-    await manager.sendInput(config.sessionId, 'queued after turn start')
     emitRuntimeEvent({
       createdAt: '2026-04-11T10:00:00.000Z',
       exitCode,
@@ -746,5 +744,54 @@ describe('ManagedSessionManager', () => {
     ).toBe(true)
     expect(snapshot.turns[0]?.state).toBe('completed')
     await second.closeAll()
+  })
+
+  it('checkpoints the original prompt before preparation and blocks another running turn', async () => {
+    let savedPrompt = ''
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId: 'running-turn',
+            type: 'turn.started',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        expect(savedPrompt).toBe(text)
+        return { text }
+      },
+      store: {
+        reconcileInterruptedManagedSessions: () => [],
+        saveManagedSession: (entry) => {
+          savedPrompt = entry.snapshot.content.at(-1)?.text ?? ''
+          return entry
+        },
+      },
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'persist before dispatch')
+    await expect(
+      manager.sendInput(config.sessionId, 'second prompt'),
+    ).rejects.toThrow('already being prepared or dispatched')
   })
 })
