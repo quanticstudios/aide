@@ -1,9 +1,11 @@
 import { Tooltip } from '@heroui/react'
 
 import type { ManagedSessionUsage } from '../../../shared/managed-session'
+import type { ManagedUsageSummary } from '../../../shared/managed-usage'
 
 interface ContextWindowMeterProps {
-  readonly usage: ManagedSessionUsage
+  readonly usage?: ManagedSessionUsage
+  readonly summary?: ManagedUsageSummary
 }
 
 const UNIT_THRESHOLDS = [
@@ -38,21 +40,33 @@ function formatPercentage(value: number | null): string | null {
   return `${Math.round(value)}%`
 }
 
-export default function ContextWindowMeter({ usage }: ContextWindowMeterProps) {
-  const total = usage.inputTokens + usage.outputTokens
+export default function ContextWindowMeter({
+  usage,
+  summary,
+}: ContextWindowMeterProps) {
+  const contextTokens = usage?.contextTokens
+  const total =
+    contextTokens ??
+    (summary
+      ? summary.inputTokens +
+        summary.outputTokens +
+        (summary.cachedInputTokens ?? 0) +
+        (summary.cacheCreationInputTokens ?? 0)
+      : (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0))
   const percentage =
-    usage.maxTokens && usage.maxTokens > 0
-      ? (total / usage.maxTokens) * 100
+    contextTokens !== undefined && usage?.maxTokens && usage.maxTokens > 0
+      ? (contextTokens / usage.maxTokens) * 100
       : null
 
   const percentageLabel = formatPercentage(percentage)
   const usedLabel = formatTokens(total)
-  const maxLabel = usage.maxTokens ? formatTokens(usage.maxTokens) : null
-  const ariaLabel = usage.maxTokens
-    ? `${usedLabel} / ${maxLabel} context used${
-        percentageLabel ? ` (${percentageLabel})` : ''
-      }`
-    : `${usedLabel} tokens used`
+  const maxLabel = usage?.maxTokens ? formatTokens(usage.maxTokens) : null
+  const ariaLabel =
+    contextTokens !== undefined && usage?.maxTokens
+      ? `${usedLabel} / ${maxLabel} context used${
+          percentageLabel ? ` (${percentageLabel})` : ''
+        }`
+      : `${usedLabel} tokens reported`
 
   const isWarn = percentage !== null && percentage >= 80
   const chipClass = isWarn
@@ -62,7 +76,7 @@ export default function ContextWindowMeter({ usage }: ContextWindowMeterProps) {
   const headline =
     percentageLabel && maxLabel
       ? `${percentageLabel} · ${usedLabel}/${maxLabel} context used`
-      : `${usedLabel} tokens used`
+      : `${usedLabel} tokens reported`
 
   return (
     <Tooltip delay={300}>
@@ -78,11 +92,24 @@ export default function ContextWindowMeter({ usage }: ContextWindowMeterProps) {
         className="rounded-md border border-border bg-surface-elevated px-3 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
         placement="top"
       >
-        <p className="eyebrow">Context Window</p>
+        <p className="eyebrow">
+          {contextTokens === undefined ? 'Usage' : 'Context window'}
+        </p>
         <p className="display mt-1 text-sm text-foreground">{headline}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Automatically compacts its context when needed.
+          {contextTokens === undefined
+            ? 'The provider has not reported current context occupancy.'
+            : 'Latest provider request; accumulated usage is counted separately.'}
         </p>
+        {summary ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            ${summary.estimatedCostUsd.toFixed(4)}{' '}
+            {summary.isCostComplete
+              ? 'estimated cost'
+              : 'known estimate; some costs unavailable'}
+            . Provider estimates are not a bill.
+          </p>
+        ) : null}
       </Tooltip.Content>
     </Tooltip>
   )

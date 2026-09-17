@@ -1534,8 +1534,11 @@ export default function ManagedAgentPane({
               permissionMode={permissionMode}
             />
             <span className="flex-1" />
-            {snapshot?.usage ? (
-              <ContextWindowMeter usage={snapshot.usage} />
+            {snapshot?.usage || snapshot?.usageSummary ? (
+              <ContextWindowMeter
+                usage={snapshot.usage}
+                summary={snapshot.usageSummary}
+              />
             ) : null}
             {activeQuestion ? (
               <button

@@ -1,3 +1,4 @@
+import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
@@ -141,6 +142,7 @@ export interface ManagedSessionPendingUserInput {
 
 export interface ManagedSessionUsage {
   cachedInputTokens?: number
+  contextTokens?: number
   inputTokens: number
   maxTokens?: number
   outputTokens: number
@@ -170,6 +172,8 @@ export interface ManagedSessionSnapshot {
   turns: ManagedSessionTurnSummary[]
   updatedAt: string
   usage?: ManagedSessionUsage
+  usageReports?: ManagedUsageReport[]
+  usageSummary?: ManagedUsageSummary
   workspaceId: string
 }
 

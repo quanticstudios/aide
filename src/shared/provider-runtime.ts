@@ -1,3 +1,4 @@
+import type { ManagedUsageReport } from './managed-usage'
 import type { WorkspaceActivityProvider } from './workspace-activity'
 
 export type ManagedProviderRuntimeProvider = Exclude<
@@ -110,8 +111,10 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       cachedInputTokens?: number
+      contextTokens?: number
       inputTokens: number
       maxTokens?: number
       outputTokens: number
+      report?: Omit<ManagedUsageReport, 'runtimeGeneration'>
       type: 'session.usage.updated'
     })

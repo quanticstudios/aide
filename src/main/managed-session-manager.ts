@@ -27,6 +27,10 @@ import type {
   ManagedSessionUsage,
   ManagedSessionUserQuestion,
 } from '../shared/managed-session'
+import {
+  type ManagedUsageReport,
+  summarizeManagedUsage,
+} from '../shared/managed-usage'
 import type {
   ManagedProviderRuntimeContentKind,
   ManagedProviderRuntimeEvent,
@@ -34,6 +38,7 @@ import type {
   ManagedProviderRuntimeRequestType,
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
+import { parseCodexUsage } from './codex-usage'
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 import { resolveTerminalWorkingDirectory } from './terminal-shell'
 
@@ -91,6 +96,7 @@ interface ManagedSessionMutableState {
   switchInProgress: boolean
   turns: Map<string, ManagedSessionTurnSummary>
   usage: ManagedSessionUsage | null
+  usageReports: Map<string, ManagedUsageReport>
 }
 
 interface ManagedSessionBackend {
@@ -318,6 +324,8 @@ function normalizeClaudeQuestions(
 
 class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private activeTurnId: string | null = null
+  private contextTokens: number | undefined
+  private contextModel: string | undefined
   private readonly promptQueue = new AsyncQueue<SDKUserMessage>()
   private queryRuntime: ReturnType<typeof query> | null = null
   private readonly streamedMessageUuids = new Set<string>()
@@ -680,6 +688,13 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'assistant') {
+      const usage = message.message.usage
+      this.contextModel = message.message.model
+      this.contextTokens =
+        usage.input_tokens +
+        usage.output_tokens +
+        (usage.cache_read_input_tokens ?? 0) +
+        (usage.cache_creation_input_tokens ?? 0)
       if (this.streamedMessageUuids.has(message.uuid)) {
         this.streamedMessageUuids.delete(message.uuid)
         return
@@ -737,6 +752,50 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'result') {
+      const models = Object.entries<ModelUsage>(message.modelUsage ?? {}).map(
+        ([model, usage]) => ({
+          model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cachedInputTokens: usage.cacheReadInputTokens,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens,
+          estimatedCostUsd: Number.isFinite(usage.costUSD)
+            ? usage.costUSD
+            : null,
+        }),
+      )
+      const maxTokens = this.contextModel
+        ? message.modelUsage?.[this.contextModel]?.contextWindow
+        : undefined
+      this.emitRuntimeEvent({
+        type: 'session.usage.updated',
+        provider: 'claude',
+        createdAt: this.getNow(),
+        inputTokens: models.reduce((sum, usage) => sum + usage.inputTokens, 0),
+        outputTokens: models.reduce(
+          (sum, usage) => sum + usage.outputTokens,
+          0,
+        ),
+        cachedInputTokens: models.reduce(
+          (sum, usage) => sum + usage.cachedInputTokens,
+          0,
+        ),
+        ...(this.contextTokens === undefined
+          ? {}
+          : { contextTokens: this.contextTokens }),
+        ...(maxTokens ? { maxTokens } : {}),
+        report: {
+          id: message.uuid,
+          scopeId: message.session_id,
+          provider: 'claude',
+          turnId: this.activeTurnId,
+          createdAt: this.getNow(),
+          models,
+          estimatedCostUsd: Number.isFinite(message.total_cost_usd)
+            ? message.total_cost_usd
+            : null,
+        },
+      })
       if (this.activeTurnId) {
         this.emitRuntimeEvent({
           createdAt: this.getNow(),
@@ -754,51 +813,6 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
               }),
         })
         this.activeTurnId = null
-      }
-
-      if (message.subtype === 'success') {
-        const usages: ModelUsage[] = Object.values(message.modelUsage ?? {})
-        const aggregate = usages.reduce<{
-          cacheReadInputTokens: number
-          contextWindow: number
-          inputTokens: number
-          outputTokens: number
-        }>(
-          (acc, usage) => ({
-            cacheReadInputTokens:
-              acc.cacheReadInputTokens + (usage.cacheReadInputTokens ?? 0),
-            contextWindow: Math.max(
-              acc.contextWindow,
-              usage.contextWindow ?? 0,
-            ),
-            inputTokens: acc.inputTokens + (usage.inputTokens ?? 0),
-            outputTokens: acc.outputTokens + (usage.outputTokens ?? 0),
-          }),
-          {
-            cacheReadInputTokens: 0,
-            contextWindow: 0,
-            inputTokens: 0,
-            outputTokens: 0,
-          },
-        )
-
-        if (
-          aggregate.inputTokens > 0 ||
-          aggregate.outputTokens > 0 ||
-          aggregate.contextWindow > 0
-        ) {
-          this.emitRuntimeEvent({
-            cachedInputTokens: aggregate.cacheReadInputTokens,
-            createdAt: this.getNow(),
-            inputTokens: aggregate.inputTokens,
-            ...(aggregate.contextWindow > 0
-              ? { maxTokens: aggregate.contextWindow }
-              : {}),
-            outputTokens: aggregate.outputTokens,
-            provider: 'claude',
-            type: 'session.usage.updated',
-          })
-        }
       }
 
       return
@@ -845,6 +859,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   private readonly activeContentItemIds = new Map<string, string>()
   private output: readline.Interface | null = null
   private providerThreadId: string | null = null
+  private providerModel: string | null = null
 
   public constructor(
     private readonly config: ManagedSessionConfig,
@@ -929,6 +944,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
       this.readString(response, 'threadId')
 
     this.providerThreadId = providerThreadId ?? null
+    this.providerModel = this.readString(response, 'model') ?? null
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       provider: 'codex',
@@ -1062,6 +1078,14 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     params?: unknown
   }): void {
     const params = this.readObject(notification.params)
+
+    if (notification.method === 'thread/tokenUsage/updated') {
+      const event = parseCodexUsage(params, this.providerModel, this.getNow())
+      if (event && event.report?.scopeId === this.providerThreadId) {
+        this.emitRuntimeEvent(event)
+      }
+      return
+    }
 
     if (notification.method === 'thread/status/changed') {
       const status = this.readObject(params, 'status')
@@ -1674,6 +1698,7 @@ export class ManagedSessionManager {
       switchInProgress: false,
       turns: new Map(),
       usage: null,
+      usageReports: new Map(),
     }
 
     state.emitRuntimeEvent = this.createRuntimeEventEmitter(
@@ -2244,6 +2269,26 @@ export class ManagedSessionManager {
         nextUsage.cachedInputTokens = event.cachedInputTokens
       }
 
+      if (event.contextTokens !== undefined) {
+        nextUsage.contextTokens = event.contextTokens
+      }
+
+      if (event.report) {
+        const report = {
+          ...event.report,
+          runtimeGeneration: state.runtimeGeneration,
+        }
+        state.usageReports.set(
+          JSON.stringify([
+            report.provider,
+            report.runtimeGeneration,
+            report.scopeId,
+            report.id,
+          ]),
+          report,
+        )
+      }
+
       state.usage = nextUsage
     }
 
@@ -2283,6 +2328,14 @@ export class ManagedSessionManager {
       turns: [...state.turns.values()],
       updatedAt: event.createdAt,
       ...(state.usage !== null ? { usage: state.usage } : {}),
+      ...(state.usageReports.size > 0
+        ? {
+            usageReports: [...state.usageReports.values()],
+            usageSummary: summarizeManagedUsage([
+              ...state.usageReports.values(),
+            ]),
+          }
+        : {}),
       workspaceId: state.config.workspaceId,
       revision: state.revision,
       runtimeGeneration: state.runtimeGeneration,
