@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Terminal,
 } from 'lucide-react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
   useCallback,
   useEffect,
@@ -37,6 +37,7 @@ import {
 } from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
 import type {
+  ManagedSessionAttachment,
   ManagedSessionContentItem,
   ManagedSessionContextWindow,
   ManagedSessionEffort,
@@ -46,6 +47,7 @@ import type {
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
+import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
   type ProviderCapabilitiesSnapshot,
@@ -54,6 +56,12 @@ import {
 } from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
+import { createImageAttachments } from '../lib/managed-composer'
+import {
+  loadManagedDraft,
+  removeManagedDraft,
+  saveManagedDraft,
+} from '../lib/managed-draft-storage'
 import {
   groupContentByTurn,
   type TurnGroup,
@@ -76,6 +84,10 @@ import { cn } from '../lib/utils'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import JevSetup from './JevSetup'
+import ManagedComposerAttachments, {
+  ManagedComposerAttachmentButton,
+} from './ManagedComposerAttachments'
+import ManagedInputQueue from './ManagedInputQueue'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
@@ -585,6 +597,7 @@ export default function ManagedAgentPane({
     () => `${workspace.id}:${paneId}`,
     [paneId, workspace.id],
   )
+  const composerStorageKey = `aide:managed-composer:${sessionId}`
   const terminalMode = useMemo(
     () => resolveTerminalLaunchModeForPaneId(paneId),
     [paneId],
@@ -611,12 +624,17 @@ export default function ManagedAgentPane({
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
+  const [attachments, setAttachments] = useState<
+    readonly ManagedSessionAttachment[]
+  >([])
   const [configuredAgents, setConfiguredAgents] = useState<
     readonly ManagedSessionAgentConfig[]
   >([])
   const [selectedRecipientAliases, setSelectedRecipientAliases] = useState<
     readonly string[]
   >([])
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false)
+  const draftSaveChainRef = useRef<Promise<void>>(Promise.resolve())
   const [recipientActiveIndex, setRecipientActiveIndex] = useState(0)
   const [isRecipientMenuDismissed, setIsRecipientMenuDismissed] =
     useState(false)
@@ -730,6 +748,59 @@ export default function ManagedAgentPane({
       textareaRef.current.style.height = 'auto'
     }
   }, [draftInput])
+
+  useEffect(() => {
+    let isCurrentDraft = true
+    setIsDraftHydrated(false)
+    void loadManagedDraft(composerStorageKey)
+      .then((draft) => {
+        if (!isCurrentDraft) return
+        setDraftInput(draft?.text ?? '')
+        setAttachments(draft?.attachments ?? [])
+        setSelectedRecipientAliases(draft?.recipients ?? [])
+        setIsDraftHydrated(true)
+      })
+      .catch((draftError) => {
+        if (!isCurrentDraft) return
+        setError(getErrorMessage(draftError))
+        setIsDraftHydrated(true)
+      })
+    return () => {
+      isCurrentDraft = false
+    }
+  }, [composerStorageKey])
+
+  useEffect(() => {
+    if (!isDraftHydrated) return
+    const draft = {
+      attachments: [...attachments],
+      recipients: [...selectedRecipientAliases],
+      text: draftInput,
+    }
+    const persistDraft = async () => {
+      if (
+        !draft.text &&
+        draft.recipients.length === 0 &&
+        draft.attachments.length === 0
+      ) {
+        await removeManagedDraft(composerStorageKey)
+      } else {
+        await saveManagedDraft(composerStorageKey, draft)
+      }
+    }
+    draftSaveChainRef.current = draftSaveChainRef.current
+      .catch(() => undefined)
+      .then(persistDraft)
+    void draftSaveChainRef.current.catch((draftError) => {
+      setError(getErrorMessage(draftError))
+    })
+  }, [
+    attachments,
+    composerStorageKey,
+    draftInput,
+    isDraftHydrated,
+    selectedRecipientAliases,
+  ])
 
   const ensureSession = useCallback(async () => {
     if (startedSessionRef.current) return true
@@ -879,10 +950,20 @@ export default function ManagedAgentPane({
       applySnapshot(event.snapshot)
     })
 
-    void api.getManagedSessionSnapshots().then((snapshots) => {
+    void api.getManagedSessionSnapshots().then(async (snapshots) => {
       const existing = snapshots[sessionId]
       if (existing) {
         applySnapshot(existing)
+        return
+      }
+      const transcriptApi = api as AideApi & {
+        getTaskTranscript?: (
+          requestedSessionId: string,
+        ) => Promise<ManagedSessionSnapshot | null>
+      }
+      const transcript = await transcriptApi.getTaskTranscript?.(sessionId)
+      if (transcript) {
+        setSnapshot(transcript)
       }
     })
 
@@ -921,7 +1002,11 @@ export default function ManagedAgentPane({
   }, [])
 
   const sendPromptText = useCallback(
-    async (text: string, recipients: readonly string[] = []) => {
+    async (
+      text: string,
+      recipients: readonly string[] = [],
+      promptAttachments: readonly ManagedSessionAttachment[] = [],
+    ) => {
       const api = getAideApi()
       const trimmed = text.trim()
 
@@ -937,7 +1022,12 @@ export default function ManagedAgentPane({
             return false
           }
         }
-        await api.sendManagedSessionInput(sessionId, trimmed, recipients)
+        await api.sendManagedSessionInput(
+          sessionId,
+          trimmed,
+          recipients,
+          promptAttachments,
+        )
         setError(null)
         return true
       } catch (sendError) {
@@ -953,6 +1043,7 @@ export default function ManagedAgentPane({
   const handleSendInput = useCallback(async () => {
     const submittedDraft = draftInput
     const submittedRecipientAliases = selectedRecipientAliases
+    const submittedAttachments = attachments
     const parsed = extractExplicitRecipientAliases(
       submittedDraft,
       configuredAgents.map((agent) => agent.alias),
@@ -972,21 +1063,125 @@ export default function ManagedAgentPane({
       return
     }
 
-    if (await sendPromptText(parsed.text, recipients)) {
+    if (await sendPromptText(parsed.text, recipients, submittedAttachments)) {
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
       )
       setSelectedRecipientAliases((currentAliases) =>
         currentAliases === submittedRecipientAliases ? [] : currentAliases,
       )
+      setAttachments((currentAttachments) =>
+        currentAttachments === submittedAttachments ? [] : currentAttachments,
+      )
     }
   }, [
     agentMode,
+    attachments,
     configuredAgents,
     draftInput,
     selectedRecipientAliases,
     sendPromptText,
   ])
+
+  const addImageFiles = useCallback(
+    async (files: readonly File[]) => {
+      try {
+        const nextAttachments = await createImageAttachments(files, attachments)
+        if (nextAttachments.length > 0) {
+          setAttachments((current) => [...current, ...nextAttachments])
+          setError(null)
+        }
+      } catch (attachmentError) {
+        setError(getErrorMessage(attachmentError))
+      }
+    },
+    [attachments],
+  )
+
+  const handleComposerPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
+        file.type.startsWith('image/'),
+      )
+      if (imageFiles.length === 0) return
+      event.preventDefault()
+      void addImageFiles(imageFiles)
+    },
+    [addImageFiles],
+  )
+
+  const handleComposerDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      const imageFiles = Array.from(event.dataTransfer.files).filter((file) =>
+        file.type.startsWith('image/'),
+      )
+      if (imageFiles.length === 0) return
+      event.preventDefault()
+      void addImageFiles(imageFiles)
+    },
+    [addImageFiles],
+  )
+
+  const handlePickWorkspaceFiles = useCallback(async () => {
+    const api = getAideApi()
+    if (!api) return
+    try {
+      const paths = await api.pickManagedSessionFiles(workspace.id)
+      const uniquePaths = paths.filter(
+        (filePath) =>
+          !attachments.some(
+            (attachment) =>
+              attachment.kind === 'workspace-file' &&
+              attachment.path === filePath,
+          ),
+      )
+      if (
+        attachments.length + uniquePaths.length >
+        MANAGED_SESSION_MAX_ATTACHMENTS
+      ) {
+        throw new Error(
+          `Attach at most ${MANAGED_SESSION_MAX_ATTACHMENTS} files.`,
+        )
+      }
+      setAttachments((current) => {
+        const existingPaths = new Set(
+          current.flatMap((attachment) =>
+            attachment.kind === 'workspace-file' ? [attachment.path] : [],
+          ),
+        )
+        return [
+          ...current,
+          ...uniquePaths
+            .filter((filePath) => !existingPaths.has(filePath))
+            .map((filePath) => ({
+              id: crypto.randomUUID(),
+              kind: 'workspace-file' as const,
+              path: filePath,
+            })),
+        ]
+      })
+      setError(null)
+    } catch (attachmentError) {
+      setError(getErrorMessage(attachmentError))
+    }
+  }, [attachments, workspace.id])
+
+  const runQueueAction = useCallback(
+    async (action: (api: AideApi) => Promise<void>) => {
+      const api = getAideApi()
+      if (!api) return
+      setIsSubmitting(true)
+      try {
+        await action(api)
+        setError(null)
+      } catch (queueError) {
+        setError(getErrorMessage(queueError))
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [],
+  )
 
   const handleRetryTurn = useCallback(
     async (text: string, recipientAlias: string) => {
@@ -1511,11 +1706,43 @@ export default function ManagedAgentPane({
           />
         ))}
 
+        <ManagedInputQueue
+          canSteer={Boolean(
+            snapshot?.provider === 'codex' &&
+              snapshot.turns.some(
+                (turn) => turn.state === 'running' && !turn.recipientAlias,
+              ),
+          )}
+          isPaused={snapshot?.queuePaused ?? false}
+          isSubmitting={isSubmitting}
+          items={snapshot?.queuedInputs ?? []}
+          onCancel={(queuedInputId) =>
+            void runQueueAction((api) =>
+              api.cancelManagedSessionQueuedInput(sessionId, queuedInputId),
+            )
+          }
+          onResume={() =>
+            void runQueueAction((api) =>
+              api.resumeManagedSessionQueue(sessionId),
+            )
+          }
+          onSendNow={(queuedInputId) =>
+            void runQueueAction((api) =>
+              api.sendManagedSessionQueuedInputNow(sessionId, queuedInputId),
+            )
+          }
+        />
+
         <div
           className={cn(
             'relative mx-auto w-full max-w-3xl rounded-lg border bg-surface transition-colors',
             agentMode === 'plan' ? 'border-primary/60' : 'border-border',
           )}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes('Files'))
+              event.preventDefault()
+          }}
+          onDrop={handleComposerDrop}
         >
           {recipientMenuOpen ? (
             <RecipientMentionMenu
@@ -1632,6 +1859,15 @@ export default function ManagedAgentPane({
               })}
             </div>
           ) : null}
+
+          <ManagedComposerAttachments
+            attachments={attachments}
+            onRemove={(attachmentId) =>
+              setAttachments((current) =>
+                current.filter((attachment) => attachment.id !== attachmentId),
+              )
+            }
+          />
 
           {selectedRecipientAliases.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 px-4 pt-3">
@@ -1794,6 +2030,7 @@ export default function ManagedAgentPane({
                 void handleSendInput()
               }
             }}
+            onPaste={handleComposerPaste}
             placeholder={
               activeQuestion
                 ? 'Type your own answer, or leave this blank to use the selected option'
@@ -1804,6 +2041,10 @@ export default function ManagedAgentPane({
           />
 
           <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
+            <ManagedComposerAttachmentButton
+              isDisabled={isSubmitting || Boolean(activeQuestion)}
+              onPickFiles={() => void handlePickWorkspaceFiles()}
+            />
             {isUnifiedPane ? (
               <ModelSelector
                 capabilities={capabilities}
