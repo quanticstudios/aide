@@ -1734,6 +1734,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
 
 class FakeManagedSessionBackend implements ManagedSessionBackend {
   private activeRequestId: string | null = null
+  private activeTurnId: string | null = null
 
   public constructor(
     private readonly provider: ManagedProviderRuntimeProvider,
@@ -1766,6 +1767,15 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     if (!trimmed) {
       return
     }
+
+    this.activeTurnId = randomUUID()
+    const turnId = this.activeTurnId
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      turnId,
+      type: 'turn.started',
+    })
 
     if (trimmed === 'approval') {
       this.activeRequestId = randomUUID()
@@ -1819,13 +1829,6 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
-    const turnId = randomUUID()
-    this.emitRuntimeEvent({
-      createdAt: this.getNow(),
-      provider: this.provider,
-      turnId,
-      type: 'turn.started',
-    })
     if (trimmed === `wait-${this.provider}`) return
     if (trimmed === `fail-${this.provider}`) {
       this.emitRuntimeEvent({
@@ -1835,6 +1838,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
         state: 'failed',
         type: 'turn.completed',
       })
+      this.activeTurnId = null
       return
     }
     this.emitRuntimeEvent({
@@ -1852,6 +1856,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       turnId,
       type: 'turn.completed',
     })
+    this.activeTurnId = null
   }
 
   public async resolveRequest(): Promise<void> {
@@ -1866,6 +1871,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       type: 'request.resolved',
     })
     this.activeRequestId = null
+    this.finishTurn('completed')
   }
 
   public async resolveUserInput(): Promise<void> {
@@ -1880,9 +1886,39 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       type: 'user-input.resolved',
     })
     this.activeRequestId = null
+    this.finishTurn('completed')
   }
 
-  public async interrupt(): Promise<void> {}
+  public async interrupt(): Promise<void> {
+    this.finishTurn('cancelled')
+  }
+
+  public async steerInput(text: string): Promise<void> {
+    if (this.provider !== 'codex' || !this.activeTurnId)
+      throw new Error('No active Codex turn to steer.')
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      type: 'content.delta',
+      itemId: randomUUID(),
+      kind: 'assistant-text',
+      text: `Steered: ${text}`,
+    })
+    this.finishTurn('completed')
+  }
+
+  private finishTurn(state: 'completed' | 'cancelled'): void {
+    const turnId = this.activeTurnId
+    if (!turnId) return
+    this.activeTurnId = null
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      turnId,
+      state,
+      type: 'turn.completed',
+    })
+  }
 
   public async close(): Promise<void> {
     this.emitRuntimeEvent({
@@ -2337,14 +2373,6 @@ export class ManagedSessionManager {
     state.queuedInputInProgressId = queuedInput.id
     state.preparationAbortController = preparationAbortController
     try {
-      if (!queuedInput.checkpointId) {
-        const checkpoint = await this.options.beforeInput?.({
-          config: state.config,
-          snapshot: state.snapshot,
-          text: queuedInput.text,
-        })
-        queuedInput.checkpointId = checkpoint?.checkpointId
-      }
       const prepared = await this.prepareQueuedInput(
         state,
         queuedInput,
@@ -2383,6 +2411,7 @@ export class ManagedSessionManager {
       state.queuedInputCommittedId = null
       state.cancelledQueuedInputIds.delete(queuedInput.id)
     }
+    await this.drainQueuedInputs(state)
   }
 
   private resolveRecipientAgents(
@@ -3516,12 +3545,9 @@ export class ManagedSessionManager {
       this.schedulePersistence(state)
     }
     if (terminalCheckpointId && this.options.afterTurn) {
-      const shouldContinueQueue =
-        event.type === 'turn.completed' && event.state === 'completed'
       const checkpointCompletion = this.completeCheckpoint(
         state,
         terminalCheckpointId,
-        shouldContinueQueue,
       )
       state.checkpointCompletion = checkpointCompletion
       void checkpointCompletion
@@ -3533,7 +3559,6 @@ export class ManagedSessionManager {
   private async completeCheckpoint(
     state: ManagedSessionMutableState,
     checkpointId: string,
-    shouldContinueQueue: boolean,
   ): Promise<void> {
     try {
       await this.options.afterTurn?.(checkpointId)
@@ -3550,7 +3575,7 @@ export class ManagedSessionManager {
       state.checkpointCompletion = null
     }
 
-    if (shouldContinueQueue) await this.drainQueuedInputs(state)
+    await this.drainQueuedInputs(state)
   }
 
   private getSafeHistory(

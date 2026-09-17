@@ -605,6 +605,41 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('excludes overlapping workspace mutations and releases after failure', async () => {
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    let releaseFirstMutation: (() => void) | undefined
+    const firstMutation = service.runWorkspaceMutation(
+      'workspace-one',
+      async () => {
+        await new Promise<void>((resolve) => {
+          releaseFirstMutation = resolve
+        })
+        throw new Error('Workspace mutation failed.')
+      },
+    )
+
+    await expect(
+      service.runWorkspaceMutation('workspace-one', async () => 'overlap'),
+    ).rejects.toThrow(
+      'A workspace change is already running. Wait for it to finish before trying again.',
+    )
+
+    await expect(
+      service.runWorkspaceMutation('workspace-two', async () => 'parallel'),
+    ).resolves.toBe('parallel')
+
+    if (!releaseFirstMutation) throw new Error('First mutation did not start.')
+    releaseFirstMutation()
+    await expect(firstMutation).rejects.toThrow('Workspace mutation failed.')
+
+    await expect(
+      service.runWorkspaceMutation('workspace-one', async () => 'released'),
+    ).resolves.toBe('released')
+
+    database.close()
+  })
+
   it('stages, unstages, commits, and reverts a changed file in its workspace', async () => {
     const repoRoot = createGitRepository()
     const database = createAideDatabase(':memory:')

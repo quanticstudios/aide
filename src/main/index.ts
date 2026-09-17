@@ -159,6 +159,14 @@ function requireRuntimeId(value: unknown, label: string): string {
   return value
 }
 
+function requireWorkspaceGitMutationId(input: unknown): string {
+  if (!isRecord(input)) {
+    throw new Error('Invalid workspace Git request.')
+  }
+
+  return requireRuntimeId(input.workspaceId, 'workspace id')
+}
+
 function requireTerminalSize(value: unknown): TerminalResizeInput {
   if (
     !isRecord(value) ||
@@ -601,14 +609,14 @@ function registerIpcHandlers(): void {
     event.sender.send(IPC_CHANNELS.taskOpen, id)
   })
   ipcMain.handle(
-    IPC_CHANNELS.listTurnCheckpoints,
+    IPC_CHANNELS.turnCheckpointList,
     (_event, sessionId: unknown) =>
       turnCheckpoints.listCheckpoints(
         requireRuntimeId(sessionId, 'conversation id'),
       ),
   )
   ipcMain.handle(
-    IPC_CHANNELS.previewTurnCheckpointRestore,
+    IPC_CHANNELS.turnCheckpointPreviewRestore,
     async (_event, sessionId: unknown, checkpointId: unknown) => {
       const id = requireRuntimeId(sessionId, 'conversation id')
       const snapshot = getSavedTaskSnapshot(id)
@@ -623,47 +631,58 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
-    IPC_CHANNELS.restoreTurnCheckpoint,
+    IPC_CHANNELS.turnCheckpointRestore,
     async (_event, previewId: unknown, mode: CheckpointRestoreMode) => {
       const id = requireRuntimeId(previewId, 'checkpoint preview id')
       const sourceId = checkpointPreviews.get(id)
       const snapshot = sourceId ? getSavedTaskSnapshot(sourceId) : null
       if (!snapshot)
         throw new Error('Preview the checkpoint again before restoring.')
-      if (restoringWorkspaces.has(snapshot.workspaceId))
+      const workspaceId = requireRuntimeId(snapshot.workspaceId, 'workspace id')
+      if (restoringWorkspaces.has(workspaceId))
         throw new Error('A checkpoint restoration is already running.')
-      const workspace = database.getWorkspace(snapshot.workspaceId)
+      const workspace = database.getWorkspace(workspaceId)
       if (!workspace)
         throw new Error('The checkpoint workspace is no longer available.')
-      restoringWorkspaces.add(workspace.id)
-      try {
-        const seed = await turnCheckpoints.restore(id, mode)
-        if (seed.config.cwd !== workspace.worktreePath)
-          throw new Error('The checkpoint workspace path changed.')
-        const paneId = `agent::copy-checkpoint-${randomUUID()}`
-        const sessionId = `${workspace.id}:${paneId}`
-        const identity = { paneId, sessionId, workspaceId: workspace.id }
-        managedSessionManager.registerRestoredSession(
-          { ...seed.config, ...identity },
-          {
-            ...seed.snapshot,
-            ...identity,
-            queuedInputs: [],
-            queuePaused: false,
-          },
+      if (workspaceSetupManager.getSnapshot(workspace.id).state === 'running') {
+        throw new Error(
+          'Wait for workspace setup to finish before restoring a checkpoint.',
         )
-        checkpointPreviews.delete(id)
-        windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
-        return {
-          checkpointId: seed.checkpointId,
-          editedPrompt: seed.editedPrompt,
-          mode,
-          sessionId,
-          sourceSessionId: seed.sourceSessionId,
-        }
-      } finally {
-        restoringWorkspaces.delete(workspace.id)
       }
+      return gitWorkspaceService.runWorkspaceMutation(
+        workspace.id,
+        async () => {
+          restoringWorkspaces.add(workspace.id)
+          try {
+            const seed = await turnCheckpoints.restore(id, mode)
+            if (seed.config.cwd !== workspace.worktreePath)
+              throw new Error('The checkpoint workspace path changed.')
+            const paneId = `agent::copy-checkpoint-${randomUUID()}`
+            const sessionId = `${workspace.id}:${paneId}`
+            const identity = { paneId, sessionId, workspaceId: workspace.id }
+            managedSessionManager.registerRestoredSession(
+              { ...seed.config, ...identity },
+              {
+                ...seed.snapshot,
+                ...identity,
+                queuedInputs: [],
+                queuePaused: false,
+              },
+            )
+            checkpointPreviews.delete(id)
+            windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+            return {
+              checkpointId: seed.checkpointId,
+              editedPrompt: seed.editedPrompt,
+              mode,
+              sessionId,
+              sourceSessionId: seed.sourceSessionId,
+            }
+          } finally {
+            restoringWorkspaces.delete(workspace.id)
+          }
+        },
+      )
     },
   )
   ipcMain.handle(
@@ -892,6 +911,9 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.runWorkspaceSetup, (event, workspaceId) => {
     const workspace = requireWorkspaceForSetup(event, workspaceId)
+    if (restoringWorkspaces.has(workspace.id)) {
+      throw new Error('Wait for checkpoint restoration before running setup.')
+    }
     return workspaceSetupManager.run(workspace.id)
   })
   ipcMain.handle(IPC_CHANNELS.cancelWorkspaceSetup, (event, workspaceId) => {
@@ -912,20 +934,40 @@ function registerIpcHandlers(): void {
       gitWorkspaceService.getWorkspaceFileDiff(workspaceId, filePath),
   )
   ipcMain.handle(IPC_CHANNELS.stageWorkspaceGitFile, (_event, input) =>
-    gitWorkspaceService.stageWorkspaceFile(
-      input as WorkspaceGitFileMutationInput,
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.stageWorkspaceFile(
+          input as WorkspaceGitFileMutationInput,
+        ),
     ),
   )
   ipcMain.handle(IPC_CHANNELS.unstageWorkspaceGitFile, (_event, input) =>
-    gitWorkspaceService.unstageWorkspaceFile(
-      input as WorkspaceGitFileMutationInput,
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.unstageWorkspaceFile(
+          input as WorkspaceGitFileMutationInput,
+        ),
     ),
   )
   ipcMain.handle(IPC_CHANNELS.revertWorkspaceGitFile, (_event, input) =>
-    gitWorkspaceService.revertWorkspaceFile(input as WorkspaceGitRevertInput),
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.revertWorkspaceFile(
+          input as WorkspaceGitRevertInput,
+        ),
+    ),
   )
   ipcMain.handle(IPC_CHANNELS.commitWorkspaceGitIndex, (_event, input) =>
-    gitWorkspaceService.commitWorkspaceIndex(input as WorkspaceGitCommitInput),
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.commitWorkspaceIndex(
+          input as WorkspaceGitCommitInput,
+        ),
+    ),
   )
   ipcMain.handle(IPC_CHANNELS.pushWorkspaceGitBranch, (_event, workspaceId) =>
     gitWorkspaceService.pushWorkspaceBranch(workspaceId as string),

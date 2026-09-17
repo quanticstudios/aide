@@ -13,7 +13,7 @@ import type { AideApi } from '../../../shared/ipc'
 interface ManagedCheckpointControlsProps {
   readonly checkpointId: string
   readonly isDisabled: boolean
-  readonly onRestored: (result: TurnCheckpointRestoreResult) => void
+  readonly onRestored: (result: TurnCheckpointRestoreResult) => Promise<void>
   readonly sessionId: string
 }
 
@@ -21,6 +21,7 @@ interface CheckpointRestoreDialogProps {
   readonly error: string | null
   readonly isOpen: boolean
   readonly isRestoring: boolean
+  readonly isRestored?: boolean
   readonly mode: CheckpointRestoreMode
   readonly onModeChange: (mode: CheckpointRestoreMode) => void
   readonly onOpenChange: (isOpen: boolean) => void
@@ -80,12 +81,13 @@ function CheckpointPatch({ patch }: { readonly patch: string }) {
 
 export function CheckpointRestoreContent({
   error,
+  isRestored = false,
   mode,
   onModeChange,
   preview,
 }: Pick<
   CheckpointRestoreDialogProps,
-  'error' | 'mode' | 'onModeChange' | 'preview'
+  'error' | 'isRestored' | 'mode' | 'onModeChange' | 'preview'
 >) {
   return (
     <>
@@ -94,7 +96,7 @@ export function CheckpointRestoreContent({
         composer. The current conversation remains unchanged.
       </p>
 
-      <fieldset className="space-y-2">
+      <fieldset className="space-y-2" disabled={isRestored}>
         <legend className="text-sm font-semibold text-foreground">
           Restore
         </legend>
@@ -184,6 +186,7 @@ export function CheckpointRestoreDialog({
   error,
   isOpen,
   isRestoring,
+  isRestored = false,
   mode,
   onModeChange,
   onOpenChange,
@@ -199,13 +202,14 @@ export function CheckpointRestoreDialog({
         variant="opaque"
       >
         <Modal.Container placement="center" size="lg">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <Modal.Dialog className="rounded-xl border border-border bg-surface text-foreground shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
             <Modal.Header>
               <Modal.Heading>Restore checkpoint</Modal.Heading>
             </Modal.Header>
-            <Modal.Body className="gap-4">
+            <Modal.Body className="gap-4 text-foreground">
               <CheckpointRestoreContent
                 error={error}
+                isRestored={isRestored}
                 mode={mode}
                 onModeChange={onModeChange}
                 preview={preview}
@@ -224,7 +228,11 @@ export function CheckpointRestoreDialog({
                 onPress={onRestore}
                 variant="primary"
               >
-                {isRestoring ? 'Restoring…' : 'Restore to new conversation'}
+                {isRestoring
+                  ? 'Restoring…'
+                  : isRestored
+                    ? 'Retry opening conversation'
+                    : 'Restore to new conversation'}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>
@@ -247,6 +255,8 @@ export default function ManagedCheckpointControls({
   const [isLoading, setIsLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [isRestoring, setIsRestoring] = useState(false)
+  const [restoredResult, setRestoredResult] =
+    useState<TurnCheckpointRestoreResult | null>(null)
 
   useEffect(() => {
     if (!isOpen && preview) triggerRef.current?.focus()
@@ -263,6 +273,7 @@ export default function ManagedCheckpointControls({
         checkpointId,
       )
       setPreview(nextPreview)
+      setRestoredResult(null)
       setMode('conversation-only')
       setIsOpen(true)
     } catch (nextError) {
@@ -278,9 +289,12 @@ export default function ManagedCheckpointControls({
     setError(null)
     setIsRestoring(true)
     try {
-      const result = await api.restoreTurnCheckpoint(preview.previewId, mode)
+      const result =
+        restoredResult ??
+        (await api.restoreTurnCheckpoint(preview.previewId, mode))
+      setRestoredResult(result)
+      await onRestored(result)
       setIsOpen(false)
-      onRestored(result)
     } catch (nextError) {
       setError(getErrorMessage(nextError))
     } finally {
@@ -309,6 +323,7 @@ export default function ManagedCheckpointControls({
         error={error}
         isOpen={isOpen}
         isRestoring={isRestoring}
+        isRestored={restoredResult !== null}
         mode={mode}
         onModeChange={setMode}
         onOpenChange={(nextIsOpen) => {

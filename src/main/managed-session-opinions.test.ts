@@ -286,9 +286,11 @@ describe('managed session opinions', () => {
     const aliases = ['alpha', 'beta']
     const dispatch = manager.sendInput(config.sessionId, 'compare', aliases)
     await vi.waitFor(() => expect([...pending.keys()]).toHaveLength(2))
-    await expect(
-      manager.sendInput(config.sessionId, 'normal'),
-    ).rejects.toThrow()
+    await manager.sendInput(config.sessionId, 'normal')
+    expect(manager.getSnapshots()[config.sessionId].queuedInputs).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: 'normal' })]),
+    )
+    expect([...pending.keys()]).toHaveLength(2)
     await manager.interruptSession(config.sessionId)
     await dispatch
     lateChildEmitter?.({

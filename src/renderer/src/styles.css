@@ -131,6 +131,7 @@
   --muted-foreground: #9c9c9d;
   --accent: #101111;
   --accent-foreground: #f4f4f6;
+  --accent-soft-foreground: #f4f4f6;
 
   /* Text ladder */
   --body: #cdcdcd;

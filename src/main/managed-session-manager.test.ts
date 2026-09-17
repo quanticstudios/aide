@@ -1156,9 +1156,77 @@ createInterface({ input: process.stdin }).on('line', line => {
     ])
   })
 
+  it('drains an explicitly resumed queue after a cancelled turn checkpoint completes', async () => {
+    const checkpointCaptureStarted = createDeferred()
+    const completeCheckpointCapture = createDeferred()
+    let emitRuntimeEvent:
+      | ((event: ManagedProviderRuntimeEvent) => void)
+      | undefined
+    const sent: string[] = []
+    const manager = new ManagedSessionManager({
+      afterTurn: async () => {
+        checkpointCaptureStarted.resolve()
+        await completeCheckpointCapture.promise
+      },
+      beforeInput: async ({ text }) => ({ checkpointId: `checkpoint-${text}` }),
+      createBackend: (config, emit) => {
+        emitRuntimeEvent = emit
+        return {
+          close: async () => undefined,
+          interrupt: async () => undefined,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          sendInput: async (text) => {
+            sent.push(text)
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              turnId: `turn-${sent.length}`,
+              type: 'turn.started',
+            })
+          },
+          start: async () => {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            })
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    await manager.sendInput(config.sessionId, 'queued after cancellation')
+    emitRuntimeEvent?.({
+      createdAt: '2026-04-11T10:00:01.000Z',
+      provider: 'claude',
+      state: 'cancelled',
+      turnId: 'turn-1',
+      type: 'turn.completed',
+    })
+    await checkpointCaptureStarted.promise
+
+    await manager.resumeQueue(config.sessionId)
+    expect(sent).toEqual(['first'])
+
+    completeCheckpointCapture.resolve()
+    await vi.waitFor(() => expect(sent).toHaveLength(2))
+    expect(sent[1]).toContain('queued after cancellation')
+  })
+
   it('steers an active Codex turn without starting a concurrent turn', async () => {
+    const checkpoints: string[] = []
     const steered: string[] = []
     const manager = new ManagedSessionManager({
+      beforeInput: async ({ text }) => {
+        checkpoints.push(text)
+        return { checkpointId: `checkpoint-${text}` }
+      },
       createBackend: (config, emit) => ({
         close: async () => undefined,
         interrupt: async () => undefined,
@@ -1194,6 +1262,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     const queuedInputId =
       manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id
     await manager.sendQueuedInputNow(config.sessionId, queuedInputId ?? '')
+    expect(checkpoints).toEqual(['start'])
     expect(steered).toEqual([expect.stringContaining('steer this')])
     expect(manager.getSnapshots()[config.sessionId]?.turns).toHaveLength(1)
   })

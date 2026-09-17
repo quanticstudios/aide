@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { lstat, open, realpath, readlink, rm } from 'node:fs/promises'
+import { lstat, open, readlink, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -447,6 +447,7 @@ async function readWorkspaceFileDigest(
 }
 
 export class GitWorkspaceService {
+  private readonly activeWorkspaceMutations = new Set<string>()
   private gitPathPromise: Promise<string> | null = null
   private ghPathPromise: Promise<string> | null = null
 
@@ -454,6 +455,24 @@ export class GitWorkspaceService {
     private readonly store: GitWorkspaceStore,
     private readonly runGitHubCommand?: GitHubCommandRunner,
   ) {}
+
+  public async runWorkspaceMutation<Result>(
+    workspaceId: string,
+    operation: () => Promise<Result>,
+  ): Promise<Result> {
+    if (this.activeWorkspaceMutations.has(workspaceId)) {
+      throw new Error(
+        'A workspace change is already running. Wait for it to finish before trying again.',
+      )
+    }
+
+    this.activeWorkspaceMutations.add(workspaceId)
+    try {
+      return await operation()
+    } finally {
+      this.activeWorkspaceMutations.delete(workspaceId)
+    }
+  }
 
   public async getWorkspaceStatus(
     workspaceId: string,

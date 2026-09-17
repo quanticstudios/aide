@@ -154,7 +154,7 @@ async function addPane(page: Page, paneName: RegExp): Promise<void> {
 }
 
 async function expandSidebar(page: Page): Promise<void> {
-  await page.getByTestId('sidebar-shell').hover()
+  await page.getByTestId('sidebar-shell').getByRole('button').first().focus()
   await expect(page.getByTestId('workspace-tree-panel')).toHaveAttribute(
     'data-expanded',
     'true',
@@ -600,7 +600,9 @@ test.describe('electron spatial navigation', () => {
         /Allow TypeSafe processing for this workspace in Jev setup/,
       ),
     ).toBeVisible()
-    await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
+    await expect(page.getByTestId('managed-input-queue')).toContainText(
+      'Keep this draft until Jev is configured',
+    )
     await expect(page.getByTestId('managed-session-content')).not.toContainText(
       'Handled:',
     )
@@ -735,6 +737,7 @@ test.describe('electron spatial navigation', () => {
     expect(
       runGit(chosenProjectRoot, ['diff', '--cached', '--name-only']),
     ).toContain('README.md')
+    await page.screenshot({ path: test.info().outputPath('git-review.png') })
     await page.getByRole('button', { name: 'Unstage', exact: true }).click()
     await page.getByRole('button', { name: 'Revert file', exact: true }).click()
     await page

@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { TurnCheckpointRestoreResult } from '../../../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -84,6 +85,7 @@ import { cn } from '../lib/utils'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import JevSetup from './JevSetup'
+import ManagedCheckpointControls from './ManagedCheckpointControls'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
 } from './ManagedComposerAttachments'
@@ -478,23 +480,33 @@ function ContentItemBlock({
 }
 
 function TurnGroupBlock({
+  checkpointId,
   group,
+  isCheckpointRestoreDisabled,
   isFailed,
   isRunning,
+  onCheckpointRestored,
   onInterrupt,
   onRetry,
   providerLabel,
   recipientAlias,
   requestText,
+  sessionId,
 }: {
+  readonly checkpointId: string | null
   readonly group: TurnGroup
+  readonly isCheckpointRestoreDisabled: boolean
   readonly isFailed: boolean
   readonly isRunning: boolean
+  readonly onCheckpointRestored: (
+    result: TurnCheckpointRestoreResult,
+  ) => Promise<void>
   readonly onInterrupt: (recipientAlias: string) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
   readonly recipientAlias: string | null
   readonly requestText: string | null
+  readonly sessionId: string
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
@@ -553,6 +565,16 @@ function TurnGroupBlock({
               Interrupt @{recipientAlias}
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {checkpointId && !isRunning ? (
+        <div className="flex justify-end px-1">
+          <ManagedCheckpointControls
+            checkpointId={checkpointId}
+            isDisabled={isCheckpointRestoreDisabled}
+            onRestored={onCheckpointRestored}
+            sessionId={sessionId}
+          />
         </div>
       ) : null}
       {group.items.length > 0 ? (
@@ -634,7 +656,9 @@ export default function ManagedAgentPane({
     readonly string[]
   >([])
   const [isDraftHydrated, setIsDraftHydrated] = useState(false)
-  const draftSaveChainRef = useRef<Promise<void>>(Promise.resolve())
+  const [draftLoadError, setDraftLoadError] = useState<string | null>(null)
+  const draftLoadGenerationRef = useRef(0)
+  const draftSaveChainRef = useRef<Promise<void> | null>(null)
   const [recipientActiveIndex, setRecipientActiveIndex] = useState(0)
   const [isRecipientMenuDismissed, setIsRecipientMenuDismissed] =
     useState(false)
@@ -749,26 +773,37 @@ export default function ManagedAgentPane({
     }
   }, [draftInput])
 
-  useEffect(() => {
-    let isCurrentDraft = true
+  const hydrateManagedDraft = useCallback(async () => {
+    const generation = draftLoadGenerationRef.current + 1
+    draftLoadGenerationRef.current = generation
     setIsDraftHydrated(false)
-    void loadManagedDraft(composerStorageKey)
-      .then((draft) => {
-        if (!isCurrentDraft) return
-        setDraftInput(draft?.text ?? '')
-        setAttachments(draft?.attachments ?? [])
-        setSelectedRecipientAliases(draft?.recipients ?? [])
-        setIsDraftHydrated(true)
-      })
-      .catch((draftError) => {
-        if (!isCurrentDraft) return
-        setError(getErrorMessage(draftError))
-        setIsDraftHydrated(true)
-      })
-    return () => {
-      isCurrentDraft = false
+    setDraftLoadError(null)
+    setError((currentError) =>
+      currentError?.startsWith('Could not load saved draft:')
+        ? null
+        : currentError,
+    )
+    try {
+      const draft = await loadManagedDraft(composerStorageKey)
+      if (draftLoadGenerationRef.current !== generation) return
+      setDraftInput(draft?.text ?? '')
+      setAttachments(draft?.attachments ?? [])
+      setSelectedRecipientAliases(draft?.recipients ?? [])
+      setIsDraftHydrated(true)
+    } catch (draftError) {
+      if (draftLoadGenerationRef.current !== generation) return
+      const message = `Could not load saved draft: ${getErrorMessage(draftError)}`
+      setDraftLoadError(message)
+      setError(message)
     }
   }, [composerStorageKey])
+
+  useEffect(() => {
+    void hydrateManagedDraft()
+    return () => {
+      draftLoadGenerationRef.current += 1
+    }
+  }, [hydrateManagedDraft])
 
   useEffect(() => {
     if (!isDraftHydrated) return
@@ -788,7 +823,7 @@ export default function ManagedAgentPane({
         await saveManagedDraft(composerStorageKey, draft)
       }
     }
-    draftSaveChainRef.current = draftSaveChainRef.current
+    draftSaveChainRef.current = (draftSaveChainRef.current ?? Promise.resolve())
       .catch(() => undefined)
       .then(persistDraft)
     void draftSaveChainRef.current.catch((draftError) => {
@@ -1172,6 +1207,7 @@ export default function ManagedAgentPane({
       if (!api) return
       setIsSubmitting(true)
       try {
+        if (!(await ensureSession())) return
         await action(api)
         setError(null)
       } catch (queueError) {
@@ -1180,7 +1216,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [],
+    [ensureSession],
   )
 
   const handleRetryTurn = useCallback(
@@ -1586,6 +1622,22 @@ export default function ManagedAgentPane({
     [slashContext],
   )
 
+  const handleCheckpointRestored = useCallback(
+    async (result: TurnCheckpointRestoreResult) => {
+      const api = getAideApi()
+      if (!api) {
+        throw new Error('Managed provider bridge did not load.')
+      }
+      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
+        attachments: [],
+        recipients: [],
+        text: result.editedPrompt,
+      })
+      await api.openTask(result.sessionId)
+    },
+    [],
+  )
+
   const runningTurnId = useMemo(
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
@@ -1624,8 +1676,17 @@ export default function ManagedAgentPane({
       <JevSetup key={workspace.id} workspaceId={workspace.id} />
 
       {error ? (
-        <div className="border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
-          {error}
+        <div className="flex items-center gap-3 border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
+          <span className="flex-1">{error}</span>
+          {draftLoadError ? (
+            <button
+              className="font-semibold underline underline-offset-2"
+              onClick={() => void hydrateManagedDraft()}
+              type="button"
+            >
+              Retry draft
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -1653,10 +1714,17 @@ export default function ManagedAgentPane({
 
               return (
                 <TurnGroupBlock
+                  checkpointId={turn?.checkpointId ?? null}
                   group={group}
+                  isCheckpointRestoreDisabled={
+                    isSubmitting ||
+                    !canChangeProviderSelection ||
+                    Boolean(snapshot?.queuedInputs?.length)
+                  }
                   isFailed={turn?.state === 'failed'}
                   isRunning={turn?.state === 'running'}
                   key={group.turnId ?? `system-${group.items[0]?.id}`}
+                  onCheckpointRestored={handleCheckpointRestored}
                   onInterrupt={handleInterruptRecipient}
                   onRetry={(text, recipientAlias) =>
                     void handleRetryTurn(text, recipientAlias)
@@ -1664,6 +1732,7 @@ export default function ManagedAgentPane({
                   providerLabel={providerLabel}
                   recipientAlias={turn?.recipientAlias ?? null}
                   requestText={turn?.requestText ?? null}
+                  sessionId={sessionId}
                 />
               )
             })}
@@ -1901,6 +1970,7 @@ export default function ManagedAgentPane({
               activeQuestion ? 'Free-form answer' : `${providerLabel} prompt`
             }
             className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
+            disabled={!isDraftHydrated}
             onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
               const value = event.target.value
               if (activeQuestion && primaryQuestionId) {
@@ -2126,6 +2196,7 @@ export default function ManagedAgentPane({
                 className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
                 disabled={
                   isSubmitting ||
+                  !isDraftHydrated ||
                   draftInput.trim().length === 0 ||
                   (!startedSessionRef.current && !isSelectionHydrated)
                 }

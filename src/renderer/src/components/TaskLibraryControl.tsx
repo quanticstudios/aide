@@ -14,6 +14,8 @@ const STATUS_LABELS: Record<SavedTask['status'], string> = {
   failed: 'Failed',
   interrupted: 'Interrupted',
   running: 'Working',
+  queued: 'Queued',
+  paused: 'Queue paused',
   completed: 'Completed',
   idle: 'Ready',
 }
@@ -167,9 +169,15 @@ export default function TaskLibraryControl({
 
   const needsAttention = (task: SavedTask) =>
     task.unread ||
-    ['approval', 'input', 'failed', 'interrupted', 'running'].includes(
-      task.status,
-    )
+    [
+      'approval',
+      'input',
+      'failed',
+      'interrupted',
+      'running',
+      'queued',
+      'paused',
+    ].includes(task.status)
   const unreadCount = library.tasks.filter(
     (task) => !task.archived && task.unread,
   ).length
@@ -217,17 +225,17 @@ export default function TaskLibraryControl({
           variant="opaque"
         >
           <Modal.Container placement="center" size="lg">
-            <Modal.Dialog className="rounded-xl border border-border bg-surface">
+            <Modal.Dialog className="rounded-xl border border-border bg-surface text-foreground">
               <Modal.Header>
                 <Modal.Heading>
                   {mode === 'activity' ? 'Activity inbox' : 'Task history'}
                 </Modal.Heading>
               </Modal.Header>
-              <Modal.Body>
+              <Modal.Body className="text-foreground">
                 <div className="flex flex-wrap items-center gap-3">
                   <input
                     aria-label="Search conversations"
-                    className="min-w-0 flex-1 rounded border border-border bg-background px-3 py-2 text-sm"
+                    className="min-w-0 flex-1 rounded border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground"
                     maxLength={500}
                     placeholder="Search messages, projects, or branches"
                     value={query}
@@ -377,9 +385,13 @@ export default function TaskLibraryControl({
                           isDisabled={
                             busy ||
                             (!task.archived &&
-                              ['running', 'approval', 'input'].includes(
-                                task.status,
-                              ))
+                              [
+                                'running',
+                                'approval',
+                                'input',
+                                'queued',
+                                'paused',
+                              ].includes(task.status))
                           }
                           onPress={() =>
                             void update(task, { archived: !task.archived })

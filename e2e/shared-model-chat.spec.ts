@@ -47,12 +47,14 @@ function createGitRepository(): string {
   return repository
 }
 
-async function launchAideApp(repository: string): Promise<{
+async function launchAideApp(
+  repository: string,
+  dataDirectory = mkdtempSync(path.join(tmpdir(), 'aide-shared-chat-')),
+): Promise<{
   app: ElectronApplication
   dataDirectory: string
   page: Page
 }> {
-  const dataDirectory = mkdtempSync(path.join(tmpdir(), 'aide-shared-chat-'))
   const app = await electron.launch({
     args: [workspaceDir, '--force-device-scale-factor=1'],
     executablePath: path.join(
@@ -147,7 +149,7 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
   await prepareSyntheticJev(app, page)
   const prompt = page.getByRole('textbox', { name: /claude prompt/i })
   await prompt.fill('initialize shared chat')
-  await page.getByRole('button', { name: /send prompt/i }).click()
+  await prompt.press('Enter')
   await expect(page.getByTestId('managed-session-content')).toContainText(
     'Handled: initialize shared chat',
   )
@@ -240,6 +242,10 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Open task history' }).click()
     await expect(task).toContainText('Pinned · Daily review')
     await expect(task).not.toContainText('Unread')
+    await expect(
+      page.getByText('Loading Agent…', { exact: true }),
+    ).not.toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('task-history.png') })
     const snapshot = await page.evaluate(() =>
       window.aide.getTaskLibrary('Handled: initialize'),
     )
@@ -262,6 +268,138 @@ test.describe('shared model chat', () => {
         async () => (await window.aide.getTaskLibrary()).notificationsEnabled,
       ),
     ).toBe(false)
+  })
+
+  test('queues follow-ups, cancels one, and resumes after interruption', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('wait-claude')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ sessionState: 'running' })
+    for (const text of ['cancel this follow-up', 'keep this follow-up']) {
+      await prompt.fill(text)
+      await page.getByRole('button', { name: 'Send prompt' }).click()
+    }
+    const queue = page.getByTestId('managed-input-queue')
+    await expect(queue).toContainText('2 queued')
+    await page.screenshot({
+      path: test.info().outputPath('queued-follow-ups.png'),
+    })
+    await queue
+      .getByRole('button', { name: 'Cancel queued message' })
+      .first()
+      .click()
+    await expect(queue).not.toContainText('cancel this follow-up')
+    await page.getByRole('button', { name: 'Interrupt', exact: true }).click()
+    await queue.getByRole('button', { name: 'Resume', exact: true }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: keep this follow-up',
+    )
+    await expect(queue).not.toBeVisible()
+  })
+
+  test('keeps queued follow-ups paused across a full app restart', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const prompt = launched.page.getByRole('textbox', {
+      name: /claude prompt/i,
+    })
+    await prompt.fill('wait-claude')
+    await launched.page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect
+      .poll(() => getOnlySnapshot(launched.page))
+      .toMatchObject({ sessionState: 'running' })
+    await prompt.fill('resume after restart')
+    await launched.page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect(
+      launched.page.getByTestId('managed-input-queue'),
+    ).toContainText('resume after restart')
+    await app.close()
+    app = null
+    const restarted = await launchAideApp(repository, dataDirectory)
+    app = restarted.app
+    await prepareSyntheticJev(app, restarted.page)
+    const queue = restarted.page.getByTestId('managed-input-queue')
+    await expect(queue).toContainText('resume after restart')
+    await expect(
+      restarted.page.getByTestId('managed-session-content'),
+    ).not.toContainText('Handled: resume after restart')
+    await queue.getByRole('button', { name: 'Resume', exact: true }).click()
+    await expect(
+      restarted.page.getByTestId('managed-session-content'),
+    ).toContainText('Handled: resume after restart')
+    await expect(queue).not.toBeVisible()
+  })
+
+  test('steers an active Codex turn through required Jev preparation', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.evaluate(async (sessionId) => {
+      await window.aide.switchManagedSessionProvider(sessionId, {
+        mode: 'codex',
+        model: 'gpt-5.6-terra',
+        effort: 'medium',
+      })
+    }, session.sessionId)
+    const prompt = page.getByRole('textbox', { name: /codex prompt/i })
+    await prompt.fill('wait-codex')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ sessionState: 'running' })
+    await prompt.fill('change direction now')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await page
+      .getByTestId('managed-input-queue')
+      .getByRole('button', { name: 'Send now' })
+      .click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Steered: change direction now',
+    )
+    await expect(page.getByTestId('managed-input-queue')).not.toBeVisible()
+  })
+
+  test('attaches a selected workspace file to a required-Jev turn', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    await app.evaluate(
+      ({ dialog }, filePath) => {
+        Object.defineProperty(dialog, 'showOpenDialog', {
+          value: async () => ({ canceled: false, filePaths: [filePath] }),
+        })
+      },
+      path.join(repository, 'README.md'),
+    )
+    await page.getByRole('button', { name: 'Attach workspace files' }).click()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await page
+      .getByRole('textbox', { name: /claude prompt/i })
+      .fill('Read the attached workspace file')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: Read the attached workspace file',
+    )
+    await expect(page.getByTestId('composer-attachments')).not.toBeVisible()
   })
 
   test('preserves a ten-megabyte image draft across renderer reload', async () => {

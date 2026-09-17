@@ -165,6 +165,28 @@ describe('TaskLibrary', () => {
     database.close()
   })
 
+  it('keeps paused queues visible and rejects archiving pending messages', () => {
+    const { database, library, snapshot } = fixture()
+    snapshot.queuePaused = true
+    snapshot.queuedInputs = [
+      {
+        id: 'queued-1',
+        text: 'Follow up',
+        attachments: [],
+        recipients: [],
+        createdAt: snapshot.updatedAt,
+      },
+    ]
+    expect(library.getSnapshot().tasks[0]).toMatchObject({
+      status: 'paused',
+      unread: true,
+    })
+    expect(() =>
+      library.update(snapshot.sessionId, { archived: true }),
+    ).toThrow('Finish or interrupt')
+    database.close()
+  })
+
   it('notifies only new background attention, respecting persisted preferences', () => {
     const { database, library, snapshot } = fixture()
     expect(library.shouldNotify(snapshot, false)).toBe(false)
