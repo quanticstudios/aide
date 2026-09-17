@@ -55,7 +55,7 @@ against their published SHA-256 values. The pinned toolchain runs locally.
 | Dependency audit | No high or critical advisories; 40 lower-severity advisories remain. |
 | Renderer budget | Passed with 1,110 kB initial JavaScript and 516 kB CSS. |
 | Electron | 24 tests passed, including approvals, shared-model responses, cancellation, restart, recovery, and updates. |
-| Fresh Linux package | AppImage launch, native terminal, single-instance ownership, offline renderer, restart, and backup restoration passed. |
+| Fresh Linux package | AppImage and tar.gz contents/native modules and SHA-256 checks pass. AppImage launch, terminal, exclusive ownership, offline renderer, restart, and restore pass. |
 
 [Live verification evidence](verification/shared-model-live-smoke-2026-09-17.json)
 records synthetic tests against real Jev, Claude, and Codex services. Codex
@@ -80,7 +80,9 @@ from a backup. It also checks that renderer reload makes no HTTP requests.
 Run the same check against an extracted package with
 `node scripts/smoke-packaged-linux.mjs /absolute/path/to/aide` on Linux with a
 display. The script creates an isolated temporary profile and writes its proof
-and screenshot there. It does not touch the normal Aide profile.
+and screenshot there. It does not touch the normal Aide profile. Local acceptance artifacts are in
+`dist/product-readiness-2026-09-17/`; their SHA-256 values are recorded in the
+package smoke evidence.
 
 ## Release gates still open
 
@@ -101,3 +103,19 @@ recovery and desktop security use `aide-dfe.2` and `aide-dfe.3`. React Doctor's
 newer-version findings and the existing Electron teardown failure remain tracked
 separately. Release readiness is determined by these checks, not a percentage
 of closed tickets or an unverified delivery date.
+
+## Fleet verification
+
+The integration branch is `codex/product-readiness`. The final fleet pass used
+three `gpt-5.6-terra` agents at high reasoning effort:
+
+| Agent | Responsibility | Branch |
+| --- | --- | --- |
+| `model_mentions` | Model routing UI and Electron acceptance | `codex/model-mentions` |
+| `opinion_dispatch_tests` | Routing regressions, symlink containment, independent review | `codex/opinion-dispatch-tests` |
+| `orchestrator_tool_adapters` | Provider tools, recovery, live delegation checks | `codex/orchestrator-tools` |
+
+The orchestrator integrated the commits, fixed shared runtime failures, and
+verified the Linux artifacts. Jev supplied a live code-excerpt selection during
+implementation and prepares every live acceptance turn. No measured development
+token saving is claimed.
