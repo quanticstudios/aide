@@ -16,6 +16,7 @@ function createWindow() {
       onceHandlers.set(event, handler)
     }),
     send: vi.fn(),
+    session: { setPermissionRequestHandler: vi.fn() },
     setWindowOpenHandler: vi.fn(),
   }
   const window = {
@@ -72,11 +73,53 @@ describe('WindowManager', () => {
         contextIsolation: true,
         nodeIntegration: false,
         preload: '/app/preload/index.js',
+        sandbox: true,
+        webSecurity: true,
         webviewTag: true,
       },
       width: 1440,
     })
     expect(created.window.loadURL).toHaveBeenCalledWith('http://localhost:5173')
+  })
+
+  it('denies main-window popups, permissions, and untrusted navigation', () => {
+    const created = createWindow()
+    const browserWindow = asBrowserWindow(created.window)
+    const manager = new WindowManager({
+      createBrowserWindow: vi.fn(() => browserWindow),
+      fromWebContents: vi.fn(),
+      getAllWindows: () => [browserWindow],
+      mainPreloadPath: '/app/preload/index.js',
+      rendererHtmlPath: '/app/renderer/index.html',
+      setTimeout: asTimer(vi.fn()),
+    })
+
+    manager.createMainWindow()
+
+    expect(
+      created.webContents.setWindowOpenHandler.mock.calls[0]?.[0](),
+    ).toEqual({ action: 'deny' })
+    const permissionCallback = vi.fn()
+    created.webContents.session.setPermissionRequestHandler.mock.calls[0]?.[0](
+      created.webContents,
+      'notifications',
+      permissionCallback,
+    )
+    expect(permissionCallback).toHaveBeenCalledWith(false)
+
+    const externalNavigation = { preventDefault: vi.fn() }
+    created.handlers.get('will-navigate')?.(
+      externalNavigation,
+      'https://example.com',
+    )
+    expect(externalNavigation.preventDefault).toHaveBeenCalledOnce()
+
+    const trustedNavigation = { preventDefault: vi.fn() }
+    created.handlers.get('will-redirect')?.(
+      trustedNavigation,
+      'file:///app/renderer/index.html#settings',
+    )
+    expect(trustedNavigation.preventDefault).not.toHaveBeenCalled()
   })
 
   it('rejects untrusted webviews before they attach', () => {

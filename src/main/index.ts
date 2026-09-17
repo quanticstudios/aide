@@ -6,7 +6,7 @@ import {
   BrowserWindow,
   dialog,
   type IpcMainInvokeEvent,
-  ipcMain,
+  ipcMain as electronIpcMain,
   Menu,
 } from 'electron'
 
@@ -52,6 +52,7 @@ import {
   resolveRenderingConfiguration,
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
+import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
 import { configuredUpdateRelease } from './update-release-config'
@@ -346,6 +347,10 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
 }
 
 function registerIpcHandlers(): void {
+  const ipcMain = createTrustedIpcRegistrar(
+    electronIpcMain,
+    requireTrustedRenderer,
+  )
   const publishPersistenceSnapshot = () => {
     const snapshot = database.getSnapshot()
     windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {

@@ -7,6 +7,7 @@ import type {
 import { IPC_CHANNELS } from '../shared/ipc'
 import { isAllowedPreviewUrl } from '../shared/preview'
 import { mapInputToShortcutEvent } from './app-shortcuts'
+import { isTrustedRendererUrl } from './trusted-renderer'
 
 const PREVIEW_PARTITION = 'persist:aide-preview'
 
@@ -45,9 +46,31 @@ export class WindowManager {
         contextIsolation: true,
         nodeIntegration: false,
         preload: this.dependencies.mainPreloadPath,
+        sandbox: true,
+        webSecurity: true,
         webviewTag: true,
       },
     })
+
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.session.setPermissionRequestHandler(
+      (_webContents, _permission, callback) => callback(false),
+    )
+    const preventUntrustedNavigation = (
+      event: { preventDefault: () => void },
+      url: string,
+    ) => {
+      if (
+        !isTrustedRendererUrl(url, {
+          loadRendererUrl: this.dependencies.loadRendererUrl,
+          rendererHtmlPath: this.dependencies.rendererHtmlPath,
+        })
+      ) {
+        event.preventDefault()
+      }
+    }
+    window.webContents.on('will-navigate', preventUntrustedNavigation)
+    window.webContents.on('will-redirect', preventUntrustedNavigation)
 
     window.webContents.on(
       'will-attach-webview',
