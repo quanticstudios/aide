@@ -7,6 +7,7 @@ import type {
   ManagedSessionConfig,
   ManagedSessionDecision,
   ManagedSessionEvent,
+  ManagedSessionInteractionMode,
   ManagedSessionProviderSelection,
 } from '../shared/managed-session'
 import type { WorkspacePersistenceEvent } from '../shared/persistence'
@@ -40,6 +41,15 @@ const aideApi: AideApi = {
       IPC_CHANNELS.managedSessionConfigureAgents,
       sessionId,
       agents,
+    ),
+  configureManagedSessionMode: (
+    sessionId: string,
+    interactionMode: ManagedSessionInteractionMode,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionConfigureMode,
+      sessionId,
+      interactionMode,
     ),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),

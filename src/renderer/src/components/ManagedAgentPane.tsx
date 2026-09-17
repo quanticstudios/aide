@@ -40,6 +40,7 @@ import type {
   ManagedSessionContentItem,
   ManagedSessionContextWindow,
   ManagedSessionEffort,
+  ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
@@ -746,6 +747,7 @@ export default function ManagedAgentPane({
 
       if (existing) {
         setSnapshot(existing)
+        setAgentMode(existing.interactionMode)
         if (existing.agents) {
           setConfiguredAgents(existing.agents)
           configuredAgentsInitializedRef.current = true
@@ -791,6 +793,7 @@ export default function ManagedAgentPane({
         workspaceId: workspace.id,
       })
       setSnapshot(created)
+      setAgentMode(created.interactionMode)
       setSelectedModel(created.model ?? undefined)
       setEffort(created.effort ?? effort)
       setServiceTier(created.serviceTier)
@@ -844,6 +847,7 @@ export default function ManagedAgentPane({
         runtimeGeneration: nextSnapshot.runtimeGeneration,
       }
       setSnapshot(nextSnapshot)
+      setAgentMode(nextSnapshot.interactionMode)
       if (nextSnapshot.agents) {
         setConfiguredAgents(nextSnapshot.agents)
         configuredAgentsInitializedRef.current = true
@@ -1036,6 +1040,38 @@ export default function ManagedAgentPane({
     },
     [sessionId],
   )
+
+  const handleAgentModeToggle = useCallback(async () => {
+    const interactionMode: ManagedSessionInteractionMode =
+      agentMode === 'plan' ? 'build' : 'plan'
+
+    if (!startedSessionRef.current) {
+      setAgentMode(interactionMode)
+      return
+    }
+
+    const api = getAideApi()
+
+    if (!api) {
+      setError('Managed provider bridge did not load.')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const updated = await api.configureManagedSessionMode(
+        sessionId,
+        interactionMode,
+      )
+      setSnapshot(updated)
+      setAgentMode(updated.interactionMode)
+      setError(null)
+    } catch (modeError) {
+      setError(getErrorMessage(modeError))
+    } finally {
+      setIsSubmitting(false)
+    }
+  }, [agentMode, sessionId])
 
   const handleProviderSelectionChange = useCallback(
     async (
@@ -1799,9 +1835,8 @@ export default function ManagedAgentPane({
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
-              onClick={() =>
-                setAgentMode((m) => (m === 'plan' ? 'build' : 'plan'))
-              }
+              disabled={isSubmitting}
+              onClick={() => void handleAgentModeToggle()}
               type="button"
             >
               <ClipboardList className="size-3" />
