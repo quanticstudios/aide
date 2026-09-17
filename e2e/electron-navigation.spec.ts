@@ -635,6 +635,7 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await addPane(page, /^agent\b/i)
     await expandSidebar(page)
+    await page.getByRole('button', { name: /pin sidebar open/i }).click()
     await prepareSyntheticJev(app, page)
     const workspaceSidebarRow = page
       .getByTestId('workspace-tree-panel')
