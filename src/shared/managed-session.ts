@@ -52,6 +52,42 @@ export type ManagedSessionPermissionMode =
 
 export type ManagedSessionInteractionMode = 'build' | 'plan'
 
+export const MANAGED_SESSION_MAX_ATTACHMENTS = 8
+export const MANAGED_SESSION_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+export const MANAGED_SESSION_MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024
+
+export type ManagedSessionAttachment =
+  | {
+      data: string
+      id: string
+      kind: 'image'
+      mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+      name: string
+      sizeBytes: number
+    }
+  | {
+      id: string
+      kind: 'workspace-file'
+      path: string
+    }
+
+export interface ManagedSessionProviderImage {
+  data: string
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
+  name: string
+  path?: string
+}
+
+export interface ManagedSessionQueuedInput {
+  attachments: ManagedSessionAttachment[]
+  checkpointId?: string
+  createdAt: string
+  id: string
+  lastError?: string
+  recipients: string[]
+  text: string
+}
+
 export interface ManagedSessionConfig {
   agents?: readonly ManagedSessionAgentConfig[]
   /**
@@ -98,6 +134,7 @@ export type ManagedSessionTurnState =
   | 'interrupted'
 
 export interface ManagedSessionTurnSummary {
+  checkpointId?: string
   recipientAlias?: string
   requestText?: string
   completedAt: string | null
@@ -171,6 +208,8 @@ export interface ManagedSessionSnapshot {
   pendingUserInputs: ManagedSessionPendingUserInput[]
   planApproval: ManagedSessionPlanApproval | null
   provider: ManagedSessionProvider
+  queuePaused?: boolean
+  queuedInputs?: ManagedSessionQueuedInput[]
   revision: number
   running: boolean
   runtimeGeneration: number
@@ -184,6 +223,11 @@ export interface ManagedSessionSnapshot {
   usageReports?: ManagedUsageReport[]
   usageSummary?: ManagedUsageSummary
   workspaceId: string
+}
+
+export interface ManagedSessionPreparationResult {
+  images: ManagedSessionProviderImage[]
+  text: string
 }
 
 export interface PersistedManagedSession {

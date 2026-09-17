@@ -5,6 +5,7 @@ import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
 import type {
+  ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
   ManagedSessionEvent,
@@ -153,6 +154,22 @@ const aideApi: AideApi = {
       IPC_CHANNELS.managedSessionInterrupt,
       sessionId,
       recipientAlias,
+    ),
+  cancelManagedSessionQueuedInput: (sessionId, queuedInputId) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionCancelQueuedInput,
+      sessionId,
+      queuedInputId,
+    ),
+  pickManagedSessionFiles: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionPickFiles, workspaceId),
+  resumeManagedSessionQueue: (sessionId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionResumeQueue, sessionId),
+  sendManagedSessionQueuedInputNow: (sessionId, queuedInputId) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionSendQueuedInputNow,
+      sessionId,
+      queuedInputId,
     ),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
@@ -324,12 +341,14 @@ const aideApi: AideApi = {
     sessionId: string,
     text: string,
     recipients?: readonly string[],
+    attachments?: readonly ManagedSessionAttachment[],
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.managedSessionSendInput,
       sessionId,
       text,
       recipients,
+      attachments,
     ),
   listTurnCheckpoints: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),

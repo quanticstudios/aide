@@ -59,6 +59,7 @@ import {
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
 import { JevSettings } from './jev-settings'
+import { validateManagedSessionAttachments } from './managed-session-attachments'
 import { ManagedSessionManager } from './managed-session-manager'
 import {
   preparePersistedState,
@@ -1104,8 +1105,63 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.managedSessionCancelQueuedInput,
+    (_event, sessionId: unknown, queuedInputId: unknown) =>
+      managedSessionManager.cancelQueuedInput(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        requireRuntimeId(queuedInputId, 'queued input id'),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionResumeQueue,
+    (_event, sessionId: unknown) =>
+      managedSessionManager.resumeQueue(
+        requireRuntimeId(sessionId, 'managed-session id'),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSendQueuedInputNow,
+    (_event, sessionId: unknown, queuedInputId: unknown) =>
+      managedSessionManager.sendQueuedInputNow(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        requireRuntimeId(queuedInputId, 'queued input id'),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionPickFiles,
+    async (event, workspaceId: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      const browserWindow = BrowserWindow.fromWebContents(event.sender)
+      if (!browserWindow) throw new Error('Workspace window is unavailable.')
+      const result = await dialog.showOpenDialog(browserWindow, {
+        defaultPath: workspace.worktreePath,
+        properties: ['openFile', 'multiSelections'],
+        title: 'Attach workspace files',
+      })
+      if (result.canceled) return []
+      return result.filePaths.map((filePath) => {
+        const relativePath = path.relative(workspace.worktreePath, filePath)
+        if (
+          !relativePath ||
+          relativePath === '..' ||
+          relativePath.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(relativePath)
+        ) {
+          throw new Error('Choose files inside the current workspace.')
+        }
+        return relativePath
+      })
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
-    (_event, sessionId: unknown, text: unknown, recipients: unknown) => {
+    (
+      _event,
+      sessionId: unknown,
+      text: unknown,
+      recipients: unknown,
+      attachments: unknown,
+    ) => {
       const id = requireRuntimeId(sessionId, 'managed-session id')
       if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
         throw new Error('Enter a message between 1 and 65,536 characters.')
@@ -1114,6 +1170,7 @@ function registerIpcHandlers(): void {
         id,
         text,
         requireRecipientAliases(recipients),
+        validateManagedSessionAttachments(attachments),
       )
     },
   )

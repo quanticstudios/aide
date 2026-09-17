@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
   ManagedSessionEvent,
@@ -9,6 +9,8 @@ import type {
 } from '../shared/managed-session'
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import {
+  buildClaudeUserContent,
+  buildCodexTurnInput,
   ManagedSessionManager,
   type ManagedSessionPersistenceStore,
 } from './managed-session-manager'
@@ -74,6 +76,43 @@ describe('ManagedSessionManager', () => {
   afterEach(() => {
     process.env.AIDE_FAKE_MANAGED_PROVIDERS = undefined
     process.env.AIDE_CODEX_COMMAND = undefined
+  })
+
+  it('builds native Claude and Codex image payloads', () => {
+    const pastedImage = {
+      data: 'iVBORw0KGgo=',
+      mimeType: 'image/png' as const,
+      name: 'pasted.png',
+    }
+    const workspaceImage = {
+      ...pastedImage,
+      name: 'workspace.png',
+      path: '/workspace/workspace.png',
+    }
+    expect(buildClaudeUserContent('inspect', [pastedImage])).toEqual([
+      { text: 'inspect', type: 'text' },
+      {
+        source: {
+          data: pastedImage.data,
+          media_type: 'image/png',
+          type: 'base64',
+        },
+        type: 'image',
+      },
+    ])
+    expect(
+      buildCodexTurnInput('inspect', [pastedImage, workspaceImage]),
+    ).toEqual([
+      { text: 'inspect', type: 'text' },
+      {
+        type: 'image',
+        url: `data:image/png;base64,${pastedImage.data}`,
+      },
+      {
+        type: 'image',
+        url: `data:image/png;base64,${workspaceImage.data}`,
+      },
+    ])
   })
 
   it('creates a fake managed Claude session and reports ready state', async () => {
@@ -797,7 +836,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     await second.closeAll()
   })
 
-  it('checkpoints the original prompt before preparation and blocks another running turn', async () => {
+  it('captures the pre-turn snapshot and queues another prompt while the turn runs', async () => {
     let savedPrompt = ''
     const manager = new ManagedSessionManager({
       createBackend: (config, emit) => ({
@@ -823,6 +862,10 @@ createInterface({ input: process.stdin }).on('line', line => {
         },
       }),
       getNow: () => '2026-04-11T10:00:00.000Z',
+      beforeInput: async ({ snapshot, text }) => {
+        expect(snapshot.content.some((item) => item.text === text)).toBe(false)
+        return { checkpointId: `checkpoint-${text}` }
+      },
       onRuntimeEvent: () => undefined,
       onUpdate: () => undefined,
       prepareInput: async ({ text }) => {
@@ -841,9 +884,360 @@ createInterface({ input: process.stdin }).on('line', line => {
 
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'persist before dispatch')
-    await expect(
-      manager.sendInput(config.sessionId, 'second prompt'),
-    ).rejects.toThrow('already being prepared or dispatched')
+    await manager.sendInput(config.sessionId, 'second prompt')
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      queuedInputs: [expect.objectContaining({ text: 'second prompt' })],
+      turns: [
+        expect.objectContaining({
+          checkpointId: 'checkpoint-persist before dispatch',
+        }),
+      ],
+    })
+  })
+
+  it('delivers queued prompts in order and supports cancellation', async () => {
+    let emitRuntimeEvent:
+      | ((event: ManagedProviderRuntimeEvent) => void)
+      | undefined
+    const sent: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => {
+        emitRuntimeEvent = emit
+        return {
+          close: async () => undefined,
+          interrupt: async () => undefined,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          sendInput: async (text) => {
+            sent.push(text)
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              turnId: `turn-${sent.length}`,
+              type: 'turn.started',
+            })
+          },
+          start: async () => {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            })
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    await manager.sendInput(config.sessionId, 'cancel me')
+    await manager.sendInput(config.sessionId, 'third')
+    const queued = manager.getSnapshots()[config.sessionId]?.queuedInputs ?? []
+    manager.cancelQueuedInput(config.sessionId, queued[0]?.id ?? '')
+    emitRuntimeEvent?.({
+      createdAt: '2026-04-11T10:00:01.000Z',
+      provider: 'claude',
+      state: 'completed',
+      turnId: 'turn-1',
+      type: 'turn.completed',
+    })
+    await vi.waitFor(() => expect(sent).toHaveLength(2))
+    expect(sent[0]).toBe('first')
+    expect(sent[1]).toContain('third')
+    expect(sent.join('\n')).not.toContain('cancel me')
+  })
+
+  it('pauses queued work after dispatch failure and resumes explicitly', async () => {
+    let shouldFail = true
+    const sent: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          sent.push(text)
+          const turnId = `turn-${sent.length}`
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId,
+            type: 'turn.started',
+          })
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'completed',
+            turnId,
+            type: 'turn.completed',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        if (shouldFail) throw new Error('Jev unavailable')
+        return { text }
+      },
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'retry me')
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      queuePaused: true,
+      queuedInputs: [expect.objectContaining({ lastError: 'Jev unavailable' })],
+    })
+    shouldFail = false
+    await manager.resumeQueue(config.sessionId)
+    expect(sent).toEqual(['retry me'])
+    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
+  })
+
+  it('cancels a queued input while preparation is still running', async () => {
+    const preparationStarted = createDeferred()
+    const releasePreparation = createDeferred()
+    const sent: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          sent.push(text)
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        preparationStarted.resolve()
+        await releasePreparation.promise
+        return { text }
+      },
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    const send = manager.sendInput(config.sessionId, 'cancel during Jev')
+    await preparationStarted.promise
+    const queuedInputId =
+      manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id ?? ''
+    manager.cancelQueuedInput(config.sessionId, queuedInputId)
+    releasePreparation.resolve()
+    await send
+
+    expect(sent).toEqual([])
+    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
+  })
+
+  it('never redelivers an input after an ambiguous provider failure', async () => {
+    const sent: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          sent.push(text)
+          throw new Error('Provider response timed out')
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'send at most once')
+    await manager.resumeQueue(config.sessionId)
+
+    expect(sent).toEqual(['send at most once'])
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      queuedInputs: [],
+      content: [
+        expect.objectContaining({ text: 'send at most once' }),
+        expect.objectContaining({
+          text: expect.stringContaining('will not resend'),
+        }),
+      ],
+    })
+  })
+
+  it('keeps queued work paused after restart', async () => {
+    const store = createMemoryStore()
+    const config = createConfig()
+    const first = new ManagedSessionManager({
+      createBackend: (backendConfig, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: backendConfig.mode,
+            turnId: 'running',
+            type: 'turn.started',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: backendConfig.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store,
+    })
+    await first.createSession(config)
+    await first.sendInput(config.sessionId, 'running')
+    await first.sendInput(config.sessionId, 'after restart')
+    await first.closeAll()
+
+    let sendsAfterRestart = 0
+    const second = new ManagedSessionManager({
+      createBackend: (backendConfig, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          sendsAfterRestart += 1
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T11:00:00.000Z',
+            provider: backendConfig.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store,
+    })
+    const restored = await second.createSession(config)
+    expect(sendsAfterRestart).toBe(0)
+    expect(restored.queuePaused).toBe(true)
+    expect(restored.queuedInputs).toEqual([
+      expect.objectContaining({ text: 'after restart' }),
+    ])
+  })
+
+  it('steers an active Codex turn without starting a concurrent turn', async () => {
+    const steered: string[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId: 'active',
+            type: 'turn.started',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+        steerInput: async (text) => {
+          steered.push(text)
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+    await manager.sendInput(config.sessionId, 'steer this')
+    const queuedInputId =
+      manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id
+    await manager.sendQueuedInputNow(config.sessionId, queuedInputId ?? '')
+    expect(steered).toEqual([expect.stringContaining('steer this')])
+    expect(manager.getSnapshots()[config.sessionId]?.turns).toHaveLength(1)
+  })
+
+  it('registers a restored session without starting a backend', async () => {
+    const sourceManager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T09:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const sourceConfig = createConfig()
+    const sourceSnapshot = await sourceManager.createSession(sourceConfig)
+    let saved: PersistedManagedSession | null = null
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store: {
+        reconcileInterruptedManagedSessions: () => [],
+        saveManagedSession: (entry) => {
+          saved = entry
+          return entry
+        },
+      },
+    })
+    const config = {
+      ...sourceConfig,
+      paneId: 'restored-pane',
+      sessionId: 'restored-session',
+    }
+    const snapshot = {
+      ...sourceSnapshot,
+      paneId: config.paneId,
+      sessionId: config.sessionId,
+    }
+    const restored = manager.registerRestoredSession(config, snapshot)
+    expect(restored).toMatchObject({
+      paneId: 'restored-pane',
+      pendingApprovals: [],
+      sessionId: 'restored-session',
+      sessionState: 'stopped',
+    })
+    expect(saved).toMatchObject({ config, snapshot: restored })
+    expect(manager.getActiveSessionCount()).toBe(0)
   })
 
   it('does not write after closeAll clears a timed-out session', async () => {
