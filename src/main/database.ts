@@ -1,14 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
+import { z } from 'zod'
 
-import type {
-  ManagedSessionConfig,
-  ManagedSessionContentItem,
-  ManagedSessionSnapshot,
-  ManagedSessionTurnSummary,
-  PersistedManagedSession,
-} from '../shared/managed-session'
-import type { ManagedUsageReport } from '../shared/managed-usage'
+import type { PersistedManagedSession } from '../shared/managed-session'
 import type {
   CreateProjectInput,
   CreateWorkspaceInput,
@@ -376,6 +370,177 @@ const UPDATE_HEALTH_DURATION_BUCKETS = new Set<number>(
 )
 const COARSE_UPDATE_HEALTH_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/
+
+const persistedIdentifier = z.string().min(1).max(200)
+const persistedText = z.string().max(1_000_000)
+const persistedTimestamp = z.string().min(1).max(64)
+const persistedProvider = z.enum(['claude', 'codex'])
+const persistedNullableNumber = z.number().finite().nonnegative().nullable()
+const persistedUsageModel = z.object({
+  cachedInputTokens: persistedNullableNumber,
+  cacheCreationInputTokens: persistedNullableNumber,
+  estimatedCostUsd: persistedNullableNumber,
+  inputTokens: z.number().finite().nonnegative(),
+  model: z.string().max(200).nullable(),
+  outputTokens: z.number().finite().nonnegative(),
+})
+const persistedManagedSessionSchema = z
+  .object({
+    config: z.object({
+      contextWindow: z.enum(['200k', '1m']).optional(),
+      cwd: persistedText,
+      effort: z.string().max(200).optional(),
+      interactionMode: z.enum(['build', 'plan']).optional(),
+      mode: persistedProvider,
+      model: z.string().max(200).optional(),
+      paneId: persistedIdentifier,
+      permissionMode: z
+        .enum(['acceptEdits', 'bypassPermissions', 'default', 'plan'])
+        .optional(),
+      selectionNotice: z.string().max(2_000).nullable().optional(),
+      serviceTier: z.string().max(200).optional(),
+      sessionId: persistedIdentifier,
+      thinkingBudget: z.enum(['default', 'extra', 'ultra']).optional(),
+      workspaceId: persistedIdentifier,
+    }),
+    snapshot: z.object({
+      content: z.array(
+        z.object({
+          id: persistedIdentifier,
+          kind: z.enum([
+            'assistant-text',
+            'reasoning-text',
+            'reasoning-summary-text',
+            'command-output',
+            'file-change-output',
+            'system',
+            'user-prompt',
+          ]),
+          provider: persistedProvider.nullable(),
+          text: persistedText,
+          turnId: persistedIdentifier.nullable(),
+          updatedAt: persistedTimestamp,
+        }),
+      ),
+      detail: z.string().max(2_000).nullable(),
+      effort: z.string().max(200).nullable(),
+      interactionMode: z.enum(['build', 'plan']),
+      lastCompletedAt: persistedTimestamp.nullable(),
+      lastError: z.string().max(2_000).nullable(),
+      lastErrorAt: persistedTimestamp.nullable(),
+      model: z.string().max(200).nullable(),
+      paneId: persistedIdentifier,
+      pendingApprovals: z.array(
+        z.object({
+          detail: z.string().max(2_000).nullable(),
+          id: persistedIdentifier,
+          requestType: z.enum([
+            'command-execution-approval',
+            'file-change-approval',
+            'file-read-approval',
+            'plan-approval',
+            'dynamic-tool-call',
+            'tool-user-input',
+            'unknown',
+          ]),
+        }),
+      ),
+      pendingUserInputs: z.array(
+        z.object({
+          detail: z.string().max(2_000).nullable(),
+          id: persistedIdentifier,
+          questions: z.array(
+            z.object({
+              header: z.string().max(200).optional(),
+              id: persistedIdentifier,
+              options: z.array(
+                z.object({
+                  description: z.string().max(2_000).optional(),
+                  id: persistedIdentifier,
+                  label: z.string().min(1).max(200),
+                }),
+              ),
+              prompt: persistedText,
+            }),
+          ),
+        }),
+      ),
+      planApproval: z
+        .object({
+          detail: z.string().max(2_000).nullable(),
+          id: persistedIdentifier,
+        })
+        .nullable(),
+      provider: persistedProvider,
+      revision: z.number().finite().int().nonnegative(),
+      running: z.boolean(),
+      runtimeGeneration: z.number().finite().int().positive(),
+      selectionNotice: z.string().max(2_000).nullable(),
+      serviceTier: z.string().max(200).nullable(),
+      sessionId: persistedIdentifier,
+      sessionState: z.enum([
+        'connecting',
+        'ready',
+        'running',
+        'waiting',
+        'stopped',
+        'error',
+      ]),
+      turns: z.array(
+        z.object({
+          completedAt: persistedTimestamp.nullable(),
+          id: persistedIdentifier,
+          provider: persistedProvider,
+          startedAt: persistedTimestamp,
+          state: z.enum([
+            'running',
+            'completed',
+            'failed',
+            'cancelled',
+            'interrupted',
+          ]),
+        }),
+      ),
+      updatedAt: persistedTimestamp,
+      workspaceId: persistedIdentifier,
+      usage: z
+        .object({
+          cachedInputTokens: z.number().finite().nonnegative().optional(),
+          contextTokens: z.number().finite().nonnegative().optional(),
+          inputTokens: z.number().finite().nonnegative(),
+          maxTokens: z.number().finite().nonnegative().optional(),
+          outputTokens: z.number().finite().nonnegative(),
+        })
+        .optional(),
+      usageReports: z
+        .array(
+          z.object({
+            createdAt: persistedTimestamp,
+            estimatedCostUsd: persistedNullableNumber,
+            id: persistedIdentifier,
+            models: z.array(persistedUsageModel),
+            provider: z.enum(['claude', 'codex', 'jev']),
+            runtimeGeneration: z.number().finite().int().positive(),
+            scopeId: persistedIdentifier,
+            turnId: persistedIdentifier.nullable(),
+          }),
+        )
+        .optional(),
+    }),
+  })
+  .superRefine((persisted, context) => {
+    if (
+      persisted.config.mode !== persisted.snapshot.provider ||
+      persisted.config.sessionId !== persisted.snapshot.sessionId ||
+      persisted.config.workspaceId !== persisted.snapshot.workspaceId ||
+      persisted.config.paneId !== persisted.snapshot.paneId
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Managed session identity mismatch.',
+      })
+    }
+  })
 
 export function createAideDatabase(databasePath: string): AideDatabase {
   return new AideDatabase(databasePath)
@@ -1035,6 +1200,10 @@ export class AideDatabase {
           : turn,
       )
       const interrupted =
+        persisted.snapshot.running ||
+        ['connecting', 'running', 'waiting'].includes(
+          persisted.snapshot.sessionState,
+        ) ||
         turns.some((turn, index) => turn !== persisted.snapshot.turns[index]) ||
         persisted.snapshot.pendingApprovals.length > 0 ||
         persisted.snapshot.pendingUserInputs.length > 0
@@ -1923,274 +2092,13 @@ export class AideDatabase {
   }
 
   private normalizeManagedSession(input: unknown): PersistedManagedSession {
-    if (!input || typeof input !== 'object') {
+    const parsed = persistedManagedSessionSchema.safeParse(input)
+
+    if (!parsed.success) {
       throw new Error('Invalid managed session.')
     }
 
-    const persisted = input as {
-      config?: Record<string, unknown>
-      snapshot?: Record<string, unknown>
-    }
-    const config = persisted.config
-    const snapshot = persisted.snapshot
-
-    if (!config || !snapshot) {
-      throw new Error('Invalid managed session.')
-    }
-
-    const readString = (value: unknown): string => {
-      if (typeof value !== 'string' || value.length === 0) {
-        throw new Error('Invalid managed session.')
-      }
-      return value
-    }
-    const readNullableString = (value: unknown): string | null => {
-      if (value === null) return null
-      return readString(value)
-    }
-    const readNumber = (value: unknown): number => {
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        throw new Error('Invalid managed session.')
-      }
-      return value
-    }
-    const provider = readString(config.mode)
-    const snapshotProvider = readString(snapshot.provider)
-
-    if (
-      (provider !== 'claude' && provider !== 'codex') ||
-      snapshotProvider !== provider ||
-      readString(config.sessionId) !== readString(snapshot.sessionId) ||
-      readString(config.workspaceId) !== readString(snapshot.workspaceId) ||
-      readString(config.paneId) !== readString(snapshot.paneId)
-    ) {
-      throw new Error('Invalid managed session.')
-    }
-
-    const content = Array.isArray(snapshot.content)
-      ? snapshot.content.map((item) => {
-          if (!item || typeof item !== 'object') {
-            throw new Error('Invalid managed session.')
-          }
-          const record = item as Record<string, unknown>
-          const kind = readString(record.kind)
-          if (
-            ![
-              'assistant-text',
-              'reasoning-text',
-              'reasoning-summary-text',
-              'command-output',
-              'file-change-output',
-              'system',
-              'user-prompt',
-            ].includes(kind)
-          ) {
-            throw new Error('Invalid managed session.')
-          }
-          const itemProvider = readNullableString(record.provider)
-          if (
-            itemProvider !== null &&
-            itemProvider !== 'claude' &&
-            itemProvider !== 'codex'
-          ) {
-            throw new Error('Invalid managed session.')
-          }
-          return {
-            id: readString(record.id),
-            kind,
-            provider: itemProvider,
-            text: readString(record.text),
-            turnId: readNullableString(record.turnId),
-            updatedAt: readString(record.updatedAt),
-          } as ManagedSessionContentItem
-        })
-      : (() => {
-          throw new Error('Invalid managed session.')
-        })()
-    const turns = Array.isArray(snapshot.turns)
-      ? snapshot.turns.map((turn) => {
-          if (!turn || typeof turn !== 'object') {
-            throw new Error('Invalid managed session.')
-          }
-          const record = turn as Record<string, unknown>
-          const turnProvider = readString(record.provider)
-          const state = readString(record.state)
-          if (
-            (turnProvider !== 'claude' && turnProvider !== 'codex') ||
-            ![
-              'running',
-              'completed',
-              'failed',
-              'cancelled',
-              'interrupted',
-            ].includes(state)
-          ) {
-            throw new Error('Invalid managed session.')
-          }
-          return {
-            completedAt: readNullableString(record.completedAt),
-            id: readString(record.id),
-            provider: turnProvider,
-            startedAt: readString(record.startedAt),
-            state,
-          } as ManagedSessionTurnSummary
-        })
-      : (() => {
-          throw new Error('Invalid managed session.')
-        })()
-    const sessionState = readString(snapshot.sessionState)
-    if (
-      ![
-        'connecting',
-        'ready',
-        'running',
-        'waiting',
-        'stopped',
-        'error',
-      ].includes(sessionState)
-    ) {
-      throw new Error('Invalid managed session.')
-    }
-    const validSessionState =
-      sessionState as ManagedSessionSnapshot['sessionState']
-    const usage =
-      snapshot.usage && typeof snapshot.usage === 'object'
-        ? (() => {
-            const record = snapshot.usage as Record<string, unknown>
-            const value = {
-              inputTokens: readNumber(record.inputTokens),
-              outputTokens: readNumber(record.outputTokens),
-            } as NonNullable<ManagedSessionSnapshot['usage']>
-            if (typeof record.cachedInputTokens === 'number')
-              value.cachedInputTokens = readNumber(record.cachedInputTokens)
-            if (typeof record.contextTokens === 'number')
-              value.contextTokens = readNumber(record.contextTokens)
-            if (typeof record.maxTokens === 'number')
-              value.maxTokens = readNumber(record.maxTokens)
-            return value
-          })()
-        : undefined
-    const usageReports = Array.isArray(snapshot.usageReports)
-      ? snapshot.usageReports.map((report) => {
-          if (!report || typeof report !== 'object')
-            throw new Error('Invalid managed session.')
-          const record = report as Record<string, unknown>
-          const reportProvider = readString(record.provider)
-          const models = Array.isArray(record.models)
-            ? record.models.map((model) => {
-                if (!model || typeof model !== 'object')
-                  throw new Error('Invalid managed session.')
-                const usageModel = model as Record<string, unknown>
-                const nullableNumber = (value: unknown) =>
-                  value === null ? null : readNumber(value)
-                return {
-                  cachedInputTokens: nullableNumber(
-                    usageModel.cachedInputTokens,
-                  ),
-                  cacheCreationInputTokens: nullableNumber(
-                    usageModel.cacheCreationInputTokens,
-                  ),
-                  estimatedCostUsd: nullableNumber(usageModel.estimatedCostUsd),
-                  inputTokens: readNumber(usageModel.inputTokens),
-                  model:
-                    usageModel.model === null
-                      ? null
-                      : readString(usageModel.model),
-                  outputTokens: readNumber(usageModel.outputTokens),
-                }
-              })
-            : (() => {
-                throw new Error('Invalid managed session.')
-              })()
-          if (!['claude', 'codex', 'jev'].includes(reportProvider))
-            throw new Error('Invalid managed session.')
-          return {
-            createdAt: readString(record.createdAt),
-            estimatedCostUsd:
-              record.estimatedCostUsd === null
-                ? null
-                : readNumber(record.estimatedCostUsd),
-            id: readString(record.id),
-            models,
-            provider: reportProvider,
-            runtimeGeneration: Math.max(
-              1,
-              Math.trunc(readNumber(record.runtimeGeneration)),
-            ),
-            scopeId: readString(record.scopeId),
-            turnId: readNullableString(record.turnId),
-          } as ManagedUsageReport
-        })
-      : undefined
-
-    return {
-      config: {
-        cwd: readString(config.cwd),
-        effort: typeof config.effort === 'string' ? config.effort : undefined,
-        interactionMode:
-          config.interactionMode === 'build' ||
-          config.interactionMode === 'plan'
-            ? config.interactionMode
-            : undefined,
-        mode: provider,
-        model: typeof config.model === 'string' ? config.model : undefined,
-        paneId: readString(config.paneId),
-        permissionMode:
-          config.permissionMode === 'acceptEdits' ||
-          config.permissionMode === 'bypassPermissions' ||
-          config.permissionMode === 'default' ||
-          config.permissionMode === 'plan'
-            ? config.permissionMode
-            : undefined,
-        serviceTier:
-          typeof config.serviceTier === 'string'
-            ? config.serviceTier
-            : undefined,
-        sessionId: readString(config.sessionId),
-        selectionNotice:
-          config.selectionNotice === null ||
-          typeof config.selectionNotice === 'string'
-            ? config.selectionNotice
-            : undefined,
-        thinkingBudget:
-          config.thinkingBudget === 'default' ||
-          config.thinkingBudget === 'extra' ||
-          config.thinkingBudget === 'ultra'
-            ? config.thinkingBudget
-            : undefined,
-        workspaceId: readString(config.workspaceId),
-      } satisfies ManagedSessionConfig,
-      snapshot: {
-        content,
-        detail: readNullableString(snapshot.detail),
-        effort: readNullableString(snapshot.effort),
-        interactionMode: snapshot.interactionMode === 'plan' ? 'plan' : 'build',
-        lastCompletedAt: readNullableString(snapshot.lastCompletedAt),
-        lastError: readNullableString(snapshot.lastError),
-        lastErrorAt: readNullableString(snapshot.lastErrorAt),
-        model: readNullableString(snapshot.model),
-        paneId: readString(snapshot.paneId),
-        pendingApprovals: [],
-        pendingUserInputs: [],
-        planApproval: null,
-        provider: snapshotProvider,
-        revision: Math.max(0, Math.trunc(readNumber(snapshot.revision))),
-        running: snapshot.running === true,
-        runtimeGeneration: Math.max(
-          1,
-          Math.trunc(readNumber(snapshot.runtimeGeneration)),
-        ),
-        selectionNotice: readNullableString(snapshot.selectionNotice),
-        serviceTier: readNullableString(snapshot.serviceTier),
-        sessionId: readString(snapshot.sessionId),
-        sessionState: validSessionState,
-        turns,
-        updatedAt: readString(snapshot.updatedAt),
-        workspaceId: readString(snapshot.workspaceId),
-        ...(usage ? { usage } : {}),
-        ...(usageReports ? { usageReports } : {}),
-      } satisfies ManagedSessionSnapshot,
-    }
+    return parsed.data
   }
 
   private normalizeWorkspaceSurface(

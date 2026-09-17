@@ -63,7 +63,6 @@ function resolveClaudeThinkingOption(
 }
 
 export interface ManagedSessionPersistenceStore {
-  listManagedSessions(): PersistedManagedSession[]
   reconcileInterruptedManagedSessions(now: string): PersistedManagedSession[]
   saveManagedSession(
     persisted: PersistedManagedSession,
@@ -1725,7 +1724,15 @@ export class ManagedSessionManager {
     ) {
       throw new Error('Managed session does not belong to this workspace pane.')
     }
-    const sessionConfig = persisted?.config ?? config
+    const sessionConfig = persisted
+      ? {
+          ...persisted.config,
+          cwd: config.cwd,
+          paneId: config.paneId,
+          sessionId: config.sessionId,
+          workspaceId: config.workspaceId,
+        }
+      : config
     const state: ManagedSessionMutableState = {
       activeTurnId: null,
       backend: null as never,
@@ -1876,7 +1883,15 @@ export class ManagedSessionManager {
       return
     }
 
-    if (state.preparationAbortController || state.pendingUserPromptItemId) {
+    if (
+      this.quiescing ||
+      state.switchInProgress ||
+      state.activeTurnId ||
+      state.pendingApprovals.size > 0 ||
+      state.pendingUserInputs.size > 0 ||
+      state.preparationAbortController ||
+      state.pendingUserPromptItemId
+    ) {
       throw new Error(
         'A managed session turn is already being prepared or dispatched.',
       )
@@ -1896,6 +1911,7 @@ export class ManagedSessionManager {
     state.pendingUserPromptText = text
     state.pendingUserPromptItemId = promptItemId
     this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
 
     const preparationAbortController = new AbortController()
     state.preparationAbortController = preparationAbortController
