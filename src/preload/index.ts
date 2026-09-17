@@ -28,6 +28,7 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getTaskLibrary, query),
   getTaskTranscript: (sessionId) =>
     ipcRenderer.invoke(IPC_CHANNELS.getTaskTranscript, sessionId),
+  openTask: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.openTask, sessionId),
   updateTaskMetadata: (sessionId, input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateTaskMetadata, sessionId, input),
   setTaskNotifications: (enabled) =>

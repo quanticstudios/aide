@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +14,7 @@ import {
   safeStorage,
   shell,
 } from 'electron'
+import type { CheckpointRestoreMode } from '../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
   AttachWorkspaceRequest,
@@ -75,6 +77,7 @@ import { TaskLibrary } from './task-library'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
+import { TurnCheckpointService } from './turn-checkpoints'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
 import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
@@ -102,6 +105,9 @@ let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
 let taskLibrary: TaskLibrary
+let turnCheckpoints: TurnCheckpointService
+const restoringWorkspaces = new Set<string>()
+const checkpointPreviews = new Map<string, string>()
 let jevSettings: JevSettings
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
@@ -314,9 +320,44 @@ function initializeServices(): void {
     visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
   })
   const contextPreparation = new ContextPreparation(jevSettings)
+  turnCheckpoints = new TurnCheckpointService({
+    storageDirectory: path.join(app.getPath('userData'), 'turn-checkpoints'),
+    getWorkspaceDirectory: (workspaceId) =>
+      database.getWorkspace(workspaceId)?.worktreePath ?? null,
+    getSessionSnapshot: getSavedTaskSnapshot,
+    isSessionActive: (sessionId) => {
+      const snapshot = getSavedTaskSnapshot(sessionId)
+      return Object.values(managedSessionManager.getSnapshots()).some(
+        (session) =>
+          session.workspaceId === snapshot?.workspaceId &&
+          managedSessionManager.isSessionBusy(session.sessionId),
+      )
+    },
+  })
   managedSessionManager = new ManagedSessionManager({
     store: database,
+    afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
+    beforeInput: ({ config, snapshot, text }) => {
+      const workspace = database.getWorkspace(config.workspaceId)
+      if (!workspace || workspace.worktreePath !== config.cwd)
+        throw new Error(
+          'The conversation workspace changed. Reopen it before sending a message.',
+        )
+      if (restoringWorkspaces.has(config.workspaceId))
+        throw new Error(
+          'Wait for checkpoint restoration before sending a message.',
+        )
+      return turnCheckpoints.captureTurn({
+        config,
+        snapshot,
+        editedPrompt: text,
+      })
+    },
     prepareInput: (input) => {
+      if (restoringWorkspaces.has(input.config.workspaceId))
+        throw new Error(
+          'Wait for checkpoint restoration before sending a message.',
+        )
       const workspace = database.getWorkspace(input.config.workspaceId)
       if (!workspace || workspace.worktreePath !== input.config.cwd) {
         throw new Error(
@@ -534,6 +575,16 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
   }
 }
 
+function getSavedTaskSnapshot(sessionId: string) {
+  return (
+    managedSessionManager.getSnapshots()[sessionId] ??
+    database
+      .listManagedSessions()
+      .find((session) => session.config.sessionId === sessionId)?.snapshot ??
+    null
+  )
+}
+
 function registerIpcHandlers(): void {
   const ipcMain = createTrustedIpcRegistrar(
     electronIpcMain,
@@ -542,20 +593,85 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getTaskLibrary, (_event, query?: string) =>
     taskLibrary.getSnapshot(query),
   )
+  ipcMain.handle(IPC_CHANNELS.openTask, (event, sessionId: unknown) => {
+    const id = requireRuntimeId(sessionId, 'conversation id')
+    if (!getSavedTaskSnapshot(id))
+      throw new Error('This conversation is no longer available.')
+    event.sender.send(IPC_CHANNELS.taskOpen, id)
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.listTurnCheckpoints,
+    (_event, sessionId: unknown) =>
+      turnCheckpoints.listCheckpoints(
+        requireRuntimeId(sessionId, 'conversation id'),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.previewTurnCheckpointRestore,
+    async (_event, sessionId: unknown, checkpointId: unknown) => {
+      const id = requireRuntimeId(sessionId, 'conversation id')
+      const snapshot = getSavedTaskSnapshot(id)
+      if (!snapshot || restoringWorkspaces.has(snapshot.workspaceId))
+        throw new Error('The conversation is unavailable during restoration.')
+      const preview = await turnCheckpoints.previewRestore(
+        id,
+        requireRuntimeId(checkpointId, 'checkpoint id'),
+      )
+      checkpointPreviews.set(preview.previewId, id)
+      return preview
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.restoreTurnCheckpoint,
+    async (_event, previewId: unknown, mode: CheckpointRestoreMode) => {
+      const id = requireRuntimeId(previewId, 'checkpoint preview id')
+      const sourceId = checkpointPreviews.get(id)
+      const snapshot = sourceId ? getSavedTaskSnapshot(sourceId) : null
+      if (!snapshot)
+        throw new Error('Preview the checkpoint again before restoring.')
+      if (restoringWorkspaces.has(snapshot.workspaceId))
+        throw new Error('A checkpoint restoration is already running.')
+      const workspace = database.getWorkspace(snapshot.workspaceId)
+      if (!workspace)
+        throw new Error('The checkpoint workspace is no longer available.')
+      restoringWorkspaces.add(workspace.id)
+      try {
+        const seed = await turnCheckpoints.restore(id, mode)
+        if (seed.config.cwd !== workspace.worktreePath)
+          throw new Error('The checkpoint workspace path changed.')
+        const paneId = `agent::copy-checkpoint-${randomUUID()}`
+        const sessionId = `${workspace.id}:${paneId}`
+        const identity = { paneId, sessionId, workspaceId: workspace.id }
+        managedSessionManager.registerRestoredSession(
+          { ...seed.config, ...identity },
+          {
+            ...seed.snapshot,
+            ...identity,
+            queuedInputs: [],
+            queuePaused: false,
+          },
+        )
+        checkpointPreviews.delete(id)
+        windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+        return {
+          checkpointId: seed.checkpointId,
+          editedPrompt: seed.editedPrompt,
+          mode,
+          sessionId,
+          sourceSessionId: seed.sourceSessionId,
+        }
+      } finally {
+        restoringWorkspaces.delete(workspace.id)
+      }
+    },
+  )
   ipcMain.handle(
     IPC_CHANNELS.getTaskTranscript,
     (_event, sessionId: unknown) => {
       if (typeof sessionId !== 'string' || sessionId.length > 1024) {
         throw new Error('Invalid conversation identifier.')
       }
-      return (
-        managedSessionManager.getSnapshots()[sessionId] ??
-        database
-          .listManagedSessions()
-          .find((session) => session.config.sessionId === sessionId)
-          ?.snapshot ??
-        null
-      )
+      return getSavedTaskSnapshot(sessionId)
     },
   )
   ipcMain.handle(

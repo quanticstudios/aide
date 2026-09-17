@@ -168,6 +168,11 @@ describe('TaskLibrary', () => {
   it('notifies only new background attention, respecting persisted preferences', () => {
     const { database, library, snapshot } = fixture()
     expect(library.shouldNotify(snapshot, false)).toBe(false)
+    const completedKey = library.getSnapshot().tasks[0]?.activityKey
+    library.update(snapshot.sessionId, { readActivityKey: completedKey })
+    snapshot.runtimeGeneration += 1
+    expect(library.getSnapshot().tasks[0]?.unread).toBe(false)
+    expect(library.shouldNotify(snapshot, false)).toBe(false)
     snapshot.pendingApprovals = [
       { id: 'approval-1', detail: null, requestType: 'file-change-approval' },
     ]

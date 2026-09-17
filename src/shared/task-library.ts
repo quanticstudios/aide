@@ -79,19 +79,19 @@ export function getTaskActivity(snapshot: ManagedSessionSnapshot): {
   if (snapshot.sessionState === 'error' || lastTurn?.state === 'failed') {
     return {
       status: 'failed',
-      activityKey: `failed:${generation}:${snapshot.lastErrorAt ?? lastTurn?.id ?? snapshot.updatedAt}`,
+      activityKey: `failed:${snapshot.lastErrorAt ?? lastTurn?.id ?? snapshot.updatedAt}`,
     }
   }
   if (lastTurn?.state === 'interrupted') {
     return {
       status: 'interrupted',
-      activityKey: `interrupted:${generation}:${lastTurn.id}`,
+      activityKey: `interrupted:${lastTurn.id}`,
     }
   }
   if (snapshot.lastCompletedAt) {
     return {
       status: 'completed',
-      activityKey: `completed:${generation}:${snapshot.lastCompletedAt}`,
+      activityKey: `completed:${snapshot.lastCompletedAt}`,
     }
   }
   return { status: 'idle', activityKey: null }

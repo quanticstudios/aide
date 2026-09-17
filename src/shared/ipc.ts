@@ -137,6 +137,7 @@ export const IPC_CHANNELS = {
   setTaskNotifications: 'tasks:notifications',
   taskLibraryChanged: 'tasks:changed',
   taskOpen: 'tasks:open',
+  openTask: 'tasks:open-request',
   getProviderCapabilities: 'app:get-provider-capabilities',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
@@ -286,6 +287,7 @@ export interface AideApi {
   setTaskNotifications: (enabled: boolean) => Promise<TaskLibrarySnapshot>
   onTaskLibraryChanged: (callback: () => void) => () => void
   onTaskOpen: (callback: (sessionId: string) => void) => () => void
+  openTask: (sessionId: string) => Promise<void>
   getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,

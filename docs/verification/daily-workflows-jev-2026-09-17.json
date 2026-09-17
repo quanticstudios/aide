@@ -1,0 +1,192 @@
+{
+  "model": "jev-1.13.0",
+  "elapsedSeconds": 1.189,
+  "usage": {
+    "input_tokens": 12802,
+    "output_tokens": 548
+  },
+  "purpose": "Select implementation code excerpts for daily workflow fleet",
+  "evidence": [
+    {
+      "path": "src/renderer/src/components/ManagedAgentPane.tsx",
+      "startLine": 901,
+      "selection": {
+        "type": "choice",
+        "choice": "composer",
+        "confidence": 0.99,
+        "probabilities": {
+          "checkpoints": 0.0,
+          "composer": 0.99,
+          "history": 0.01,
+          "review": 0.0
+        }
+      }
+    },
+    {
+      "path": "src/main/managed-session-manager.ts",
+      "startLine": 2071,
+      "selection": {
+        "type": "choice",
+        "choice": "composer",
+        "confidence": 0.98,
+        "probabilities": {
+          "checkpoints": 0.0,
+          "composer": 0.99,
+          "history": 0.01,
+          "review": 0.0
+        }
+      }
+    },
+    {
+      "path": "src/shared/managed-session.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "composer",
+        "confidence": 0.7,
+        "probabilities": {
+          "checkpoints": 0.0,
+          "composer": 0.78,
+          "history": 0.22,
+          "review": 0.0
+        }
+      }
+    },
+    {
+      "path": "src/main/context-preparation.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "composer",
+        "confidence": 0.84,
+        "probabilities": {
+          "checkpoints": 0.08,
+          "composer": 0.89,
+          "history": 0.02,
+          "review": 0.01
+        }
+      }
+    },
+    {
+      "path": "src/main/context-retrieval.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "checkpoints",
+        "confidence": 0.52,
+        "probabilities": {
+          "checkpoints": 0.64,
+          "composer": 0.31,
+          "review": 0.04,
+          "history": 0.01
+        }
+      }
+    },
+    {
+      "path": "src/main/git-service.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "review",
+        "confidence": 0.63,
+        "probabilities": {
+          "checkpoints": 0.27,
+          "composer": 0.0,
+          "review": 0.72,
+          "history": 0.01
+        }
+      }
+    },
+    {
+      "path": "src/renderer/src/components/GitPane.tsx",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "review",
+        "confidence": 1.0,
+        "probabilities": {
+          "checkpoints": 0.0,
+          "composer": 0.0,
+          "history": 0.0,
+          "review": 1.0
+        }
+      }
+    },
+    {
+      "path": "src/main/database.ts",
+      "startLine": 1171,
+      "selection": {
+        "type": "choice",
+        "choice": "history",
+        "confidence": 0.94,
+        "probabilities": {
+          "checkpoints": 0.02,
+          "composer": 0.03,
+          "history": 0.95,
+          "review": 0.0
+        }
+      }
+    },
+    {
+      "path": "src/shared/ipc.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "composer",
+        "confidence": 0.51,
+        "probabilities": {
+          "checkpoints": 0.05,
+          "composer": 0.64,
+          "review": 0.06,
+          "history": 0.25
+        }
+      }
+    },
+    {
+      "path": "src/renderer/src/components/AppShell.tsx",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "history",
+        "confidence": 0.44,
+        "probabilities": {
+          "checkpoints": 0.02,
+          "composer": 0.15,
+          "history": 0.58,
+          "review": 0.25
+        }
+      }
+    },
+    {
+      "path": "src/main/workspace-activity-service.ts",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "history",
+        "confidence": 0.8,
+        "probabilities": {
+          "checkpoints": 0.01,
+          "composer": 0.13,
+          "history": 0.85,
+          "review": 0.01
+        }
+      }
+    },
+    {
+      "path": "src/renderer/src/components/SidebarTree.tsx",
+      "startLine": 1,
+      "selection": {
+        "type": "choice",
+        "choice": "history",
+        "confidence": 0.88,
+        "probabilities": {
+          "checkpoints": 0.03,
+          "composer": 0.02,
+          "history": 0.91,
+          "review": 0.04
+        }
+      }
+    }
+  ],
+  "limitations": "Selection inspected by orchestrator; no measured development token saving or model accuracy claim."
+}

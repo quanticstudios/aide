@@ -711,6 +711,51 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
+  test('stages, unstages, reverts and commits reviewed files', async () => {
+    const chosenProjectRoot = createGitRepository()
+    runGit(chosenProjectRoot, ['config', 'user.name', 'Aide test'])
+    runGit(chosenProjectRoot, ['config', 'user.email', 'aide@example.com'])
+    const readmePath = path.join(chosenProjectRoot, 'README.md')
+    const original = readFileSync(readmePath, 'utf8')
+    writeFileSync(readmePath, `${original}review this change\n`)
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+    const { page } = launched
+    await importProject(page)
+    await addPane(page, /git/i)
+    await page.getByTestId('git-pane-file-README.md').click()
+    await page.getByRole('button', { name: 'Stage', exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: 'Unstage', exact: true }),
+    ).toBeVisible()
+    expect(
+      runGit(chosenProjectRoot, ['diff', '--cached', '--name-only']),
+    ).toContain('README.md')
+    await page.getByRole('button', { name: 'Unstage', exact: true }).click()
+    await page.getByRole('button', { name: 'Revert file', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Confirm revert', exact: true })
+      .click()
+    await expect.poll(() => readFileSync(readmePath, 'utf8')).toBe(original)
+    writeFileSync(path.join(chosenProjectRoot, 'committed.txt'), 'reviewed\n')
+    await page.reload()
+    await page.getByTestId('git-pane-file-committed.txt').click()
+    await page.getByRole('button', { name: 'Stage', exact: true }).click()
+    await page
+      .getByLabel('Commit message', { exact: true })
+      .fill('Commit reviewed file')
+    await page
+      .getByRole('button', { name: 'Commit index', exact: true })
+      .click()
+    await expect
+      .poll(() => runGit(chosenProjectRoot, ['log', '-1', '--format=%s']))
+      .toBe('Commit reviewed file')
+  })
+
   test('renders a real git pane and updates the review surface on file selection', async () => {
     const chosenProjectRoot = createGitRepository()
     const readmePath = path.join(chosenProjectRoot, 'README.md')

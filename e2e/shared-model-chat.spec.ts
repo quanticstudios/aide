@@ -264,6 +264,69 @@ test.describe('shared model chat', () => {
     ).toBe(false)
   })
 
+  test('preserves a ten-megabyte image draft across renderer reload', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('Keep these screenshots for later')
+    await prompt.evaluate((element) => {
+      const clipboardData = new DataTransfer()
+      for (const name of ['large-one.png', 'large-two.png']) {
+        const bytes = new Uint8Array(5 * 1024 * 1024)
+        bytes.set([137, 80, 78, 71, 13, 10, 26, 10])
+        clipboardData.items.add(new File([bytes], name, { type: 'image/png' }))
+      }
+      element.dispatchEvent(
+        new ClipboardEvent('paste', { bubbles: true, clipboardData }),
+      )
+    })
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'large-two.png',
+    )
+    await expect
+      .poll(() =>
+        page.evaluate(async (sessionId) => {
+          const request = indexedDB.open('aide-renderer', 1)
+          const database = await new Promise<IDBDatabase>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          })
+          try {
+            const read = database
+              .transaction('managed-drafts')
+              .objectStore('managed-drafts')
+              .get(`aide:managed-composer:${sessionId}`)
+            return await new Promise<number>((resolve, reject) => {
+              read.onsuccess = () =>
+                resolve(read.result?.attachments?.length ?? 0)
+              read.onerror = () => reject(read.error)
+            })
+          } finally {
+            database.close()
+          }
+        }, session.sessionId),
+      )
+      .toBe(2)
+    await page.reload()
+    await expect(prompt).toHaveValue('Keep these screenshots for later')
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'large-one.png',
+    )
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'large-two.png',
+    )
+    await page
+      .getByRole('button', { name: 'Remove large-one.png', exact: true })
+      .click()
+    await expect(page.getByTestId('composer-attachments')).not.toContainText(
+      'large-one.png',
+    )
+  })
+
   test('keeps the orchestrator while configured plan opinions retain model attribution', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
