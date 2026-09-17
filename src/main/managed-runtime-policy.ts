@@ -9,8 +9,6 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
 
-const READ_ONLY_CLAUDE_TOOLS = ['Read', 'Glob', 'Grep']
-
 export const READ_ONLY_CODEX_APP_SERVER_ARGUMENTS = [
   'app-server',
   '--strict-config',
@@ -71,7 +69,7 @@ export function createReadOnlyClaudeOptions(
     permissionMode: 'default',
     settingSources: [],
     strictMcpConfig: true,
-    tools: [...READ_ONLY_CLAUDE_TOOLS],
+    tools: [],
   }
 }
 

@@ -544,7 +544,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         permissionMode: this.config.permissionMode,
         settingSources: ['user', 'project', 'local'],
         ...(this.config.readOnly
-          ? { ...createReadOnlyClaudeOptions(process.env), tools: [] }
+          ? createReadOnlyClaudeOptions(process.env)
           : {}),
         ...(thinking ? { thinking } : {}),
       },
@@ -942,6 +942,7 @@ interface CodexPendingUserInput {
 }
 
 class CodexManagedSessionBackend implements ManagedSessionBackend {
+  private stderrTail = ''
   private activeTurnId: string | null = null
   private child: ChildProcessWithoutNullStreams | null = null
   private nextRequestId = 1
@@ -999,18 +1000,8 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     })
 
     child.stderr.on('data', (chunk: Buffer) => {
-      const message = chunk.toString().trim()
-
-      if (!message) {
-        return
-      }
-
-      this.emitRuntimeEvent({
-        createdAt: this.getNow(),
-        message,
-        provider: 'codex',
-        type: 'runtime.error',
-      })
+      // why: Codex writes nonfatal startup warnings to stderr; protocol errors and exits determine failure.
+      this.stderrTail = (this.stderrTail + chunk.toString()).slice(-4_096)
     })
 
     child.on('error', (error) => {
@@ -1026,7 +1017,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
         new Error(
           code === null
             ? 'Codex app-server exited before responding.'
-            : `Codex app-server exited with code ${code} before responding.`,
+            : `Codex app-server exited with code ${code} before responding.${this.stderrTail.trim() ? ` ${this.stderrTail.trim()}` : ''}`,
         ),
       )
       this.emitRuntimeEvent({

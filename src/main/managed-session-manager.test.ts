@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type {
@@ -137,6 +140,54 @@ describe('ManagedSessionManager', () => {
       await expect(manager.createSession(config)).resolves.toMatchObject({
         sessionState: 'ready',
       })
+    },
+  )
+
+  nonWindowsIt(
+    'does not terminalize a Codex session for startup stderr',
+    async () => {
+      const directory = mkdtempSync(path.join(tmpdir(), 'aide-codex-stderr-'))
+      const command = path.join(directory, 'codex')
+      writeFileSync(
+        command,
+        `#!${process.execPath}
+const { createInterface } = require('node:readline');
+process.stderr.write('WARNING: refusing temporary PATH aliases\\n');
+createInterface({ input: process.stdin }).on('line', line => {
+  const message = JSON.parse(line);
+  if (message.id === undefined) return;
+  const result = message.method === 'thread/start' ? { thread: { id: 'thread' }, model: 'test' } : {};
+  process.stdout.write(JSON.stringify({ id: message.id, result }) + '\\n');
+});
+`,
+        { mode: 0o700 },
+      )
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS = undefined
+      process.env.AIDE_CODEX_COMMAND = command
+      const manager = new ManagedSessionManager({
+        onRuntimeEvent: (_meta, event) => runtimeEvents.push(event),
+        onUpdate: (event) => uiEvents.push(event),
+      })
+      try {
+        const snapshot = await manager.createSession({
+          ...createConfig('codex'),
+          cwd: directory,
+        })
+        expect(snapshot.sessionState).toBe('ready')
+        expect(
+          runtimeEvents.filter((event) => event.type === 'runtime.error'),
+        ).toEqual([])
+        expect(
+          uiEvents.some(
+            (event) =>
+              event.type === 'snapshot' &&
+              event.snapshot.sessionState === 'error',
+          ),
+        ).toBe(false)
+      } finally {
+        await manager.closeAll()
+        rmSync(directory, { recursive: true, force: true })
+      }
     },
   )
 

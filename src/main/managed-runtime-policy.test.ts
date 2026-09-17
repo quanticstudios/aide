@@ -30,7 +30,7 @@ describe('managed runtime policy', () => {
     expect(inherited).toEqual({ PATH: '/bin', TYPESAFE_API_KEY: 'secret' })
   })
 
-  it('allows Claude only read tools with no loaded settings or MCP servers', () => {
+  it('disables Claude tools and loaded settings or MCP servers for opinions', () => {
     expect(
       createReadOnlyClaudeOptions({
         PATH: '/bin',
@@ -42,7 +42,7 @@ describe('managed runtime policy', () => {
       permissionMode: 'default',
       settingSources: [],
       strictMcpConfig: true,
-      tools: ['Read', 'Glob', 'Grep'],
+      tools: [],
     })
   })
 
