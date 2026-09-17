@@ -26,6 +26,7 @@ const preview: TurnCheckpointPreview = {
   expiresAt: '2026-09-17T10:11:00.000Z',
   previewId: '11111111-1111-1111-1111-111111111111',
   sessionRevision: 3,
+  turnChanges: [{ path: 'src/new.ts', status: 'added' }],
 }
 
 describe('CheckpointRestoreContent', () => {

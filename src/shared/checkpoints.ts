@@ -33,6 +33,7 @@ export interface TurnCheckpointPreview {
   expiresAt: string
   previewId: string
   sessionRevision: number
+  turnChanges: TurnCheckpointChange[] | null
 }
 
 export interface TurnCheckpointCaptureInput {
@@ -60,4 +61,5 @@ export interface TurnCheckpointRestoreResult {
 
 export interface ManagedTurnCheckpointRecorder {
   captureTurn(input: TurnCheckpointCaptureInput): Promise<TurnCheckpointSummary>
+  completeTurn(checkpointId: string): Promise<void>
 }

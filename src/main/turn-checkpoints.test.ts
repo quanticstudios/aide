@@ -276,7 +276,7 @@ describe('TurnCheckpointService', () => {
     ).rejects.toThrow('preview expired')
   })
 
-  it('limits an earlier turn diff at the next pre-turn checkpoint', async () => {
+  it('separates completed-turn changes from the exact restore preview', async () => {
     const repositoryRoot = createRepository()
     const state = { active: false, snapshot: createSnapshot() }
     const service = createService(repositoryRoot, state)
@@ -284,20 +284,23 @@ describe('TurnCheckpointService', () => {
       createCaptureInput(repositoryRoot, state.snapshot, 'first prompt'),
     )
     writeFileSync(path.join(repositoryRoot, 'README.md'), 'first turn\n')
-    state.snapshot = { ...state.snapshot, revision: 2 }
-    await service.captureTurn(
-      createCaptureInput(repositoryRoot, state.snapshot, 'second prompt'),
-    )
-    writeFileSync(path.join(repositoryRoot, 'later.txt'), 'second turn\n')
+    await service.completeTurn(first.checkpointId)
+    writeFileSync(path.join(repositoryRoot, 'later.txt'), 'later change\n')
 
     const preview = await service.previewRestore(
       state.snapshot.sessionId,
       first.checkpointId,
     )
 
-    expect(preview.changes).toEqual([
+    expect(preview.turnChanges).toEqual([
       expect.objectContaining({ path: 'README.md', status: 'modified' }),
     ])
+    expect(preview.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: 'README.md', status: 'modified' }),
+        expect.objectContaining({ path: 'later.txt', status: 'deleted' }),
+      ]),
+    )
   })
 
   it('restores a conflicted worktree without changing the real index', async () => {
@@ -358,11 +361,46 @@ describe('TurnCheckpointService', () => {
       state.snapshot.sessionId,
       checkpoint.checkpointId,
     )
-    await service.restore(preview.previewId, 'code-and-conversation')
+    await expect(
+      service.restore(preview.previewId, 'code-and-conversation'),
+    ).rejects.toThrow('refuses to traverse a workspace symlink')
 
     expect(readFileSync(externalFile, 'utf8')).toBe('outside\n')
     expect(
       readFileSync(path.join(repositoryRoot, 'nested', 'file.txt'), 'utf8'),
-    ).toBe('inside\n')
+    ).toBe('outside\n')
+  })
+
+  it('rejects a file restore over a directory before deleting ignored contents', async () => {
+    const repositoryRoot = createRepository()
+    writeFileSync(path.join(repositoryRoot, 'entry'), 'checkpoint file\n')
+    runGit(repositoryRoot, ['add', 'entry'])
+    runGit(repositoryRoot, ['commit', '-m', 'Add file fixture'])
+    const state = { active: false, snapshot: createSnapshot() }
+    const service = createService(repositoryRoot, state)
+    const checkpoint = await service.captureTurn(
+      createCaptureInput(repositoryRoot, state.snapshot),
+    )
+    rmSync(path.join(repositoryRoot, 'entry'))
+    mkdirSync(path.join(repositoryRoot, 'entry'))
+    writeFileSync(
+      path.join(repositoryRoot, 'entry', 'visible.txt'),
+      'visible\n',
+    )
+    writeFileSync(path.join(repositoryRoot, 'entry', 'secret.env'), 'secret\n')
+    const preview = await service.previewRestore(
+      state.snapshot.sessionId,
+      checkpoint.checkpointId,
+    )
+
+    await expect(
+      service.restore(preview.previewId, 'code-and-conversation'),
+    ).rejects.toThrow('refuses to replace a workspace directory')
+    expect(
+      readFileSync(path.join(repositoryRoot, 'entry', 'visible.txt'), 'utf8'),
+    ).toBe('visible\n')
+    expect(
+      readFileSync(path.join(repositoryRoot, 'entry', 'secret.env'), 'utf8'),
+    ).toBe('secret\n')
   })
 })

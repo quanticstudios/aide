@@ -43,6 +43,27 @@ export function getCheckpointChangeLabel(change: TurnCheckpointChange): string {
   return change.path
 }
 
+function CheckpointChangeList({
+  changes,
+}: {
+  readonly changes: TurnCheckpointChange[]
+}) {
+  return (
+    <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-secondary p-3 font-mono text-xs">
+      {changes.map((change) => (
+        <li
+          key={`${change.status}:${change.previousPath ?? ''}:${change.path}`}
+        >
+          <span className="mr-2 uppercase text-muted-foreground">
+            {change.status}
+          </span>
+          {getCheckpointChangeLabel(change)}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export function CheckpointRestoreContent({
   error,
   mode,
@@ -99,26 +120,33 @@ export function CheckpointRestoreContent({
         </label>
       </fieldset>
 
-      <section aria-label="Previewed file changes">
+      <section aria-label="Turn file changes">
         <h3 className="mb-2 text-sm font-semibold text-foreground">
-          File preview
+          Changes from this turn
         </h3>
-        {preview?.changes.length ? (
-          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-secondary p-3 font-mono text-xs">
-            {preview.changes.map((change) => (
-              <li
-                key={`${change.status}:${change.previousPath ?? ''}:${change.path}`}
-              >
-                <span className="mr-2 uppercase text-muted-foreground">
-                  {change.status}
-                </span>
-                {getCheckpointChangeLabel(change)}
-              </li>
-            ))}
-          </ul>
+        {preview?.turnChanges === null ? (
+          <p className="rounded-lg border border-border bg-surface-secondary p-3 text-sm text-muted-foreground">
+            Turn attribution is unavailable. The restore preview below remains
+            exact.
+          </p>
+        ) : preview?.turnChanges.length ? (
+          <CheckpointChangeList changes={preview.turnChanges} />
         ) : (
           <p className="rounded-lg border border-border bg-surface-secondary p-3 text-sm text-muted-foreground">
             This turn has no file changes.
+          </p>
+        )}
+      </section>
+
+      <section aria-label="Previewed file changes">
+        <h3 className="mb-2 text-sm font-semibold text-foreground">
+          Restore preview
+        </h3>
+        {preview?.changes.length ? (
+          <CheckpointChangeList changes={preview.changes} />
+        ) : (
+          <p className="rounded-lg border border-border bg-surface-secondary p-3 text-sm text-muted-foreground">
+            Restoring code will not change workspace files.
           </p>
         )}
       </section>

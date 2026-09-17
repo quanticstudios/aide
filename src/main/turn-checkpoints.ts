@@ -195,9 +195,16 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       version: checkpointVersion,
     }
 
-    await this.finishPreviousCheckpoint(checkpoint)
     await this.writeCheckpoint(checkpoint)
     return this.toSummary(checkpoint)
+  }
+
+  public async completeTurn(checkpointId: string): Promise<void> {
+    const checkpoint = await this.readCheckpoint(checkpointId)
+    if (checkpoint.afterTreeHash) return
+    const tree = await this.captureGitTree(checkpoint.repositoryRoot)
+    checkpoint.afterTreeHash = tree.treeHash
+    await this.writeCheckpoint(checkpoint)
   }
 
   public async listCheckpoints(
@@ -229,12 +236,18 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
 
     const currentSnapshot = this.requireSessionSnapshot(sessionId)
     const currentTree = await this.captureGitTree(checkpoint.repositoryRoot)
-    const changeTreeHash = checkpoint.afterTreeHash ?? currentTree.treeHash
-    const changes = await this.getTreeChanges(
+    const changes = await this.getRestoreChanges(
       checkpoint.repositoryRoot,
       checkpoint.treeHash,
-      changeTreeHash,
+      currentTree.treeHash,
     )
+    const turnChanges = checkpoint.afterTreeHash
+      ? await this.getTreeChanges(
+          checkpoint.repositoryRoot,
+          checkpoint.treeHash,
+          checkpoint.afterTreeHash,
+        )
+      : null
     const createdAt = this.getNow()
     const previewId = randomUUID()
     const expiresAtMs = createdAt.getTime() + previewLifetimeMs
@@ -245,6 +258,7 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       expiresAt: new Date(expiresAtMs).toISOString(),
       previewId,
       sessionRevision: currentSnapshot.revision,
+      turnChanges,
     }
     this.previews.set(previewId, {
       checkpoint,
@@ -369,20 +383,6 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       mode: 0o600,
     })
     await rename(temporary, destination)
-  }
-
-  private async finishPreviousCheckpoint(
-    nextCheckpoint: StoredTurnCheckpoint,
-  ): Promise<void> {
-    const checkpoints = await this.listCheckpoints(
-      nextCheckpoint.config.sessionId,
-    )
-    const previous = checkpoints.at(-1)
-    if (!previous) return
-    const stored = await this.readCheckpoint(previous.checkpointId)
-    if (stored.afterTreeHash) return
-    stored.afterTreeHash = nextCheckpoint.treeHash
-    await this.writeCheckpoint(stored)
   }
 
   private toSummary(checkpoint: StoredTurnCheckpoint): TurnCheckpointSummary {
@@ -518,7 +518,15 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       targetTreeHash,
       currentTreeHash,
     ])
-    return parseNameStatus(output)
+    return parseNameStatus(output).map((change) => ({
+      ...change,
+      status:
+        change.status === 'added'
+          ? 'deleted'
+          : change.status === 'deleted'
+            ? 'added'
+            : change.status,
+    }))
   }
 
   private async restoreGitTree(
@@ -576,23 +584,45 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
         safetyCommit,
       ])
 
+      await this.validateRestoreDestinations(repositoryRoot, changes)
+
       for (const change of changes
-        .filter((candidate) => candidate.status === 'added')
+        .filter((candidate) => candidate.status === 'deleted')
         .sort((left, right) => right.path.length - left.path.length)) {
         await this.assertSafeParentPath(repositoryRoot, change.path)
-        await rm(path.join(repositoryRoot, change.path), {
-          force: true,
-          recursive: true,
-        })
+        const destination = path.join(repositoryRoot, change.path)
+        const destinationEntry = await lstat(destination).catch(() => null)
+        if (destinationEntry?.isDirectory()) {
+          throw new Error(
+            'Checkpoint restore refuses to delete a workspace directory.',
+          )
+        }
+        await rm(destination, { force: true })
       }
 
       for (const change of changes
-        .filter((candidate) => candidate.status !== 'added')
+        .filter((candidate) => candidate.status !== 'deleted')
         .sort((left, right) => left.path.length - right.path.length)) {
         await this.copyTreeEntry(stagedTree, repositoryRoot, change.path)
       }
     } finally {
       await rm(temporaryDirectory, { force: true, recursive: true })
+    }
+  }
+
+  private async validateRestoreDestinations(
+    repositoryRoot: string,
+    changes: TurnCheckpointChange[],
+  ): Promise<void> {
+    for (const change of changes) {
+      await this.assertSafeParentPath(repositoryRoot, change.path)
+      const destination = path.join(repositoryRoot, change.path)
+      const entry = await lstat(destination).catch(() => null)
+      if (entry?.isDirectory()) {
+        throw new Error(
+          'Checkpoint restore refuses to replace a workspace directory. Move its contents, then preview again.',
+        )
+      }
     }
   }
 
@@ -627,7 +657,13 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
     const destination = path.join(repositoryRoot, relativePath)
     const sourceEntry = await lstat(source)
     await mkdir(path.dirname(destination), { recursive: true })
-    await rm(destination, { force: true, recursive: true })
+    const destinationEntry = await lstat(destination).catch(() => null)
+    if (destinationEntry?.isDirectory()) {
+      throw new Error(
+        'Checkpoint restore refuses to replace a workspace directory.',
+      )
+    }
+    await rm(destination, { force: true })
 
     if (sourceEntry.isSymbolicLink()) {
       await symlink(await readlink(source), destination)
