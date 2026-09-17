@@ -86,8 +86,12 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorktreeBranchStats, workspaceId),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
-  interruptManagedSession: (sessionId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionInterrupt, sessionId),
+  interruptManagedSession: (sessionId: string, recipientAlias?: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionInterrupt,
+      sessionId,
+      recipientAlias,
+    ),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => {
