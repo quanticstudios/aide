@@ -106,6 +106,20 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitStatus, workspaceId),
   getWorkspaceGitDiff: (workspaceId: string, filePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitDiff, workspaceId, filePath),
+  stageWorkspaceGitFile: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.stageWorkspaceGitFile, input),
+  unstageWorkspaceGitFile: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.unstageWorkspaceGitFile, input),
+  revertWorkspaceGitFile: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.revertWorkspaceGitFile, input),
+  commitWorkspaceGitIndex: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.commitWorkspaceGitIndex, input),
+  pushWorkspaceGitBranch: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pushWorkspaceGitBranch, workspaceId),
+  createWorkspaceGitPullRequest: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createWorkspaceGitPullRequest, input),
+  getWorkspaceGitPullRequest: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitPullRequest, workspaceId),
   getWorktreeBranchStats: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorktreeBranchStats, workspaceId),
   pickProjectRoot: (defaultPath?: string | null) =>

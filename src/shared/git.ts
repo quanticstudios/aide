@@ -75,6 +75,7 @@ export interface WorkspaceGitDiffSection {
 
 export interface WorkspaceGitDiffSnapshot {
   branchName: string
+  fingerprint: string
   path: string
   sections: WorkspaceGitDiffSection[]
   workspaceId: string
@@ -88,10 +89,17 @@ export interface WorkspaceGitDiffSuccess {
 
 export interface WorkspaceGitStatusFailure {
   code:
+    | 'detached-head'
     | 'file-not-found'
     | 'git-command-failed'
     | 'git-unavailable'
+    | 'gh-auth-required'
+    | 'gh-command-failed'
+    | 'gh-unavailable'
+    | 'invalid-input'
     | 'not-a-git-worktree'
+    | 'stale-diff'
+    | 'workspace-not-owned'
     | 'workspace-not-found'
   error: string
   ok: false
@@ -121,4 +129,57 @@ export interface WorktreeBranchStatsSuccess {
 
 export type WorktreeBranchStatsResult =
   | WorktreeBranchStatsSuccess
+  | WorkspaceGitStatusFailure
+
+export interface WorkspaceGitMutationSuccess {
+  ok: true
+  status: WorkspaceGitStatusSnapshot
+}
+
+export type WorkspaceGitMutationResult =
+  | WorkspaceGitMutationSuccess
+  | WorkspaceGitStatusFailure
+
+export interface WorkspaceGitFileMutationInput {
+  filePath: string
+  workspaceId: string
+}
+
+export interface WorkspaceGitRevertInput extends WorkspaceGitFileMutationInput {
+  fingerprint: string
+}
+
+export interface WorkspaceGitCommitInput {
+  message: string
+  workspaceId: string
+}
+
+export interface WorkspaceGitPullRequestInput {
+  body: string
+  title: string
+  workspaceId: string
+}
+
+export interface WorkspaceGitPullRequest {
+  baseRefName: string
+  checks: readonly {
+    conclusion: string | null
+    detailsUrl: string | null
+    name: string
+    status: string | null
+  }[]
+  headRefName: string
+  number: number
+  state: string
+  title: string
+  url: string
+}
+
+export interface WorkspaceGitPullRequestSuccess {
+  ok: true
+  pullRequest: WorkspaceGitPullRequest | null
+}
+
+export type WorkspaceGitPullRequestResult =
+  | WorkspaceGitPullRequestSuccess
   | WorkspaceGitStatusFailure
