@@ -5,11 +5,11 @@ import {
   app,
   BrowserWindow,
   dialog,
-  type IpcMainInvokeEvent,
   ipcMain as electronIpcMain,
+  type IpcMainInvokeEvent,
   Menu,
 } from 'electron'
-
+import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
   AttachWorkspaceRequest,
   CreateWorkspaceRequest,
@@ -55,10 +55,10 @@ import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
-import { configuredUpdateRelease } from './update-release-config'
 import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
 import { requireUpdatePreferencesInput } from './update-preferences'
+import { configuredUpdateRelease } from './update-release-config'
 import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
@@ -82,6 +82,8 @@ const rendererLocation = {
   rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
+const AGENT_ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]*$/
+const MAX_CONFIGURED_AGENTS = 2
 
 function releaseConfiguration(): UpdateReleaseOptions | null {
   return configuredUpdateRelease()
@@ -114,6 +116,81 @@ function requireRuntimeId(value: unknown, label: string): string {
   }
 
   return value
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object'
+}
+
+async function resolveConfiguredAgents(
+  value: unknown,
+): Promise<readonly ManagedSessionAgentConfig[]> {
+  if (!Array.isArray(value) || value.length > MAX_CONFIGURED_AGENTS) {
+    throw new Error('Invalid configured agents.')
+  }
+
+  const aliases = new Set<string>()
+  return await Promise.all(
+    value.map(async (entry) => {
+      if (!isRecord(entry) || !isRecord(entry.selection)) {
+        throw new Error('Invalid configured agent.')
+      }
+
+      const alias = requireRuntimeId(entry.alias, 'agent alias')
+      const normalizedAlias = alias.toLowerCase()
+      if (!AGENT_ALIAS_PATTERN.test(alias) || aliases.has(normalizedAlias)) {
+        throw new Error('Configured agent aliases must be unique.')
+      }
+      aliases.add(normalizedAlias)
+
+      const requestedModel = entry.selection.model
+      if (typeof requestedModel !== 'string' || requestedModel.trim() === '') {
+        throw new Error(`Configured agent @${alias} requires a model.`)
+      }
+
+      const selection =
+        await providerCapabilityService.resolveManagedSessionProviderSelection(
+          entry.selection,
+        )
+      if (selection.model !== requestedModel.trim()) {
+        throw new Error(
+          `Configured agent @${alias} selected an unavailable model.`,
+        )
+      }
+
+      return {
+        alias,
+        selection: {
+          effort: selection.effort,
+          mode: selection.mode,
+          model: selection.model,
+          ...(selection.serviceTier
+            ? { serviceTier: selection.serviceTier }
+            : {}),
+        },
+      }
+    }),
+  )
+}
+
+function requireRecipientAliases(value: unknown): readonly string[] {
+  if (value === undefined) {
+    return []
+  }
+  if (!Array.isArray(value) || value.length > MAX_CONFIGURED_AGENTS) {
+    throw new Error('Invalid managed-session recipients.')
+  }
+
+  const aliases = new Set<string>()
+  for (const entry of value) {
+    const alias = requireRuntimeId(entry, 'recipient alias')
+    const normalizedAlias = alias.toLowerCase()
+    if (!AGENT_ALIAS_PATTERN.test(alias) || aliases.has(normalizedAlias)) {
+      throw new Error('Managed-session recipients must be unique aliases.')
+    }
+    aliases.add(normalizedAlias)
+  }
+  return [...aliases]
 }
 
 function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
@@ -673,13 +750,26 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.managedSessionCreate,
     async (event, input: unknown) => {
       requireTrustedRenderer(event)
+      if (!isRecord(input)) {
+        throw new Error('Invalid managed-session configuration.')
+      }
+      const agents = await resolveConfiguredAgents(input.agents ?? [])
       const config =
         await providerCapabilityService.resolveManagedSessionConfig(input)
       requireWorkspaceForSetup(event, config.workspaceId)
       if (!managedSessionManager.getSnapshots()[config.sessionId]) {
         workspaceSetupManager.assertManagedSessionAllowed(config.workspaceId)
       }
-      return managedSessionManager.createSession(config)
+      return managedSessionManager.createSession({
+        ...config,
+        agents,
+        orchestratorSelection: {
+          effort: config.effort,
+          mode: config.mode,
+          model: config.model,
+          ...(config.serviceTier ? { serviceTier: config.serviceTier } : {}),
+        },
+      })
     },
   )
   ipcMain.handle(
@@ -694,8 +784,20 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
-    (_event, sessionId: string, text: string) =>
-      managedSessionManager.sendInput(sessionId, text),
+    (_event, sessionId: string, text: string, recipients: unknown) =>
+      managedSessionManager.sendInput(
+        sessionId,
+        text,
+        requireRecipientAliases(recipients),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionConfigureAgents,
+    async (_event, sessionId: unknown, agents: unknown) =>
+      managedSessionManager.configureSessionAgents(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        await resolveConfiguredAgents(agents),
+      ),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionResolveRequest,
