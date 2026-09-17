@@ -22,6 +22,7 @@ import {
   createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
+import type { PersistedStateRecovery } from '../../shared/recovery'
 import {
   type UpdateEvent,
   type UpdatePreferencesEvent,
@@ -38,6 +39,7 @@ import type {
   WorkspaceSetupSnapshot,
 } from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
+import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
   type PreviewPresentation,
@@ -182,6 +184,8 @@ function prioritizeProjectRefs(
 export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
+  const [persistedStateRecovery, setPersistedStateRecovery] =
+    useState<PersistedStateRecovery | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isPaneCreationOpen, setIsPaneCreationOpen] = useState(false)
@@ -257,6 +261,19 @@ export default function App() {
   )
   const setSelection = useWorkspaceSelectionStore((state) => state.setSelection)
   const navigationSnapshot = storageSnapshot ?? createEmptyPersistenceSnapshot()
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) {
+      return
+    }
+
+    void api
+      .getPersistedStateRecovery()
+      .then(setPersistedStateRecovery)
+      .catch((error: unknown) => setShellError(getErrorMessage(error)))
+  }, [])
+
+  const recoveryApi = persistedStateRecovery ? getAideApi() : null
   const updatePreviewSnapshot = useCallback(
     (snapshot: WorkspacePreviewSnapshot) => {
       if (
@@ -2165,7 +2182,12 @@ export default function App() {
       ) ?? null)
     : null
 
-  return (
+  return recoveryApi && persistedStateRecovery ? (
+    <PersistedStateRecoveryScreen
+      api={recoveryApi}
+      recovery={persistedStateRecovery}
+    />
+  ) : (
     <AppShell
       activePaneId={resolvedNavigationState.activePaneId}
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
