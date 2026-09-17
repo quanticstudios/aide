@@ -12,6 +12,7 @@ import {
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 
+import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
   ManagedSessionConfig,
   ManagedSessionContentItem,
@@ -200,6 +201,7 @@ function buildEmptySnapshot(
   updatedAt: string,
 ): ManagedSessionSnapshot {
   return {
+    ...(config.agents ? { agents: config.agents } : {}),
     content: [],
     detail: null,
     effort: config.effort ?? null,
@@ -208,6 +210,9 @@ function buildEmptySnapshot(
     lastError: null,
     lastErrorAt: null,
     model: config.model ?? null,
+    ...(config.orchestratorSelection
+      ? { orchestratorSelection: config.orchestratorSelection }
+      : {}),
     paneId: config.paneId,
     pendingApprovals: [],
     pendingUserInputs: [],
@@ -1865,6 +1870,9 @@ export class ManagedSessionManager {
 
     state.preparationAbortController?.abort()
     await state.backend.close()
+    if (state.closed || this.sessions.get(sessionId) !== state) {
+      return
+    }
     this.persistSession(state)
     state.closed = true
     this.sessions.delete(sessionId)
@@ -1880,6 +1888,31 @@ export class ManagedSessionManager {
     const state = this.sessions.get(sessionId)
     state?.preparationAbortController?.abort()
     await state?.backend.interrupt()
+  }
+
+  public configureSessionAgents(
+    sessionId: string,
+    agents: readonly ManagedSessionAgentConfig[],
+  ): ManagedSessionSnapshot {
+    const state = this.sessions.get(sessionId)
+
+    if (!state) {
+      throw new Error(`Session ${sessionId} not found`)
+    }
+
+    if (
+      state.activeTurnId ||
+      state.pendingApprovals.size > 0 ||
+      state.pendingUserInputs.size > 0 ||
+      state.preparationAbortController
+    ) {
+      throw new Error('Cannot change configured agents while a turn is active.')
+    }
+
+    state.config = { ...state.config, agents: [...agents] }
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    return state.snapshot
   }
 
   public async sendInput(sessionId: string, text: string): Promise<void> {
@@ -2017,6 +2050,17 @@ export class ManagedSessionManager {
       clearTimeout(timeout)
     }
 
+    for (const state of this.sessions.values()) {
+      if (state.closed) {
+        continue
+      }
+
+      state.preparationAbortController?.abort()
+      this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+      state.closed = true
+    }
     this.sessions.clear()
   }
 
@@ -2566,6 +2610,7 @@ export class ManagedSessionManager {
       (approval) => approval.requestType === 'plan-approval',
     )
     state.snapshot = {
+      ...(state.config.agents ? { agents: state.config.agents } : {}),
       content: state.orderedContentKeys
         .map((key) => state.contentByKey.get(key) ?? null)
         .filter((item): item is ManagedSessionContentItem => item !== null),
@@ -2578,6 +2623,9 @@ export class ManagedSessionManager {
       lastError: runtime.lastError,
       lastErrorAt: runtime.lastErrorAt,
       model: state.config.model ?? null,
+      ...(state.config.orchestratorSelection
+        ? { orchestratorSelection: state.config.orchestratorSelection }
+        : {}),
       paneId: state.config.paneId,
       pendingApprovals: [...state.pendingApprovals.values()],
       pendingUserInputs: [...state.pendingUserInputs.values()],
@@ -2617,6 +2665,9 @@ export class ManagedSessionManager {
   }
 
   private persistSession(state: ManagedSessionMutableState): void {
+    if (state.closed || this.sessions.get(state.config.sessionId) !== state) {
+      return
+    }
     if (state.persistenceTimer) {
       clearTimeout(state.persistenceTimer)
       state.persistenceTimer = null

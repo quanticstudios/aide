@@ -2,13 +2,13 @@ import { ChevronDown, Search, Star } from 'lucide-react'
 import type { ComponentType, SVGProps } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { resolveProviderSelection } from '../../../shared/provider-capabilities'
+import { cn } from '@/lib/utils'
 import type {
   ProviderCapabilitiesSnapshot,
   ProviderModelCapability,
 } from '../../../shared/provider-capabilities'
+import { resolveProviderSelection } from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
-import { cn } from '@/lib/utils'
 import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>
@@ -123,6 +123,7 @@ function persistFavorites(favorites: Set<string>): void {
 }
 
 interface ModelSelectorProps {
+  readonly availableProviders?: readonly ManagedSessionMode[]
   readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly isDisabled?: boolean
   readonly model: string | undefined
@@ -131,6 +132,7 @@ interface ModelSelectorProps {
 }
 
 export default function ModelSelector({
+  availableProviders,
   capabilities,
   isDisabled,
   model,
@@ -144,8 +146,12 @@ export default function ModelSelector({
   const containerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const providerGroups = useMemo(
-    () => getProviderGroups(capabilities),
-    [capabilities],
+    () =>
+      getProviderGroups(capabilities).filter(
+        (group) =>
+          !availableProviders || availableProviders.includes(group.provider),
+      ),
+    [availableProviders, capabilities],
   )
   const allModels = useMemo(
     () => providerGroups.flatMap((group) => group.models),
