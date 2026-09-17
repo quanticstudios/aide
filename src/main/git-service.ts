@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { lstat, open, realpath, rm } from 'node:fs/promises'
+import { lstat, open, realpath, readlink, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -400,6 +400,52 @@ async function readUntrackedPatch(
   }
 }
 
+async function readWorkspaceFileDigest(
+  workspaceRoot: string,
+  filePath: string,
+): Promise<string> {
+  const requestedPath = path.resolve(workspaceRoot, filePath)
+  const resolvedRoot = path.resolve(workspaceRoot)
+  if (!isInsideRoot(resolvedRoot, requestedPath)) {
+    throw new Error('File path must stay inside the workspace root.')
+  }
+
+  const fileStatus = await lstat(requestedPath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  })
+  if (!fileStatus) return 'missing'
+
+  if (fileStatus.isSymbolicLink()) {
+    return createHash('sha256')
+      .update('symlink\0')
+      .update(await readlink(requestedPath))
+      .digest('hex')
+  }
+  if (!fileStatus.isFile()) {
+    throw new Error('Only regular files can be reverted.')
+  }
+
+  const [realWorkspaceRoot, resolvedPath] = await Promise.all([
+    realpath(workspaceRoot),
+    realpath(requestedPath),
+  ])
+  if (!isInsideRoot(realWorkspaceRoot, resolvedPath)) {
+    throw new Error('File path must stay inside the workspace root.')
+  }
+
+  const noFollow =
+    typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+  const file = await open(resolvedPath, constants.O_RDONLY | noFollow)
+  try {
+    return createHash('sha256')
+      .update(await file.readFile())
+      .digest('hex')
+  } finally {
+    await file.close()
+  }
+}
+
 export class GitWorkspaceService {
   private gitPathPromise: Promise<string> | null = null
   private ghPathPromise: Promise<string> | null = null
@@ -591,7 +637,7 @@ export class GitWorkspaceService {
 
     try {
       await this.runGit(
-        ['add', '--', context.file.path],
+        ['add', '--', ...this.getGitFilePaths(context.file)],
         context.workspace.worktreePath,
       )
       return this.getMutationStatus(context.workspace.id)
@@ -612,7 +658,7 @@ export class GitWorkspaceService {
 
     try {
       await this.runGit(
-        ['restore', '--staged', '--', context.file.path],
+        ['restore', '--staged', '--', ...this.getGitFilePaths(context.file)],
         context.workspace.worktreePath,
       )
       return this.getMutationStatus(context.workspace.id)
@@ -662,7 +708,7 @@ export class GitWorkspaceService {
             '--staged',
             '--worktree',
             '--',
-            context.file.path,
+            ...this.getGitFilePaths(context.file),
           ],
           context.workspace.worktreePath,
         )
@@ -1165,6 +1211,12 @@ export class GitWorkspaceService {
     return path.resolve(workspaceRoot, filePath)
   }
 
+  private getGitFilePaths(file: WorkspaceGitFileStatus): string[] {
+    return file.originalPath && file.originalPath !== file.path
+      ? [file.originalPath, file.path]
+      : [file.path]
+  }
+
   private isValidFingerprint(fingerprint: string): boolean {
     return typeof fingerprint === 'string' && /^[a-f0-9]{64}$/.test(fingerprint)
   }
@@ -1355,9 +1407,33 @@ export class GitWorkspaceService {
       }
     }
 
+    const [indexEntries, workingTreeDigest] = await Promise.all([
+      file.isStaged
+        ? this.runGit(
+            ['ls-files', '--stage', '--', ...this.getGitFilePaths(file)],
+            workspace.worktreePath,
+          )
+        : Promise.resolve(''),
+      file.isUnstaged
+        ? readWorkspaceFileDigest(workspace.worktreePath, file.path)
+        : Promise.resolve(null),
+    ])
+
     return {
       fingerprint: createHash('sha256')
-        .update(JSON.stringify(patches))
+        .update(
+          JSON.stringify({
+            file: {
+              originalPath: file.originalPath,
+              path: file.path,
+              staged: file.staged,
+              unstaged: file.unstaged,
+            },
+            indexEntries,
+            patches,
+            workingTreeDigest,
+          }),
+        )
         .digest('hex'),
       sections: patches.map(({ kind, patch }) => {
         const truncated = truncateDiffOutput(patch)
