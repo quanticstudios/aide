@@ -1,3 +1,9 @@
+import type {
+  CheckpointRestoreMode,
+  TurnCheckpointPreview,
+  TurnCheckpointRestoreResult,
+  TurnCheckpointSummary,
+} from './checkpoints'
 import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type {
   DiagnosticEventType,
@@ -133,6 +139,9 @@ export const IPC_CHANNELS = {
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
+  turnCheckpointList: 'turn-checkpoint:list',
+  turnCheckpointPreviewRestore: 'turn-checkpoint:preview-restore',
+  turnCheckpointRestore: 'turn-checkpoint:restore',
   previewCloseTab: 'preview:close-tab',
   previewEvent: 'preview:event',
   previewNavigate: 'preview:navigate',
@@ -326,6 +335,15 @@ export interface AideApi {
     text: string,
     recipients?: readonly string[],
   ) => Promise<void>
+  listTurnCheckpoints: (sessionId: string) => Promise<TurnCheckpointSummary[]>
+  previewTurnCheckpointRestore: (
+    sessionId: string,
+    checkpointId: string,
+  ) => Promise<TurnCheckpointPreview>
+  restoreTurnCheckpoint: (
+    previewId: string,
+    mode: CheckpointRestoreMode,
+  ) => Promise<TurnCheckpointRestoreResult>
   switchManagedSessionProvider: (
     sessionId: string,
     selection: ManagedSessionProviderSelection,
