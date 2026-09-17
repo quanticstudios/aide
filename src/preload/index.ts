@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { CheckpointRestoreMode } from '../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
@@ -315,6 +316,16 @@ const aideApi: AideApi = {
       text,
       recipients,
     ),
+  listTurnCheckpoints: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),
+  previewTurnCheckpointRestore: (sessionId: string, checkpointId: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.turnCheckpointPreviewRestore,
+      sessionId,
+      checkpointId,
+    ),
+  restoreTurnCheckpoint: (previewId: string, mode: CheckpointRestoreMode) =>
+    ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointRestore, previewId, mode),
   switchManagedSessionProvider: (
     sessionId: string,
     selection: ManagedSessionProviderSelection,
