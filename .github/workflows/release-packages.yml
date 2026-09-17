@@ -51,10 +51,10 @@ jobs:
             [[ "$tag_commit" == "$commit" ]] || { echo "Checked-out commit does not match release tag." >&2; exit 1; }
             git fetch --no-tags origin main
             git merge-base --is-ancestor "$tag_commit" origin/main || { echo "Release tag must be reachable from main." >&2; exit 1; }
-            gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.status == "completed" and .conclusion != "success" and .conclusion != "neutral" and .conclusion != "skipped") | .name' > failed-checks
-            [[ ! -s failed-checks ]] || { echo "Release commit has unsuccessful checks:" >&2; cat failed-checks >&2; exit 1; }
-            gh api "repos/$REPOSITORY/commits/$tag_commit/check-runs" --paginate --jq '.check_runs[] | select(.conclusion == "success") | .name' > successful-checks
-            [[ -s successful-checks ]] || { echo "Release commit has no successful checks." >&2; exit 1; }
+            gh api "repos/$REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$tag_commit&event=push&per_page=100" --paginate --slurp > ci-workflow-runs.json
+            ci_run_id="$(node scripts/validate-release-ci.mjs --commit "$tag_commit" --runs ci-workflow-runs.json)"
+            gh api "repos/$REPOSITORY/actions/runs/$ci_run_id/jobs?per_page=100" --paginate --slurp > ci-jobs.json
+            node scripts/validate-release-ci.mjs --commit "$tag_commit" --runs ci-workflow-runs.json --run-id "$ci_run_id" --jobs ci-jobs.json
             node scripts/validate-packaged-update-config.mjs
           fi
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
