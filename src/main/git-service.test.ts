@@ -48,6 +48,8 @@ function createGitRepository(options?: { detachedHead?: boolean }): string {
   const repoRoot = createTempDirectory('aide-git-service-')
 
   runGit(repoRoot, ['init', '-b', 'main'])
+  runGit(repoRoot, ['config', 'user.name', 'Aide Test'])
+  runGit(repoRoot, ['config', 'user.email', 'aide@example.com'])
   writeFileSync(path.join(repoRoot, 'README.md'), '# aide\n')
   runGit(repoRoot, ['add', 'README.md'])
   runGit(repoRoot, ['commit', '-m', 'Initial commit'])

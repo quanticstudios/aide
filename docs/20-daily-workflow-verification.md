@@ -76,6 +76,11 @@ No development token savings or general accuracy improvement is measured.
 
 ## Release limits
 
+[Packaged Linux smoke evidence](verification/daily-linux-package-smoke-2026-09-17.json)
+records successful native terminal, offline renderer, single-instance, restart,
+and damaged-profile recovery checks. The executable is in
+`dist/daily-workflows-2026-09-17/linux-unpacked/aide`.
+
 These checks support a local Linux pilot. Public release provisioning, signed
 updates, native macOS acceptance, and team dogfood remain open in
 [Production readiness](19-production-readiness.md#release-gates-still-open).

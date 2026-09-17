@@ -1,0 +1,14 @@
+{
+  "executablePath": "/home/pho7on/Work/aide/dist/daily-workflows-2026-09-17/linux-unpacked/aide",
+  "profile": "/tmp/aide-packaged-smoke-NRoTMX",
+  "packaged": true,
+  "offlineRenderer": true,
+  "projectRestart": true,
+  "singleInstance": true,
+  "nativePty": true,
+  "corruptionPreserved": true,
+  "restoredProject": true,
+  "runtimeCommit": "f5440b9",
+  "artifactDirectory": "dist/daily-workflows-2026-09-17",
+  "limitations": "Unsigned local Linux pilot. No public signing, OTA deployment, or macOS verification."
+}
