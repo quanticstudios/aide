@@ -1,7 +1,27 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const openHook = vi.hoisted(() => ({ beforeOpen: null as (() => void) | null }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    open: (...args: Parameters<typeof actual.open>) => {
+      openHook.beforeOpen?.()
+      return actual.open(...args)
+    },
+  }
+})
 
 import {
   prepareManagedSessionAttachments,
@@ -100,5 +120,37 @@ describe('managed session attachments', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow('not links')
+  })
+
+  it('rejects a parent directory swap before reading an external file', async () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), 'aide-attachments-'))
+    const outside = mkdtempSync(
+      path.join(tmpdir(), 'aide-attachments-outside-'),
+    )
+    directories.push(workspace, outside)
+    const nestedDirectory = path.join(workspace, 'nested')
+    mkdirSync(nestedDirectory)
+    writeFileSync(path.join(nestedDirectory, 'notes.txt'), 'inside')
+    writeFileSync(path.join(outside, 'notes.txt'), 'outside')
+    let swapped = false
+    openHook.beforeOpen = () => {
+      if (swapped) return
+      swapped = true
+      renameSync(nestedDirectory, path.join(workspace, 'nested-original'))
+      symlinkSync(outside, nestedDirectory)
+    }
+
+    try {
+      await expect(
+        prepareManagedSessionAttachments(
+          workspace,
+          [{ id: 'swap', kind: 'workspace-file', path: 'nested/notes.txt' }],
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('changed before it could be read safely')
+      expect(swapped).toBe(true)
+    } finally {
+      openHook.beforeOpen = null
+    }
   })
 })
