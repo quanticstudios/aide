@@ -32,8 +32,10 @@ export interface TurnCheckpointPreview {
   createdAt: string
   expiresAt: string
   previewId: string
+  restorePatch: string
   sessionRevision: number
   turnChanges: TurnCheckpointChange[] | null
+  turnPatch: string | null
 }
 
 export interface TurnCheckpointCaptureInput {

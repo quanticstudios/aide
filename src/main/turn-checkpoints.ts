@@ -6,8 +6,8 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
+  readFile,
   readlink,
   realpath,
   rename,
@@ -56,6 +56,7 @@ interface PendingCheckpointPreview {
 }
 
 export interface TurnCheckpointServiceOptions {
+  getWorkspaceDirectory?: (workspaceId: string) => string | null | undefined
   getSessionSnapshot: (
     sessionId: string,
   ) => ManagedSessionSnapshot | null | undefined
@@ -202,6 +203,7 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
   public async completeTurn(checkpointId: string): Promise<void> {
     const checkpoint = await this.readCheckpoint(checkpointId)
     if (checkpoint.afterTreeHash) return
+    await this.assertCheckpointWorkspace(checkpoint)
     const tree = await this.captureGitTree(checkpoint.repositoryRoot)
     checkpoint.afterTreeHash = tree.treeHash
     await this.writeCheckpoint(checkpoint)
@@ -233,6 +235,7 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
     if (checkpoint.config.sessionId !== sessionId) {
       throw new Error('The checkpoint belongs to another managed session.')
     }
+    await this.assertCheckpointWorkspace(checkpoint)
 
     const currentSnapshot = this.requireSessionSnapshot(sessionId)
     const currentTree = await this.captureGitTree(checkpoint.repositoryRoot)
@@ -248,6 +251,18 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
           checkpoint.afterTreeHash,
         )
       : null
+    const restorePatch = await this.getTreePatch(
+      checkpoint.repositoryRoot,
+      currentTree.treeHash,
+      checkpoint.treeHash,
+    )
+    const turnPatch = checkpoint.afterTreeHash
+      ? await this.getTreePatch(
+          checkpoint.repositoryRoot,
+          checkpoint.treeHash,
+          checkpoint.afterTreeHash,
+        )
+      : null
     const createdAt = this.getNow()
     const previewId = randomUUID()
     const expiresAtMs = createdAt.getTime() + previewLifetimeMs
@@ -257,8 +272,10 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(expiresAtMs).toISOString(),
       previewId,
+      restorePatch,
       sessionRevision: currentSnapshot.revision,
       turnChanges,
+      turnPatch,
     }
     this.previews.set(previewId, {
       checkpoint,
@@ -295,6 +312,8 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
         'The conversation changed after the preview. Preview it again.',
       )
     }
+
+    await this.assertCheckpointWorkspace(checkpoint)
 
     const currentTree = await this.captureGitTree(checkpoint.repositoryRoot)
     if (currentTree.treeHash !== pending.currentTreeHash) {
@@ -414,6 +433,35 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
     return repositoryRoot
   }
 
+  private async assertCheckpointWorkspace(
+    checkpoint: StoredTurnCheckpoint,
+  ): Promise<void> {
+    const configuredDirectory = this.options.getWorkspaceDirectory?.(
+      checkpoint.config.workspaceId,
+    )
+    if (this.options.getWorkspaceDirectory && !configuredDirectory) {
+      throw new Error('The checkpoint workspace is unavailable.')
+    }
+
+    const currentDirectory = await realpath(
+      configuredDirectory ?? checkpoint.config.cwd,
+    ).catch(() => null)
+    if (!currentDirectory || currentDirectory !== checkpoint.repositoryRoot) {
+      throw new Error(
+        'The checkpoint workspace directory changed. Restore is unavailable.',
+      )
+    }
+
+    const currentRepositoryRoot = await this.resolveRepositoryRoot(
+      currentDirectory,
+    ).catch(() => null)
+    if (currentRepositoryRoot !== checkpoint.repositoryRoot) {
+      throw new Error(
+        'The checkpoint repository changed. Restore is unavailable.',
+      )
+    }
+  }
+
   private async runGit(
     repositoryRoot: string,
     arguments_: string[],
@@ -502,6 +550,24 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       afterTreeHash,
     ])
     return parseNameStatus(output)
+  }
+
+  private async getTreePatch(
+    repositoryRoot: string,
+    beforeTreeHash: string,
+    afterTreeHash: string,
+  ): Promise<string> {
+    if (beforeTreeHash === afterTreeHash) return ''
+    return this.runGit(repositoryRoot, [
+      'diff-tree',
+      '--no-color',
+      '--no-ext-diff',
+      '--patch',
+      '--root',
+      '-r',
+      beforeTreeHash,
+      afterTreeHash,
+    ])
   }
 
   private async getRestoreChanges(

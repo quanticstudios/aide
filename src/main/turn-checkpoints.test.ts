@@ -27,6 +27,12 @@ const gitEnvironment = {
 
 const temporaryDirectories: string[] = []
 
+interface CheckpointTestState {
+  active: boolean
+  snapshot: ManagedSessionSnapshot
+  workspaceDirectory?: string | null
+}
+
 function createTemporaryDirectory(prefix: string): string {
   const directory = mkdtempSync(path.join(tmpdir(), prefix))
   temporaryDirectories.push(directory)
@@ -108,11 +114,15 @@ function createCaptureInput(
 
 function createService(
   repositoryRoot: string,
-  state: { active: boolean; snapshot: ManagedSessionSnapshot },
+  state: CheckpointTestState,
   now?: () => Date,
 ): TurnCheckpointService {
   return new TurnCheckpointService({
     getSessionSnapshot: () => state.snapshot,
+    getWorkspaceDirectory: () =>
+      state.workspaceDirectory === undefined
+        ? repositoryRoot
+        : state.workspaceDirectory,
     isSessionActive: () => state.active,
     now,
     storageDirectory: path.join(
@@ -295,12 +305,48 @@ describe('TurnCheckpointService', () => {
     expect(preview.turnChanges).toEqual([
       expect.objectContaining({ path: 'README.md', status: 'modified' }),
     ])
+    expect(preview.turnPatch).toContain('-before')
+    expect(preview.turnPatch).toContain('+first turn')
     expect(preview.changes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ path: 'README.md', status: 'modified' }),
         expect.objectContaining({ path: 'later.txt', status: 'deleted' }),
       ]),
     )
+    expect(preview.restorePatch).toContain('-first turn')
+    expect(preview.restorePatch).toContain('+before')
+    expect(preview.restorePatch).toContain('deleted file mode')
+  })
+
+  it('rejects a checkpoint after its workspace path changes', async () => {
+    const repositoryRoot = createRepository()
+    const replacementRoot = createRepository()
+    const state: CheckpointTestState = {
+      active: false,
+      snapshot: createSnapshot(),
+    }
+    const service = createService(repositoryRoot, state)
+    const checkpoint = await service.captureTurn(
+      createCaptureInput(repositoryRoot, state.snapshot),
+    )
+    state.workspaceDirectory = replacementRoot
+
+    await expect(service.completeTurn(checkpoint.checkpointId)).rejects.toThrow(
+      'workspace directory changed',
+    )
+    await expect(
+      service.previewRestore(state.snapshot.sessionId, checkpoint.checkpointId),
+    ).rejects.toThrow('workspace directory changed')
+
+    state.workspaceDirectory = repositoryRoot
+    const preview = await service.previewRestore(
+      state.snapshot.sessionId,
+      checkpoint.checkpointId,
+    )
+    state.workspaceDirectory = replacementRoot
+    await expect(
+      service.restore(preview.previewId, 'conversation-only'),
+    ).rejects.toThrow('workspace directory changed')
   })
 
   it('restores a conflicted worktree without changing the real index', async () => {
