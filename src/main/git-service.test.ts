@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -696,6 +698,85 @@ describe('GitWorkspaceService', () => {
     expect(runGit(repoRoot, ['diff', '--', 'README.md'])).toContain(
       'second change',
     )
+
+    database.close()
+  })
+
+  it('rejects a stale revert preview after a binary file changes', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+    const binaryPath = path.join(repoRoot, 'image.bin')
+
+    writeFileSync(binaryPath, Buffer.from([0, 1, 2, 3]))
+    runGit(repoRoot, ['add', 'image.bin'])
+    runGit(repoRoot, ['commit', '-m', 'Add binary fixture'])
+    writeFileSync(binaryPath, Buffer.from([0, 1, 2, 4]))
+    const preview = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'image.bin',
+    )
+    if (!preview.ok) throw new Error(preview.error)
+    writeFileSync(binaryPath, Buffer.from([0, 1, 2, 5]))
+
+    await expect(
+      service.revertWorkspaceFile({
+        filePath: 'image.bin',
+        fingerprint: preview.diff.fingerprint,
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({ code: 'stale-diff', ok: false })
+    expect(readFileSync(binaryPath)).toEqual(Buffer.from([0, 1, 2, 5]))
+
+    database.close()
+  })
+
+  it('reverts staged new files and staged renames from both index paths', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    writeFileSync(path.join(repoRoot, 'new-file.txt'), 'new file\n')
+    runGit(repoRoot, ['add', 'new-file.txt'])
+    const stagedNew = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'new-file.txt',
+    )
+    if (!stagedNew.ok) throw new Error(stagedNew.error)
+
+    await expect(
+      service.revertWorkspaceFile({
+        filePath: 'new-file.txt',
+        fingerprint: stagedNew.diff.fingerprint,
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({ ok: true })
+    expect(existsSync(path.join(repoRoot, 'new-file.txt'))).toBe(false)
+
+    runGit(repoRoot, ['mv', 'README.md', 'RENAMED.md'])
+    const renamed = await service.getWorkspaceStatus(imported.workspaceId)
+    if (!renamed.ok) throw new Error(renamed.error)
+    const renamedFile = renamed.status.files.find(
+      (file) => file.path === 'RENAMED.md',
+    )
+    expect(renamedFile?.originalPath).toBe('README.md')
+    const renameDiff = await service.getWorkspaceFileDiff(
+      imported.workspaceId,
+      'RENAMED.md',
+    )
+    if (!renameDiff.ok) throw new Error(renameDiff.error)
+
+    await expect(
+      service.revertWorkspaceFile({
+        filePath: 'RENAMED.md',
+        fingerprint: renameDiff.diff.fingerprint,
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({ ok: true })
+    expect(existsSync(path.join(repoRoot, 'README.md'))).toBe(true)
+    expect(existsSync(path.join(repoRoot, 'RENAMED.md'))).toBe(false)
 
     database.close()
   })

@@ -25,6 +25,7 @@ import type {
   WorkspaceGitPullRequest,
   WorkspaceGitStatusSnapshot,
 } from '../../../shared/git'
+import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
   buildGitFileTree,
@@ -217,6 +218,10 @@ function formatReviewFeedback(
   return `Review feedback for ${filePath}:${line}\n\n${text.trim()}`
 }
 
+function isAgentPaneId(paneId: string): boolean {
+  return paneId === 'agent' || paneId.startsWith('agent::copy-')
+}
+
 function GitFileTreeRow({
   collapsed,
   depth,
@@ -341,6 +346,10 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     useState<WorkspaceGitPullRequest | null>(null)
   const [reviewLine, setReviewLine] = useState('')
   const [reviewFeedback, setReviewFeedback] = useState('')
+  const [reviewAgentSessions, setReviewAgentSessions] = useState<
+    readonly ManagedSessionSnapshot[]
+  >([])
+  const [reviewAgentSessionId, setReviewAgentSessionId] = useState('')
   const [diffLayout, setDiffLayout] = useState<DiffLayout>(readStoredDiffLayout)
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set())
   const [previousWorkspaceId, setPreviousWorkspaceId] = useState(workspace.id)
@@ -365,6 +374,8 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     setPullRequest(null)
     setReviewLine('')
     setReviewFeedback('')
+    setReviewAgentSessions([])
+    setReviewAgentSessionId('')
     setCollapsedDirs(new Set())
   }
 
@@ -555,6 +566,30 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     }
   }, [selectedFile, workspace.id])
 
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) return
+
+    let cancelled = false
+    void api.getManagedSessionSnapshots().then((snapshots) => {
+      if (cancelled) return
+      const sessions = Object.values(snapshots).filter(
+        (session) =>
+          session.workspaceId === workspace.id && isAgentPaneId(session.paneId),
+      )
+      setReviewAgentSessions(sessions)
+      setReviewAgentSessionId((current) =>
+        sessions.some((session) => session.sessionId === current)
+          ? current
+          : (sessions[0]?.sessionId ?? ''),
+      )
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [workspace.id])
+
   const applyMutationResult = useCallback(
     (result: WorkspaceGitMutationResult): boolean => {
       if (!result.ok) {
@@ -606,8 +641,13 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     try {
       const sessions = Object.values(
         await api.getManagedSessionSnapshots(),
-      ).filter((session) => session.workspaceId === workspace.id)
-      const session = sessions.find((candidate) => candidate.paneId === 'agent')
+      ).filter(
+        (session) =>
+          session.workspaceId === workspace.id && isAgentPaneId(session.paneId),
+      )
+      const session = sessions.find(
+        (candidate) => candidate.sessionId === reviewAgentSessionId,
+      )
       if (!session) {
         setActionError(
           'Open the workspace Agent pane before sending review feedback.',
@@ -625,7 +665,13 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     } finally {
       setIsMutating(false)
     }
-  }, [reviewFeedback, reviewLine, selectedFile, workspace.id])
+  }, [
+    reviewAgentSessionId,
+    reviewFeedback,
+    reviewLine,
+    selectedFile,
+    workspace.id,
+  ])
 
   const refreshPullRequest = useCallback(async () => {
     const api = getAideApi()
@@ -1170,6 +1216,33 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                     <p className="text-sm font-medium text-foreground">
                       Line feedback
                     </p>
+                    {reviewAgentSessions.length > 1 ? (
+                      <>
+                        <label
+                          className="block text-xs text-muted-foreground"
+                          htmlFor="git-review-agent"
+                        >
+                          Agent pane
+                        </label>
+                        <select
+                          className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                          id="git-review-agent"
+                          onChange={(event) =>
+                            setReviewAgentSessionId(event.target.value)
+                          }
+                          value={reviewAgentSessionId}
+                        >
+                          {reviewAgentSessions.map((session) => (
+                            <option
+                              key={session.sessionId}
+                              value={session.sessionId}
+                            >
+                              {session.paneId}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    ) : null}
                     <label
                       className="block text-xs text-muted-foreground"
                       htmlFor="git-review-line"
