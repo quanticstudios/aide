@@ -52,8 +52,18 @@ describe('retrieveContext', () => {
       path.join(root, 'ignored.ts'),
       'export const ignored = true\n',
     )
-    await writeFile(path.join(root, '.gitignore'), 'ignored.ts\n')
+    await writeFile(path.join(root, '.gitignore'), 'ignored*\n')
     await writeFile(path.join(root, 'binary.dat'), Buffer.from([0, 1, 2]))
+    await writeFile(
+      path.join(root, 'ignored\ttracked.ts'),
+      'export const ignoredName = true\n',
+    )
+    for (let index = 0; index < 520; index += 1) {
+      await writeFile(
+        path.join(root, `candidate-${index.toString().padStart(3, '0')}.ts`),
+        'export const candidate = true\n',
+      )
+    }
     await writeFile(
       path.join(outside, 'outside.ts'),
       'export const outside = true\n',
@@ -71,6 +81,7 @@ describe('retrieveContext', () => {
       '.gitignore',
       '--force',
       'ignored.ts',
+      'ignored\ttracked.ts',
     ])
     git(root, ['commit', '-m', 'fixture'])
 
@@ -96,9 +107,13 @@ describe('retrieveContext', () => {
     expect(context.candidates.map((excerpt) => excerpt.path)).not.toContain(
       'src/escape.ts',
     )
+    expect(context.candidates.map((excerpt) => excerpt.path)).not.toContain(
+      'ignored\ttracked.ts',
+    )
+    expect(context.candidates).toHaveLength(16)
     expect(context.mandatory[2].contentRevision).toMatch(/^[a-f0-9]{64}$/)
     expect(context.mandatory[2].startLine).toBe(1)
-    expect(context.mandatory[2].endLine).toBe(2)
+    expect(context.mandatory[2].endLine).toBe(1)
 
     await writeFile(
       path.join(root, 'src', 'parser.ts'),
@@ -125,6 +140,29 @@ describe('retrieveContext', () => {
     await expect(
       validateContextRevisions(root, changed.mandatory),
     ).rejects.toThrow('is unavailable')
+
+    await writeFile(
+      path.join(root, 'src', 'large.ts'),
+      Array.from(
+        { length: 2_000 },
+        (_, index) => `export const value${index + 1} = ${index + 1}\n`,
+      ).join(''),
+    )
+    const largeFileContext = await retrieveContext({
+      task: 'Fix src/large.ts:1500',
+      workspaceRoot: root,
+    })
+    const largeExcerpt = largeFileContext.mandatory.find(
+      (excerpt) => excerpt.path === 'src/large.ts',
+    )
+    expect(largeExcerpt?.startLine).toBe(1498)
+    expect(largeExcerpt?.endLine).toBeGreaterThanOrEqual(1500)
+    expect(largeFileContext.omitted).toContainEqual(
+      expect.objectContaining({
+        path: 'src/large.ts',
+        reason: expect.stringContaining('full file exceeds the excerpt budget'),
+      }),
+    )
   })
 
   it('does not traverse outside a non-Git workspace and respects cancellation', async () => {

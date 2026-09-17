@@ -1,17 +1,19 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { open, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
 const RETRIEVAL_TIMEOUT_MS = 1_500
-const MAX_GIT_OUTPUT_BYTES = 256_000
-const MAX_LISTED_FILES = 512
+const MAX_GIT_OUTPUT_BYTES = 2_000_000
+const MAX_CANDIDATE_PATHS = 512
 const MAX_MANDATORY_FILES = 32
 const MAX_MANDATORY_BYTES = 24_000
 const MAX_MANDATORY_FILE_BYTES = 12_000
+const MAX_SOURCE_FILE_BYTES = 1_000_000
 const MAX_CANDIDATES = 16
 const MAX_CANDIDATE_BYTES = 8_000
 const MAX_CANDIDATE_EXCERPT_BYTES = 4_000
@@ -115,21 +117,28 @@ function normalizePath(value: string): string | null {
   return normalized
 }
 
-function explicitPaths(task: string): string[] {
+function explicitReferences(task: string): Map<string, number | undefined> {
   const values =
     task.match(
-      /(?:(?:\.{1,2}|[A-Za-z0-9_.-]+)\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+/g,
+      /(?:(?:\.{1,2}|[A-Za-z0-9_.-]+)\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+(?::\d+)?/g,
     ) ?? []
-  const paths = new Set<string>()
+  const references = new Map<string, number | undefined>()
 
   for (const value of values) {
-    const normalized = normalizePath(value)
-    if (normalized) {
-      paths.add(normalized)
+    const lineMatch = value.match(/:(\d+)$/)
+    const normalized = normalizePath(
+      lineMatch ? value.slice(0, -lineMatch[0].length) : value,
+    )
+    if (normalized && (!references.has(normalized) || lineMatch)) {
+      references.set(normalized, lineMatch ? Number(lineMatch[1]) : undefined)
     }
   }
 
-  return [...paths].sort((left, right) => left.localeCompare(right))
+  return new Map(
+    [...references.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  )
 }
 
 function taskTerms(task: string): string[] {
@@ -148,7 +157,9 @@ function pathScore(relativePath: string, terms: readonly string[]): number {
 }
 
 function lineCount(content: string): number {
-  return content ? content.split('\n').length : 1
+  return content
+    ? content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+    : 1
 }
 
 function revision(bytes: Buffer): string {
@@ -179,18 +190,27 @@ function fullExcerpt(file: ValidatedFile): ContextExcerpt {
 function candidateExcerpt(
   file: ValidatedFile,
   terms: readonly string[],
+  maximumBytes = MAX_CANDIDATE_EXCERPT_BYTES,
+  preferredLine?: number,
 ): ContextExcerpt | null {
   const lines = file.content.split(/(?<=\n)/)
-  const bestLineIndex = lines.findIndex((line) => {
-    const normalized = line.toLowerCase()
-    return terms.some((term) => normalized.includes(term))
-  })
+  const bestLineIndex = preferredLine
+    ? preferredLine > lines.length
+      ? -1
+      : preferredLine - 1
+    : lines.findIndex((line) => {
+        const normalized = line.toLowerCase()
+        return terms.some((term) => normalized.includes(term))
+      })
+  if (preferredLine && bestLineIndex === -1) {
+    return null
+  }
   const startIndex = Math.max(0, bestLineIndex === -1 ? 0 : bestLineIndex - 2)
   const excerptLines: string[] = []
 
   for (let index = startIndex; index < lines.length; index += 1) {
     const next = `${excerptLines.join('')}${lines[index]}`
-    if (Buffer.byteLength(next) > MAX_CANDIDATE_EXCERPT_BYTES) {
+    if (Buffer.byteLength(next) > maximumBytes) {
       break
     }
     excerptLines.push(lines[index])
@@ -232,13 +252,6 @@ async function gitFiles(
       },
     )
     const files = splitNullDelimited(stdout.toString())
-
-    if (files.length > MAX_LISTED_FILES) {
-      throw new Error(
-        `Context retrieval supports at most ${MAX_LISTED_FILES} workspace files.`,
-      )
-    }
-
     return files
   } catch (error) {
     if (signal?.aborted) {
@@ -254,6 +267,13 @@ async function gitFiles(
       (error as { stderr?: string | Buffer }).stderr?.toString() ?? ''
     if (/not a git repository/i.test(stderr)) {
       return null
+    }
+
+    if (
+      (error as NodeJS.ErrnoException).code ===
+      'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+    ) {
+      throw new Error('Context retrieval file listing exceeds its 2MiB limit.')
     }
 
     throw error
@@ -319,29 +339,40 @@ async function readValidatedFile(
       return null
     }
 
-    const fileStat = await stat(resolvedPath)
-    if (!fileStat.isFile() || fileStat.size > MAX_MANDATORY_FILE_BYTES) {
-      return null
-    }
+    // warn: A directory swap between realpath and open can choose a different file.
+    const fileHandle = await open(
+      requestedPath,
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    )
+    try {
+      const fileStat = await fileHandle.stat()
+      if (!fileStat.isFile() || fileStat.size > MAX_SOURCE_FILE_BYTES) {
+        return null
+      }
 
-    assertActive(signal, deadline)
-    const bytes = await readFile(resolvedPath)
-    if (bytes.includes(0)) {
-      return null
-    }
+      assertActive(signal, deadline)
+      const bytes = await fileHandle.readFile({ signal })
+      if (bytes.length > MAX_SOURCE_FILE_BYTES || bytes.includes(0)) {
+        return null
+      }
 
-    assertActive(signal, deadline)
-    return {
-      bytes,
-      content: bytes.toString('utf8'),
-      path: normalized,
+      assertActive(signal, deadline)
+      return {
+        bytes,
+        content: bytes.toString('utf8'),
+        path: normalized,
+      }
+    } finally {
+      await fileHandle.close()
     }
   } catch (error) {
     if (signal?.aborted) {
       throw abortError()
     }
 
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (
+      ['ELOOP', 'ENOENT'].includes((error as NodeJS.ErrnoException).code ?? '')
+    ) {
       return null
     }
 
@@ -414,6 +445,10 @@ function pushOmission(
   })
 }
 
+function isSupportedGitPath(relativePath: string): boolean {
+  return !/[\t\r\n]/.test(relativePath)
+}
+
 export async function retrieveContext({
   workspaceRoot,
   task,
@@ -429,13 +464,51 @@ export async function retrieveContext({
 
   const listedFiles = await gitFiles(resolvedRoot, signal, deadline)
   assertActive(signal, deadline)
-  const explicit = explicitPaths(task)
-  const discoveredFiles = listedFiles ?? [
+  const explicitReferencesByPath = explicitReferences(task)
+  const explicit = [...explicitReferencesByPath.keys()]
+  const workspaceFiles = listedFiles ?? [
     ...(await existingRootInstructionPaths(resolvedRoot, signal, deadline)),
     ...explicit,
   ]
+  const terms = taskTerms(task)
+  const allInstructionPaths = workspaceFiles.filter((relativePath) =>
+    INSTRUCTION_FILE_NAMES.has(path.posix.basename(relativePath)),
+  )
+  const rankedCandidatePaths = workspaceFiles
+    .filter(
+      (relativePath) =>
+        !explicitReferencesByPath.has(relativePath) &&
+        !INSTRUCTION_FILE_NAMES.has(path.posix.basename(relativePath)) &&
+        !isSecretPath(relativePath) &&
+        isSupportedGitPath(relativePath) &&
+        normalizePath(relativePath) !== null,
+    )
+    .sort((left, right) => {
+      const scoreDifference = pathScore(right, terms) - pathScore(left, terms)
+      return scoreDifference || left.localeCompare(right)
+    })
+    .slice(0, MAX_CANDIDATE_PATHS)
+  const discoveredFiles = [
+    ...new Set([
+      ...explicit,
+      ...allInstructionPaths.filter(
+        (instructionPath) => path.posix.dirname(instructionPath) === '.',
+      ),
+      ...applicableInstructions(
+        [...explicit, ...rankedCandidatePaths],
+        allInstructionPaths,
+      ),
+      ...rankedCandidatePaths,
+    ]),
+  ]
+  const inspectableFiles = discoveredFiles.filter(
+    (relativePath) =>
+      !isSecretPath(relativePath) &&
+      isSupportedGitPath(relativePath) &&
+      normalizePath(relativePath) !== null,
+  )
   const ignored = listedFiles
-    ? await ignoredGitPaths(resolvedRoot, listedFiles, signal, deadline)
+    ? await ignoredGitPaths(resolvedRoot, inspectableFiles, signal, deadline)
     : new Set<string>()
   const omissions: ContextOmission[] = []
   const available = discoveredFiles
@@ -446,6 +519,10 @@ export async function retrieveContext({
       }
       if (isSecretPath(relativePath)) {
         pushOmission(omissions, relativePath, 'sensitive filename')
+        return false
+      }
+      if (!isSupportedGitPath(relativePath)) {
+        pushOmission(omissions, relativePath, 'unsupported filename')
         return false
       }
       return normalizePath(relativePath) !== null
@@ -462,7 +539,6 @@ export async function retrieveContext({
   const instructionPaths = available.filter((relativePath) =>
     INSTRUCTION_FILE_NAMES.has(path.posix.basename(relativePath)),
   )
-  const terms = taskTerms(task)
   const optionalPaths = available
     .filter(
       (relativePath) =>
@@ -508,18 +584,41 @@ export async function retrieveContext({
       throw new Error(`Required context file "${relativePath}" is unavailable.`)
     }
 
-    const excerpt = fullExcerpt(file)
-    const byteLength = Buffer.byteLength(excerpt.content)
+    const isInstruction = INSTRUCTION_FILE_NAMES.has(
+      path.posix.basename(relativePath),
+    )
+    const byteLength = Buffer.byteLength(file.content)
+    const excerpt =
+      isInstruction || byteLength <= MAX_MANDATORY_FILE_BYTES
+        ? fullExcerpt(file)
+        : candidateExcerpt(
+            file,
+            terms,
+            MAX_MANDATORY_FILE_BYTES,
+            explicitReferencesByPath.get(relativePath),
+          )
+    if (!excerpt) {
+      throw new Error(
+        `Required context file "${relativePath}" has no complete excerpt within the mandatory context budget.`,
+      )
+    }
     if (
-      byteLength > MAX_MANDATORY_FILE_BYTES ||
-      mandatoryBytes + byteLength > MAX_MANDATORY_BYTES
+      (isInstruction && byteLength > MAX_MANDATORY_FILE_BYTES) ||
+      mandatoryBytes + Buffer.byteLength(excerpt.content) > MAX_MANDATORY_BYTES
     ) {
       throw new Error(
         `Required context file "${relativePath}" exceeds the mandatory context budget.`,
       )
     }
+    if (!isInstruction && byteLength > MAX_MANDATORY_FILE_BYTES) {
+      pushOmission(
+        omissions,
+        relativePath,
+        `full file exceeds the excerpt budget; included lines ${excerpt.startLine}-${excerpt.endLine}`,
+      )
+    }
     mandatory.push(excerpt)
-    mandatoryBytes += byteLength
+    mandatoryBytes += Buffer.byteLength(excerpt.content)
   }
 
   const candidates: ContextExcerpt[] = []
