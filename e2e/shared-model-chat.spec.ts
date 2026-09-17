@@ -145,6 +145,12 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
   await page.getByRole('button', { name: /add pane/i }).click()
   await page.getByRole('button', { name: /^agent\b/i }).click()
   await prepareSyntheticJev(app, page)
+  const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+  await prompt.fill('initialize shared chat')
+  await page.getByRole('button', { name: /send prompt/i }).click()
+  await expect(page.getByTestId('managed-session-content')).toContainText(
+    'Handled: initialize shared chat',
+  )
   await expect
     .poll(() => getOnlySnapshot(page))
     .toMatchObject({
@@ -215,8 +221,8 @@ test.describe('shared model chat', () => {
     const { page } = launched
 
     expect(configured.agents).toEqual([
-      expect.objectContaining({ alias: 'Claude' }),
-      expect.objectContaining({ alias: 'Codex' }),
+      expect.objectContaining({ alias: 'claude' }),
+      expect.objectContaining({ alias: 'codex' }),
     ])
     const orchestrator = {
       model: configured.model,
@@ -282,27 +288,29 @@ test.describe('shared model chat', () => {
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
-            recipientAlias: 'Claude',
+            recipientAlias: 'claude',
             state: 'failed',
           }),
           expect.objectContaining({
-            recipientAlias: 'Codex',
+            recipientAlias: 'codex',
             state: 'completed',
           }),
         ]),
       })
-    await expect(page.getByRole('button', { name: 'Retry turn' })).toBeVisible()
-    await page.getByRole('button', { name: 'Retry turn' }).click()
+    const retryTurn = page.getByRole('button', { name: 'Retry turn' })
+    await expect(retryTurn).toBeVisible()
+    await retryTurn.locator('xpath=../..').hover()
+    await retryTurn.click()
     await expect
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
-            recipientAlias: 'Codex',
+            recipientAlias: 'codex',
             state: 'completed',
           }),
           expect.objectContaining({
-            recipientAlias: 'Claude',
+            recipientAlias: 'claude',
             state: 'failed',
           }),
         ]),
@@ -311,19 +319,19 @@ test.describe('shared model chat', () => {
     await prompt.fill('@Claude @Codex wait-claude')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(
-      page.getByRole('button', { name: 'Interrupt @Claude' }),
+      page.getByRole('button', { name: 'Interrupt @claude' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Interrupt @Claude' }).click()
+    await page.getByRole('button', { name: 'Interrupt @claude' }).click()
     await expect
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
-            recipientAlias: 'Claude',
-            state: 'interrupted',
+            recipientAlias: 'claude',
+            state: 'cancelled',
           }),
           expect.objectContaining({
-            recipientAlias: 'Codex',
+            recipientAlias: 'codex',
             state: 'completed',
           }),
         ]),

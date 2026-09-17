@@ -658,10 +658,21 @@ test.describe('electron spatial navigation', () => {
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expandSidebar(page)
     await expect(workspaceSidebarRow.getByText('Agent Approval')).toBeVisible()
-    await page.getByRole('button', { name: /allow once/i }).click()
+    const allowOnce = page.getByRole('button', { name: /allow once/i })
+    await allowOnce.hover()
+    await allowOnce.click()
 
     await promptInput.fill('ship it')
-    await page.getByRole('button', { name: /send prompt/i }).click()
+    const sendPrompt = page.getByRole('button', { name: /send prompt/i })
+    await expect(promptInput).toHaveValue('ship it')
+    await expect(sendPrompt).toBeEnabled()
+    await sendPrompt.click()
+    await expect(promptInput).toHaveValue('')
+    await expect(
+      page.getByText(
+        'A managed session turn is already being prepared or dispatched.',
+      ),
+    ).not.toBeVisible()
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: ship it',
     )

@@ -1270,6 +1270,20 @@ export default function ManagedAgentPane({
     () => groupContentByTurn(snapshot?.content ?? []),
     [snapshot?.content],
   )
+  const visibleTurnGroups = useMemo(() => {
+    const contentTurnIds = new Set(
+      turnGroups
+        .map((group) => group.turnId)
+        .filter((turnId): turnId is string => turnId !== null),
+    )
+    const emptyOpinionGroups = (snapshot?.turns ?? [])
+      .filter(
+        (turn) => Boolean(turn.recipientAlias) && !contentTurnIds.has(turn.id),
+      )
+      .map((turn) => ({ items: [], turnId: turn.id }))
+
+    return [...turnGroups, ...emptyOpinionGroups]
+  }, [snapshot?.turns, turnGroups])
 
   const selectRecipient = useCallback(
     (agent: ManagedSessionAgentConfig) => {
@@ -1435,9 +1449,9 @@ export default function ManagedAgentPane({
         onScroll={handleScroll}
         ref={scrollRef}
       >
-        {turnGroups.length > 0 ? (
+        {visibleTurnGroups.length > 0 ? (
           <div className="mx-auto max-w-3xl space-y-4">
-            {turnGroups.map((group) => {
+            {visibleTurnGroups.map((group) => {
               const turn = snapshot?.turns.find(
                 (candidate) => candidate.id === group.turnId,
               ) as RecipientTurnSummary | undefined
