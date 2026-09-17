@@ -376,6 +376,19 @@ const persistedText = z.string().max(1_000_000)
 const persistedTimestamp = z.string().min(1).max(64)
 const persistedProvider = z.enum(['claude', 'codex'])
 const persistedNullableNumber = z.number().finite().nonnegative().nullable()
+const persistedProviderSelection = z.object({
+  effort: z.string().max(200).optional(),
+  mode: persistedProvider,
+  model: z.string().max(200).optional(),
+  serviceTier: z.string().max(200).optional(),
+})
+const persistedAgentConfig = z.object({
+  alias: z
+    .string()
+    .regex(/^[A-Za-z][A-Za-z0-9_-]*$/)
+    .max(200),
+  selection: persistedProviderSelection,
+})
 const persistedUsageModel = z.object({
   cachedInputTokens: persistedNullableNumber,
   cacheCreationInputTokens: persistedNullableNumber,
@@ -387,12 +400,14 @@ const persistedUsageModel = z.object({
 const persistedManagedSessionSchema = z
   .object({
     config: z.object({
+      agents: z.array(persistedAgentConfig).optional(),
       contextWindow: z.enum(['200k', '1m']).optional(),
       cwd: persistedText,
       effort: z.string().max(200).optional(),
       interactionMode: z.enum(['build', 'plan']).optional(),
       mode: persistedProvider,
       model: z.string().max(200).optional(),
+      orchestratorSelection: persistedProviderSelection.optional(),
       paneId: persistedIdentifier,
       permissionMode: z
         .enum(['acceptEdits', 'bypassPermissions', 'default', 'plan'])
@@ -416,6 +431,7 @@ const persistedManagedSessionSchema = z
             'system',
             'user-prompt',
           ]),
+          model: z.string().max(200).nullable().optional(),
           provider: persistedProvider.nullable(),
           text: persistedText,
           turnId: persistedIdentifier.nullable(),
@@ -429,6 +445,7 @@ const persistedManagedSessionSchema = z
       lastError: z.string().max(2_000).nullable(),
       lastErrorAt: persistedTimestamp.nullable(),
       model: z.string().max(200).nullable(),
+      orchestratorSelection: persistedProviderSelection.optional(),
       paneId: persistedIdentifier,
       pendingApprovals: z.array(
         z.object({

@@ -1,3 +1,4 @@
+import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
@@ -52,6 +53,7 @@ export type ManagedSessionPermissionMode =
 export type ManagedSessionInteractionMode = 'build' | 'plan'
 
 export interface ManagedSessionConfig {
+  agents?: readonly ManagedSessionAgentConfig[]
   /**
    * Claude-only: UI-stored context window preference. Currently informational —
    * the Claude Agent SDK does not expose a 1M-context flag in `Options`, so
@@ -63,6 +65,7 @@ export interface ManagedSessionConfig {
   interactionMode?: ManagedSessionInteractionMode
   mode: ManagedSessionMode
   model?: string
+  orchestratorSelection?: ManagedSessionProviderSelection
   paneId: string
   permissionMode?: ManagedSessionPermissionMode
   /** Codex app-server `model/list` service tier identifier. */
@@ -104,6 +107,7 @@ export interface ManagedSessionTurnSummary {
 export interface ManagedSessionContentItem {
   id: string
   kind: ManagedSessionContentKind
+  model?: string | null
   provider: ManagedSessionProvider | null
   text: string
   turnId: string | null
@@ -149,6 +153,7 @@ export interface ManagedSessionUsage {
 }
 
 export interface ManagedSessionSnapshot {
+  agents?: readonly ManagedSessionAgentConfig[]
   content: ManagedSessionContentItem[]
   detail: string | null
   effort: ManagedSessionEffort | null
@@ -157,6 +162,7 @@ export interface ManagedSessionSnapshot {
   lastError: string | null
   lastErrorAt: string | null
   model: string | null
+  orchestratorSelection?: ManagedSessionProviderSelection
   paneId: string
   pendingApprovals: ManagedSessionPendingApproval[]
   pendingUserInputs: ManagedSessionPendingUserInput[]

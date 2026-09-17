@@ -27,6 +27,14 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
+import {
+  extractExplicitRecipientAliases,
+  getNextRecipientSuggestionIndex,
+  getRecipientMentionQuery,
+  getRecipientSuggestions,
+  removeRecipientMention,
+} from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
 import type {
   ManagedSessionContentItem,
@@ -59,6 +67,7 @@ import {
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { cn } from '../lib/utils'
+import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import JevSetup from './JevSetup'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
@@ -66,6 +75,7 @@ import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
+import RecipientMentionMenu from './RecipientMentionMenu'
 
 interface ManagedAgentPaneProps {
   readonly paneId: string
@@ -154,6 +164,35 @@ function persistProviderSelection(
   } catch {
     // Storage failures should not prevent an available provider from running.
   }
+}
+
+function getDefaultConfiguredAgents(
+  capabilities: ProviderCapabilitiesSnapshot,
+): readonly ManagedSessionAgentConfig[] {
+  return (['claude', 'codex'] as const).flatMap((mode) => {
+    const resolution = resolveProviderSelection(
+      capabilities.providers[mode],
+      {},
+    )
+
+    if (!resolution.effort || !resolution.modelId) {
+      return []
+    }
+
+    return [
+      {
+        alias: mode === 'claude' ? 'Claude' : 'Codex',
+        selection: {
+          effort: resolution.effort,
+          mode,
+          model: resolution.modelId,
+          ...(resolution.serviceTier
+            ? { serviceTier: resolution.serviceTier }
+            : {}),
+        },
+      },
+    ]
+  })
 }
 
 function formatMessageTime(iso: string): string {
@@ -427,6 +466,12 @@ function ContentItemBlock({
 
   return (
     <div className="px-1" data-testid={`managed-content-${item.kind}`}>
+      {item.kind === 'assistant-text' && item.provider ? (
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {item.provider === 'claude' ? 'Claude' : 'Codex'}
+          {item.model ? ` · ${item.model}` : ''}
+        </p>
+      ) : null}
       <MarkdownContent text={item.text} />
     </div>
   )
@@ -564,6 +609,15 @@ export default function ManagedAgentPane({
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
+  const [configuredAgents, setConfiguredAgents] = useState<
+    readonly ManagedSessionAgentConfig[]
+  >([])
+  const [selectedRecipientAliases, setSelectedRecipientAliases] = useState<
+    readonly string[]
+  >([])
+  const [recipientActiveIndex, setRecipientActiveIndex] = useState(0)
+  const [isRecipientMenuDismissed, setIsRecipientMenuDismissed] =
+    useState(false)
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build')
@@ -579,6 +633,7 @@ export default function ManagedAgentPane({
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const startedSessionRef = useRef(false)
+  const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -660,6 +715,15 @@ export default function ManagedAgentPane({
   }, [effort, selectedModel, selectedProvider, serviceTier, workspace.id])
 
   useEffect(() => {
+    if (!capabilities || configuredAgentsInitializedRef.current) {
+      return
+    }
+
+    configuredAgentsInitializedRef.current = true
+    setConfiguredAgents(getDefaultConfiguredAgents(capabilities))
+  }, [capabilities])
+
+  useEffect(() => {
     if (draftInput === '' && textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -681,6 +745,10 @@ export default function ManagedAgentPane({
 
       if (existing) {
         setSnapshot(existing)
+        if (existing.agents) {
+          setConfiguredAgents(existing.agents)
+          configuredAgentsInitializedRef.current = true
+        }
         setSelectedModel(existing.model ?? undefined)
         setEffort(existing.effort ?? effort)
         setServiceTier(existing.serviceTier)
@@ -701,12 +769,19 @@ export default function ManagedAgentPane({
       }
 
       const created = await api.createManagedSession({
+        agents: configuredAgents,
         contextWindow,
         cwd: workspace.worktreePath || '~',
         effort,
         interactionMode: agentMode,
         mode: selectedProvider,
         model: selectedModel,
+        orchestratorSelection: {
+          effort,
+          mode: selectedProvider,
+          model: selectedModel,
+          ...(serviceTier ? { serviceTier } : {}),
+        },
         paneId,
         permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
@@ -729,6 +804,7 @@ export default function ManagedAgentPane({
   }, [
     agentMode,
     contextWindow,
+    configuredAgents,
     error,
     effort,
     isSelectionHydrated,
@@ -767,6 +843,10 @@ export default function ManagedAgentPane({
         runtimeGeneration: nextSnapshot.runtimeGeneration,
       }
       setSnapshot(nextSnapshot)
+      if (nextSnapshot.agents) {
+        setConfiguredAgents(nextSnapshot.agents)
+        configuredAgentsInitializedRef.current = true
+      }
       setSelectedModel(nextSnapshot.model ?? undefined)
       setEffort(nextSnapshot.effort ?? effort)
       setServiceTier(nextSnapshot.serviceTier)
@@ -836,7 +916,7 @@ export default function ManagedAgentPane({
   }, [])
 
   const sendPromptText = useCallback(
-    async (text: string) => {
+    async (text: string, recipients: readonly string[] = []) => {
       const api = getAideApi()
       const trimmed = text.trim()
 
@@ -852,7 +932,7 @@ export default function ManagedAgentPane({
             return false
           }
         }
-        await api.sendManagedSessionInput(sessionId, trimmed)
+        await api.sendManagedSessionInput(sessionId, trimmed, recipients)
         setError(null)
         return true
       } catch (sendError) {
@@ -866,16 +946,84 @@ export default function ManagedAgentPane({
   )
 
   const handleSendInput = useCallback(async () => {
-    if (await sendPromptText(draftInput)) {
-      setDraftInput('')
+    const submittedDraft = draftInput
+    const submittedRecipientAliases = selectedRecipientAliases
+    const parsed = extractExplicitRecipientAliases(
+      submittedDraft,
+      configuredAgents.map((agent) => agent.alias),
+    )
+
+    if (parsed.error) {
+      setError(parsed.error)
+      return
     }
-  }, [draftInput, sendPromptText])
+
+    const recipients = Array.from(
+      new Set([...submittedRecipientAliases, ...parsed.aliases]),
+    )
+
+    if (agentMode === 'build' && recipients.length > 1) {
+      setError('Build mode accepts one recipient. Use Plan for a comparison.')
+      return
+    }
+
+    if (await sendPromptText(parsed.text, recipients)) {
+      setDraftInput((currentDraft) =>
+        currentDraft === submittedDraft ? '' : currentDraft,
+      )
+      setSelectedRecipientAliases((currentAliases) =>
+        currentAliases === submittedRecipientAliases ? [] : currentAliases,
+      )
+    }
+  }, [
+    agentMode,
+    configuredAgents,
+    draftInput,
+    selectedRecipientAliases,
+    sendPromptText,
+  ])
 
   const handleRetryTurn = useCallback(
     async (text: string) => {
       await sendPromptText(text)
     },
     [sendPromptText],
+  )
+
+  const handleConfiguredAgentsChange = useCallback(
+    async (agents: readonly ManagedSessionAgentConfig[]) => {
+      setConfiguredAgents(agents)
+      setSelectedRecipientAliases((aliases) =>
+        aliases.filter((alias) =>
+          agents.some(
+            (agent) => agent.alias.toLowerCase() === alias.toLowerCase(),
+          ),
+        ),
+      )
+
+      if (!startedSessionRef.current) {
+        return
+      }
+
+      const api = getAideApi()
+
+      if (!api) {
+        setError('Managed provider bridge did not load.')
+        return
+      }
+
+      try {
+        const updated = await api.configureManagedSessionAgents(
+          sessionId,
+          agents,
+        )
+        setSnapshot(updated)
+        setError(null)
+      } catch (configurationError) {
+        setError(getErrorMessage(configurationError))
+      }
+    },
+    [sessionId],
   )
 
   const handleProviderSelectionChange = useCallback(
@@ -1076,6 +1224,25 @@ export default function ManagedAgentPane({
     [snapshot?.content],
   )
 
+  const selectRecipient = useCallback(
+    (agent: ManagedSessionAgentConfig) => {
+      const mention = removeRecipientMention(draftInput)
+
+      if (!mention) {
+        return
+      }
+
+      const alias = agent.alias.toLowerCase()
+      setDraftInput(mention.draft)
+      setSelectedRecipientAliases((aliases) =>
+        aliases.includes(alias) ? aliases : [...aliases, alias],
+      )
+      setIsRecipientMenuDismissed(true)
+      setError(null)
+    },
+    [draftInput],
+  )
+
   const slashContext = useMemo<SlashCommandContext>(
     () => ({
       clearDraft: () => setDraftInput(''),
@@ -1112,6 +1279,17 @@ export default function ManagedAgentPane({
     [sessionId, snapshot?.content, snapshot?.sessionState],
   )
 
+  const recipientMentionQuery = getRecipientMentionQuery(draftInput)
+  const recipientSuggestions = useMemo(
+    () =>
+      getRecipientSuggestions(recipientMentionQuery, configuredAgents).filter(
+        (agent) =>
+          !selectedRecipientAliases.some(
+            (alias) => alias.toLowerCase() === agent.alias.toLowerCase(),
+          ),
+      ),
+    [configuredAgents, recipientMentionQuery, selectedRecipientAliases],
+  )
   const slashQuery = extractSlashQuery(draftInput)
   const filteredSlashCommands = useMemo<SlashCommand[]>(
     () =>
@@ -1121,6 +1299,10 @@ export default function ManagedAgentPane({
     [slashContext, slashQuery],
   )
   const slashMenuOpen = filteredSlashCommands.length > 0 && slashQuery !== null
+  const recipientMenuOpen =
+    !isRecipientMenuDismissed &&
+    !slashMenuOpen &&
+    recipientSuggestions.length > 0
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
@@ -1268,6 +1450,14 @@ export default function ManagedAgentPane({
             agentMode === 'plan' ? 'border-primary/60' : 'border-border',
           )}
         >
+          {recipientMenuOpen ? (
+            <RecipientMentionMenu
+              activeIndex={recipientActiveIndex}
+              agents={recipientSuggestions}
+              onSelect={selectRecipient}
+            />
+          ) : null}
+
           {slashMenuOpen ? (
             <div
               className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
@@ -1376,6 +1566,32 @@ export default function ManagedAgentPane({
             </div>
           ) : null}
 
+          {selectedRecipientAliases.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+              {selectedRecipientAliases.map((alias) => (
+                <button
+                  aria-label={`Remove @${alias}`}
+                  className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20"
+                  key={alias}
+                  onClick={() =>
+                    setSelectedRecipientAliases((aliases) =>
+                      aliases.filter((value) => value !== alias),
+                    )
+                  }
+                  type="button"
+                >
+                  @{alias} ×
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <p aria-live="polite" className="sr-only">
+            {selectedRecipientAliases.length > 0
+              ? `Recipients: ${selectedRecipientAliases.map((alias) => `@${alias}`).join(', ')}`
+              : 'Conversation default recipient'}
+          </p>
+
           <textarea
             ref={textareaRef}
             aria-label={
@@ -1392,6 +1608,8 @@ export default function ManagedAgentPane({
                 )
               } else {
                 setDraftInput(value)
+                setRecipientActiveIndex(0)
+                setIsRecipientMenuDismissed(false)
               }
               const el = event.target
               el.style.height = 'auto'
@@ -1420,6 +1638,40 @@ export default function ManagedAgentPane({
                     )
                     return
                   }
+                }
+              }
+
+              if (recipientMenuOpen) {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  const nextIndex = getNextRecipientSuggestionIndex(
+                    recipientActiveIndex,
+                    recipientSuggestions.length,
+                    event.key,
+                  )
+                  if (nextIndex !== null) {
+                    setRecipientActiveIndex(nextIndex)
+                  }
+                  return
+                }
+
+                if (
+                  (event.key === 'Enter' || event.key === 'Tab') &&
+                  !event.metaKey &&
+                  !event.ctrlKey
+                ) {
+                  event.preventDefault()
+                  const agent = recipientSuggestions[recipientActiveIndex]
+                  if (agent) {
+                    selectRecipient(agent)
+                  }
+                  return
+                }
+
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setIsRecipientMenuDismissed(true)
+                  return
                 }
               }
 
@@ -1500,6 +1752,12 @@ export default function ManagedAgentPane({
                 {providerLabel}
               </span>
             )}
+            <ConfiguredAgentSettings
+              agents={configuredAgents}
+              capabilities={capabilities}
+              isDisabled={!canChangeProviderSelection || isSubmitting}
+              onChange={(agents) => void handleConfiguredAgentsChange(agents)}
+            />
             <ReasoningExtrasDropdown
               capabilities={capabilities}
               contextWindow={contextWindow}

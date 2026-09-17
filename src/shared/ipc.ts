@@ -1,3 +1,4 @@
+import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type {
   DiagnosticEventType,
   DiagnosticsSnapshot,
@@ -117,6 +118,7 @@ export const IPC_CHANNELS = {
   cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
   managedSessionClose: 'managed-session:close',
+  managedSessionConfigureAgents: 'managed-session:configure-agents',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
   managedSessionResolveRequest: 'managed-session:resolve-request',
@@ -231,6 +233,10 @@ export interface AideApi {
   createManagedSession: (
     input: ManagedSessionConfig,
   ) => Promise<ManagedSessionSnapshot>
+  configureManagedSessionAgents: (
+    sessionId: string,
+    agents: readonly ManagedSessionAgentConfig[],
+  ) => Promise<ManagedSessionSnapshot>
   updateProjectSetupCommand: (
     projectId: string,
     command: string | null,
@@ -292,7 +298,11 @@ export interface AideApi {
     requestId: string,
     answers: Record<string, string | string[]>,
   ) => Promise<void>
-  sendManagedSessionInput: (sessionId: string, text: string) => Promise<void>
+  sendManagedSessionInput: (
+    sessionId: string,
+    text: string,
+    recipients?: readonly string[],
+  ) => Promise<void>
   switchManagedSessionProvider: (
     sessionId: string,
     selection: ManagedSessionProviderSelection,

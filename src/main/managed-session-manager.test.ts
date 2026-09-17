@@ -794,4 +794,41 @@ describe('ManagedSessionManager', () => {
       manager.sendInput(config.sessionId, 'second prompt'),
     ).rejects.toThrow('already being prepared or dispatched')
   })
+
+  it('does not write after closeAll clears a timed-out session', async () => {
+    const closeDeferred = createDeferred()
+    let saveCount = 0
+    const manager = new ManagedSessionManager({
+      createBackend: () => ({
+        close: async () => closeDeferred.promise,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => undefined,
+        start: async () => undefined,
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store: {
+        reconcileInterruptedManagedSessions: () => [],
+        saveManagedSession: (entry) => {
+          saveCount += 1
+          return entry
+        },
+      },
+    })
+    const config = createConfig()
+
+    await manager.createSession(config)
+    const closeAll = manager.closeAll(0)
+    await Promise.resolve()
+    await closeAll
+    const savesAtShutdown = saveCount
+
+    closeDeferred.resolve()
+    await Promise.resolve()
+
+    expect(manager.getSnapshots()).toEqual({})
+    expect(saveCount).toBe(savesAtShutdown)
+  })
 })

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-
+import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
@@ -32,6 +32,15 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
   createManagedSession: (input: ManagedSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionCreate, input),
+  configureManagedSessionAgents: (
+    sessionId: string,
+    agents: readonly ManagedSessionAgentConfig[],
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionConfigureAgents,
+      sessionId,
+      agents,
+    ),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   detectWorktreeBranch: (worktreePath: string) =>
@@ -249,8 +258,17 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.cancelWorkspaceSetup, workspaceId),
   selectPreviewTab: (workspaceId: string, tabId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewSelectTab, workspaceId, tabId),
-  sendManagedSessionInput: (sessionId: string, text: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionSendInput, sessionId, text),
+  sendManagedSessionInput: (
+    sessionId: string,
+    text: string,
+    recipients?: readonly string[],
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionSendInput,
+      sessionId,
+      text,
+      recipients,
+    ),
   switchManagedSessionProvider: (
     sessionId: string,
     selection: ManagedSessionProviderSelection,
