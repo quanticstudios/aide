@@ -1,0 +1,101 @@
+{
+  "actualModels": [
+    {
+      "provider": "codex",
+      "model": "gpt-5.6-luna"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-5"
+    },
+    {
+      "provider": "jev",
+      "model": "jev-1.13.0"
+    },
+    {
+      "provider": "jev",
+      "model": "jev-1.13.0"
+    },
+    {
+      "provider": "codex",
+      "model": "gpt-5.6-luna"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-opus-5"
+    }
+  ],
+  "completion": {
+    "status": "completed"
+  },
+  "elapsedMs": 16844,
+  "jevUsageReports": [
+    {
+      "model": "jev-1.13.0",
+      "scopeId": "266c5b11-cb78-474a-bb69-1504bfc47fd3"
+    },
+    {
+      "model": "jev-1.13.0",
+      "scopeId": "opinion:8ba7ac54-8d00-4606-ac05-2ffeaaa4805d:0f08d014-5f26-4117-b6ca-78bad4ac43ec"
+    }
+  ],
+  "noSecrets": true,
+  "noWorkspaceFiles": true,
+  "orchestratorAnswerContainsResult": true,
+  "providerUsageIdentities": ["jev", "codex", "claude"],
+  "runtimeEvents": [
+    {
+      "createdAt": "2026-09-17T20:19:39.411Z",
+      "provider": "claude",
+      "state": "connecting",
+      "type": "session.state.changed",
+      "runtimeGeneration": 1
+    },
+    {
+      "createdAt": "2026-09-17T20:19:40.420Z",
+      "provider": "claude",
+      "state": "running",
+      "type": "session.state.changed",
+      "runtimeGeneration": 1
+    },
+    {
+      "createdAt": "2026-09-17T20:19:43.604Z",
+      "provider": "claude",
+      "state": "ready",
+      "type": "session.state.changed",
+      "runtimeGeneration": 1
+    },
+    {
+      "createdAt": "2026-09-17T20:19:56.254Z",
+      "provider": "claude",
+      "state": "completed",
+      "turnId": "cd066d5e-a7a9-49cb-9e84-5272142184d1",
+      "type": "turn.completed",
+      "runtimeGeneration": 1
+    }
+  ],
+  "syntheticWorkspace": true,
+  "timedOut": false,
+  "toolInvocation": [
+    {
+      "alias": "luna",
+      "promptIncludesExpectedFactInstruction": true,
+      "startedAtMs": 10830,
+      "completedAtMs": 15331,
+      "resultContainsCedar47": true,
+      "resultLength": 30
+    }
+  ],
+  "turns": [
+    {
+      "provider": "claude",
+      "recipientAlias": null,
+      "state": "completed"
+    },
+    {
+      "provider": "codex",
+      "recipientAlias": "luna",
+      "state": "completed"
+    }
+  ]
+}

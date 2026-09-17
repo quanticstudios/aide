@@ -1,115 +1,103 @@
 # Aide production readiness
 
-Assessment date: 2026-09-17. Source commit:
-`cab2381945c0d07c1eca8636c4d73313b1bf0296` on `main`.
+Assessment date: 2026-09-17. Integration branch: `codex/product-readiness`.
 
 ## Verdict
 
-Aide has a working desktop foundation and release machinery. A public production
-release is not verified. Shared multi-model context and Jev preparation require
-implementation. A controlled Linux private alpha is the first practical target.
+Shared model conversations and required Jev preparation are implemented. Public
+production distribution is not verified. All 24 Electron acceptance tests pass. A fresh Linux AppImage passes launch,
+restart, native terminal, offline renderer, single-instance, and corruption
+recovery checks. Team dogfood remains open.
 
-The feature scope is in the
-[shared-model chat and context-preparation PRD](prd/shared-model-chat-and-context-preparation.md).
+The feature contract is the
+[shared-model chat PRD](prd/shared-model-chat-and-context-preparation.md).
 
-## Verified implementation
+## Implemented behavior
 
-| Area                  | Evidence                                                                   | Limit                                                                                               |
-| --------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Claude and Codex      | `src/main/managed-session-manager.ts` implements both backends             | One active backend per managed session                                                              |
-| Model selection       | `ManagedAgentPane.tsx` and provider capabilities resolve selectable models | Claude's list uses version-gated definitions; live entitlement validation still matters             |
-| Provider switching    | `switchSessionProvider` preserves visible transcript entries               | Starts a fresh backend without sending the retained transcript                                      |
-| Conversation recovery | Main owns an in-memory session map                                         | No durable shared transcript or provider resume path in this flow                                   |
-| Usage                 | Claude aggregates input/output/cache-read usage on successful results      | Drops model identity, cache creation, cost, and failed-result usage; switching clears current usage |
-| Jev                   | No integration found in application code or dependencies                   | Proposal only; no supplied starter package to inspect                                               |
-| Desktop release       | Linux/macOS packaging and signed OTA workflows exist                       | Workflow existence does not prove signed public distribution or upgrades                            |
+| Area | Behavior | Verification |
+| --- | --- | --- |
+| Orchestrator | The selected Claude or Codex model owns the conversation and tool permissions. | Real provider calls and runtime tests. |
+| Jev | Required preparation precedes model dispatch. Missing credentials, consent, or preparation failure stops dispatch. | Client, retrieval, preparation, and setup tests; live Jev requests. |
+| Agent opinions | Up to two configured aliases receive the same pre-response history through `@` mentions. Each response keeps its model identity, usage, error, retry, and cancellation state. | Routing, partial failure, cancellation, history, and accounting tests. Electron acceptance passes. |
+| Agent permissions | Opinion agents receive supplied evidence and cannot execute tools. Provider subprocesses do not receive the Jev credential. | Policy tests and live Claude/Codex permission probes. |
+| Provider switching | A fresh provider receives retained user and assistant messages. Hidden reasoning and approval state are excluded. | A live Claude-to-Codex conversation recalled a synthetic fact. |
+| Persistence | SQLite stores conversation snapshots and configuration. Restart marks unfinished work as interrupted without replaying commands. | Database and manager tests; renderer reattachment acceptance. |
+| Accounting | Usage retains actual provider/model identity, cached-token fields, reported costs, and separate Jev usage. | Runtime, persistence, and parallel opinion tests. |
+| IPC | The main process validates trusted renderer calls and workspace ownership. File reads reject paths outside the workspace. | Security, path, and terminal ownership tests. |
+| Release gate | Release tags require successful CI for the exact commit. Pending, skipped, and unrelated results fail the gate. | Packaging workflow tests. |
 
-## Checks run
+## Using shared model chat
 
-The local runtime is Node `26.8.1` and Bun `1.4.2`. The repository pins Node
-`24.17.0` and Bun `1.3.14`. These results assess this checkout on the available
-runtime; repeat release acceptance with the pinned toolchain.
+Open an Agent pane and complete Jev setup for the workspace. The model selector
+sets the default orchestrator. The Agents control assigns models to the configured
+aliases. Messages without recipients go to the orchestrator. Type `@` at the
+start of a message to choose one recipient, or switch to Plan and choose two for
+separate opinions. Selecting recipients does not change the default model.
 
-| Check                           | Result                                                          |
-| ------------------------------- | --------------------------------------------------------------- |
-| `bun run build`                 | Passed, including TypeScript and main runtime import validation |
-| `bun run check`                 | Passed with 16 warnings and 2 informational findings            |
-| `bun run test:node`             | 427 passed, 3 failed across 68 test files                       |
-| `bun run test:packaging`        | 30 passed                                                       |
-| `bun run check:dependencies`    | Passed                                                          |
-| `bun audit --audit-level high`  | Failed; audit reports 28 high-severity advisories               |
-| Electron E2E                    | Not run locally; `xvfb-run` is unavailable                      |
-| Live provider/TypeSafe requests | Not run                                                         |
-| Packaged install, upgrade, soak | Not run in this assessment                                      |
+Jev is required beneath the orchestrator and agents. Opinion agents receive
+prepared workspace excerpts and conversation history. They cannot run tools or
+modify files. Model errors retain successful responses; retry and interrupt
+controls apply to individual recipients.
 
-Two database failures use July 24 health events and call a reader that defaults
-to today's date. The reader deletes events older than 30 days. Tests must control
-their clock instead of depending on the calendar. The Git diff failure expects
-`b/` prefixes while this machine sets `diff.mnemonicPrefix=true`; make the test
-or command contract independent of global Git configuration.
+## Evidence
 
-The audit lists findings in runtime and development dependency paths, including
-`fast-uri`, `ip-address`, `js-yaml`, `@xmldom/xmldom`, `brace-expansion`,
-`browserslist`, `nanoid`, `sharp`, `tar`, and `undici`. These are audit findings,
-not proof that each advisory is exploitable through Aide. They fail the existing
-high/critical dependency gate and need remediation plus a fresh audit.
+The pinned Node `24.17.0` and Bun `1.3.14` binaries were downloaded and checked
+against their published SHA-256 values. The pinned toolchain runs locally.
 
-## Remote release evidence
+| Check | Recorded result |
+| --- | --- |
+| Unit suite | 512 tests passed across 86 files, including security and persisted-state recovery. |
+| File-access and terminal checks | 23 tests passed after workspace and symlink restrictions. |
+| Build | TypeScript, renderer/main bundles, and runtime import validation passed. |
+| Biome | Passed with 16 existing warnings and 2 informational findings. |
+| Packaging scripts | 33 tests passed. |
+| Dependency policy | Passed; frozen-lockfile installation preserves the lockfile. |
+| Dependency audit | No high or critical advisories; 40 lower-severity advisories remain. |
+| Renderer budget | Passed with 1,110 kB initial JavaScript and 516 kB CSS. |
+| Electron | 24 tests passed, including approvals, shared-model responses, cancellation, restart, recovery, and updates. |
+| Fresh Linux package | AppImage launch, native terminal, single-instance ownership, offline renderer, restart, and backup restoration passed. |
 
-- [CI for the assessed main commit](https://github.com/quanticstudios/aide/actions/runs/30126337697)
-  succeeded. That historical result does not override today's audit or local
-  calendar-dependent failures.
-- [A manual packaging run](https://github.com/quanticstudios/aide/actions/runs/30106623189)
-  succeeded for Linux x64 and macOS x64/arm64 at a different commit. This run is
-  a manual dispatch, not evidence of the current signed stable release path.
-- The GitHub release listing is empty at assessment time.
-- The Linux packaged OTA drill workflow has no returned runs at assessment time.
-- The health Worker configuration contains `REPLACE_WITH_*` deployment values.
-  Remote account configuration and protected signing inputs remain unverified.
+[Live verification evidence](verification/shared-model-live-smoke-2026-09-17.json)
+records synthetic tests against real Jev, Claude, and Codex services. Codex
+opinion tests rejected a forbidden file write and excluded project MCP servers.
+A real managed conversation preserved a synthetic fact across Claude and Codex.
+These checks establish connectivity and specific behavior, not general model
+accuracy or token savings.
 
-## Release work
+[Live orchestrator delegation](verification/orchestrator-delegation-live-2026-09-17.json)
+completed in 16.8 seconds. Claude Opus 5 called the configured Codex
+`gpt-5.6-luna` agent exactly once, received the synthetic fact, and returned the
+expected answer. Both Jev preparation calls retained their usage reports.
 
-The exported beads contain 131 closed, 16 open, and 4 in-progress records.
-Those counts include parent issues and are not a completion percentage.
+![Shared model chat with synthetic responses](verification/shared-model-chat-2026-09-17.png)
 
-1. Restore a reproducible green baseline: resolve dependency advisories and the
-   three local failures; rerun pinned-toolchain CI and Electron acceptance.
-2. Complete or explicitly defer the recorded private-alpha work: damaged-state
-   recovery, Electron/IPC hardening, settings/onboarding, per-turn diffs, editor,
-   and detach/reattach/restore behavior. Reconcile stale ticket status against
-   actual code before estimating each item.
-3. Implement shared conversations, per-message model routing, and restart
-   recovery from the feature PRD. Prove history delivery across providers.
-4. Implement usage accounting and deterministic preparation. Add Jev only after
-   synthetic validation, then run the approved paired task pilot.
-5. Complete packaged acceptance and real-provider dogfood. Fix the recorded E2E
-   teardown flake and prove state preservation across crashes and restarts.
-6. For public OTA distribution, provision the protected release environment,
-   owned hostnames, signing inputs, and health service. Run bootstrap, upgrade,
-   revocation, and recovery on every supported target. Verify native macOS
-   signing/notarization; record rollout evidence before promotion.
+The [Linux package smoke evidence](verification/linux-package-smoke-2026-09-17.json)
+comes from the executable extracted from the new AppImage. The check imports a
+synthetic project, executes a native terminal command, restarts the app, rejects
+a second instance, corrupts its disposable database, and restores the project
+from a backup. It also checks that renderer reload makes no HTTP requests.
 
-Existing follow-up records include `aide-dfe.2` through `aide-dfe.7`,
-`aide-czz.2` through `aide-czz.4`, `aide-1se`, `aide-k8d.9`, `aide-k8d.10`,
-`aide-x2h.7`, and `aide-yms`. The local `bd` executable is unavailable, so live
-issue state, new issue creation, and `bd sync` cannot be verified here. Create
-beads for the current audit failures, test determinism, and feature slices once
-the CLI is restored. This document is a handoff, not a replacement issue tracker.
+Run the same check against an extracted package with
+`node scripts/smoke-packaged-linux.mjs /absolute/path/to/aide` on Linux with a
+display. The script creates an isolated temporary profile and writes its proof
+and screenshot there. It does not touch the normal Aide profile.
 
-## Planning estimate
+## Release gates still open
 
-Assuming one experienced developer, a Linux private-team release, existing
-Claude/Codex accounts, and no major architecture surprises:
+1. Run team dogfood and the PRD's paired task evaluation. Measure answer quality,
+   latency, token usage, and failures before making Jev savings claims.
+2. Provision owned release hostnames, protected signing inputs, and the OTA
+   health service. The Worker configuration contains deployment placeholders.
+3. Verify signed bootstrap, upgrade, revocation, and recovery on each supported
+   target. Native macOS signing and notarization require macOS acceptance.
 
-| Work                                                             | Provisional engineering effort |
-| ---------------------------------------------------------------- | ------------------------------ |
-| Existing alpha hardening and gate repair                         | 1–2 weeks                      |
-| Shared conversation, mentions, and recovery                      | 1–2 weeks                      |
-| Accounting, deterministic preparation, and Jev pilot integration | 1–2 weeks                      |
+The GitHub repository is private. Its release listing is empty. Main branch
+protection and protected release configuration are absent in the inspected
+repository settings. Public installation and OTA readiness therefore remain
+unproven even when local feature checks pass.
 
-Budget roughly 3–6 engineering weeks for the combined private pilot, with real
-dogfood and paired-task evaluation as exit gates. Public Linux/macOS delivery is
-roughly 6–10+ weeks total under the same staffing assumption, subject to native
-test access and release credentials. These ranges are planning judgments, not
-measured delivery forecasts. Ticket decomposition and acceptance runs must
-replace them before committing to a release date. No Jev saving is established.
+The beads epic `aide-7ju` tracks implementation and acceptance. Damaged-state
+recovery and desktop security use `aide-dfe.2` and `aide-dfe.3`. React Doctor's
+newer-version findings and the existing Electron teardown failure remain tracked
+separately. Release readiness is determined by these checks, not a percentage
+of closed tickets or an unverified delivery date.

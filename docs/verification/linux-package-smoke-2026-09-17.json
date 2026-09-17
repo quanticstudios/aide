@@ -1,0 +1,11 @@
+{
+  "executablePath": "/tmp/aide-packaged-extracted.hsWikG/squashfs-root/aide",
+  "profile": "/tmp/aide-packaged-smoke-GyTNoA",
+  "packaged": true,
+  "offlineRenderer": true,
+  "projectRestart": true,
+  "singleInstance": true,
+  "nativePty": true,
+  "corruptionPreserved": true,
+  "restoredProject": true
+}

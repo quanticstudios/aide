@@ -230,7 +230,8 @@ Open questions and recommended defaults:
   model choices through their existing capabilities.
 - Initial audience? Use a small trusted Linux team before public distribution.
 - Mention behavior? Override only the current message; retain the default.
-- Opinion permissions? Use read-only tools with one writer for Build turns.
+- Opinion permissions? Use Jev-prepared evidence with tools disabled. The
+  orchestrator remains the only writer for Build turns.
 - Jev availability? Require setup before orchestration; pause and offer retry
   on failure. The service always belongs beneath the orchestrator.
 
