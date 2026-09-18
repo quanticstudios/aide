@@ -16,6 +16,7 @@ import {
   LockOpen,
   PenLine,
   RefreshCw,
+  ShieldCheck,
   Terminal,
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
@@ -101,6 +102,7 @@ import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 import RecipientMentionMenu from './RecipientMentionMenu'
+import IconTooltip from './ui/icon-tooltip'
 import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 interface ManagedAgentPaneProps {
@@ -710,6 +712,8 @@ export default function ManagedAgentPane({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
+  const jevSettingsButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [isJevSetupOpen, setIsJevSetupOpen] = useState(false)
   const startedSessionRef = useRef(false)
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
@@ -1855,6 +1859,19 @@ export default function ManagedAgentPane({
         </h2>
 
         <div className="flex items-center gap-2">
+          <IconTooltip label="Jev settings">
+            <Button
+              aria-label="Jev settings"
+              className="size-8 rounded-md"
+              isIconOnly
+              onPress={() => setIsJevSetupOpen(true)}
+              ref={jevSettingsButtonRef}
+              size="sm"
+              variant="ghost"
+            >
+              <ShieldCheck aria-hidden="true" className="size-4" />
+            </Button>
+          </IconTooltip>
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
             isDisabled={!isSubmitting && snapshot?.sessionState !== 'running'}
@@ -1873,7 +1890,17 @@ export default function ManagedAgentPane({
         </div>
       </div>
 
-      <JevSetup key={workspace.id} workspaceId={workspace.id} />
+      <JevSetup
+        isOpen={isJevSetupOpen}
+        key={workspace.id}
+        onOpenChange={(isOpen) => {
+          setIsJevSetupOpen(isOpen)
+          if (!isOpen) {
+            requestAnimationFrame(() => jevSettingsButtonRef.current?.focus())
+          }
+        }}
+        workspaceId={workspace.id}
+      />
 
       {error ? (
         <div className="flex items-center gap-3 border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">

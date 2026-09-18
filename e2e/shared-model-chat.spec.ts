@@ -303,10 +303,23 @@ test.describe('shared model chat', () => {
       })
       .check()
     await page.getByRole('button', { name: 'Save Jev settings' }).click()
-    await expect(page.getByText('Jev · Ready')).toBeVisible()
+    await expect(page.getByText('Jev · Ready')).toHaveCount(0)
     await expect(
       page.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeHidden()
+    const jevSettingsButton = page.getByRole('button', {
+      name: 'Jev settings',
+    })
+    await jevSettingsButton.click()
+    await expect(page.getByText('Jev · Ready')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Close Jev setup' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeHidden()
+    await expect(jevSettingsButton).toBeFocused()
     await prompt.press('Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: help with this ordinary folder',
