@@ -88,6 +88,7 @@ import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
+import { WorkspaceTitleService } from './workspace-title-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 if (process.platform === 'linux') app.setDesktopName('aide.desktop')
@@ -344,6 +345,15 @@ function initializeServices(): void {
       )
     },
   })
+  providerCapabilityService = new ProviderCapabilityService()
+  const workspaceTitleService = new WorkspaceTitleService({
+    getCapabilities: () => providerCapabilityService.getSnapshot(),
+    store: {
+      getWorkspace: (workspaceId) => database.getWorkspace(workspaceId),
+      renameWorkspaceIfUnchanged: (workspaceId, input) =>
+        database.renameWorkspaceIfUnchanged(workspaceId, input),
+    },
+  })
   managedSessionManager = new ManagedSessionManager({
     store: database,
     afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
@@ -380,6 +390,9 @@ function initializeServices(): void {
       return contextPreparation.prepare(input)
     },
     onRuntimeEvent: () => undefined,
+    onUserPrompt: ({ text, workspaceId }) => {
+      workspaceTitleService.requestTitle(workspaceId, text)
+    },
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
         workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
@@ -421,7 +434,6 @@ function initializeServices(): void {
   taskLibrary = new TaskLibrary(database, () =>
     managedSessionManager.getSnapshots(),
   )
-  providerCapabilityService = new ProviderCapabilityService()
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
       windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
