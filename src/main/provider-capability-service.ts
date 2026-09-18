@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import readline from 'node:readline'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 
@@ -15,15 +16,29 @@ import {
   resolveProviderSelection,
   unavailableProviderCapabilities,
 } from '../shared/provider-capabilities'
+import type {
+  ProviderSkill,
+  ProviderSkillSelection,
+  ProviderSkillsSnapshot,
+  ResolvedProviderSkill,
+} from '../shared/provider-skills'
 import type { ManagedSessionMode } from '../shared/terminal'
-import { sanitizeProviderEnvironment } from './managed-runtime-policy'
+import {
+  getClaudeExecutablePath,
+  sanitizeProviderEnvironment,
+} from './managed-runtime-policy'
 
 const DISCOVERY_TIMEOUT_MS = 15_000
 const MAX_IPC_STRING_LENGTH = 4_096
 
 interface ProviderCapabilityServiceOptions {
   readonly listClaudeModels?: () => Promise<unknown>
+  readonly listClaudeSkills?: (cwd: string) => Promise<unknown>
   readonly listCodexModels?: () => Promise<unknown>
+  readonly listCodexSkills?: (
+    cwd: string,
+    forceReload: boolean,
+  ) => Promise<unknown>
 }
 
 function buildCodexInitializeParams() {
@@ -155,18 +170,22 @@ function validateManagedSessionConfig(input: unknown): ManagedSessionConfig {
 
 async function* emptyClaudePrompt(): AsyncGenerator<never, void, unknown> {}
 
-async function listClaudeModelsFromSdk(): Promise<unknown> {
+async function withClaudeDiscoveryRuntime<T>(
+  cwd: string,
+  settingSources: Array<'user' | 'project' | 'local'>,
+  discover: (runtime: ReturnType<typeof query>) => Promise<T>,
+): Promise<T> {
   const abortController = new AbortController()
-  const cliPath = process.env.AIDE_CLAUDE_COMMAND?.trim() || undefined
+  const cliPath = getClaudeExecutablePath(process.env)
   const runtime = query({
     options: {
       abortController,
-      cwd: process.cwd(),
+      cwd,
       env: sanitizeProviderEnvironment(process.env),
       mcpServers: {},
       pathToClaudeCodeExecutable: cliPath,
       permissionMode: 'dontAsk',
-      settingSources: [],
+      settingSources,
       strictMcpConfig: true,
       tools: [],
     },
@@ -180,10 +199,10 @@ async function listClaudeModelsFromSdk(): Promise<unknown> {
   }, DISCOVERY_TIMEOUT_MS)
 
   try {
-    return await runtime.supportedModels()
+    return await discover(runtime)
   } catch (error) {
     if (didTimeOut) {
-      throw new Error('Timed out while discovering Claude models.')
+      throw new Error('Timed out while discovering Claude capabilities.')
     }
     throw error
   } finally {
@@ -192,11 +211,29 @@ async function listClaudeModelsFromSdk(): Promise<unknown> {
   }
 }
 
+async function listClaudeModelsFromSdk(): Promise<unknown> {
+  return await withClaudeDiscoveryRuntime(process.cwd(), [], (runtime) =>
+    runtime.supportedModels(),
+  )
+}
+
+async function listClaudeSkillsFromSdk(cwd: string): Promise<unknown> {
+  return await withClaudeDiscoveryRuntime(
+    cwd,
+    ['user', 'project', 'local'],
+    (runtime) => runtime.reloadSkills(),
+  )
+}
+
 /**
  * Requests the documented app-server protocol directly. No assistant stream,
  * terminal transcript, or display text is consulted for capability discovery.
  */
-async function listCodexModelsFromAppServer(): Promise<unknown> {
+async function listCodexFromAppServer(
+  kind: 'models' | 'skills',
+  cwd?: string,
+  forceReload = false,
+): Promise<unknown> {
   const command = process.env.AIDE_CODEX_COMMAND?.trim() || 'codex'
 
   return await new Promise<unknown>((resolve, reject) => {
@@ -242,15 +279,15 @@ async function listCodexModelsFromAppServer(): Promise<unknown> {
       child.stdin.write(`${JSON.stringify(message)}\n`)
     }
 
-    const requestModels = (cursor: string | null) => {
+    const requestCapabilities = (cursor: string | null) => {
       const id = nextRequestId++
       write({
         id,
-        method: 'model/list',
-        params: {
-          cursor,
-          includeHidden: false,
-        },
+        method: kind === 'models' ? 'model/list' : 'skills/list',
+        params:
+          kind === 'models'
+            ? { cursor, includeHidden: false }
+            : { cwds: cwd ? [cwd] : [], forceReload },
       })
     }
 
@@ -288,14 +325,17 @@ async function listCodexModelsFromAppServer(): Promise<unknown> {
 
       if (id === 1) {
         write({ method: 'initialized' })
-        requestModels(null)
+        requestCapabilities(null)
         return
       }
 
       if (!isRecord(parsed.result) || !Array.isArray(parsed.result.data)) {
-        finish(
-          new Error('Codex returned an invalid model capability response.'),
-        )
+        finish(new Error('Codex returned an invalid capability response.'))
+        return
+      }
+
+      if (kind === 'skills') {
+        finish(null, parsed.result)
         return
       }
 
@@ -303,7 +343,7 @@ async function listCodexModelsFromAppServer(): Promise<unknown> {
       const cursor = parsed.result.nextCursor
 
       if (typeof cursor === 'string' && cursor.length > 0) {
-        requestModels(cursor)
+        requestCapabilities(cursor)
         return
       }
 
@@ -329,6 +369,17 @@ async function listCodexModelsFromAppServer(): Promise<unknown> {
       params: buildCodexInitializeParams(),
     })
   })
+}
+
+async function listCodexModelsFromAppServer(): Promise<unknown> {
+  return await listCodexFromAppServer('models')
+}
+
+async function listCodexSkillsFromAppServer(
+  cwd: string,
+  forceReload: boolean,
+): Promise<unknown> {
+  return await listCodexFromAppServer('skills', cwd, forceReload)
 }
 
 function createFakeCodexModelList() {
@@ -372,10 +423,162 @@ function createFakeClaudeModelList() {
   ]
 }
 
+function createFakeClaudeSkillList() {
+  return {
+    skills: [
+      {
+        description: 'Fake Claude skill for end-to-end tests.',
+        name: 'claude-test-skill',
+      },
+    ],
+  }
+}
+
+function createFakeCodexSkillList(cwd: string) {
+  return {
+    data: [
+      {
+        cwd,
+        errors: [],
+        skills: [
+          {
+            description: 'Fake Codex skill for end-to-end tests.',
+            enabled: true,
+            name: 'codex-test-skill',
+            path: '/tmp/aide-fake-codex-test-skill/SKILL.md',
+          },
+        ],
+      },
+    ],
+  }
+}
+
+interface ProviderSkillsCatalog {
+  resolved: Map<string, ResolvedProviderSkill>
+  snapshot: ProviderSkillsSnapshot
+}
+
+function catalogKey(selection: ProviderSkillSelection): string {
+  return `${selection.provider}:${selection.id}`
+}
+
+function providerSkillId(
+  provider: ProviderSkillSelection['provider'],
+  nativeName: string,
+  nativePath?: string,
+): string {
+  if (provider === 'claude') {
+    return `claude:skill:${nativeName}`
+  }
+  const pathHash = createHash('sha256')
+    .update(nativePath ?? nativeName)
+    .digest('hex')
+    .slice(0, 16)
+  return `codex:skill:${pathHash}`
+}
+
+function readSkillEntries(value: unknown, property: string): unknown[] {
+  return isRecord(value) && Array.isArray(value[property])
+    ? value[property]
+    : []
+}
+
+function normalizeClaudeSkills(value: unknown): ProviderSkill[] {
+  const entries = readSkillEntries(value, 'skills')
+  return entries.flatMap((entry) => {
+    if (!isRecord(entry)) return []
+    const name = typeof entry.name === 'string' ? entry.name.trim() : ''
+    if (!name) return []
+    const description =
+      typeof entry.description === 'string' && entry.description.trim()
+        ? entry.description.trim()
+        : name
+    return [
+      {
+        description,
+        id: providerSkillId('claude', name),
+        name,
+        owner: 'Claude' as const,
+        provider: 'claude' as const,
+      },
+    ]
+  })
+}
+
+function normalizeCodexSkills(
+  value: unknown,
+  cwd: string,
+): {
+  error?: string
+  resolved: ResolvedProviderSkill[]
+  skills: ProviderSkill[]
+} {
+  const directory = readSkillEntries(value, 'data').find(
+    (entry) => isRecord(entry) && entry.cwd === cwd,
+  )
+  if (!directory) {
+    return {
+      error: 'Codex returned no skill catalog for this workspace.',
+      resolved: [],
+      skills: [],
+    }
+  }
+  const errors = readSkillEntries(directory, 'errors')
+  const error = errors
+    .map((entry) =>
+      isRecord(entry) && typeof entry.message === 'string'
+        ? entry.message.trim()
+        : '',
+    )
+    .find(Boolean)
+  const pairs = readSkillEntries(directory, 'skills').flatMap((entry) => {
+    if (!isRecord(entry) || entry.enabled !== true) return []
+    const name = typeof entry.name === 'string' ? entry.name.trim() : ''
+    const nativePath = typeof entry.path === 'string' ? entry.path.trim() : ''
+    if (!name || !nativePath) return []
+    const description =
+      typeof entry.description === 'string' && entry.description.trim()
+        ? entry.description.trim()
+        : name
+    const skill: ProviderSkill = {
+      description,
+      id: providerSkillId('codex', name, nativePath),
+      name,
+      owner: 'Codex',
+      provider: 'codex',
+    }
+    return [
+      {
+        resolved: {
+          id: skill.id,
+          nativeName: name,
+          nativePath,
+          provider: 'codex' as const,
+        },
+        skill,
+      },
+    ]
+  })
+  return {
+    ...(error ? { error } : {}),
+    resolved: pairs.map((pair) => pair.resolved),
+    skills: pairs.map((pair) => pair.skill),
+  }
+}
+
 export class ProviderCapabilityService {
   private readonly listClaudeModels: () => Promise<unknown>
+  private readonly listClaudeSkills: (cwd: string) => Promise<unknown>
   private readonly listCodexModels: () => Promise<unknown>
+  private readonly listCodexSkills: (
+    cwd: string,
+    forceReload: boolean,
+  ) => Promise<unknown>
   private snapshotPromise: Promise<ProviderCapabilitiesSnapshot> | null = null
+  private readonly skillCatalogPromises = new Map<
+    string,
+    Promise<ProviderSkillsCatalog>
+  >()
 
   public constructor(options: ProviderCapabilityServiceOptions = {}) {
     const useFakeProviders =
@@ -391,11 +594,69 @@ export class ProviderCapabilityService {
       (useFakeProviders
         ? async () => createFakeCodexModelList()
         : listCodexModelsFromAppServer)
+    this.listClaudeSkills =
+      options.listClaudeSkills ??
+      (useFakeProviders
+        ? async () => createFakeClaudeSkillList()
+        : listClaudeSkillsFromSdk)
+    this.listCodexSkills =
+      options.listCodexSkills ??
+      (useFakeProviders
+        ? async (cwd) => createFakeCodexSkillList(cwd)
+        : listCodexSkillsFromAppServer)
   }
 
   public async getSnapshot(): Promise<ProviderCapabilitiesSnapshot> {
     this.snapshotPromise ??= this.discover()
     return await this.snapshotPromise
+  }
+
+  public async getProviderSkills(
+    workspaceId: string,
+    cwd: string,
+    forceReload = false,
+  ): Promise<ProviderSkillsSnapshot> {
+    if (forceReload) {
+      this.skillCatalogPromises.delete(workspaceId)
+    }
+    let catalog = this.skillCatalogPromises.get(workspaceId)
+    if (!catalog) {
+      catalog = this.discoverSkills(cwd, forceReload)
+      this.skillCatalogPromises.set(workspaceId, catalog)
+    }
+    return (await catalog).snapshot
+  }
+
+  public async resolveProviderSkill(
+    workspaceId: string,
+    cwd: string,
+    input: unknown,
+  ): Promise<ResolvedProviderSkill> {
+    if (!isRecord(input)) {
+      throw new Error('Invalid managed-session skill.')
+    }
+    const provider = input.provider
+    if (provider !== 'claude' && provider !== 'codex') {
+      throw new Error('Invalid managed-session skill provider.')
+    }
+    const selection: ProviderSkillSelection = {
+      id: validateString(input.id, 'skill id') ?? '',
+      provider,
+    }
+    const snapshot = await this.getProviderSkills(workspaceId, cwd)
+    if (
+      !snapshot.skills.some(
+        (skill) => catalogKey(skill) === catalogKey(selection),
+      )
+    ) {
+      throw new Error('Selected provider skill is unavailable.')
+    }
+    const catalog = await this.skillCatalogPromises.get(workspaceId)
+    const resolved = catalog?.resolved.get(catalogKey(selection))
+    if (!resolved) {
+      throw new Error('Selected provider skill is unavailable.')
+    }
+    return { ...resolved }
   }
 
   public async resolveManagedSessionConfig(
@@ -481,6 +742,49 @@ export class ProviderCapabilityService {
           )
 
     return { providers: { claude, codex } }
+  }
+
+  private async discoverSkills(
+    cwd: string,
+    forceReload: boolean,
+  ): Promise<ProviderSkillsCatalog> {
+    const [claudeResult, codexResult] = await Promise.allSettled([
+      this.listClaudeSkills(cwd),
+      this.listCodexSkills(cwd, forceReload),
+    ])
+    const errors: ProviderSkillsSnapshot['errors'] = {}
+    const claude =
+      claudeResult.status === 'fulfilled'
+        ? normalizeClaudeSkills(claudeResult.value)
+        : (() => {
+            errors.claude = `Unable to discover Claude skills: ${getErrorMessage(claudeResult.reason)}`
+            return []
+          })()
+    const codex =
+      codexResult.status === 'fulfilled'
+        ? normalizeCodexSkills(codexResult.value, cwd)
+        : (() => {
+            errors.codex = `Unable to discover Codex skills: ${getErrorMessage(codexResult.reason)}`
+            return { error: undefined, resolved: [], skills: [] }
+          })()
+    if (codex.error) {
+      errors.codex = codex.error
+    }
+    const resolved = new Map<string, ResolvedProviderSkill>()
+    for (const skill of claude) {
+      resolved.set(catalogKey(skill), {
+        id: skill.id,
+        nativeName: skill.name,
+        provider: 'claude',
+      })
+    }
+    for (const skill of codex.resolved) {
+      resolved.set(catalogKey(skill), skill)
+    }
+    return {
+      resolved,
+      snapshot: { errors, skills: [...claude, ...codex.skills] },
+    }
   }
 
   private async resolveSelection(

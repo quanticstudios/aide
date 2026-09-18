@@ -604,9 +604,8 @@ test.describe('electron spatial navigation', () => {
         /Allow TypeSafe processing for this workspace in Jev setup/,
       ),
     ).toBeVisible()
-    await expect(page.getByTestId('managed-input-queue')).toContainText(
-      'Keep this draft until Jev is configured',
-    )
+    await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
+    await expect(page.getByTestId('managed-input-queue')).toBeHidden()
     await expect(page.getByTestId('managed-session-content')).not.toContainText(
       'Handled:',
     )
@@ -623,7 +622,7 @@ test.describe('electron spatial navigation', () => {
     ).toHaveValue('')
     await expect(
       page.locator('summary').filter({ hasText: 'Jev' }),
-    ).toContainText('Setup required')
+    ).toContainText('API key required')
   })
 
   test('renders managed Claude states from structured runtime events', async () => {

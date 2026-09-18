@@ -52,6 +52,22 @@ export function sanitizeProviderEnvironment(
   return sanitized
 }
 
+export function getClaudeExecutablePath(
+  environment: NodeJS.ProcessEnv,
+  resourcesPath = process.resourcesPath,
+): string | undefined {
+  const configured = environment.AIDE_CLAUDE_COMMAND?.trim()
+  if (configured) return configured
+  if (!resourcesPath) return undefined
+  const executable = join(
+    resourcesPath,
+    'app.asar.unpacked/node_modules/@anthropic-ai',
+    `claude-agent-sdk-${process.platform}-${process.arch}`,
+    process.platform === 'win32' ? 'claude.exe' : 'claude',
+  )
+  return existsSync(executable) ? executable : undefined
+}
+
 export function createReadOnlyClaudeOptions(
   environment: NodeJS.ProcessEnv,
 ): Pick<

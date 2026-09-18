@@ -55,10 +55,12 @@ import type {
   ManagedProviderRuntimeRequestType,
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
+import type { ResolvedProviderSkill } from '../shared/provider-skills'
 import { parseCodexUsage } from './codex-usage'
 import {
   createReadOnlyClaudeOptions,
   createReadOnlyCodexRuntimePolicy,
+  getClaudeExecutablePath,
   type ReadOnlyCodexRuntimePolicy,
   sanitizeProviderEnvironment,
 } from './managed-runtime-policy'
@@ -194,6 +196,7 @@ interface ManagedSessionBackend {
   sendInput(
     text: string,
     images?: readonly ManagedSessionProviderImage[],
+    skill?: ResolvedProviderSkill,
   ): Promise<void>
   steerInput?(
     text: string,
@@ -441,11 +444,33 @@ export function buildClaudeUserContent(
   ]
 }
 
+export function buildClaudeSkillInput(
+  text: string,
+  skill?: ResolvedProviderSkill,
+): string {
+  if (!skill) return text
+  const command = `/${skill.nativeName}`
+  return text.startsWith(command) &&
+    (text.length === command.length || /^\s/.test(text.slice(command.length)))
+    ? text
+    : `${command}\n${text}`
+}
+
 export function buildCodexTurnInput(
   text: string,
   images: readonly ManagedSessionProviderImage[],
+  skill?: ResolvedProviderSkill,
 ) {
   return [
+    ...(skill?.nativePath
+      ? [
+          {
+            name: skill.nativeName,
+            path: skill.nativePath,
+            type: 'skill' as const,
+          },
+        ]
+      : []),
     { text, type: 'text' as const },
     ...images.map((image) => ({
       type: 'image' as const,
@@ -490,7 +515,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   ) {}
 
   public async start(): Promise<void> {
-    const cliPath = process.env.AIDE_CLAUDE_COMMAND?.trim() || undefined
+    const cliPath = getClaudeExecutablePath(process.env)
     const cwd = resolveTerminalWorkingDirectory(
       this.config.cwd,
       process.env.HOME ?? process.cwd(),
@@ -646,6 +671,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   public async sendInput(
     text: string,
     images: readonly ManagedSessionProviderImage[] = [],
+    skill?: ResolvedProviderSkill,
   ): Promise<void> {
     this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
@@ -670,7 +696,10 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
 
     this.promptQueue.enqueue({
       message: {
-        content: buildClaudeUserContent(trimmed, images),
+        content: buildClaudeUserContent(
+          buildClaudeSkillInput(trimmed, skill),
+          images,
+        ),
         role: 'user',
       },
       parent_tool_use_id: null,
@@ -1161,6 +1190,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   public async sendInput(
     text: string,
     images: readonly ManagedSessionProviderImage[] = [],
+    skill?: ResolvedProviderSkill,
   ): Promise<void> {
     this.orchestratorTools?.beginTurn()
     const trimmed = text.trim()
@@ -1170,7 +1200,7 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     }
 
     await this.sendRequest('turn/start', {
-      input: buildCodexTurnInput(trimmed, images),
+      input: buildCodexTurnInput(trimmed, images, skill),
       threadId: this.providerThreadId,
     })
   }
@@ -1789,7 +1819,11 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     })
   }
 
-  public async sendInput(text: string): Promise<void> {
+  public async sendInput(
+    text: string,
+    _images: readonly ManagedSessionProviderImage[] = [],
+    skill?: ResolvedProviderSkill,
+  ): Promise<void> {
     const trimmed = text
       .split('\n\nQuoted prior conversation,', 1)[0]
       ?.split('\n\nWorkspace evidence.', 1)[0]
@@ -1928,7 +1962,9 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       itemId: randomUUID(),
       kind: 'assistant-text',
       provider: this.provider,
-      text: `Handled: ${trimmed}`,
+      text: skill
+        ? `Handled with ${skill.provider} skill ${skill.id}: ${trimmed}`
+        : `Handled: ${trimmed}`,
       type: 'content.delta',
     })
     this.emitRuntimeEvent({
@@ -2366,6 +2402,7 @@ export class ManagedSessionManager {
     text: string,
     recipients: readonly string[] = [],
     attachments: readonly ManagedSessionAttachment[] = [],
+    skill?: ResolvedProviderSkill,
   ): Promise<void> {
     const state = this.sessions.get(sessionId)
 
@@ -2378,11 +2415,18 @@ export class ManagedSessionManager {
     }
 
     this.resolveRecipientAgents(state, recipients)
+    if (skill && skill.provider !== state.config.mode) {
+      throw new Error('Selected provider skill does not match this session.')
+    }
+    if (skill && recipients.length > 0) {
+      throw new Error('A provider skill cannot target read-only agents.')
+    }
     state.queuedInputs.push({
       attachments: attachments.map((attachment) => ({ ...attachment })),
       createdAt: this.getNow(),
       id: randomUUID(),
       recipients: recipients.map((alias) => alias.toLowerCase()),
+      ...(skill ? { skill: { ...skill } } : {}),
       text,
     })
     this.publishSnapshot(state, this.getNow())
@@ -2454,6 +2498,9 @@ export class ManagedSessionManager {
       throw new Error(
         'Agent-recipient messages cannot steer an orchestrator turn.',
       )
+    }
+    if (queuedInput.skill) {
+      throw new Error('Provider skills cannot steer an active Codex turn.')
     }
     if (state.queuedInputInProgressId) {
       throw new Error('Another queued message is being prepared.')
@@ -2590,6 +2637,12 @@ export class ManagedSessionManager {
     state: ManagedSessionMutableState,
     queuedInput: ManagedSessionQueuedInput,
   ): Promise<void> {
+    if (
+      queuedInput.skill?.provider !== undefined &&
+      queuedInput.skill.provider !== state.config.mode
+    ) {
+      throw new Error('Selected provider skill does not match this session.')
+    }
     if (!queuedInput.checkpointId) {
       const checkpoint = await this.options.beforeInput?.({
         config: state.config,
@@ -2698,6 +2751,7 @@ export class ManagedSessionManager {
               ? ''
               : `\n\nFleet policy.\n${FLEET_INSTRUCTIONS}`),
           prepared.images,
+          queuedInput.skill,
         )
         state.historyDeliveredRuntimeGeneration = state.runtimeGeneration
       } catch (error) {

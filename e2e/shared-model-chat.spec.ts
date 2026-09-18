@@ -202,6 +202,19 @@ async function selectPlanMode(page: Page): Promise<void> {
     })
 }
 
+async function selectProviderSkill(
+  page: Page,
+  skillName: string,
+): Promise<void> {
+  const prompt = page.getByRole('textbox', { name: /prompt/i })
+  await prompt.fill(`/${skillName}`)
+  const skill = page.getByRole('option', {
+    name: new RegExp(`/${skillName}.*Runs with`, 'i'),
+  })
+  await expect(skill).toBeVisible()
+  await skill.click()
+}
+
 test.describe('shared model chat', () => {
   let app: ElectronApplication | null = null
   let dataDirectory: string | null = null
@@ -316,6 +329,191 @@ test.describe('shared model chat', () => {
     expect(restored.projects[0]?.id).toBe(imported.projects[0]?.id)
     expect(restored.workspaces[0]?.worktreePath).toBe(repository)
     expect(existsSync(path.join(repository, '.git'))).toBe(false)
+  })
+
+  test('waits for model discovery before selecting a skill or sending with Enter', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const capabilities = await page.evaluate(() =>
+      window.aide.getProviderCapabilities(),
+    )
+    await app.evaluate(({ ipcMain }, result) => {
+      ipcMain.removeHandler('app:get-provider-capabilities')
+      const pending = new Promise((resolve) => {
+        Reflect.set(globalThis, 'releaseTestCapabilities', () =>
+          resolve(result),
+        )
+      })
+      ipcMain.handle('app:get-provider-capabilities', () => pending)
+    }, capabilities)
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+    await prepareSyntheticJev(app, page)
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('preserve this draft')
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('preserve this draft')
+    expect(
+      await page.evaluate(() => window.aide.getManagedSessionSnapshots()),
+    ).toEqual({})
+    await prompt.fill('/claude-test-skill')
+    const skill = page.getByRole('option', { name: /\/claude-test-skill/ })
+    await expect(skill).toBeDisabled()
+    await app.evaluate(() => {
+      Reflect.get(globalThis, 'releaseTestCapabilities')()
+      Reflect.deleteProperty(globalThis, 'releaseTestCapabilities')
+    })
+    await expect(skill).toBeEnabled()
+    await skill.click()
+    await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
+      '@Claude · /claude-test-skill',
+    )
+  })
+
+  test('runs a Claude skill with its owner and clears opinion recipients', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+
+    await prompt.fill('@cod')
+    await page.getByRole('option', { name: /@codex/i }).click()
+    await expect(
+      page.getByRole('button', { name: /Remove @codex/i }),
+    ).toBeVisible()
+
+    await prompt.fill('/claude-test-skill')
+    await expect(page.getByTestId('managed-slash-menu')).toBeVisible()
+    await prompt.press('Escape')
+    await expect(page.getByTestId('managed-slash-menu')).toBeHidden()
+    await expect(prompt).toHaveValue('/claude-test-skill')
+    await prompt.fill('')
+    await selectProviderSkill(page, 'claude-test-skill')
+    await expect(
+      page.getByRole('button', { name: /Remove @codex/i }),
+    ).toBeHidden()
+    await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
+      '@Claude · /claude-test-skill ×',
+    )
+    await expect(
+      page.getByText('Runs with Claude', { exact: true }),
+    ).toBeVisible()
+    await expect(page.getByTestId('managed-session-content')).not.toContainText(
+      'Handled with claude skill',
+    )
+
+    await prompt.fill('review this change')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled with claude skill claude:skill:claude-test-skill: review this change',
+    )
+    await expect(page.getByTestId('managed-provider-skill-chip')).toBeHidden()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({
+        provider: 'claude',
+        sessionState: 'ready',
+      })
+  })
+
+  test('switches to a Codex skill owner and restores its draft in a narrow pane', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.setViewportSize({ width: 1100, height: 720 })
+
+    await page.getByRole('button', { name: 'Split horizontally' }).click()
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('@cla')
+    await page.getByRole('option', { name: /@claude/i }).click()
+    await prompt.fill('/')
+
+    const pane = page.getByTestId('managed-agent-pane')
+    const menu = page.getByTestId('managed-slash-menu')
+    const send = pane.getByRole('button', { name: 'Send prompt' })
+    await expect(menu).toBeVisible()
+    await expect(send).toBeInViewport({ ratio: 1 })
+    const paneBounds = await pane.boundingBox()
+    const menuBounds = await menu.boundingBox()
+    expect(paneBounds).not.toBeNull()
+    expect(menuBounds).not.toBeNull()
+    expect(menuBounds?.x).toBeGreaterThanOrEqual(paneBounds?.x ?? 0)
+    expect((menuBounds?.x ?? 0) + (menuBounds?.width ?? 0)).toBeLessThanOrEqual(
+      (paneBounds?.x ?? 0) + (paneBounds?.width ?? 0) + 1,
+    )
+    await page.screenshot({
+      path: 'docs/verification/provider-skills-2026-09-18.png',
+    })
+
+    await prompt.fill('/codex-test-skill')
+    await page
+      .getByRole('option', {
+        name: /\/codex-test-skill.*Runs with Codex/i,
+      })
+      .click()
+    await expect(
+      page.getByRole('button', { name: /Remove @claude/i }),
+    ).toBeHidden()
+    await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
+      '@Codex · /codex-test-skill ×',
+    )
+    const codexPrompt = page.getByRole('textbox', { name: /codex prompt/i })
+    await codexPrompt.fill('prepare the release')
+    await expect
+      .poll(() =>
+        page.evaluate(async (sessionId) => {
+          const request = indexedDB.open('aide-renderer', 1)
+          const database = await new Promise<IDBDatabase>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          })
+          try {
+            const read = database
+              .transaction('managed-drafts')
+              .objectStore('managed-drafts')
+              .get(`aide:managed-composer:${sessionId}`)
+            return await new Promise<string | null>((resolve, reject) => {
+              read.onsuccess = () =>
+                resolve(read.result?.selectedSkill?.id ?? null)
+              read.onerror = () => reject(read.error)
+            })
+          } finally {
+            database.close()
+          }
+        }, session.sessionId),
+      )
+      .toBe('codex:skill:eafb4a4ea8096486')
+
+    await page.reload()
+    await expect(
+      page.getByRole('textbox', { name: /codex prompt/i }),
+    ).toHaveValue('prepare the release')
+    await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
+      '@Codex · /codex-test-skill ×',
+    )
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled with codex skill codex:skill:eafb4a4ea8096486: prepare the release',
+    )
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Codex · gpt-5.6-terra',
+    )
+    await expect(page.getByTestId('managed-provider-skill-chip')).toBeHidden()
   })
 
   test('opens fleet Plan first, accepts reported work, and shows actual routing after restart', async () => {

@@ -4,6 +4,7 @@ import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
+import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
@@ -114,6 +115,12 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
   getProviderCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getProviderCapabilities),
+  getProviderSkills: (workspaceId: string, forceReload?: boolean) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.getProviderSkills,
+      workspaceId,
+      forceReload,
+    ),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
   getWorkspacePreviewSnapshots: () =>
@@ -344,6 +351,7 @@ const aideApi: AideApi = {
     text: string,
     recipients?: readonly string[],
     attachments?: readonly ManagedSessionAttachment[],
+    selectedSkill?: ProviderSkillSelection,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.managedSessionSendInput,
@@ -351,6 +359,7 @@ const aideApi: AideApi = {
       text,
       recipients,
       attachments,
+      selectedSkill,
     ),
   listTurnCheckpoints: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),

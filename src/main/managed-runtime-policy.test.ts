@@ -1,4 +1,5 @@
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   rmSync,
@@ -11,11 +12,39 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createReadOnlyClaudeOptions,
   createReadOnlyCodexRuntimePolicy,
+  getClaudeExecutablePath,
   sanitizeProviderEnvironment,
 } from './managed-runtime-policy'
 
 describe('managed runtime policy', () => {
   const runtimes: Array<{ dispose(): void }> = []
+
+  it('uses the unpacked Claude executable in packaged apps and preserves an explicit override', () => {
+    const resources = mkdtempSync(join(tmpdir(), 'aide-claude-package-'))
+    try {
+      expect(getClaudeExecutablePath({}, resources)).toBeUndefined()
+      const directory = join(
+        resources,
+        'app.asar.unpacked/node_modules/@anthropic-ai',
+        `claude-agent-sdk-${process.platform}-${process.arch}`,
+      )
+      mkdirSync(directory, { recursive: true })
+      const executable = join(
+        directory,
+        process.platform === 'win32' ? 'claude.exe' : 'claude',
+      )
+      writeFileSync(executable, 'synthetic executable')
+      expect(getClaudeExecutablePath({}, resources)).toBe(executable)
+      expect(
+        getClaudeExecutablePath(
+          { AIDE_CLAUDE_COMMAND: '/custom/claude' },
+          resources,
+        ),
+      ).toBe('/custom/claude')
+    } finally {
+      rmSync(resources, { force: true, recursive: true })
+    }
+  })
 
   afterEach(() => {
     for (const runtime of runtimes.splice(0)) {

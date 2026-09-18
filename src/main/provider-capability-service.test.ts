@@ -199,4 +199,175 @@ describe('ProviderCapabilityService', () => {
     expect(config).not.toHaveProperty('effort')
     expect(selection).not.toHaveProperty('effort')
   })
+
+  it('caches workspace skill metadata and resolves only enabled native skills', async () => {
+    let claudeCalls = 0
+    let codexCalls = 0
+    const service = new ProviderCapabilityService({
+      listClaudeModels: async () => createClaudeModelList(),
+      listClaudeSkills: async () => {
+        claudeCalls += 1
+        return {
+          skills: [{ description: 'Claude test skill', name: 'claude-test' }],
+        }
+      },
+      listCodexModels: async () => ({ data: [] }),
+      listCodexSkills: async (cwd) => {
+        codexCalls += 1
+        return {
+          data: [
+            {
+              cwd,
+              errors: [],
+              skills: [
+                {
+                  description: 'Codex test skill',
+                  enabled: true,
+                  name: 'codex-test',
+                  path: '/native/codex-test/SKILL.md',
+                },
+                {
+                  description: 'Disabled skill',
+                  enabled: false,
+                  name: 'disabled-test',
+                  path: '/native/disabled-test/SKILL.md',
+                },
+              ],
+            },
+          ],
+        }
+      },
+    })
+
+    const first = await service.getProviderSkills(
+      'workspace-1',
+      '/tmp/workspace-1',
+    )
+    const second = await service.getProviderSkills(
+      'workspace-1',
+      '/tmp/workspace-1',
+    )
+
+    expect(second).toBe(first)
+    expect(first.skills).toEqual([
+      {
+        description: 'Claude test skill',
+        id: 'claude:skill:claude-test',
+        name: 'claude-test',
+        owner: 'Claude',
+        provider: 'claude',
+      },
+      {
+        description: 'Codex test skill',
+        id: 'codex:skill:a815caa12b84b844',
+        name: 'codex-test',
+        owner: 'Codex',
+        provider: 'codex',
+      },
+    ])
+    expect(claudeCalls).toBe(1)
+    expect(codexCalls).toBe(1)
+    await expect(
+      service.resolveProviderSkill('workspace-1', '/tmp/workspace-1', {
+        id: 'codex:skill:a815caa12b84b844',
+        provider: 'codex',
+      }),
+    ).resolves.toEqual({
+      id: 'codex:skill:a815caa12b84b844',
+      nativeName: 'codex-test',
+      nativePath: '/native/codex-test/SKILL.md',
+      provider: 'codex',
+    })
+    await expect(
+      service.resolveProviderSkill('workspace-1', '/tmp/workspace-1', {
+        id: 'codex:skill:disabled-test',
+        provider: 'codex',
+      }),
+    ).rejects.toThrow('Selected provider skill is unavailable.')
+
+    await service.getProviderSkills('workspace-1', '/tmp/workspace-1', true)
+    expect(claudeCalls).toBe(2)
+    expect(codexCalls).toBe(2)
+  })
+
+  it('returns Claude skills when Codex discovery fails', async () => {
+    const service = new ProviderCapabilityService({
+      listClaudeModels: async () => createClaudeModelList(),
+      listClaudeSkills: async () => ({
+        skills: [{ description: 'Claude test skill', name: 'claude-test' }],
+      }),
+      listCodexModels: async () => ({ data: [] }),
+      listCodexSkills: async () => {
+        throw new Error('Codex unavailable')
+      },
+    })
+
+    await expect(
+      service.getProviderSkills('workspace-1', '/tmp/workspace-1'),
+    ).resolves.toEqual({
+      errors: { codex: 'Unable to discover Codex skills: Codex unavailable' },
+      skills: [
+        {
+          description: 'Claude test skill',
+          id: 'claude:skill:claude-test',
+          name: 'claude-test',
+          owner: 'Claude',
+          provider: 'claude',
+        },
+      ],
+    })
+  })
+
+  it('keeps same-name Codex skills distinct by native path', async () => {
+    const service = new ProviderCapabilityService({
+      listClaudeModels: async () => createClaudeModelList(),
+      listClaudeSkills: async () => ({ skills: [] }),
+      listCodexModels: async () => ({ data: [] }),
+      listCodexSkills: async (cwd) => ({
+        data: [
+          {
+            cwd,
+            errors: [],
+            skills: [
+              {
+                description: 'First skill',
+                enabled: true,
+                name: 'same-name',
+                path: '/native/first/SKILL.md',
+              },
+              {
+                description: 'Second skill',
+                enabled: true,
+                name: 'same-name',
+                path: '/native/second/SKILL.md',
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    const snapshot = await service.getProviderSkills(
+      'workspace-1',
+      '/tmp/workspace-1',
+    )
+    const skills = snapshot.skills.filter((skill) => skill.provider === 'codex')
+
+    expect(skills).toHaveLength(2)
+    expect(new Set(skills.map((skill) => skill.id)).size).toBe(2)
+    await expect(
+      service.resolveProviderSkill(
+        'workspace-1',
+        '/tmp/workspace-1',
+        skills[0],
+      ),
+    ).resolves.toMatchObject({ nativePath: '/native/first/SKILL.md' })
+    await expect(
+      service.resolveProviderSkill(
+        'workspace-1',
+        '/tmp/workspace-1',
+        skills[1],
+      ),
+    ).resolves.toMatchObject({ nativePath: '/native/second/SKILL.md' })
+  })
 })

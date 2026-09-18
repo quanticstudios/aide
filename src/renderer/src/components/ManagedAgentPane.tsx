@@ -55,6 +55,10 @@ import {
   type ProviderSelectionInput,
   resolveProviderSelection,
 } from '../../../shared/provider-capabilities'
+import type {
+  ProviderSkill,
+  ProviderSkillsSnapshot,
+} from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import { createImageAttachments } from '../lib/managed-composer'
@@ -75,6 +79,7 @@ import {
 } from '../lib/managed-session-selection'
 import {
   extractSlashQuery,
+  filterProviderSkills,
   filterSlashCommands,
   SLASH_COMMANDS,
   type SlashCommand,
@@ -101,6 +106,10 @@ interface ManagedAgentPaneProps {
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
+
+type ManagedSlashMenuItem =
+  | { readonly command: SlashCommand; readonly kind: 'command' }
+  | { readonly kind: 'skill'; readonly skill: ProviderSkill }
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -658,6 +667,10 @@ export default function ManagedAgentPane({
   const [selectedRecipientAliases, setSelectedRecipientAliases] = useState<
     readonly string[]
   >([])
+  const [selectedSkill, setSelectedSkill] = useState<ProviderSkill | null>(null)
+  const [providerSkills, setProviderSkills] =
+    useState<ProviderSkillsSnapshot | null>(null)
+  const [isProviderSkillsLoading, setIsProviderSkillsLoading] = useState(false)
   const [isDraftHydrated, setIsDraftHydrated] = useState(false)
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null)
   const draftLoadGenerationRef = useRef(0)
@@ -678,6 +691,8 @@ export default function ManagedAgentPane({
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
+  const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
+  const slashMenuRef = useRef<HTMLDivElement | null>(null)
   const startedSessionRef = useRef(false)
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
@@ -697,6 +712,8 @@ export default function ManagedAgentPane({
     workspace.id,
     selectedProvider,
   )
+  const canChangeProviderSelection =
+    capabilities !== null && canChangeManagedSessionSelection(snapshot)
 
   useEffect(() => {
     const api = getAideApi()
@@ -791,6 +808,7 @@ export default function ManagedAgentPane({
       setDraftInput(draft?.text ?? '')
       setAttachments(draft?.attachments ?? [])
       setSelectedRecipientAliases(draft?.recipients ?? [])
+      setSelectedSkill(draft?.selectedSkill ?? null)
       setIsDraftHydrated(true)
     } catch (draftError) {
       if (draftLoadGenerationRef.current !== generation) return
@@ -812,13 +830,15 @@ export default function ManagedAgentPane({
     const draft = {
       attachments: [...attachments],
       recipients: [...selectedRecipientAliases],
+      ...(selectedSkill ? { selectedSkill } : {}),
       text: draftInput,
     }
     const persistDraft = async () => {
       if (
         !draft.text &&
         draft.recipients.length === 0 &&
-        draft.attachments.length === 0
+        draft.attachments.length === 0 &&
+        !draft.selectedSkill
       ) {
         await removeManagedDraft(composerStorageKey)
       } else {
@@ -837,6 +857,7 @@ export default function ManagedAgentPane({
     draftInput,
     isDraftHydrated,
     selectedRecipientAliases,
+    selectedSkill,
   ])
 
   const ensureSession = useCallback(async () => {
@@ -1043,6 +1064,7 @@ export default function ManagedAgentPane({
       text: string,
       recipients: readonly string[] = [],
       promptAttachments: readonly ManagedSessionAttachment[] = [],
+      providerSkill?: ProviderSkill,
     ) => {
       const api = getAideApi()
       const trimmed = text.trim()
@@ -1064,6 +1086,9 @@ export default function ManagedAgentPane({
           trimmed,
           recipients,
           promptAttachments,
+          providerSkill
+            ? { id: providerSkill.id, provider: providerSkill.provider }
+            : undefined,
         )
         setError(null)
         return true
@@ -1081,6 +1106,7 @@ export default function ManagedAgentPane({
     const submittedDraft = draftInput
     const submittedRecipientAliases = selectedRecipientAliases
     const submittedAttachments = attachments
+    const submittedSkill = selectedSkill
     const parsed = extractExplicitRecipientAliases(
       submittedDraft,
       configuredAgents.map((agent) => agent.alias),
@@ -1091,11 +1117,32 @@ export default function ManagedAgentPane({
       return
     }
 
+    if (submittedSkill && selectedProvider !== submittedSkill.provider) {
+      setError(
+        `/${submittedSkill.name} runs with ${submittedSkill.owner}. Select it again to switch providers.`,
+      )
+      return
+    }
+
     const recipients = Array.from(
       new Set([...submittedRecipientAliases, ...parsed.aliases]),
     )
 
-    if (await sendPromptText(parsed.text, recipients, submittedAttachments)) {
+    if (submittedSkill && recipients.length > 0) {
+      setError(
+        `/${submittedSkill.name} runs with ${submittedSkill.owner} and cannot be combined with opinion recipients.`,
+      )
+      return
+    }
+
+    if (
+      await sendPromptText(
+        parsed.text,
+        recipients,
+        submittedAttachments,
+        submittedSkill ?? undefined,
+      )
+    ) {
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
       )
@@ -1105,12 +1152,17 @@ export default function ManagedAgentPane({
       setAttachments((currentAttachments) =>
         currentAttachments === submittedAttachments ? [] : currentAttachments,
       )
+      setSelectedSkill((currentSkill) =>
+        currentSkill === submittedSkill ? null : currentSkill,
+      )
     }
   }, [
     attachments,
     configuredAgents,
     draftInput,
     selectedRecipientAliases,
+    selectedProvider,
+    selectedSkill,
     sendPromptText,
   ])
 
@@ -1309,7 +1361,7 @@ export default function ManagedAgentPane({
 
       if (!providerCapabilities) {
         setError('Provider capabilities have not loaded yet.')
-        return
+        return false
       }
 
       const resolution = resolveProviderSelection(
@@ -1324,7 +1376,7 @@ export default function ManagedAgentPane({
 
       if (change.kind === 'unavailable') {
         setError(resolution.explanation ?? 'No compatible model is available.')
-        return
+        return false
       }
 
       if (change.kind === 'local') {
@@ -1348,13 +1400,14 @@ export default function ManagedAgentPane({
             newMode,
           )
         }
-        return
+        setError(null)
+        return true
       }
 
       const api = getAideApi()
       if (!api) {
         setError('Managed provider bridge did not load.')
-        return
+        return false
       }
 
       try {
@@ -1380,21 +1433,37 @@ export default function ManagedAgentPane({
           )
         }
         setError(null)
+        return true
       } catch (switchError) {
         setError(getErrorMessage(switchError))
+        return false
       }
     },
     [capabilities, isUnifiedPane, selectedProvider, sessionId, workspace.id],
   )
 
   const handleModelSwitch = useCallback(
-    (newMode: ManagedSessionMode, newModelId: string) =>
-      handleProviderSelectionChange(newMode, {
+    async (newMode: ManagedSessionMode, newModelId: string) => {
+      const changed = await handleProviderSelectionChange(newMode, {
         effort: newMode === selectedProvider ? effort : undefined,
         modelId: newModelId,
         serviceTier: newMode === selectedProvider ? serviceTier : undefined,
-      }),
-    [effort, handleProviderSelectionChange, selectedProvider, serviceTier],
+      })
+
+      if (changed && selectedSkill && selectedSkill.provider !== newMode) {
+        setSelectedSkill(null)
+        setSelectionNotice(
+          `Removed /${selectedSkill.name} because it runs with ${selectedSkill.owner}.`,
+        )
+      }
+    },
+    [
+      effort,
+      handleProviderSelectionChange,
+      selectedProvider,
+      selectedSkill,
+      serviceTier,
+    ],
   )
 
   const handleEffortChange = useCallback(
@@ -1525,10 +1594,49 @@ export default function ManagedAgentPane({
       setSelectedRecipientAliases((aliases) =>
         aliases.includes(alias) ? aliases : [...aliases, alias],
       )
+      if (selectedSkill) {
+        setSelectedSkill(null)
+        setSelectionNotice(
+          `Removed /${selectedSkill.name} because opinion recipients use their configured models.`,
+        )
+      }
       setIsRecipientMenuDismissed(true)
       setError(null)
     },
-    [draftInput],
+    [draftInput, selectedSkill],
+  )
+
+  const loadProviderSkills = useCallback(
+    async (forceReload = false) => {
+      const api = getAideApi()
+
+      if (!api) {
+        setProviderSkills({
+          errors: {
+            claude: 'Managed provider bridge did not load.',
+            codex: 'Managed provider bridge did not load.',
+          },
+          skills: [],
+        })
+        return
+      }
+
+      setIsProviderSkillsLoading(true)
+      try {
+        setProviderSkills(
+          await api.getProviderSkills(workspace.id, forceReload),
+        )
+      } catch (skillsError) {
+        const message = getErrorMessage(skillsError)
+        setProviderSkills({
+          errors: { claude: message, codex: message },
+          skills: [],
+        })
+      } finally {
+        setIsProviderSkillsLoading(false)
+      }
+    },
+    [workspace.id],
   )
 
   const slashContext = useMemo<SlashCommandContext>(
@@ -1579,6 +1687,13 @@ export default function ManagedAgentPane({
     [configuredAgents, recipientMentionQuery, selectedRecipientAliases],
   )
   const slashQuery = extractSlashQuery(draftInput)
+
+  useEffect(() => {
+    if (slashQuery !== null && !providerSkills && !isProviderSkillsLoading) {
+      void loadProviderSkills()
+    }
+  }, [isProviderSkillsLoading, loadProviderSkills, providerSkills, slashQuery])
+
   const filteredSlashCommands = useMemo<SlashCommand[]>(
     () =>
       slashQuery === null
@@ -1586,7 +1701,31 @@ export default function ManagedAgentPane({
         : filterSlashCommands(SLASH_COMMANDS, slashQuery, slashContext),
     [slashContext, slashQuery],
   )
-  const slashMenuOpen = filteredSlashCommands.length > 0 && slashQuery !== null
+  const filteredProviderSkills = useMemo(
+    () =>
+      slashQuery === null
+        ? []
+        : filterProviderSkills(
+            (providerSkills?.skills ?? []).filter(
+              (skill) => isUnifiedPane || skill.provider === selectedProvider,
+            ),
+            slashQuery,
+          ),
+    [isUnifiedPane, providerSkills?.skills, selectedProvider, slashQuery],
+  )
+  const slashMenuItems = useMemo<ManagedSlashMenuItem[]>(
+    () => [
+      ...filteredSlashCommands.map(
+        (command): ManagedSlashMenuItem => ({ command, kind: 'command' }),
+      ),
+      ...filteredProviderSkills.map(
+        (skill): ManagedSlashMenuItem => ({ kind: 'skill', skill }),
+      ),
+    ],
+    [filteredProviderSkills, filteredSlashCommands],
+  )
+  const providerSkillErrors = Object.entries(providerSkills?.errors ?? {})
+  const slashMenuOpen = slashQuery !== null && !isSlashMenuDismissed
   const recipientMenuOpen =
     !isRecipientMenuDismissed &&
     !slashMenuOpen &&
@@ -1611,11 +1750,51 @@ export default function ManagedAgentPane({
     setSlashActiveIndex(0)
   }, [slashQuery])
 
+  useEffect(() => {
+    if (!slashMenuOpen) return
+    slashMenuRef.current
+      ?.querySelectorAll('[role="option"]')
+      [slashActiveIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [slashActiveIndex, slashMenuOpen])
+
   const runSlashCommand = useCallback(
     async (command: SlashCommand) => {
       await command.run(slashContext)
     },
     [slashContext],
+  )
+
+  const selectProviderSkill = useCallback(
+    async (skill: ProviderSkill) => {
+      if (!canChangeProviderSelection) {
+        setError('Finish the active turn before selecting a provider skill.')
+        return
+      }
+
+      const changed = await handleProviderSelectionChange(
+        skill.provider,
+        loadPersistedProviderSelection(workspace.id, skill.provider),
+      )
+      if (!changed) {
+        return
+      }
+
+      const clearedRecipients = selectedRecipientAliases.length > 0
+      setSelectedRecipientAliases([])
+      setSelectedSkill(skill)
+      setDraftInput('')
+      setIsRecipientMenuDismissed(true)
+      setSelectionNotice(
+        `/${skill.name} runs with ${skill.owner}.${clearedRecipients ? ' Opinion recipients were cleared.' : ''}`,
+      )
+      textareaRef.current?.focus()
+    },
+    [
+      canChangeProviderSelection,
+      handleProviderSelectionChange,
+      selectedRecipientAliases.length,
+      workspace.id,
+    ],
   )
 
   const handleCheckpointRestored = useCallback(
@@ -1638,7 +1817,6 @@ export default function ManagedAgentPane({
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
   )
-  const canChangeProviderSelection = canChangeManagedSessionSelection(snapshot)
 
   return (
     <section
@@ -1819,43 +1997,104 @@ export default function ManagedAgentPane({
 
           {slashMenuOpen ? (
             <div
+              aria-label="Commands and provider skills"
               className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
               data-testid="managed-slash-menu"
+              ref={slashMenuRef}
+              role="listbox"
             >
-              <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                Slash commands
+              <div className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Commands and skills
+                </span>
+                <button
+                  className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                  disabled={isProviderSkillsLoading}
+                  onClick={() => void loadProviderSkills(true)}
+                  type="button"
+                >
+                  <RefreshCw
+                    className={cn(
+                      'size-3',
+                      isProviderSkillsLoading && 'animate-spin',
+                    )}
+                  />
+                  Refresh skills
+                </button>
               </div>
               <ul className="max-h-60 overflow-y-auto p-1">
-                {filteredSlashCommands.map((command, index) => {
+                {slashMenuItems.map((item, index) => {
                   const isActive = index === slashActiveIndex
+                  const isSkill = item.kind === 'skill'
+                  const itemKey = isSkill
+                    ? `${item.skill.provider}:${item.skill.id}`
+                    : `command:${item.command.id}`
 
                   return (
-                    <li key={command.id}>
+                    <li key={itemKey}>
                       <button
+                        aria-selected={isActive}
                         className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                           isActive
                             ? 'bg-surface-tertiary text-foreground'
                             : 'text-foreground/80 hover:bg-surface-secondary'
-                        }`}
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                        disabled={isSkill && !canChangeProviderSelection}
                         onClick={() => {
-                          void runSlashCommand(command)
+                          if (item.kind === 'command') {
+                            void runSlashCommand(item.command)
+                          } else {
+                            void selectProviderSkill(item.skill)
+                          }
                         }}
                         onMouseEnter={() => setSlashActiveIndex(index)}
+                        role="option"
                         type="button"
                       >
                         <span className="flex min-w-0 flex-col">
-                          <span className="truncate font-semibold">
-                            {command.label}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate font-semibold">
+                              {isSkill
+                                ? `/${item.skill.name}`
+                                : item.command.label}
+                            </span>
+                            {isSkill ? (
+                              <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                {item.skill.owner}
+                              </span>
+                            ) : null}
                           </span>
                           <span className="truncate text-xs text-muted-foreground">
-                            {command.description}
+                            {isSkill
+                              ? `${item.skill.description} Runs with ${item.skill.owner}.`
+                              : item.command.description}
                           </span>
                         </span>
                       </button>
                     </li>
                   )
                 })}
+                {isProviderSkillsLoading && slashMenuItems.length === 0 ? (
+                  <li className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    Loading provider skills…
+                  </li>
+                ) : null}
+                {!isProviderSkillsLoading && slashMenuItems.length === 0 ? (
+                  <li className="px-3 py-2 text-xs text-muted-foreground">
+                    No matching commands or skills.
+                  </li>
+                ) : null}
               </ul>
+              {providerSkillErrors.length > 0 ? (
+                <div className="max-h-24 overflow-y-auto break-words border-t border-border/60 px-3 py-2 text-xs text-destructive">
+                  {providerSkillErrors.map(([provider, message]) => (
+                    <p key={provider}>
+                      {provider === 'claude' ? 'Claude' : 'Codex'}: {message}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1934,6 +2173,23 @@ export default function ManagedAgentPane({
             }
           />
 
+          {selectedSkill ? (
+            <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+              <button
+                aria-label={`Remove /${selectedSkill.name}`}
+                className="max-w-full break-all rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-left text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
+                data-testid="managed-provider-skill-chip"
+                onClick={() => setSelectedSkill(null)}
+                type="button"
+              >
+                @{selectedSkill.owner} · /{selectedSkill.name} ×
+              </button>
+              <span className="text-[11px] text-muted-foreground">
+                Runs with {selectedSkill.owner}
+              </span>
+            </div>
+          ) : null}
+
           {selectedRecipientAliases.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 px-4 pt-3">
               {selectedRecipientAliases.map((alias) => (
@@ -1955,9 +2211,11 @@ export default function ManagedAgentPane({
           ) : null}
 
           <p aria-live="polite" className="sr-only">
-            {selectedRecipientAliases.length > 0
-              ? `Recipients: ${selectedRecipientAliases.map((alias) => `@${alias}`).join(', ')}`
-              : 'Conversation default recipient'}
+            {selectedSkill
+              ? `Selected skill /${selectedSkill.name}; runs with ${selectedSkill.owner}`
+              : selectedRecipientAliases.length > 0
+                ? `Recipients: ${selectedRecipientAliases.map((alias) => `@${alias}`).join(', ')}`
+                : 'Conversation default recipient'}
           </p>
 
           <textarea
@@ -1979,6 +2237,7 @@ export default function ManagedAgentPane({
                 setDraftInput(value)
                 setRecipientActiveIndex(0)
                 setIsRecipientMenuDismissed(false)
+                setIsSlashMenuDismissed(false)
               }
               const el = event.target
               el.style.height = 'auto'
@@ -2045,36 +2304,38 @@ export default function ManagedAgentPane({
               }
 
               if (slashMenuOpen) {
-                if (event.key === 'ArrowDown') {
+                if (event.key === 'ArrowDown' && slashMenuItems.length > 0) {
                   event.preventDefault()
                   setSlashActiveIndex(
-                    (index) => (index + 1) % filteredSlashCommands.length,
+                    (index) => (index + 1) % slashMenuItems.length,
                   )
                   return
                 }
 
-                if (event.key === 'ArrowUp') {
+                if (event.key === 'ArrowUp' && slashMenuItems.length > 0) {
                   event.preventDefault()
                   setSlashActiveIndex(
                     (index) =>
-                      (index - 1 + filteredSlashCommands.length) %
-                      filteredSlashCommands.length,
+                      (index - 1 + slashMenuItems.length) %
+                      slashMenuItems.length,
                   )
                   return
                 }
 
                 if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
                   event.preventDefault()
-                  const command = filteredSlashCommands[slashActiveIndex]
-                  if (command) {
-                    void runSlashCommand(command)
+                  const item = slashMenuItems[slashActiveIndex]
+                  if (item?.kind === 'command') {
+                    void runSlashCommand(item.command)
+                  } else if (item?.kind === 'skill') {
+                    void selectProviderSkill(item.skill)
                   }
                   return
                 }
 
                 if (event.key === 'Escape') {
                   event.preventDefault()
-                  setDraftInput('')
+                  setIsSlashMenuDismissed(true)
                   return
                 }
               }
@@ -2093,6 +2354,9 @@ export default function ManagedAgentPane({
                 if (draftInput.trim().length === 0) {
                   return
                 }
+                if (!startedSessionRef.current && !isSelectionHydrated) {
+                  return
+                }
                 void handleSendInput()
               }
             }}
@@ -2100,7 +2364,7 @@ export default function ManagedAgentPane({
             placeholder={
               activeQuestion
                 ? 'Type your own answer, or leave this blank to use the selected option'
-                : 'Ask anything, type / for commands'
+                : 'Ask anything · @ for opinions · / for skills'
             }
             rows={3}
             value={activeQuestion ? primaryAnswer : draftInput}

@@ -796,6 +796,20 @@ function registerIpcHandlers(): void {
     providerCapabilityService.getSnapshot(),
   )
   ipcMain.handle(
+    IPC_CHANNELS.getProviderSkills,
+    (event, workspaceId: unknown, forceReload: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      if (forceReload !== undefined && typeof forceReload !== 'boolean') {
+        throw new Error('Invalid provider skill refresh request.')
+      }
+      return providerCapabilityService.getProviderSkills(
+        workspace.id,
+        workspace.worktreePath,
+        forceReload === true,
+      )
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.getWorkspacePreviewSnapshot,
     (_event, workspaceId) => previewManager.ensure(workspaceId),
   )
@@ -1220,12 +1234,13 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
-    (
+    async (
       event,
       sessionId: unknown,
       text: unknown,
       recipients: unknown,
       attachments: unknown,
+      selectedSkill: unknown,
     ) => {
       const id = requireRuntimeId(sessionId, 'managed-session id')
       if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
@@ -1235,11 +1250,27 @@ function registerIpcHandlers(): void {
       if (!session) throw new Error('Managed session is unavailable.')
       const workspace = requireWorkspaceForSetup(event, session.workspaceId)
       jevSettings.requireApiKey(workspace.worktreePath)
+      const recipientAliases = requireRecipientAliases(recipients)
+      if (selectedSkill !== undefined && recipientAliases.length > 0) {
+        throw new Error('A provider skill cannot target read-only agents.')
+      }
+      const resolvedSkill =
+        selectedSkill === undefined
+          ? undefined
+          : await providerCapabilityService.resolveProviderSkill(
+              workspace.id,
+              workspace.worktreePath,
+              selectedSkill,
+            )
+      if (resolvedSkill && resolvedSkill.provider !== session.provider) {
+        throw new Error('Selected provider skill does not match this session.')
+      }
       return managedSessionManager.sendInput(
         id,
         text,
-        requireRecipientAliases(recipients),
+        recipientAliases,
         validateManagedSessionAttachments(attachments),
+        resolvedSkill,
       )
     },
   )

@@ -9,6 +9,7 @@ import type {
 } from '../shared/managed-session'
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import {
+  buildClaudeSkillInput,
   buildClaudeUserContent,
   buildCodexTurnInput,
   ManagedSessionManager,
@@ -335,6 +336,17 @@ describe('ManagedSessionManager', () => {
         type: 'image',
       },
     ])
+    const claudeSkill = {
+      id: 'claude:skill:claude-test',
+      nativeName: 'claude-test',
+      provider: 'claude' as const,
+    }
+    expect(buildClaudeSkillInput('inspect', claudeSkill)).toBe(
+      '/claude-test\ninspect',
+    )
+    expect(buildClaudeSkillInput('/claude-test\ninspect', claudeSkill)).toBe(
+      '/claude-test\ninspect',
+    )
     expect(
       buildCodexTurnInput('inspect', [pastedImage, workspaceImage]),
     ).toEqual([
@@ -347,6 +359,21 @@ describe('ManagedSessionManager', () => {
         type: 'image',
         url: `data:image/png;base64,${workspaceImage.data}`,
       },
+    ])
+    expect(
+      buildCodexTurnInput('inspect', [], {
+        id: 'codex-test',
+        nativeName: 'codex-test',
+        nativePath: '/native/codex-test/SKILL.md',
+        provider: 'codex',
+      }),
+    ).toEqual([
+      {
+        name: 'codex-test',
+        path: '/native/codex-test/SKILL.md',
+        type: 'skill',
+      },
+      { text: 'inspect', type: 'text' },
     ])
   })
 
@@ -366,6 +393,24 @@ describe('ManagedSessionManager', () => {
       'session.state.changed',
       'session.state.changed',
     ])
+  })
+
+  it('rejects a skill owned by another provider', async () => {
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+
+    await expect(
+      manager.sendInput(config.sessionId, 'run skill', [], [], {
+        id: 'codex:skill:test',
+        nativeName: 'codex-test',
+        nativePath: '/native/codex-test/SKILL.md',
+        provider: 'codex',
+      }),
+    ).rejects.toThrow('Selected provider skill does not match this session.')
   })
 
   it('drops a session whose provider fails to start so the user can retry', async () => {
@@ -1242,6 +1287,63 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
   })
 
+  it('retains a paused skill input when the session owner changes', async () => {
+    let shouldFailPreparation = true
+    let checkpointAttempts = 0
+    const codexSends: string[] = []
+    const manager = new ManagedSessionManager({
+      beforeInput: async () => {
+        checkpointAttempts += 1
+        return undefined
+      },
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async (text) => {
+          if (config.mode === 'codex') codexSends.push(text)
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        if (shouldFailPreparation) throw new Error('Jev unavailable')
+        return { text }
+      },
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'run skill', [], [], {
+      id: 'claude:skill:claude-test',
+      nativeName: 'claude-test',
+      provider: 'claude',
+    })
+    await manager.switchSessionProvider(config.sessionId, { mode: 'codex' })
+    shouldFailPreparation = false
+
+    await manager.resumeQueue(config.sessionId)
+
+    expect(codexSends).toEqual([])
+    expect(checkpointAttempts).toBe(1)
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      queuePaused: true,
+      queuedInputs: [
+        expect.objectContaining({
+          lastError: 'Selected provider skill does not match this session.',
+        }),
+      ],
+    })
+  })
+
   it('cancels a queued input while preparation is still running', async () => {
     const preparationStarted = createDeferred()
     const releasePreparation = createDeferred()
@@ -1377,7 +1479,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
     await first.createSession(config)
     await first.sendInput(config.sessionId, 'running')
-    await first.sendInput(config.sessionId, 'after restart')
+    await first.sendInput(config.sessionId, 'after restart', [], [], {
+      id: 'claude:skill:claude-test',
+      nativeName: 'claude-test',
+      provider: 'claude',
+    })
     await first.closeAll()
 
     let sendsAfterRestart = 0
@@ -1407,7 +1513,10 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(sendsAfterRestart).toBe(0)
     expect(restored.queuePaused).toBe(true)
     expect(restored.queuedInputs).toEqual([
-      expect.objectContaining({ text: 'after restart' }),
+      expect.objectContaining({
+        skill: expect.objectContaining({ id: 'claude:skill:claude-test' }),
+        text: 'after restart',
+      }),
     ])
   })
 

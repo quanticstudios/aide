@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-18",
+  "version": "0.0.2",
+  "packaged": true,
+  "stableLauncher": true,
+  "ordinaryFolderImport": true,
+  "gitMarkerPreserved": true,
+  "models": {
+    "claude": 5,
+    "codex": 5
+  },
+  "skills": {
+    "claude": 166,
+    "codex": 178
+  },
+  "skillErrors": {},
+  "packagedClaudeSkill": true
+}

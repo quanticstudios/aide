@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-18",
+  "version": "0.0.2",
+  "scope": "Native provider skill discovery and dispatch with real Jev in an isolated ordinary folder. Synthetic skill instructions only.",
+  "checks": [
+    {
+      "name": "aide-claude-owner",
+      "expectedProvider": "claude",
+      "actualProvider": "claude",
+      "actualModel": "claude-opus-5",
+      "marker": "AIDE_CLAUDE_SKILL_OK",
+      "completed": true
+    },
+    {
+      "name": "aide-codex-owner",
+      "expectedProvider": "codex",
+      "actualProvider": "codex",
+      "actualModel": "gpt-6-astra",
+      "marker": "AIDE_CODEX_SKILL_OK",
+      "completed": true
+    }
+  ],
+  "nativeDispatch": "passed",
+  "screenshot": "Playwright capture timed out after both completed replies; the separate desktop fixture verifies rendering."
+}

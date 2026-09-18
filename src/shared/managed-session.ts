@@ -1,4 +1,5 @@
 import type { ManagedSessionAgentConfig } from './conversation-routing'
+import type { ResolvedProviderSkill } from './provider-skills'
 import type { FleetState } from './fleet'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
@@ -86,6 +87,7 @@ export interface ManagedSessionQueuedInput {
   id: string
   lastError?: string
   recipients: string[]
+  skill?: ResolvedProviderSkill
   text: string
 }
 

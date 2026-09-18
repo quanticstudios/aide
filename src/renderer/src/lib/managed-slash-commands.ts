@@ -1,4 +1,5 @@
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
+import type { ProviderSkill } from '../../../shared/provider-skills'
 
 export interface SlashCommandContext {
   readonly clearDraft: () => void
@@ -93,4 +94,21 @@ export function extractSlashQuery(draft: string): string | null {
   }
 
   return draft.slice(1)
+}
+
+export function filterProviderSkills(
+  skills: readonly ProviderSkill[],
+  query: string,
+): ProviderSkill[] {
+  const normalized = query.toLowerCase()
+
+  if (normalized.length === 0) {
+    return [...skills]
+  }
+
+  return skills.filter((skill) =>
+    [skill.name, skill.description, skill.owner, skill.provider].some((value) =>
+      value.toLowerCase().includes(normalized),
+    ),
+  )
 }

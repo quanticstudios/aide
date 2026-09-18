@@ -56,6 +56,10 @@ import type {
   WorkspacePreviewSnapshot,
 } from './preview'
 import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
+import type {
+  ProviderSkillSelection,
+  ProviderSkillsSnapshot,
+} from './provider-skills'
 import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
@@ -140,6 +144,7 @@ export const IPC_CHANNELS = {
   taskOpen: 'tasks:open',
   openTask: 'tasks:open-request',
   getProviderCapabilities: 'app:get-provider-capabilities',
+  getProviderSkills: 'app:get-provider-skills',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
   getWorkspaceSetupSnapshot: 'workspace-setup:get-snapshot',
@@ -300,6 +305,10 @@ export interface AideApi {
   onTaskOpen: (callback: (sessionId: string) => void) => () => void
   openTask: (sessionId: string) => Promise<void>
   getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
+  getProviderSkills: (
+    workspaceId: string,
+    forceReload?: boolean,
+  ) => Promise<ProviderSkillsSnapshot>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,
   ) => Promise<WorkspacePreviewSnapshot>
@@ -410,6 +419,7 @@ export interface AideApi {
     text: string,
     recipients?: readonly string[],
     attachments?: readonly ManagedSessionAttachment[],
+    selectedSkill?: ProviderSkillSelection,
   ) => Promise<void>
   listTurnCheckpoints: (sessionId: string) => Promise<TurnCheckpointSummary[]>
   previewTurnCheckpointRestore: (

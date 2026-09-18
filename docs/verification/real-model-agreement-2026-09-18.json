@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-18",
+  "version": "0.0.2",
+  "scope": "Real installed Claude and Codex runtimes with Jev preparation in an isolated ordinary folder. Synthetic prompt only.",
+  "primary": {
+    "provider": "claude",
+    "model": "sonnet"
+  },
+  "configuredAgents": [
+    {
+      "alias": "Claude",
+      "selection": {
+        "mode": "claude",
+        "model": "sonnet",
+        "effort": "low"
+      }
+    },
+    {
+      "alias": "Codex",
+      "selection": {
+        "mode": "codex",
+        "model": "gpt-5.6-sol",
+        "effort": "low"
+      }
+    }
+  ],
+  "turns": [
+    {
+      "provider": "claude",
+      "state": "completed",
+      "recipient": null,
+      "durationMs": 4556
+    },
+    {
+      "provider": "claude",
+      "state": "completed",
+      "recipient": "claude",
+      "durationMs": 1443
+    },
+    {
+      "provider": "codex",
+      "state": "completed",
+      "recipient": "codex",
+      "durationMs": 7870
+    }
+  ],
+  "answers": [
+    {
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "text": "CHAT_READY"
+    },
+    {
+      "provider": "claude",
+      "model": "claude-sonnet-5",
+      "text": "AGREE, because opening a plain folder should not implicitly alter the filesystem state by creating a .git repository without explicit user intent or action."
+    },
+    {
+      "provider": "codex",
+      "model": "gpt-5.6-sol",
+      "text": "`[tin \u00b7 plain-folder-git-review]`\nAGREE because opening a folder should not modify it or impose version control without explicit user consent."
+    }
+  ],
+  "interactionMode": "build",
+  "status": "passed"
+}

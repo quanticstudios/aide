@@ -1,4 +1,5 @@
 import type { ManagedSessionAttachment } from '../../../shared/managed-session'
+import type { ProviderSkill } from '../../../shared/provider-skills'
 
 const managedDraftDatabaseName = 'aide-renderer'
 const managedDraftDatabaseVersion = 1
@@ -7,7 +8,23 @@ const managedDraftStoreName = 'managed-drafts'
 export interface ManagedDraft {
   attachments: ManagedSessionAttachment[]
   recipients: string[]
+  selectedSkill?: ProviderSkill
   text: string
+}
+
+function isProviderSkill(value: unknown): value is ProviderSkill {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const skill = value as Partial<ProviderSkill>
+  return (
+    (skill.provider === 'claude' || skill.provider === 'codex') &&
+    typeof skill.id === 'string' &&
+    typeof skill.name === 'string' &&
+    typeof skill.description === 'string' &&
+    (skill.owner === 'Claude' || skill.owner === 'Codex')
+  )
 }
 
 function validateStorageKey(storageKey: string): void {
@@ -25,13 +42,15 @@ function validateManagedDraft(value: unknown): ManagedDraft {
     typeof draft.text !== 'string' ||
     !Array.isArray(draft.recipients) ||
     !draft.recipients.every((recipient) => typeof recipient === 'string') ||
-    !Array.isArray(draft.attachments)
+    !Array.isArray(draft.attachments) ||
+    (draft.selectedSkill !== undefined && !isProviderSkill(draft.selectedSkill))
   ) {
     throw new Error('The saved managed draft is invalid.')
   }
   return {
     attachments: draft.attachments,
     recipients: draft.recipients,
+    ...(draft.selectedSkill ? { selectedSkill: draft.selectedSkill } : {}),
     text: draft.text,
   }
 }
