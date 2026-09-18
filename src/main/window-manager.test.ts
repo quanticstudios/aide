@@ -16,6 +16,7 @@ function createWindow() {
       onceHandlers.set(event, handler)
     }),
     send: vi.fn(),
+    getURL: vi.fn(() => 'file:///app/renderer/index.html'),
     session: { setPermissionRequestHandler: vi.fn() },
     setWindowOpenHandler: vi.fn(),
   }
@@ -106,6 +107,23 @@ describe('WindowManager', () => {
       permissionCallback,
     )
     expect(permissionCallback).toHaveBeenCalledWith(false)
+
+    const clipboardCallback = vi.fn()
+    created.webContents.session.setPermissionRequestHandler.mock.calls[0]?.[0](
+      created.webContents,
+      'clipboard-sanitized-write',
+      clipboardCallback,
+    )
+    expect(clipboardCallback).toHaveBeenCalledWith(true)
+
+    created.webContents.getURL.mockReturnValueOnce('https://example.com')
+    const untrustedClipboardCallback = vi.fn()
+    created.webContents.session.setPermissionRequestHandler.mock.calls[0]?.[0](
+      created.webContents,
+      'clipboard-sanitized-write',
+      untrustedClipboardCallback,
+    )
+    expect(untrustedClipboardCallback).toHaveBeenCalledWith(false)
 
     const externalNavigation = { preventDefault: vi.fn() }
     created.handlers.get('will-navigate')?.(

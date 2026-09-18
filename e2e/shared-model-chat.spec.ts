@@ -558,12 +558,16 @@ test.describe('shared model chat', () => {
       'README.md',
     )
     await expect
-      .poll(async () =>
-        Object.keys(
-          await page.evaluate(() => window.aide.getManagedSessionSnapshots()),
-        ),
+      .poll(() =>
+        page.evaluate(async (sessionId) =>
+          (await window.aide.getTaskLibrary()).tasks.find(
+            (task) => task.sessionId === sessionId,
+          ), restoredSession.sessionId),
       )
-      .toEqual([restoredSession.sessionId])
+      .toMatchObject({
+        paneId: restoredSession.paneId,
+        sessionId: restoredSession.sessionId,
+      })
 
     await page.getByRole('button', { name: 'Open sidebar' }).click()
     await page.getByRole('button', { name: /^Add to / }).click()

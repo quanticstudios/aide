@@ -54,7 +54,14 @@ export class WindowManager {
 
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.session.setPermissionRequestHandler(
-      (_webContents, _permission, callback) => callback(false),
+      (webContents, permission, callback) =>
+        callback(
+          permission === 'clipboard-sanitized-write' &&
+            isTrustedRendererUrl(webContents.getURL(), {
+              loadRendererUrl: this.dependencies.loadRendererUrl,
+              rendererHtmlPath: this.dependencies.rendererHtmlPath,
+            }),
+        ),
     )
     const preventUntrustedNavigation = (
       event: { preventDefault: () => void },
