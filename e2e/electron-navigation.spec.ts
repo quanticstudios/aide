@@ -332,6 +332,58 @@ test.describe('electron spatial navigation', () => {
     await expect(
       page.locator('button:not([aria-label])').filter({ hasText: /^\s*$/ }),
     ).toHaveCount(0)
+
+    const projectHeader = page.locator('[data-testid^="project-header-"]')
+    const restingBackground = await projectHeader.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    )
+    await projectHeader.hover()
+    await expect
+      .poll(() =>
+        projectHeader.evaluate(
+          (element) => getComputedStyle(element).backgroundColor,
+        ),
+      )
+      .not.toBe(restingBackground)
+    await expect(
+      page.getByText(chosenProjectRoot, { exact: true }),
+    ).toBeVisible()
+
+    await page.locator('[data-testid^="workspace-row-"]').hover()
+    await expect(
+      page.getByTestId('workspace-tooltip-branch-icon'),
+    ).toBeVisible()
+
+    await page
+      .getByRole('button', {
+        exact: true,
+        name: `More options for ${path.basename(chosenProjectRoot)}`,
+      })
+      .click()
+    await page.getByRole('button', { name: 'Sparkles project icon' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Sparkles project icon' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: 'Violet project color' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Violet project color' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    await page.reload()
+    const openSidebarButton = page.getByRole('button', { name: 'Open sidebar' })
+    if (await openSidebarButton.isVisible()) await openSidebarButton.click()
+    await page
+      .getByRole('button', {
+        exact: true,
+        name: `More options for ${path.basename(chosenProjectRoot)}`,
+      })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Sparkles project icon' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page.getByRole('button', { name: 'Violet project color' }),
+    ).toHaveAttribute('aria-pressed', 'true')
     expect(consoleErrors).toEqual([])
   })
 

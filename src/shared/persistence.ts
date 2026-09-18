@@ -1,8 +1,29 @@
 export type ProjectKind = 'folder' | 'git'
+export const PROJECT_ICON_IDS = [
+  'folder',
+  'code',
+  'layers',
+  'sparkles',
+] as const
+export const PROJECT_COLOR_IDS = [
+  'neutral',
+  'blue',
+  'violet',
+  'green',
+  'amber',
+] as const
+export type ProjectIcon = (typeof PROJECT_ICON_IDS)[number]
+export type ProjectColor = (typeof PROJECT_COLOR_IDS)[number]
+export interface ProjectAppearance {
+  color: ProjectColor
+  icon: ProjectIcon
+}
 export type WorkspaceNameSource = 'default' | 'generated' | 'manual'
 
 export interface ProjectRecord {
+  color?: ProjectColor
   id: string
+  icon?: ProjectIcon
   kind: ProjectKind
   name: string
   repoRoot: string
@@ -117,7 +138,9 @@ export interface CreateProjectInput {
 }
 
 export interface UpdateProjectInput {
+  color?: ProjectColor
   defaultBranch?: string
+  icon?: ProjectIcon
   kind?: ProjectKind
   name?: string
   remoteUrl?: string | null

@@ -27,10 +27,13 @@ import type {
 import { IPC_CHANNELS } from '../shared/ipc'
 import type { ManagedSessionDecision } from '../shared/managed-session'
 import type {
+  ProjectColor,
+  ProjectIcon,
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
+import { PROJECT_COLOR_IDS, PROJECT_ICON_IDS } from '../shared/persistence'
 import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import {
@@ -159,6 +162,21 @@ function requireRuntimeId(value: unknown, label: string): string {
   }
 
   return value
+}
+
+function requireProjectAppearance(input: unknown): {
+  color: ProjectColor
+  icon: ProjectIcon
+} {
+  if (
+    !isRecord(input) ||
+    !PROJECT_COLOR_IDS.includes(input.color as ProjectColor) ||
+    !PROJECT_ICON_IDS.includes(input.icon as ProjectIcon)
+  ) {
+    throw new Error('Invalid project appearance.')
+  }
+
+  return { color: input.color as ProjectColor, icon: input.icon as ProjectIcon }
 }
 
 function requireWorkspaceGitMutationId(input: unknown): string {
@@ -972,6 +990,21 @@ function registerIpcHandlers(): void {
       const snapshot = publishPersistenceSnapshot()
       workspaceSetupManager.publishProjectSnapshots(project.id)
       return snapshot
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.updateProjectAppearance,
+    (event, projectId: unknown, input: unknown) => {
+      requireTrustedRenderer(event)
+      const validProjectId = requireRuntimeId(projectId, 'project id')
+      const project = database.updateProject(
+        validProjectId,
+        requireProjectAppearance(input),
+      )
+      if (!project) {
+        throw new Error('Project does not exist.')
+      }
+      return publishPersistenceSnapshot()
     },
   )
   ipcMain.handle(IPC_CHANNELS.runWorkspaceSetup, (event, workspaceId) => {
