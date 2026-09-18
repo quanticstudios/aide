@@ -1556,6 +1556,7 @@ test.describe('electron spatial navigation', () => {
 
     await importProject(page)
     await addPane(page, /terminal/i)
+    await expect(page.locator('.terminal-pane .xterm-rows')).not.toHaveText('')
 
     const closeTerminal = page.getByRole('button', {
       name: 'Close Workspace terminal',

@@ -234,17 +234,19 @@ test('keeps workspace rows and pane positions stable through interrupted Alt nav
       .locator('[data-testid^="workspace-stack-dot-"]')
       .evaluateAll((elements) =>
         elements.map((element) => ({
-          height: (element as HTMLElement).style.height,
+          height: getComputedStyle(element).height,
           transitionProperty: getComputedStyle(element).transitionProperty,
-          width: (element as HTMLElement).style.width,
+          width: getComputedStyle(element).width,
+          transform: getComputedStyle(element).transform,
         })),
       )
     expect(dotMotion).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          height: '',
-          transitionProperty: expect.stringContaining('transform'),
-          width: '',
+          height: '6px',
+          transitionProperty: expect.stringContaining('background-color'),
+          width: '6px',
+          transform: 'none',
         }),
       ]),
     )
