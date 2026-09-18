@@ -1,10 +1,10 @@
 .sidebar-tree-expanded {
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-0.75rem);
+  transform: translateX(-100%);
   transition:
-    opacity 180ms var(--ease-out-strong),
-    transform 180ms var(--ease-out-strong);
+    opacity 200ms var(--ease-out-strong),
+    transform 200ms var(--ease-out-strong);
 }
 
 .sidebar-tree-expanded[data-visible="true"] {

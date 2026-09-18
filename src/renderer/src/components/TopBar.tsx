@@ -7,6 +7,8 @@ import {
   LifeBuoy,
   type LucideIcon,
   PanelBottom,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   Plus,
   Rows2,
@@ -41,6 +43,7 @@ interface TopBarProps {
   readonly fleetToggleRef: RefObject<HTMLButtonElement | null>
   readonly isFleetAvailable: boolean
   readonly isFleetOpen: boolean
+  readonly isSidebarOpen: boolean
   readonly isTerminalAvailable: boolean
   readonly isTerminalOpen: boolean
   readonly onClosePane: (paneId: string) => void
@@ -49,6 +52,7 @@ interface TopBarProps {
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly onToggleFleet: () => void
+  readonly onToggleSidebar: () => void
   readonly onToggleTerminal: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -59,6 +63,7 @@ interface TopBarProps {
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly onSelectPane: (paneId: string) => void
+  readonly sidebarToggleRef: RefObject<HTMLButtonElement | null>
   readonly updatePresentation: UpdatePresentation
 }
 
@@ -269,6 +274,7 @@ export default function TopBar({
   fleetToggleRef,
   isFleetAvailable,
   isFleetOpen,
+  isSidebarOpen,
   isTerminalAvailable,
   isTerminalOpen,
   onClosePane,
@@ -277,12 +283,14 @@ export default function TopBar({
   onOpenTask,
   onOpenUpdate,
   onToggleFleet,
+  onToggleSidebar,
   onToggleTerminal,
   onResizePane,
   onSplitPane,
   surfaces,
   surfaceManagedSessionIds,
   onSelectPane,
+  sidebarToggleRef,
   updatePresentation,
 }: TopBarProps) {
   const visibleSurfaces = surfaces
@@ -290,6 +298,25 @@ export default function TopBar({
   return (
     <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-3">
       <div className="flex w-full items-center gap-3 overflow-hidden">
+        <IconTooltip label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}>
+          <Button
+            aria-controls="workspace-sidebar"
+            aria-expanded={isSidebarOpen}
+            aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            className="size-8 shrink-0 rounded-md"
+            isIconOnly
+            onPress={onToggleSidebar}
+            ref={sidebarToggleRef}
+            size="sm"
+            variant={isSidebarOpen ? 'secondary' : 'ghost'}
+          >
+            {isSidebarOpen ? (
+              <PanelLeftClose aria-hidden="true" className="size-4" />
+            ) : (
+              <PanelLeftOpen aria-hidden="true" className="size-4" />
+            )}
+          </Button>
+        </IconTooltip>
         <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface px-2 py-1">
           <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}

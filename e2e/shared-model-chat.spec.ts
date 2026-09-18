@@ -853,6 +853,7 @@ test.describe('shared model chat', () => {
     await page.setViewportSize({ width: 1100, height: 720 })
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('Keep this draft while I check settings')
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
     const trigger = page.getByRole('button', {
       name: 'Open settings',
       exact: true,

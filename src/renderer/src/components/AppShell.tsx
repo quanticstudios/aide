@@ -1,10 +1,6 @@
 import { Terminal as TerminalIcon, X } from 'lucide-react'
-import type {
-  FocusEvent,
-  MouseEvent as ReactMouseEvent,
-  ReactNode,
-} from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { UpdatePresentation } from '@/lib/update-presentation'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
@@ -18,7 +14,6 @@ import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import FleetDrawer from './FleetDrawer'
 import SidebarTree from './SidebarTree'
-import TerminalPane from './TerminalPane'
 import TopBar from './TopBar'
 
 const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
@@ -26,14 +21,7 @@ const TERMINAL_DRAWER_STORAGE_KEY = 'aide.terminalDrawer.open'
 /* A fixed pane id keeps one PTY per workspace across open/close; the main
    process replays its buffer on remount. */
 const TERMINAL_DRAWER_PANE_ID = 'drawer-terminal'
-const SIDEBAR_COLLAPSE_DELAY_MS = 140
-
-function isCollapsedSidebarAction(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest('[data-sidebar-action]') !== null
-  )
-}
+const LazyTerminalPane = lazy(() => import('./TerminalPane'))
 
 interface AppShellProps {
   readonly activePaneId: string | null
@@ -98,11 +86,8 @@ export default function AppShell({
   workspaceSummaries,
   children,
 }: AppShellProps) {
-  const sidebarShellRef = useRef<HTMLDivElement | null>(null)
   const fleetToggleRef = useRef<HTMLButtonElement | null>(null)
-  const collapseTimerRef = useRef<number | null>(null)
-  const [isSidebarHovered, setIsSidebarHovered] = useState(false)
-  const [isSidebarFocusWithin, setIsSidebarFocusWithin] = useState(false)
+  const sidebarToggleRef = useRef<HTMLButtonElement | null>(null)
   const [isFleetOpen, setIsFleetOpen] = useState(false)
   const [isTerminalOpen, setIsTerminalOpen] = useState(() => {
     if (typeof window === 'undefined') {
@@ -121,8 +106,7 @@ export default function AppShell({
     return window.localStorage.getItem(SIDEBAR_PIN_STORAGE_KEY) === 'true'
   })
 
-  const isSidebarExpanded =
-    isSidebarPinnedOpen || isSidebarHovered || isSidebarFocusWithin
+  const isSidebarExpanded = isSidebarPinnedOpen
   const activeManagedSessionId =
     activeWorkspace &&
     activePaneId &&
@@ -134,35 +118,6 @@ export default function AppShell({
     setIsFleetOpen(false)
     window.requestAnimationFrame(() => fleetToggleRef.current?.focus())
   }, [])
-
-  const sidebarContainsActiveElement = useCallback((): boolean => {
-    if (typeof document === 'undefined') {
-      return false
-    }
-
-    const activeElement = document.activeElement
-
-    return Boolean(
-      activeElement instanceof Node &&
-        sidebarShellRef.current?.contains(activeElement),
-    )
-  }, [])
-
-  const clearPendingCollapse = useCallback((): void => {
-    if (collapseTimerRef.current === null) {
-      return
-    }
-
-    window.clearTimeout(collapseTimerRef.current)
-    collapseTimerRef.current = null
-  }, [])
-
-  const scheduleSidebarCollapse = useCallback((): void => {
-    clearPendingCollapse()
-    collapseTimerRef.current = window.setTimeout(() => {
-      setIsSidebarHovered(false)
-    }, SIDEBAR_COLLAPSE_DELAY_MS)
-  }, [clearPendingCollapse])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -223,146 +178,16 @@ export default function AppShell({
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [activeWorkspace])
 
-  useEffect(
-    () => () => {
-      if (collapseTimerRef.current === null) {
-        return
-      }
-
-      window.clearTimeout(collapseTimerRef.current)
-      collapseTimerRef.current = null
-    },
-    [],
-  )
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || isSidebarPinnedOpen) {
-      return
-    }
-
-    const handlePointerMove = (event: MouseEvent) => {
-      const sidebarShell = sidebarShellRef.current
-
-      if (!sidebarShell) {
-        return
-      }
-
-      if (isCollapsedSidebarAction(event.target)) {
-        clearPendingCollapse()
-        setIsSidebarHovered(false)
-        return
-      }
-
-      const interactionSurface = isSidebarExpanded
-        ? sidebarShell.querySelector<HTMLElement>(
-            '[data-sidebar-surface="expanded"]',
-          )
-        : sidebarShell
-      const bounds = interactionSurface?.getBoundingClientRect()
-
-      if (!bounds) {
-        return
-      }
-      const isInsideBounds =
-        event.clientX >= bounds.left &&
-        event.clientX <= bounds.right &&
-        event.clientY >= bounds.top &&
-        event.clientY <= bounds.bottom
-
-      if (isInsideBounds) {
-        clearPendingCollapse()
-        setIsSidebarHovered(true)
-        return
-      }
-
-      if (!sidebarContainsActiveElement()) {
-        setIsSidebarFocusWithin(false)
-      }
-      clearPendingCollapse()
-      setIsSidebarHovered(false)
-    }
-
-    window.addEventListener('mousemove', handlePointerMove)
-
-    return () => {
-      window.removeEventListener('mousemove', handlePointerMove)
-    }
-  }, [
-    clearPendingCollapse,
-    isSidebarExpanded,
-    isSidebarPinnedOpen,
-    sidebarContainsActiveElement,
-  ])
-
-  function handleSidebarFocus(event: FocusEvent<HTMLDivElement>): void {
-    clearPendingCollapse()
-
-    if (isCollapsedSidebarAction(event.target)) {
-      setIsSidebarFocusWithin(false)
-      return
-    }
-
-    setIsSidebarFocusWithin(true)
-  }
-
-  function handleSidebarBlur(event: FocusEvent<HTMLDivElement>): void {
-    const nextTarget = event.relatedTarget
-
-    if (
-      nextTarget instanceof Node &&
-      sidebarShellRef.current?.contains(nextTarget)
-    ) {
-      return
-    }
-
-    setIsSidebarFocusWithin(false)
-
-    if (!isSidebarPinnedOpen) {
-      scheduleSidebarCollapse()
-    }
-  }
-
-  function handleSidebarMouseEnter(
-    event: ReactMouseEvent<HTMLDivElement>,
-  ): void {
-    clearPendingCollapse()
-
-    if (isCollapsedSidebarAction(event.target)) {
-      setIsSidebarHovered(false)
-      return
-    }
-
-    setIsSidebarHovered(true)
-  }
-
-  function handleSidebarMouseLeave(): void {
-    const hasSidebarFocus = sidebarContainsActiveElement()
-
-    if (isSidebarPinnedOpen) {
-      return
-    }
-
-    if (hasSidebarFocus) {
-      clearPendingCollapse()
-      setIsSidebarHovered(false)
-      return
-    }
-
-    setIsSidebarFocusWithin(false)
-    scheduleSidebarCollapse()
-  }
-
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <div
-        className={`relative flex h-full shrink-0 ${isSidebarPinnedOpen ? 'w-72' : 'w-12'}`}
+        aria-hidden={!isSidebarExpanded}
+        className="relative flex h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-[var(--ease-out-strong)]"
         data-expanded={isSidebarExpanded ? 'true' : 'false'}
         data-testid="sidebar-shell"
-        onBlurCapture={handleSidebarBlur}
-        onFocusCapture={handleSidebarFocus}
-        onMouseEnter={handleSidebarMouseEnter}
-        onMouseLeave={handleSidebarMouseLeave}
-        ref={sidebarShellRef}
+        id="workspace-sidebar"
+        inert={!isSidebarExpanded}
+        style={{ width: isSidebarExpanded ? '18rem' : 0 }}
       >
         <SidebarTree
           activeProjectId={
@@ -379,9 +204,12 @@ export default function AppShell({
           onSelectProject={onSelectProject}
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
-          onTogglePinnedOpen={() =>
+          onTogglePinnedOpen={() => {
             setIsSidebarPinnedOpen((current) => !current)
-          }
+            window.requestAnimationFrame(() =>
+              sidebarToggleRef.current?.focus(),
+            )
+          }}
           projects={projects}
           showProjectHints={showProjectHints}
           summaries={workspaceSummaries}
@@ -398,8 +226,10 @@ export default function AppShell({
           fleetToggleRef={fleetToggleRef}
           isFleetAvailable={Boolean(activeManagedSessionId)}
           isFleetOpen={isFleetOpen}
+          isSidebarOpen={isSidebarExpanded}
           isTerminalAvailable={Boolean(activeWorkspace)}
           isTerminalOpen={isTerminalOpen}
+          sidebarToggleRef={sidebarToggleRef}
           onClosePane={onClosePane}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
@@ -408,6 +238,7 @@ export default function AppShell({
           onToggleFleet={() =>
             isFleetOpen ? closeFleet() : setIsFleetOpen(true)
           }
+          onToggleSidebar={() => setIsSidebarPinnedOpen((current) => !current)}
           onToggleTerminal={() => setIsTerminalOpen((current) => !current)}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
@@ -453,12 +284,23 @@ export default function AppShell({
                     </span>
                   </div>
                   <div className="min-h-0 flex-1 px-2 pb-2">
-                    <TerminalPane
-                      key={activeWorkspace.id}
-                      onShellExit={() => setIsTerminalOpen(false)}
-                      paneId={TERMINAL_DRAWER_PANE_ID}
-                      workspace={activeWorkspace}
-                    />
+                    <Suspense
+                      fallback={
+                        <div
+                          aria-live="polite"
+                          className="grid h-full place-items-center text-xs text-muted-foreground"
+                        >
+                          Opening terminal…
+                        </div>
+                      }
+                    >
+                      <LazyTerminalPane
+                        key={activeWorkspace.id}
+                        onShellExit={() => setIsTerminalOpen(false)}
+                        paneId={TERMINAL_DRAWER_PANE_ID}
+                        workspace={activeWorkspace}
+                      />
+                    </Suspense>
                   </div>
                 </div>
               </section>
