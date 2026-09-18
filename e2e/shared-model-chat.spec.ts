@@ -361,13 +361,40 @@ test.describe('shared model chat', () => {
     const userMessage = page.getByTestId('managed-content-user-prompt').last()
     await page.getByRole('banner').hover()
     await expect(actions).toHaveCSS('opacity', '0')
-    await expect(userMessage.locator('time')).toHaveCSS('opacity', '0')
+    await expect(userMessage.getByTestId('user-message-actions')).toHaveCSS(
+      'opacity',
+      '0',
+    )
     await userMessage.hover()
-    await expect(userMessage.locator('time')).toHaveCSS('opacity', '1')
+    await expect(userMessage.getByTestId('user-message-actions')).toHaveCSS(
+      'opacity',
+      '1',
+    )
     await expect(actions).toHaveCSS('opacity', '0')
+    const userActions = userMessage.getByTestId('user-message-actions')
+    const bubbleBounds = await userMessage
+      .getByTestId('user-message-bubble')
+      .boundingBox()
+    const userActionBounds = await userActions.boundingBox()
+    expect(userActionBounds?.y).toBeGreaterThanOrEqual(
+      (bubbleBounds?.y ?? 0) + (bubbleBounds?.height ?? 0),
+    )
+    await userActions
+      .getByRole('button', { name: 'Copy message', exact: true })
+      .click()
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe('initialize shared chat')
+    await page.screenshot({
+      path: test.info().outputPath('user-message-actions.png'),
+    })
+    await page.getByRole('textbox', { name: /claude prompt/i }).focus()
     await reply.hover()
     await expect(actions).toHaveCSS('opacity', '1')
-    await expect(userMessage.locator('time')).toHaveCSS('opacity', '0')
+    await expect(userMessage.getByTestId('user-message-actions')).toHaveCSS(
+      'opacity',
+      '0',
+    )
     await expect(actions.locator('time')).not.toHaveText('')
     await expect(actions).toBeVisible()
     const replyBounds = await reply.boundingBox()

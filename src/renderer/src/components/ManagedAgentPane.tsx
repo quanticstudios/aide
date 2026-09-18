@@ -372,6 +372,54 @@ interface RecipientTurnSummary extends ManagedSessionTurnSummary {
   readonly requestText?: string
 }
 
+function MessageCopyButton({
+  text,
+  kind,
+}: {
+  readonly text: string
+  readonly kind: 'message' | 'response'
+}) {
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== null)
+        window.clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
+  const label = `${copied ? 'Copied' : 'Copy'} ${kind}`
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      if (copyTimerRef.current !== null)
+        window.clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard access can be unavailable in the shell.
+    }
+  }
+  return (
+    <IconTooltip label={label}>
+      <Button
+        aria-label={label}
+        className="size-7 rounded-md text-muted-foreground"
+        isIconOnly
+        onPress={() => void copy()}
+        size="sm"
+        variant="ghost"
+      >
+        {copied ? (
+          <ClipboardCheck className="size-3.5" />
+        ) : (
+          <Clipboard className="size-3.5" />
+        )}
+      </Button>
+    </IconTooltip>
+  )
+}
+
 function ContentItemBlock({
   item,
   showProvider = true,
@@ -385,19 +433,30 @@ function ContentItemBlock({
     return (
       <div className="flex justify-end">
         <div
-          className="group/user-message max-w-[85%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
+          className="group/user-message flex max-w-[85%] flex-col items-end"
           data-testid={`managed-content-${item.kind}`}
         >
-          <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
-            {item.text}
-          </pre>
-          <ManagedComposerAttachments attachments={item.attachments ?? []} />
-          <time
-            dateTime={item.updatedAt}
-            className="mt-1 block text-right text-[11px] tabular-nums text-muted-foreground/70 opacity-0 transition-opacity group-hover/user-message:opacity-100 group-focus-within/user-message:opacity-100"
+          <div
+            className="rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
+            data-testid="user-message-bubble"
           >
-            {formatMessageTime(item.updatedAt)}
-          </time>
+            <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
+              {item.text}
+            </pre>
+            <ManagedComposerAttachments attachments={item.attachments ?? []} />
+          </div>
+          <div
+            className="mt-1 flex items-center justify-end gap-2 opacity-0 transition-opacity group-hover/user-message:opacity-100 group-focus-within/user-message:opacity-100"
+            data-testid="user-message-actions"
+          >
+            <time
+              dateTime={item.updatedAt}
+              className="text-[11px] tabular-nums text-muted-foreground/70"
+            >
+              {formatMessageTime(item.updatedAt)}
+            </time>
+            <MessageCopyButton text={item.text} kind="message" />
+          </div>
         </div>
       </div>
     )
@@ -561,8 +620,6 @@ function TurnGroupBlock({
   readonly recipientAlias: string | null
   readonly requestText: string | null
 }) {
-  const [copied, setCopied] = useState(false)
-  const copyTimerRef = useRef<number | null>(null)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   const responseItem = group.items
     .filter(
@@ -570,38 +627,6 @@ function TurnGroupBlock({
     )
     .at(-1)
   const responseContentItemId = responseItem?.id
-
-  useEffect(() => {
-    return () => {
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current)
-      }
-    }
-  }, [])
-
-  const handleCopy = useCallback(async () => {
-    const text = group.items
-      .filter(
-        (item) => item.kind === 'assistant-text' && item.phase !== 'commentary',
-      )
-      .map((item) => item.text)
-      .join('\n\n')
-
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current)
-      }
-
-      copyTimerRef.current = window.setTimeout(() => {
-        setCopied(false)
-      }, 1500)
-    } catch {
-      // ignore copy failure; clipboard may be unavailable in the shell
-    }
-  }, [group.items])
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
@@ -639,22 +664,16 @@ function TurnGroupBlock({
           className="response-actions flex items-center gap-1 px-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="response-actions"
         >
-          <IconTooltip label={copied ? 'Copied response' : 'Copy response'}>
-            <Button
-              aria-label={copied ? 'Copied response' : 'Copy response'}
-              className="size-7 rounded-md text-muted-foreground"
-              isIconOnly
-              onPress={() => void handleCopy()}
-              size="sm"
-              variant="ghost"
-            >
-              {copied ? (
-                <ClipboardCheck className="size-3.5" />
-              ) : (
-                <Clipboard className="size-3.5" />
-              )}
-            </Button>
-          </IconTooltip>
+          <MessageCopyButton
+            kind="response"
+            text={group.items
+              .filter(
+                (item) =>
+                  item.kind === 'assistant-text' && item.phase !== 'commentary',
+              )
+              .map((item) => item.text)
+              .join('\n\n')}
+          />
           {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
