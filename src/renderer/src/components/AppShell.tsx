@@ -42,7 +42,7 @@ interface AppShellProps {
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly showProjectHints: boolean
-  readonly onCreateChat: (projectId: string) => void
+  readonly onCreateChat: (projectId: string, workspaceId?: string) => void
   readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
