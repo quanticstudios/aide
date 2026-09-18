@@ -311,6 +311,32 @@ function createContentKey(
   return `${kind}:${itemId}`
 }
 
+function coalesceContiguousAssistantContent(
+  content: readonly ManagedSessionContentItem[],
+): ManagedSessionContentItem[] {
+  const coalesced: ManagedSessionContentItem[] = []
+  for (const item of content) {
+    const previous = coalesced.at(-1)
+    if (
+      item.kind === 'assistant-text' &&
+      item.turnId !== null &&
+      previous?.kind === 'assistant-text' &&
+      previous.turnId === item.turnId &&
+      previous.provider === item.provider &&
+      previous.model === item.model
+    ) {
+      coalesced[coalesced.length - 1] = {
+        ...previous,
+        text: `${previous.text}${item.text}`,
+        updatedAt: item.updatedAt,
+      }
+    } else {
+      coalesced.push({ ...item })
+    }
+  }
+  return coalesced
+}
+
 function summarizeToolRequest(
   toolName: string,
   input: Record<string, unknown>,
@@ -4308,9 +4334,12 @@ export class ManagedSessionManager {
         : {}),
       ...(state.snapshot.fleet ? { fleet: state.snapshot.fleet } : {}),
       ...(state.config.agents ? { agents: state.config.agents } : {}),
-      content: state.orderedContentKeys
-        .map((key) => state.contentByKey.get(key) ?? null)
-        .filter((item): item is ManagedSessionContentItem => item !== null),
+      content: coalesceContiguousAssistantContent(
+        state.orderedContentKeys.flatMap((key) => {
+          const item = state.contentByKey.get(key)
+          return item ? [item] : []
+        }),
+      ),
       detail: runtime.detail,
       effort: state.config.effort ?? null,
       interactionMode:
