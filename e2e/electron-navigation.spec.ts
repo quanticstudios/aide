@@ -425,6 +425,10 @@ test.describe('electron spatial navigation', () => {
       .getByRole('button', { name: 'Close Workspace terminal', exact: true })
       .click()
 
+    await page
+      .getByRole('dialog', { name: 'Close running terminal?' })
+      .getByRole('button', { name: 'Close', exact: true })
+      .click()
     await expect(terminalTab).toHaveCount(0)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await expect(
