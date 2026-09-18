@@ -385,6 +385,34 @@ test.describe('shared model chat', () => {
     )
   })
 
+  test('selects the highlighted agent mention with the keyboard', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+
+    await prompt.fill('@')
+    await expect(page.getByRole('option', { name: /@Claude/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await prompt.press('ArrowDown')
+    await expect(page.getByRole('option', { name: /@Codex/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await prompt.press('Enter')
+
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeVisible()
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('managed-recipient-menu')).toHaveCount(0)
+  })
+
   test('ranks skill names first and removes stale suggestions while typing', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)

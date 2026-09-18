@@ -1601,13 +1601,14 @@ export default function ManagedAgentPane({
   const selectRecipient = useCallback(
     (agent: ManagedSessionAgentConfig) => {
       const mention = removeRecipientMention(draftInput)
+      const mentionQuery = getRecipientMentionQuery(draftInput)
 
-      if (!mention) {
+      if (!mention && mentionQuery === null) {
         return
       }
 
       const alias = agent.alias.toLowerCase()
-      setDraftInput(mention.draft)
+      setDraftInput(mention?.draft ?? '')
       setSelectedRecipientAliases((aliases) =>
         aliases.includes(alias) ? aliases : [...aliases, alias],
       )
