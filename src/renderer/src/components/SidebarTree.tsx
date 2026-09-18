@@ -53,6 +53,7 @@ interface SidebarTreeProps {
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
+  readonly onOpenSettings: (trigger: HTMLElement) => void
   readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -303,6 +304,7 @@ export default function SidebarTree({
   onCreateProject,
   onCreateWorkspace,
   onConfigureProjectSetup,
+  onOpenSettings,
   onSelectHome,
   onSelectPane,
   onSelectProject,
@@ -841,9 +843,9 @@ export default function SidebarTree({
           <MessageSquare className="size-3.5" />
         </button>
         <button
-          aria-label="Settings (coming soon)"
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
-          disabled
+          aria-label="Open settings"
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => onOpenSettings(event.currentTarget)}
           type="button"
         >
           <Settings className="size-3.5" />
