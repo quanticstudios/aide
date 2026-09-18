@@ -85,6 +85,27 @@ function humanizeIdentifier(value: string): string {
     .join(' ')
 }
 
+const CLAUDE_MODEL_ID =
+  /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?(\[1m\])?$/i
+
+export function formatClaudeModelLabel(entry: {
+  readonly displayName: string
+  readonly resolvedModel?: string | null
+  readonly value: string
+}): string {
+  const match = CLAUDE_MODEL_ID.exec(entry.resolvedModel ?? entry.value)
+
+  if (!match) {
+    return entry.displayName
+  }
+
+  const [, family = '', major = '', minor, context] = match
+  const version = minor ? `${major}.${minor}` : major
+  const base = `Claude ${humanizeIdentifier(family)} ${version}${context ? ' · 1M' : ''}`
+
+  return /^default\b/i.test(entry.displayName) ? `${base} (default)` : base
+}
+
 function createUnavailableCapabilities(
   provider: ManagedSessionMode,
   error: string,
@@ -129,12 +150,19 @@ export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
     }
 
     const id = readNonEmptyString(entry, 'value')
-    const label = readNonEmptyString(entry, 'displayName')
+    const displayName = readNonEmptyString(entry, 'displayName')
     const description = readString(entry, 'description')
 
-    if (!id || !label || description === null) {
+    if (!id || !displayName || description === null) {
       return []
     }
+
+    const resolvedModel = readNonEmptyString(entry, 'resolvedModel')
+    const label = formatClaudeModelLabel({
+      displayName,
+      resolvedModel,
+      value: id,
+    })
 
     const reasoningEfforts =
       entry.supportsEffort === true &&
@@ -158,7 +186,7 @@ export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
         id,
         label,
         reasoningEfforts,
-        resolvedModel: readNonEmptyString(entry, 'resolvedModel'),
+        resolvedModel,
       },
     ]
   })

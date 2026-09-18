@@ -1,5 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -194,7 +200,9 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
 }
 
 async function selectPlanMode(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Build', exact: true }).click()
+  const prompt = page.getByRole('textbox', { name: /prompt/i })
+  await prompt.fill('/plan')
+  await page.getByRole('option', { name: /\/plan/ }).click()
   await expect
     .poll(() => getOnlySnapshot(page))
     .toMatchObject({
@@ -375,6 +383,70 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
       '@Claude · /claude-test-skill',
     )
+  })
+
+  test('ranks skill names first and removes stale suggestions while typing', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    await app.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('app:get-provider-skills')
+      ipcMain.handle('app:get-provider-skills', () => ({
+        errors: {},
+        skills: [
+          {
+            id: 'bootstrap',
+            name: 'vercel:bootstrap',
+            description: 'Bootstrap with pro-design',
+            owner: 'Claude',
+            provider: 'claude',
+          },
+          {
+            id: 'design',
+            name: 'pro-design',
+            description: 'Design a clear interface',
+            owner: 'Claude',
+            provider: 'claude',
+          },
+          {
+            id: 'codex-design',
+            name: 'pro-design',
+            description: 'Design a clear interface',
+            owner: 'Codex',
+            provider: 'codex',
+          },
+          {
+            id: 'release',
+            name: 'release',
+            description: 'Publish the app',
+            owner: 'Claude',
+            provider: 'claude',
+          },
+        ],
+      }))
+    })
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('/')
+    const menu = page.getByTestId('managed-slash-menu')
+    await expect(
+      menu.getByRole('option', { name: /vercel:bootstrap/ }),
+    ).toBeVisible()
+    await prompt.fill('/pro-des')
+    const options = menu.getByRole('option')
+    await expect(options).toHaveCount(3)
+    await expect(options.nth(0)).toContainText('/pro-design')
+    await expect(options.nth(0)).toContainText('Claude')
+    await expect(options.nth(1)).toContainText('Codex')
+    await expect(options.nth(2)).toContainText('/vercel:bootstrap')
+    await prompt.fill('/release')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toContainText('/release')
+    await prompt.fill('/nothing-matches')
+    await expect(options).toHaveCount(0)
+    await expect(menu).toContainText('No matching commands or skills.')
   })
 
   test('runs a Claude skill with its owner and clears opinion recipients', async () => {
@@ -614,7 +686,13 @@ test.describe('shared model chat', () => {
     await page.screenshot({
       path: 'docs/verification/fleet-live-2026-09-18.png',
     })
+    await drawer
+      .getByRole('button', { name: 'Close agent fleet', exact: true })
+      .click()
     await page.getByRole('button', { name: 'Interrupt @claude' }).click()
+    await page
+      .getByRole('button', { name: 'Open agent fleet', exact: true })
+      .click()
     await expect(flow.locator('[data-state="running"]')).toHaveCount(0)
     await expect(
       flow.getByTestId('fleet-live-edge-return-agent-claude'),
@@ -622,7 +700,7 @@ test.describe('shared model chat', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(flow).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(drawer).toHaveCount(0)
+    await expect(drawer).toBeHidden()
     await expect(
       page.getByRole('button', { name: 'Open agent fleet', exact: true }),
     ).toBeFocused()
@@ -765,6 +843,108 @@ test.describe('shared model chat', () => {
     ).toBe(false)
   })
 
+  test('opens settings with searchable shortcuts and persists preferences without losing the draft', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.setViewportSize({ width: 1100, height: 720 })
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('Keep this draft while I check settings')
+    const trigger = page.getByRole('button', {
+      name: 'Open settings',
+      exact: true,
+    })
+    await trigger.click()
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await expect(settings).toBeVisible()
+    const search = settings.getByRole('searchbox', {
+      name: 'Search settings',
+    })
+    await expect(search).toBeFocused()
+    await search.fill('visible model')
+    await expect(settings).toContainText('Choose a visible model')
+    await expect(settings).not.toContainText('Open command palette')
+    await search.fill('')
+    const notifications = settings.getByRole('switch', {
+      name: /Background task notifications/,
+    })
+    await expect(notifications).toBeEnabled()
+    const wasEnabled = await notifications.isChecked()
+    await settings.locator('[data-slot="switch-content"]').click()
+    await expect
+      .poll(async () =>
+        page.evaluate(
+          async () => (await window.aide.getTaskLibrary()).notificationsEnabled,
+        ),
+      )
+      .toBe(!wasEnabled)
+    const categories = settings.getByRole('navigation', {
+      name: 'Settings categories',
+    })
+    await categories
+      .getByRole('button', { name: 'Keyboard shortcuts', exact: true })
+      .click()
+    await expect(settings).toContainText('Open command palette')
+    await expect(notifications).toHaveCount(0)
+    await categories
+      .getByRole('button', { name: 'Appearance', exact: true })
+      .click()
+    const animations = settings.getByRole('button', { name: /Animations/ })
+    await animations.click()
+    await page
+      .getByRole('option', { name: 'Reduced motion', exact: true })
+      .click()
+    await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced')
+    await animations.click()
+    await page.getByRole('option', { name: 'On', exact: true }).click()
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(page.locator('html')).toHaveAttribute('data-motion', 'full')
+    await animations.click()
+    await page
+      .getByRole('option', { name: 'System default', exact: true })
+      .click()
+    await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await expect(page.locator('html')).toHaveAttribute('data-motion', 'full')
+    await animations.click()
+    await page
+      .getByRole('option', { name: 'Reduced motion', exact: true })
+      .click()
+    await page.screenshot({
+      path: test.info().outputPath('settings-appearance.png'),
+    })
+    await categories
+      .getByRole('button', { name: 'General', exact: true })
+      .click()
+    await page.screenshot({
+      path: test.info().outputPath('settings-desktop.png'),
+    })
+    await page.setViewportSize({ width: 740, height: 720 })
+    expect(
+      await settings.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: test.info().outputPath('settings-narrow.png'),
+    })
+    await search.focus()
+    await page.keyboard.press('Escape')
+    await expect(settings).not.toBeVisible()
+    await expect(trigger).toBeFocused()
+    await expect(prompt).toHaveValue('Keep this draft while I check settings')
+    await trigger.click()
+    await expect(notifications).toBeEnabled()
+    await expect(notifications).toBeChecked({ checked: !wasEnabled })
+    await settings.getByRole('button', { name: 'Back to app' }).click()
+    await expect(prompt).toHaveValue('Keep this draft while I check settings')
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced')
+  })
+
   test('queues follow-ups, cancels one, and resumes after interruption', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
@@ -772,18 +952,90 @@ test.describe('shared model chat', () => {
     dataDirectory = launched.dataDirectory
     await startSharedChat(launched.page, app)
     const { page } = launched
+    await page.setViewportSize({ width: 1100, height: 720 })
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('wait-claude')
     await page.getByRole('button', { name: 'Send prompt' }).click()
     await expect
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({ sessionState: 'running' })
-    for (const text of ['cancel this follow-up', 'keep this follow-up']) {
+    const followUp =
+      'Use Fable 5.1 in v0.0.2.\nKeep the entire message and its screenshot.'
+    for (const text of ['cancel this follow-up', followUp]) {
       await prompt.fill(text)
+      if (text === followUp) {
+        const thumbnail = readFileSync(
+          path.join(workspaceDir, 'build/icon.png'),
+        ).toString('base64')
+        await prompt.evaluate((element, base64) => {
+          const clipboardData = new DataTransfer()
+          const bytes = Uint8Array.from(atob(base64), (character) =>
+            character.charCodeAt(0),
+          )
+          clipboardData.items.add(
+            new File([bytes], 'preview.png', { type: 'image/png' }),
+          )
+          clipboardData.items.add(
+            new File([bytes], 'second-preview.png', { type: 'image/png' }),
+          )
+          element.dispatchEvent(
+            new ClipboardEvent('paste', { bubbles: true, clipboardData }),
+          )
+        }, thumbnail)
+        await expect(
+          page
+            .getByTestId('composer-attachments')
+            .getByRole('img', { name: 'preview.png', exact: true }),
+        ).toBeVisible()
+        const composer = page.getByTestId('managed-composer')
+        const imageBounds = await composer
+          .getByRole('img', { name: 'preview.png', exact: true })
+          .boundingBox()
+        const closeBounds = await composer
+          .getByRole('button', { name: 'Remove preview.png' })
+          .boundingBox()
+        if (!imageBounds || !closeBounds)
+          throw new Error('Attachment preview is missing')
+        expect(imageBounds.width).toBe(imageBounds.height)
+        expect(closeBounds.x).toBeGreaterThan(
+          imageBounds.x + imageBounds.width / 2,
+        )
+        expect(closeBounds.y).toBeLessThan(
+          imageBounds.y + imageBounds.height / 2,
+        )
+        expect(
+          await composer.evaluate(
+            (element) => getComputedStyle(element).borderWidth,
+          ),
+        ).toBe('0px')
+        expect(
+          await composer.evaluate(
+            (element) => getComputedStyle(element).backgroundColor,
+          ),
+        ).not.toBe(
+          await page
+            .getByTestId('managed-agent-pane')
+            .evaluate((element) => getComputedStyle(element).backgroundColor),
+        )
+        await page.screenshot({
+          path: test.info().outputPath('composer-thumbnail.png'),
+        })
+      }
       await page.getByRole('button', { name: 'Send prompt' }).click()
     }
     const queue = page.getByTestId('managed-input-queue')
     await expect(queue).toContainText('2 queued')
+    const previewToggle = queue
+      .locator('summary')
+      .filter({ hasText: 'Use Fable' })
+    await previewToggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(
+      queue.getByTestId('queued-message-preview').last(),
+    ).toContainText(followUp)
+    await expect(
+      queue.getByRole('img', { name: 'preview.png', exact: true }),
+    ).toBeVisible()
     await page.screenshot({
       path: test.info().outputPath('queued-follow-ups.png'),
     })
@@ -795,9 +1047,26 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Interrupt', exact: true }).click()
     await queue.getByRole('button', { name: 'Resume', exact: true }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Handled: keep this follow-up',
+      'Handled: Use Fable 5.1 in v0.0.2.',
     )
     await expect(queue).not.toBeVisible()
+    const sentMessage = page
+      .getByTestId('managed-content-user-prompt')
+      .filter({ hasText: 'Use Fable' })
+    await expect(sentMessage.getByRole('img')).toHaveCount(2)
+    await expect(
+      sentMessage.getByRole('button', { name: /Remove/ }),
+    ).toHaveCount(0)
+    await app.close()
+    app = null
+    const restarted = await launchAideApp(repository, dataDirectory)
+    app = restarted.app
+    await expect(
+      restarted.page
+        .getByTestId('managed-content-user-prompt')
+        .filter({ hasText: 'Use Fable' })
+        .getByRole('img'),
+    ).toHaveCount(2)
   })
 
   test('keeps queued follow-ups paused across a full app restart', async () => {

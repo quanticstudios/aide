@@ -46,7 +46,7 @@ export default function WorkspaceSwitcherOverlay({
     <div
       aria-hidden={!visible}
       className={cn(
-        'absolute z-20 transform-gpu origin-center will-change-[transform,opacity] transition-[opacity,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
+        'absolute z-20 transform-gpu origin-center will-change-[transform,opacity] transition-[opacity,transform] duration-120 ease-[cubic-bezier(0.16,1,0.3,1)]',
         isOverviewMode
           ? 'inset-0 flex items-center justify-center p-6'
           : 'right-4 top-1/2 w-72 -translate-y-1/2',

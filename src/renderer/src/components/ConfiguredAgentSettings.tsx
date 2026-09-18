@@ -93,12 +93,12 @@ export default function ConfiguredAgentSettings({
       <button
         ref={triggerRef}
         aria-expanded={isOpen}
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        className="composer-tool"
         disabled={isDisabled || !capabilities}
         onClick={() => setIsOpen((open) => !open)}
         type="button"
       >
-        <Settings2 className="size-3.5" />
+        <Settings2 className="size-4" />
         Agents
       </button>
       {isOpen ? (

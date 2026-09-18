@@ -1,0 +1,19 @@
+.sidebar-tree-expanded {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-0.75rem);
+  transition:
+    opacity 180ms var(--ease-out-strong),
+    transform 180ms var(--ease-out-strong);
+}
+
+.sidebar-tree-expanded[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+[data-motion="reduced"] .sidebar-tree-expanded {
+  transform: none;
+  transition-property: opacity;
+}

@@ -185,7 +185,7 @@ describe('ProviderCapabilityService', () => {
       mode: 'claude',
       model: 'haiku',
       selectionNotice:
-        'Haiku does not support reasoning levels. Using the provider default instead.',
+        'Claude Haiku 4.5 does not support reasoning levels. Using the provider default instead.',
     })
     const config = await service.resolveManagedSessionConfig({
       cwd: '/tmp/project',
@@ -288,6 +288,48 @@ describe('ProviderCapabilityService', () => {
     await service.getProviderSkills('workspace-1', '/tmp/workspace-1', true)
     expect(claudeCalls).toBe(2)
     expect(codexCalls).toBe(2)
+  })
+
+  it('deduplicates repeated native skills without merging providers', async () => {
+    const service = new ProviderCapabilityService({
+      listClaudeSkills: async () => ({
+        skills: [
+          { name: 'pro-design', description: 'First copy' },
+          { name: 'pro-design', description: 'Effective copy' },
+        ],
+      }),
+      listCodexSkills: async (cwd) => ({
+        data: [
+          {
+            cwd,
+            skills: [
+              {
+                name: 'pro-design',
+                description: 'Codex design',
+                enabled: true,
+                path: '/native/design/SKILL.md',
+              },
+              {
+                name: 'pro-design',
+                description: 'Codex design',
+                enabled: true,
+                path: '/native/design/SKILL.md',
+              },
+            ],
+          },
+        ],
+      }),
+    })
+    const snapshot = await service.getProviderSkills(
+      'workspace-1',
+      '/tmp/workspace-1',
+    )
+    expect(snapshot.skills).toHaveLength(2)
+    expect(snapshot.skills.map((skill) => skill.provider)).toEqual([
+      'claude',
+      'codex',
+    ])
+    expect(snapshot.skills[0].description).toBe('Effective copy')
   })
 
   it('returns Claude skills when Codex discovery fails', async () => {

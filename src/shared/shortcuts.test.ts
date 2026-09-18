@@ -86,6 +86,18 @@ describe('mapShortcutInputToAppEvent', () => {
 })
 
 describe('shouldBlockTerminalShortcutInput', () => {
+  it('blocks the Ctrl+` terminal drawer toggle', () => {
+    expect(
+      shouldBlockTerminalShortcutInput({
+        alt: false,
+        code: 'Backquote',
+        control: true,
+        key: '`',
+        meta: false,
+      }),
+    ).toBe(true)
+  })
+
   it('blocks shell-owned shortcuts from terminal input', () => {
     expect(
       shouldBlockTerminalShortcutInput(

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 .recovery-screen {
   align-items: center;
@@ -208,6 +210,10 @@
   /* Motion curves */
   --t-fast: 140ms cubic-bezier(0.22, 0.61, 0.36, 1);
   --t-base: 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Claude's mark keeps its brand orange; every other provider mark is monochrome. */
+  --brand-claude: #d97757;
 }
 
 @theme inline {
@@ -275,6 +281,13 @@
   /* Apple primary-on-dark utility (text-primary-on-dark) */
   --color-primary-on-dark: var(--primary-on-dark);
   --color-primary-focus: var(--primary-focus);
+
+  --color-brand-claude: var(--brand-claude);
+
+  --font-sans:
+    "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono:
+    "Geist Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace;
 
   /* Radius scale: Raycast 4/6/8/10/16 + Apple pill 9999 */
   --radius-xs: 4px;
@@ -368,24 +381,55 @@ body {
   margin: 0;
   min-width: 320px;
   overflow: hidden;
-  font-family:
-    "SF Pro Display", "SF Pro Text", system-ui, -apple-system,
-    BlinkMacSystemFont, "Inter", "Inter Fallback", "Segoe UI", sans-serif;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
-  font-size: 17px;
-  line-height: 1.47;
-  letter-spacing: -0.374px;
+  font-family: var(--font-sans);
+  font-feature-settings: "calt", "kern", "liga";
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   background: var(--background);
   color: var(--foreground);
 }
 
+/* ── Browser surfaces themed from the palette ─────────────────────────── */
+
+::selection {
+  background: rgba(87, 193, 255, 0.28);
+  color: var(--foreground);
+}
+
+textarea,
+input {
+  caret-color: var(--primary-on-dark);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
 /* Apple system-wide micro-interaction — every button compresses on press. */
 button:active:not(:disabled),
 [role="button"]:active:not([aria-disabled="true"]) {
-  transform: scale(0.97);
-  transition: transform 0.08s ease;
+  scale: 0.97;
+  transition: scale 160ms var(--ease-out-strong);
 }
 
 /* ── Sidebar — solid canvas, no glass blur ──────── */
@@ -484,19 +528,30 @@ button:active:not(:disabled),
 
 .prose {
   color: var(--foreground);
-  line-height: 1.47;
-  letter-spacing: -0.374px;
-  font-feature-settings: "calt", "kern", "liga", "ss03";
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.006em;
+  font-feature-settings: "calt", "kern", "liga";
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
 }
 
 .prose h1,
 .prose h2,
 .prose h3 {
   font-weight: 600;
-  letter-spacing: -0.374px;
-  margin-top: 1.25em;
-  margin-bottom: 0.5em;
+  letter-spacing: -0.018em;
+  line-height: 1.3;
+  margin-top: 1.4em;
+  margin-bottom: 0.45em;
   color: var(--foreground);
+  text-wrap: balance;
 }
 
 .prose h1 {
@@ -510,8 +565,8 @@ button:active:not(:disabled),
 }
 
 .prose p {
-  margin-top: 0.5em;
-  margin-bottom: 0.5em;
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
   color: var(--body);
 }
 
@@ -529,32 +584,42 @@ button:active:not(:disabled),
   list-style-type: decimal;
 }
 .prose li {
-  margin-top: 0.25em;
+  margin-top: 0.3em;
+  color: var(--body);
+  padding-left: 0.2em;
+}
+
+.prose li::marker {
+  color: var(--muted-foreground);
 }
 
 .prose code {
-  font-family:
-    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 0.85em;
-  background: var(--surface-secondary);
-  padding: 0.15em 0.35em;
-  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  letter-spacing: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  color: var(--foreground);
 }
 
 .prose pre {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 0.75rem 1rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1rem;
   overflow-x: auto;
-  margin-top: 0.75em;
-  margin-bottom: 0.75em;
+  margin-top: 0.85em;
+  margin-bottom: 0.85em;
 }
 
 .prose pre code {
   background: transparent;
+  border: 0;
   padding: 0;
-  font-size: 0.8em;
+  font-size: 12.5px;
+  line-height: 1.6;
   border-radius: 0;
 }
 
@@ -569,6 +634,14 @@ button:active:not(:disabled),
 .prose a {
   color: var(--primary-on-dark);
   text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: rgba(41, 151, 255, 0.45);
+  transition: text-decoration-color var(--t-fast);
+}
+
+.prose a:hover {
+  text-decoration-color: currentColor;
 }
 
 .prose table {
@@ -599,6 +672,119 @@ button:active:not(:disabled),
 
 .prose strong {
   font-weight: 600;
+  color: var(--foreground);
+}
+
+/* ── Chat thread ─────────────────────────────── */
+
+/* One authored moment: a turn settles into place when it mounts. */
+.turn {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 240ms var(--ease-out-strong),
+    transform 240ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .turn {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.system-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.system-notice::before,
+.system-notice::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ── Terminal drawer: pushes the canvas; only its height animates ──────── */
+
+.terminal-drawer {
+  position: relative;
+  flex-shrink: 0;
+  height: 0;
+  overflow: hidden;
+  contain: layout paint;
+  transition: height 150ms var(--ease-out-strong);
+}
+
+.terminal-drawer[data-open="true"] {
+  height: 20rem;
+  transition: height 220ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .terminal-drawer[data-open="true"] {
+    height: 0;
+  }
+}
+
+/* Anchored to the bottom so the header rides up with the reveal. */
+.terminal-drawer-body {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  height: 20rem;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Composer toolbar controls ─────────────────── */
+
+.composer-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--body);
+  background: transparent;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast);
+}
+
+.composer-tool:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--foreground);
+}
+
+.composer-tool:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.composer-tool[data-active="true"] {
+  color: var(--primary-on-dark);
+}
+
+.composer-tool.is-pill {
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  padding-inline: 10px;
+}
+
+.composer-tool.is-pill:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .prose img {
@@ -642,6 +828,12 @@ button:active:not(:disabled),
   outline: 2px solid var(--primary);
   outline-offset: 1px;
   border-radius: var(--radius-xs);
+}
+
+/* Text fields show focus via the caret and their container border. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* ── Hover/interactive utilities ──────────────────────────────────────── */
@@ -851,13 +1043,56 @@ button:active:not(:disabled),
   background-color: var(--surface-2);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  scroll-behavior: auto;
+  animation: none;
+  transition-property: opacity, color, background-color, border-color;
+  transition-duration: 100ms;
+}
+
+:root[data-motion="reduced"] .turn {
+  transform: none;
+}
+
+.settings-page {
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity 180ms var(--ease-out-strong),
+    transform 180ms var(--ease-out-strong);
+}
+
+@starting-style {
+  .settings-page {
+    opacity: 0;
+    transform: translateX(8px);
   }
+}
+
+.fleet-drawer {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(100%);
+  transition:
+    transform 240ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 180ms var(--ease-out-strong),
+    visibility 0s 240ms;
+}
+
+.fleet-drawer[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+:root[data-motion="reduced"] .settings-page {
+  transform: none;
+}
+
+:root[data-motion="reduced"] button:active,
+:root[data-motion="reduced"] [role="button"]:active {
+  scale: 1;
 }

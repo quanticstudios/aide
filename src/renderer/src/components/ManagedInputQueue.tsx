@@ -1,5 +1,6 @@
-import { LoaderCircle, Play, X } from 'lucide-react'
+import { ChevronRight, LoaderCircle, Play, X } from 'lucide-react'
 import type { ManagedSessionQueuedInput } from '../../../shared/managed-session'
+import ManagedComposerAttachments from './ManagedComposerAttachments'
 
 interface ManagedInputQueueProps {
   readonly canSteer: boolean
@@ -23,7 +24,7 @@ export default function ManagedInputQueue({
   if (items.length === 0) return null
   return (
     <div
-      className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-surface-secondary p-2"
+      className="mx-auto max-h-[40vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-surface-2 p-2"
       data-testid="managed-input-queue"
     >
       <div className="flex items-center justify-between px-1 pb-1.5 text-xs font-semibold text-foreground">
@@ -47,49 +48,76 @@ export default function ManagedInputQueue({
       <ol className="space-y-1">
         {items.map((item, index) => (
           <li
-            className="flex items-center gap-2 rounded-md bg-surface px-2 py-1.5 text-xs"
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 rounded-md px-2 py-1.5 text-xs"
             key={item.id}
           >
-            <span className="text-muted-foreground">{index + 1}</span>
-            <span className="min-w-0 flex-1 truncate">
-              {item.recipients.length > 0
-                ? `${item.recipients.map((alias) => `@${alias}`).join(', ')} `
-                : ''}
-              {item.text}
-              {item.attachments.length > 0
-                ? ` · ${item.attachments.length} attachment${item.attachments.length === 1 ? '' : 's'}`
-                : ''}
-            </span>
+            <details className="group">
+              <summary className="flex min-h-8 cursor-pointer list-none items-center gap-2 rounded-sm [&::-webkit-details-marker]:hidden">
+                <ChevronRight
+                  aria-hidden
+                  className="size-3.5 shrink-0 text-muted-foreground transition-transform duration-150 ease-[var(--ease-out-strong)] group-open:rotate-90"
+                />
+                <span className="shrink-0 text-muted-foreground">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {item.recipients.map((alias) => `@${alias} `)}
+                  {item.text || 'Attachments'}
+                </span>
+                {item.attachments.length > 0 ? (
+                  <span className="shrink-0 text-muted-foreground">
+                    {item.attachments.length} attached
+                  </span>
+                ) : null}
+                <span className="shrink-0 text-muted-foreground">Preview</span>
+              </summary>
+              <div className="pb-3 pt-2" data-testid="queued-message-preview">
+                {item.recipients.length > 0 ? (
+                  <p className="mb-2 text-primary">
+                    {item.recipients.map((alias) => `@${alias}`).join(', ')}
+                  </p>
+                ) : null}
+                {item.skill ? (
+                  <p className="mb-2 text-primary">
+                    @{item.skill.provider} · /{item.skill.nativeName}
+                  </p>
+                ) : null}
+                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                  {item.text}
+                </p>
+                <ManagedComposerAttachments attachments={item.attachments} />
+              </div>
+            </details>
             {item.lastError ? (
-              <span
-                className="max-w-48 truncate text-accent-red"
-                title={item.lastError}
+              <p
+                className="col-span-2 mb-2 break-words text-accent-red"
+                role="status"
               >
                 {item.lastError}
-              </span>
+              </p>
             ) : null}
-            <button
-              className="rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
-              disabled={!canSteer || item.recipients.length > 0 || isSubmitting}
-              onClick={() => onSendNow(item.id)}
-              title={
-                canSteer
-                  ? 'Steer the active Codex turn'
-                  : 'Send now requires an active Codex turn'
-              }
-              type="button"
-            >
-              Send now
-            </button>
-            <button
-              aria-label="Cancel queued message"
-              className="rounded text-muted-foreground hover:text-foreground"
-              disabled={isSubmitting}
-              onClick={() => onCancel(item.id)}
-              type="button"
-            >
-              <X aria-hidden className="size-3.5" />
-            </button>
+            <div className="col-start-2 row-start-1 flex min-h-8 items-center justify-end gap-2">
+              {canSteer && item.recipients.length === 0 && !item.skill ? (
+                <button
+                  className="rounded px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  disabled={isSubmitting}
+                  onClick={() => onSendNow(item.id)}
+                  title="Steer the active Codex turn"
+                  type="button"
+                >
+                  Send now
+                </button>
+              ) : null}
+              <button
+                aria-label="Cancel queued message"
+                className="flex size-7 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                disabled={isSubmitting}
+                onClick={() => onCancel(item.id)}
+                type="button"
+              >
+                <X aria-hidden className="size-3.5" />
+              </button>
+            </div>
           </li>
         ))}
       </ol>

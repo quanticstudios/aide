@@ -1,3 +1,4 @@
+import { Terminal as TerminalIcon, X } from 'lucide-react'
 import type {
   FocusEvent,
   MouseEvent as ReactMouseEvent,
@@ -13,12 +14,18 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import type { SavedTask } from '../../../shared/task-library'
+import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import FleetDrawer from './FleetDrawer'
 import SidebarTree from './SidebarTree'
+import TerminalPane from './TerminalPane'
 import TopBar from './TopBar'
 
 const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
+const TERMINAL_DRAWER_STORAGE_KEY = 'aide.terminalDrawer.open'
+/* A fixed pane id keeps one PTY per workspace across open/close; the main
+   process replays its buffer on remount. */
+const TERMINAL_DRAWER_PANE_ID = 'drawer-terminal'
 const SIDEBAR_COLLAPSE_DELAY_MS = 140
 
 function isCollapsedSidebarAction(target: EventTarget | null): boolean {
@@ -97,6 +104,15 @@ export default function AppShell({
   const [isSidebarHovered, setIsSidebarHovered] = useState(false)
   const [isSidebarFocusWithin, setIsSidebarFocusWithin] = useState(false)
   const [isFleetOpen, setIsFleetOpen] = useState(false)
+  const [isTerminalOpen, setIsTerminalOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return window.localStorage.getItem(TERMINAL_DRAWER_STORAGE_KEY) === 'true'
+  })
+  const [hasMountedTerminal, setHasMountedTerminal] = useState(isTerminalOpen)
+  const terminalDrawerRef = useRef<HTMLElement | null>(null)
   const [isSidebarPinnedOpen, setIsSidebarPinnedOpen] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -132,21 +148,6 @@ export default function AppShell({
     )
   }, [])
 
-  const blurSidebarActiveElement = useCallback((): void => {
-    if (typeof document === 'undefined') {
-      return
-    }
-
-    const activeElement = document.activeElement
-
-    if (
-      activeElement instanceof HTMLElement &&
-      sidebarShellRef.current?.contains(activeElement)
-    ) {
-      activeElement.blur()
-    }
-  }, [])
-
   const clearPendingCollapse = useCallback((): void => {
     if (collapseTimerRef.current === null) {
       return
@@ -173,6 +174,54 @@ export default function AppShell({
       isSidebarPinnedOpen ? 'true' : 'false',
     )
   }, [isSidebarPinnedOpen])
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      TERMINAL_DRAWER_STORAGE_KEY,
+      isTerminalOpen ? 'true' : 'false',
+    )
+
+    if (!isTerminalOpen) {
+      return
+    }
+
+    setHasMountedTerminal(true)
+    const frame = window.requestAnimationFrame(() => {
+      terminalDrawerRef.current
+        ?.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+        ?.focus()
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [isTerminalOpen])
+
+  useEffect(() => {
+    if (!activeWorkspace) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !isTerminalDrawerToggle({
+          alt: event.altKey,
+          code: event.code,
+          control: event.ctrlKey,
+          key: event.key,
+          meta: event.metaKey,
+        })
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      setIsTerminalOpen((current) => !current)
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [activeWorkspace])
 
   useEffect(
     () => () => {
@@ -204,7 +253,16 @@ export default function AppShell({
         return
       }
 
-      const bounds = sidebarShell.getBoundingClientRect()
+      const interactionSurface = isSidebarExpanded
+        ? sidebarShell.querySelector<HTMLElement>(
+            '[data-sidebar-surface="expanded"]',
+          )
+        : sidebarShell
+      const bounds = interactionSurface?.getBoundingClientRect()
+
+      if (!bounds) {
+        return
+      }
       const isInsideBounds =
         event.clientX >= bounds.left &&
         event.clientX <= bounds.right &&
@@ -217,17 +275,9 @@ export default function AppShell({
         return
       }
 
-      const hasSidebarFocus = sidebarContainsActiveElement()
-
-      if (!hasSidebarFocus) {
+      if (!sidebarContainsActiveElement()) {
         setIsSidebarFocusWithin(false)
-        clearPendingCollapse()
-        setIsSidebarHovered(false)
-        return
       }
-
-      blurSidebarActiveElement()
-      setIsSidebarFocusWithin(false)
       clearPendingCollapse()
       setIsSidebarHovered(false)
     }
@@ -239,7 +289,7 @@ export default function AppShell({
     }
   }, [
     clearPendingCollapse,
-    blurSidebarActiveElement,
+    isSidebarExpanded,
     isSidebarPinnedOpen,
     sidebarContainsActiveElement,
   ])
@@ -293,7 +343,9 @@ export default function AppShell({
     }
 
     if (hasSidebarFocus) {
-      blurSidebarActiveElement()
+      clearPendingCollapse()
+      setIsSidebarHovered(false)
+      return
     }
 
     setIsSidebarFocusWithin(false)
@@ -303,7 +355,7 @@ export default function AppShell({
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <div
-        className="flex h-full"
+        className={`relative flex h-full shrink-0 ${isSidebarPinnedOpen ? 'w-72' : 'w-12'}`}
         data-expanded={isSidebarExpanded ? 'true' : 'false'}
         data-testid="sidebar-shell"
         onBlurCapture={handleSidebarBlur}
@@ -346,6 +398,8 @@ export default function AppShell({
           fleetToggleRef={fleetToggleRef}
           isFleetAvailable={Boolean(activeManagedSessionId)}
           isFleetOpen={isFleetOpen}
+          isTerminalAvailable={Boolean(activeWorkspace)}
+          isTerminalOpen={isTerminalOpen}
           onClosePane={onClosePane}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
@@ -354,6 +408,7 @@ export default function AppShell({
           onToggleFleet={() =>
             isFleetOpen ? closeFleet() : setIsFleetOpen(true)
           }
+          onToggleTerminal={() => setIsTerminalOpen((current) => !current)}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
           surfaces={surfaces}
@@ -365,13 +420,55 @@ export default function AppShell({
         <main className="relative flex min-h-0 w-full flex-1 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {children}
+            {hasMountedTerminal && activeWorkspace ? (
+              <section
+                aria-hidden={!isTerminalOpen}
+                aria-label="Terminal drawer"
+                className="terminal-drawer"
+                data-open={isTerminalOpen}
+                data-testid="terminal-drawer"
+                inert={!isTerminalOpen}
+                ref={terminalDrawerRef}
+              >
+                <div className="terminal-drawer-body bg-background">
+                  <div className="flex h-8 shrink-0 items-center justify-between px-3 text-xs font-semibold text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <TerminalIcon aria-hidden="true" className="size-3.5" />
+                      Terminal
+                      <span className="ml-1 font-mono text-[11px] font-normal text-muted-foreground/70">
+                        {activeWorkspace.name}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <kbd className="keycap">Ctrl</kbd>
+                      <kbd className="keycap">`</kbd>
+                      <button
+                        aria-label="Close terminal drawer"
+                        className="btn-icon flex size-6 items-center justify-center rounded-md"
+                        onClick={() => setIsTerminalOpen(false)}
+                        type="button"
+                      >
+                        <X aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                  <div className="min-h-0 flex-1 px-2 pb-2">
+                    <TerminalPane
+                      key={activeWorkspace.id}
+                      onShellExit={() => setIsTerminalOpen(false)}
+                      paneId={TERMINAL_DRAWER_PANE_ID}
+                      workspace={activeWorkspace}
+                    />
+                  </div>
+                </div>
+              </section>
+            ) : null}
           </div>
-          {isFleetOpen ? (
-            <FleetDrawer
-              onClose={closeFleet}
-              sessionId={activeManagedSessionId}
-            />
-          ) : null}
+          <FleetDrawer
+            isOpen={isFleetOpen}
+            onClose={closeFleet}
+            sessionId={activeManagedSessionId}
+          />
         </main>
       </div>
     </div>

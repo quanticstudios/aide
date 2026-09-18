@@ -48,7 +48,7 @@ function IndicatorIcon({
       return (
         <LoaderCircle
           aria-hidden="true"
-          className={`${className} motion-safe:animate-spin`}
+          className={`${className} animate-spin`}
         />
       )
     case 'available':

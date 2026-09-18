@@ -11,6 +11,7 @@ import type { TerminalEvent } from '../../../shared/terminal'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 
 interface TerminalPaneProps {
+  readonly onShellExit: () => void
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -71,7 +72,11 @@ function scheduleTerminalFocus(
   })
 }
 
-export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
+export default function TerminalPane({
+  onShellExit,
+  paneId,
+  workspace,
+}: TerminalPaneProps) {
   const sessionId = useMemo(
     () => `${workspace.id}:${paneId}`,
     [paneId, workspace.id],
@@ -83,8 +88,11 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
+  const hasRequestedCloseRef = useRef(false)
+  const onShellExitRef = useRef(onShellExit)
+  onShellExitRef.current = onShellExit
   const [error, setError] = useState<string | null>(null)
-  const [exitCode, setExitCode] = useState<number | null>(null)
+  const [exitCode, setExitCode] = useState<number | 'unknown' | null>(null)
 
   const startSession = useCallback(async () => {
     const terminal = terminalRef.current
@@ -100,6 +108,7 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
 
     setError(null)
     setExitCode(null)
+    hasRequestedCloseRef.current = false
     terminal.clear()
 
     const snapshot = await aideApi.createTerminalSession({
@@ -117,7 +126,14 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
     }
 
     if (!snapshot.running) {
-      setExitCode(snapshot.exitCode)
+      if (typeof snapshot.exitCode === 'number') {
+        if (!hasRequestedCloseRef.current) {
+          hasRequestedCloseRef.current = true
+          onShellExitRef.current()
+        }
+      } else {
+        setExitCode('unknown')
+      }
     }
   }, [paneId, sessionId, terminalMode, workspace.id, workspace.worktreePath])
 
@@ -204,7 +220,15 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
       }
 
       if (event.type === 'exit') {
-        setExitCode(event.exitCode)
+        if (typeof event.exitCode === 'number') {
+          if (!hasRequestedCloseRef.current) {
+            hasRequestedCloseRef.current = true
+            onShellExitRef.current()
+          }
+          return
+        }
+
+        setExitCode('unknown')
       }
     })
 
@@ -262,7 +286,11 @@ export default function TerminalPane({ paneId, workspace }: TerminalPaneProps) {
           aria-live="polite"
           className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between gap-3 rounded-md border border-border bg-surface/95 px-3 py-2 text-sm text-muted-foreground shadow-lg backdrop-blur"
         >
-          <span>Shell exited with code {exitCode}.</span>
+          <span>
+            {exitCode === 'unknown'
+              ? 'Shell exited unexpectedly.'
+              : `Shell exited with code ${exitCode}.`}
+          </span>
           <button
             className="rounded-md border border-border bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold text-foreground transition-colors hover:border-primary/60"
             onClick={() => {

@@ -2,10 +2,12 @@ import type { ManagedProviderRuntimeSessionState } from '../../../shared/provide
 import type { ProviderSkill } from '../../../shared/provider-skills'
 
 export interface SlashCommandContext {
+  readonly agentMode: 'build' | 'plan'
   readonly clearDraft: () => void
   readonly copyTranscript: () => Promise<void>
   readonly interrupt: () => void
   readonly sessionState: ManagedProviderRuntimeSessionState | undefined
+  readonly setAgentMode: (mode: 'build' | 'plan') => void | Promise<void>
   readonly setDraft: (text: string) => void
 }
 
@@ -58,6 +60,26 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
     label: '/help',
     run: (ctx) => ctx.setDraft(HELP_TEXT),
   },
+  {
+    description: 'Plan mode: the agent reads and proposes, no edits',
+    id: 'plan',
+    isAvailable: (ctx) => ctx.agentMode !== 'plan',
+    label: '/plan',
+    run: async (ctx) => {
+      ctx.clearDraft()
+      await ctx.setAgentMode('plan')
+    },
+  },
+  {
+    description: 'Build mode: the agent edits and runs commands',
+    id: 'build',
+    isAvailable: (ctx) => ctx.agentMode !== 'build',
+    label: '/build',
+    run: async (ctx) => {
+      ctx.clearDraft()
+      await ctx.setAgentMode('build')
+    },
+  },
 ]
 
 export function filterSlashCommands(
@@ -100,15 +122,37 @@ export function filterProviderSkills(
   skills: readonly ProviderSkill[],
   query: string,
 ): ProviderSkill[] {
-  const normalized = query.toLowerCase()
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[-_:]+/g, ' ')
+      .trim()
+  const normalized = normalize(query)
 
   if (normalized.length === 0) {
     return [...skills]
   }
 
-  return skills.filter((skill) =>
-    [skill.name, skill.description, skill.owner, skill.provider].some((value) =>
-      value.toLowerCase().includes(normalized),
-    ),
-  )
+  const words = normalized.split(/\s+/)
+  return skills
+    .map((skill) => {
+      const name = normalize(skill.name)
+      const searchable = normalize(
+        `${skill.name} ${skill.description} ${skill.owner} ${skill.provider}`,
+      )
+      const rank =
+        name === normalized
+          ? 0
+          : name.startsWith(normalized)
+            ? 1
+            : words.every((word) => name.includes(word))
+              ? 2
+              : words.every((word) => searchable.includes(word))
+                ? 3
+                : -1
+      return { skill, rank }
+    })
+    .filter(({ rank }) => rank >= 0)
+    .sort((left, right) => left.rank - right.rank)
+    .map(({ skill }) => skill)
 }

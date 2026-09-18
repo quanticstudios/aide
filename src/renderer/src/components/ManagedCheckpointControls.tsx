@@ -306,6 +306,7 @@ export default function ManagedCheckpointControls({
     <>
       <Button
         ref={triggerRef}
+        className="h-7 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
         isDisabled={isDisabled || isLoading}
         onPress={() => void openPreview()}
         size="sm"

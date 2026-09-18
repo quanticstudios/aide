@@ -9,6 +9,7 @@ import { cn } from '../lib/utils'
 import { LiveFleetFlowchart, PlanDependencyFlow } from './FleetFlowchart'
 
 interface FleetDrawerProps {
+  readonly isOpen: boolean
   readonly onClose: () => void
   readonly sessionId: string | null
 }
@@ -488,7 +489,11 @@ export function FleetDrawerContent(props: FleetContentProps) {
   )
 }
 
-export default function FleetDrawer({ onClose, sessionId }: FleetDrawerProps) {
+export default function FleetDrawer({
+  isOpen,
+  onClose,
+  sessionId,
+}: FleetDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const { error: loadError, snapshot } = useFleetSnapshot(sessionId)
   const fleet = snapshot?.fleet ?? null
@@ -502,13 +507,14 @@ export default function FleetDrawer({ onClose, sessionId }: FleetDrawerProps) {
   const isAccepting = acceptingSessionId === sessionId
 
   useEffect(() => {
+    if (!isOpen) return
     closeButtonRef.current?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [isOpen, onClose])
 
   async function acceptNode(nodeId: string, accepted: boolean): Promise<void> {
     const api = getAideApi()
@@ -532,7 +538,10 @@ export default function FleetDrawer({ onClose, sessionId }: FleetDrawerProps) {
   return (
     <aside
       aria-label="Agent fleet"
-      className="absolute inset-y-0 right-0 z-30 flex w-[min(30rem,calc(100vw-1rem))] flex-col border-l border-border bg-background shadow-[-16px_0_48px_rgba(0,0,0,0.22)] lg:static lg:z-auto lg:w-[30rem] lg:shrink-0 lg:shadow-none"
+      aria-hidden={!isOpen}
+      inert={!isOpen}
+      data-open={isOpen}
+      className="fleet-drawer absolute inset-y-0 right-0 z-30 flex w-[min(30rem,calc(100vw-1rem))] flex-col border-l border-border bg-background shadow-[-16px_0_48px_rgba(0,0,0,0.22)]"
       data-testid="fleet-drawer"
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">

@@ -129,6 +129,13 @@ function explicitReferences(task: string): Map<string, number | undefined> {
     const normalized = normalizePath(
       lineMatch ? value.slice(0, -lineMatch[0].length) : value,
     )
+    if (
+      normalized &&
+      !value.includes('/') &&
+      /^v?\d+(?:\.\d+)+(?:-[\w.-]+)?$/i.test(normalized)
+    ) {
+      continue
+    }
     if (normalized && (!references.has(normalized) || lineMatch)) {
       references.set(normalized, lineMatch ? Number(lineMatch[1]) : undefined)
     }

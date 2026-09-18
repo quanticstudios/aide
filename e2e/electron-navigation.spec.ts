@@ -150,7 +150,10 @@ async function prepareSyntheticJev(
 
 async function addPane(page: Page, paneName: RegExp): Promise<void> {
   await page.getByRole('button', { name: /add pane/i }).click()
-  await page.getByRole('button', { name: paneName }).click()
+  await page
+    .getByRole('dialog', { name: 'Add pane' })
+    .getByRole('button', { name: paneName })
+    .click()
 }
 
 async function expandSidebar(page: Page): Promise<void> {
@@ -565,7 +568,9 @@ test.describe('electron spatial navigation', () => {
     await page.waitForTimeout(180)
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
 
-    await page.getByLabel('Workspace sidebar').focus()
+    await sidebarShell.getByRole('button').first().focus()
+    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+    await page.mouse.move(1400, 120)
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
 
     await page.getByRole('button', { name: /pin sidebar open/i }).click()
@@ -1063,7 +1068,7 @@ test.describe('electron spatial navigation', () => {
     ).toBeFocused()
   })
 
-  test('keeps a terminal pane after shell exit and can restart it', async () => {
+  test('closes terminal panes for zero and nonzero shell exits', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
@@ -1085,19 +1090,84 @@ test.describe('electron spatial navigation', () => {
     await page.keyboard.press('Enter')
 
     await expect(
-      page.getByRole('button', { name: /restart terminal/i }),
-    ).toBeVisible()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Workspace terminal',
-    )
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(1)
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
 
-    await page.getByRole('button', { name: /restart terminal/i }).click()
-    await expect(
-      page.getByRole('button', { name: /restart terminal/i }),
-    ).not.toBeVisible()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Workspace terminal',
+    await addPane(page, /terminal/i)
+    await expect(terminalInput).toBeFocused()
+    await page.keyboard.type('exit 7')
+    await page.keyboard.press('Enter')
+
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
+  })
+
+  test('keeps the foreground selection when a background terminal exits', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await createWorkspace(page, {
+      branchName: 'background-terminal',
+      name: 'Foreground workspace',
+    })
+    await addPane(page, /git/i)
+
+    await page.keyboard.press('Alt+k')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    const terminalInput = page.locator(
+      '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
     )
+    await expect(terminalInput).toBeFocused()
+    await page.keyboard.type('sleep 2; exit')
+    await page.keyboard.press('Enter')
+
+    await page.keyboard.press('Alt+j')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Foreground workspace',
+    )
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const snapshot = await window.aide.getStorageSnapshot()
+            const backgroundWorkspace = snapshot.workspaces.find(
+              (workspace) => workspace.name === 'main',
+            )
+            if (!backgroundWorkspace) return false
+
+            return Object.values(snapshot.surfaceLayouts)
+              .filter((layout) => layout.workspaceId === backgroundWorkspace.id)
+              .every((layout) =>
+                layout.nodes.every(
+                  (node) =>
+                    node.type !== 'pane' ||
+                    node.viewIds.every(
+                      (viewId) => !viewId.startsWith('terminal'),
+                    ),
+                ),
+              )
+          }),
+        { timeout: 7_000 },
+      )
+      .toBe(true)
+
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Foreground workspace',
+    )
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
   })
 
   test('announces critical updates without opening or stealing focus', async () => {

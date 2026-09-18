@@ -41,10 +41,7 @@ function FlowStatusIcon({
   if (status === 'running')
     return (
       <LoaderCircle
-        className={cn(
-          'size-3',
-          animateRunning && 'animate-spin motion-reduce:animate-none',
-        )}
+        className={cn('size-3', animateRunning && 'animate-spin')}
       />
     )
   if (status === 'completed') return <Check className="size-3" />

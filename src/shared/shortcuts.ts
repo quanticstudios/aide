@@ -122,10 +122,21 @@ export function mapShortcutInputToAppEvent(
   return null
 }
 
+export function isTerminalDrawerToggle(input: ShortcutInput): boolean {
+  return (
+    input.control &&
+    !input.alt &&
+    !input.meta &&
+    (input.code === 'Backquote' || input.key === '`')
+  )
+}
+
 export function shouldBlockTerminalShortcutInput(
   input: ShortcutInput,
 ): boolean {
   return (
-    mapShortcutInputToAppEvent(input) !== null || isMetaNavigationAlias(input)
+    mapShortcutInputToAppEvent(input) !== null ||
+    isMetaNavigationAlias(input) ||
+    isTerminalDrawerToggle(input)
   )
 }

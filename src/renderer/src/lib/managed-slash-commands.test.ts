@@ -37,3 +37,32 @@ describe('filterProviderSkills', () => {
     expect(filterProviderSkills(providerSkills, '')).toEqual(providerSkills)
   })
 })
+
+describe('skill search ranking', () => {
+  it('ranks names above description matches and accepts word separators', () => {
+    const skills: ProviderSkill[] = [
+      {
+        ...providerSkills[0],
+        id: 'bootstrap',
+        name: 'vercel:bootstrap',
+        description: 'Uses pro-design for setup',
+      },
+      { ...providerSkills[0], id: 'longer', name: 'pro-design-review' },
+      { ...providerSkills[0], id: 'design', name: 'pro-design' },
+      { ...providerSkills[1], id: 'codex-design', name: 'pro-design' },
+      {
+        ...providerSkills[0],
+        id: 'unrelated',
+        name: 'release',
+        description: 'Publish a release',
+      },
+    ]
+    expect(
+      filterProviderSkills(skills, 'pro-des').map((skill) => skill.id),
+    ).toEqual(['longer', 'design', 'codex-design', 'bootstrap'])
+    expect(
+      filterProviderSkills(skills, 'pro design').map((skill) => skill.id),
+    ).toEqual(['design', 'codex-design', 'longer', 'bootstrap'])
+    expect(filterProviderSkills(skills, 'unmatched')).toEqual([])
+  })
+})

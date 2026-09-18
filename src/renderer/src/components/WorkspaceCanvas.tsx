@@ -534,21 +534,20 @@ export default function WorkspaceCanvas({
               const isActive = index === activeWorkspaceIndex
               return (
                 <span
-                  className="rounded-full bg-[var(--border-strong)] transition-all duration-200 data-[active=true]:bg-primary"
+                  className={cn(
+                    'size-1.5 rounded-full bg-[var(--border-strong)] transition-transform duration-200 ease-[var(--ease-out-strong)]',
+                    isActive && 'scale-y-[3] bg-primary',
+                  )}
                   data-active={isActive ? 'true' : 'false'}
                   data-testid={`workspace-stack-dot-${workspace.id}`}
                   key={workspace.id}
-                  style={{
-                    width: isActive ? 6 : 4,
-                    height: isActive ? 18 : 4,
-                  }}
                 />
               )
             })}
           </div>
         ) : null}
         <div
-          className="workspace-slider flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch transition-transform duration-200 ease-out"
+          className="workspace-slider flex min-h-0 min-w-0 w-full flex-1 flex-col items-stretch transition-transform duration-200 ease-[var(--ease-out-strong)]"
           style={workspaceTrackStyle}
         >
           {allWorkspaces.map((workspace) => {
@@ -591,7 +590,7 @@ export default function WorkspaceCanvas({
                       return (
                         <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
                           <div
-                            className="surface-slider flex h-full shrink-0 transition-transform duration-200 ease-out"
+                            className="surface-slider flex h-full shrink-0 transition-transform duration-200 ease-[var(--ease-out-strong)]"
                             style={surfaceTrackStyle}
                           >
                             {surfaces.map((surface, surfaceIndex) => {

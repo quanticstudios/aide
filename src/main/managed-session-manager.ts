@@ -2525,6 +2525,9 @@ export class ManagedSessionManager {
       const promptItemId = `user-prompt:${randomUUID()}`
       const promptKey = createContentKey('user-prompt', promptItemId)
       state.contentByKey.set(promptKey, {
+        attachments: queuedInput.attachments.map((attachment) => ({
+          ...attachment,
+        })),
         id: promptItemId,
         kind: 'user-prompt',
         provider: null,
@@ -2656,6 +2659,9 @@ export class ManagedSessionManager {
     const promptItemId = `user-prompt:${randomUUID()}`
     const promptKey = createContentKey('user-prompt', promptItemId)
     state.contentByKey.set(promptKey, {
+      attachments: queuedInput.attachments.map((attachment) => ({
+        ...attachment,
+      })),
       id: promptItemId,
       kind: 'user-prompt',
       provider: null,

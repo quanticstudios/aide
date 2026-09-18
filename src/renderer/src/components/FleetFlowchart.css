@@ -53,13 +53,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fleet-flow-edge {
-    transition: none;
-  }
-
-  .fleet-flow-edge[data-state="running"] {
-    animation: none;
-    stroke-dasharray: none;
-  }
+:root[data-motion="reduced"] .fleet-flow-edge[data-state="running"] {
+  animation: none;
+  stroke-dasharray: none;
 }

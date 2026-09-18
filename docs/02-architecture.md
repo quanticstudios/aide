@@ -446,3 +446,17 @@ Only after core product is stable:
 - pane type usage
 
 Keep metrics optional and privacy-conscious.
+
+## Interface controls
+
+Use the installed HeroUI components for buttons, selects, switches, inputs, and other interactive controls. Reuse existing app components where they already wrap the library. Match spacing, elevation, focus states, and disabled states across settings and workspace panels.
+
+## Spatial navigation
+
+[Material Shell's spatial model](https://github.com/material-shell/material-shell#spatial-model) defines aIDE navigation:
+
+- A project's workspaces form stable vertical rows. Alt+Up and Alt+Down select adjacent rows.
+- Panes occupy stable horizontal positions within a workspace. Returning restores the selected pane and its position.
+- Focusing a pane or workspace never changes its order. Explicit add, remove, or reorder actions change positions.
+- Slides preserve direction and can reverse before they finish. Switching between projects does not animate through unrelated workspaces.
+- Animation preferences support System default, On, and Reduced motion. Reduced motion preserves status and feedback without spatial movement.

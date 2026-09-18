@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -31,6 +31,28 @@ async function repository(): Promise<string> {
 }
 
 describe('retrieveContext', () => {
+  it('does not require version numbers as files when preparing a message', async () => {
+    const root = await repository()
+    await writeFile(path.join(root, 'README.md'), '# Models\n')
+    const context = await retrieveContext({
+      task: 'The list shows outdated Fable, there is 5.1 now. Update README.md for v0.0.2 and 0.0.3-beta.1.',
+      workspaceRoot: root,
+    })
+
+    expect(context.mandatory.map((excerpt) => excerpt.path)).toEqual([
+      'README.md',
+    ])
+    await writeFile(path.join(root, '5.1'), 'A file with a numeric name\n')
+    const explicit = await retrieveContext({
+      task: 'Inspect ./5.1',
+      workspaceRoot: root,
+    })
+    expect(explicit.mandatory.map((excerpt) => excerpt.path)).toEqual(['5.1'])
+    await expect(
+      retrieveContext({ task: 'Inspect missing.ts', workspaceRoot: root }),
+    ).rejects.toThrow('Required context file "missing.ts" is unavailable.')
+  })
+
   it('keeps safe instructions and explicit evidence while excluding unsafe Git paths', async () => {
     const root = await repository()
     const outside = await mkdtemp(

@@ -783,7 +783,17 @@ export class ProviderCapabilityService {
     }
     return {
       resolved,
-      snapshot: { errors, skills: [...claude, ...codex.skills] },
+      snapshot: {
+        errors,
+        skills: [
+          ...new Map(
+            [...claude, ...codex.skills].map((skill) => [
+              catalogKey(skill),
+              skill,
+            ]),
+          ).values(),
+        ],
+      },
     }
   }
 

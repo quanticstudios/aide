@@ -1,4 +1,4 @@
-import { Button, Surface } from '@heroui/react'
+import { Button } from '@heroui/react'
 import {
   ArrowDown,
   ArrowUp,
@@ -8,12 +8,12 @@ import {
   CirclePause,
   Clipboard,
   ClipboardCheck,
-  ClipboardList,
   FileCode,
   FolderOpen,
   GitBranch,
   LoaderCircle,
   Lock,
+  LockOpen,
   PenLine,
   RefreshCw,
   Terminal,
@@ -101,6 +101,7 @@ import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 import RecipientMentionMenu from './RecipientMentionMenu'
+import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 interface ManagedAgentPaneProps {
   readonly paneId: string
@@ -237,7 +238,6 @@ function formatMessageTime(iso: string): string {
   return date.toLocaleTimeString(undefined, {
     hour: 'numeric',
     minute: '2-digit',
-    second: '2-digit',
   })
 }
 
@@ -245,31 +245,36 @@ const PERMISSION_OPTIONS: ReadonlyArray<{
   description: string
   icon: typeof Lock
   label: string
+  tone: string
   value: ManagedSessionPermissionMode
 }> = [
   {
     description: 'Ask before commands and file changes.',
     icon: Lock,
     label: 'Supervised',
+    tone: 'text-muted-foreground',
     value: 'default',
   },
   {
     description: 'Auto-approve edits, ask before other actions.',
     icon: PenLine,
     label: 'Auto-accept edits',
+    tone: 'text-accent-yellow',
     value: 'acceptEdits',
   },
   {
     description: 'Allow commands and edits without prompts.',
-    icon: Lock,
+    icon: LockOpen,
     label: 'Full access',
+    tone: 'text-accent-peach',
     value: 'bypassPermissions',
   },
 ]
 
-function formatPermissionTrigger(mode: ManagedSessionPermissionMode): string {
-  const opt = PERMISSION_OPTIONS.find((o) => o.value === mode)
-  return opt?.label ?? 'Supervised'
+function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
+  return (
+    PERMISSION_OPTIONS.find((o) => o.value === mode) ?? PERMISSION_OPTIONS[0]!
+  )
 }
 
 function useClickOutside(
@@ -301,17 +306,19 @@ function PermissionDropdown({
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   useClickOutside(containerRef, () => setIsOpen(false), isOpen)
+  const active = resolvePermissionOption(permissionMode)
+  const ActiveIcon = active.icon
 
   return (
     <div ref={containerRef} className="relative">
       <button
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        className="composer-tool"
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
-        <Lock className="size-3" />
-        {formatPermissionTrigger(permissionMode)}
-        <ChevronDown className="size-3 opacity-50" />
+        <ActiveIcon className={cn('size-4', active.tone)} />
+        {active.label}
+        <ChevronDown className="size-3.5 opacity-50" />
       </button>
       {isOpen && (
         <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
@@ -333,17 +340,16 @@ function PermissionDropdown({
                 }}
                 type="button"
               >
-                {isSelected ? (
-                  <Check className="size-4 shrink-0" />
-                ) : (
-                  <Icon className="size-4 shrink-0 text-muted-foreground" />
-                )}
-                <div className="flex flex-col">
+                <Icon className={cn('size-4 shrink-0', opt.tone)} />
+                <div className="flex min-w-0 flex-1 flex-col">
                   <span className="text-sm font-semibold">{opt.label}</span>
                   <span className="text-xs text-muted-foreground">
                     {opt.description}
                   </span>
                 </div>
+                {isSelected ? (
+                  <Check className="size-4 shrink-0 text-muted-foreground" />
+                ) : null}
               </button>
             )
           })}
@@ -368,17 +374,18 @@ function ContentItemBlock({
   if (item.kind === 'user-prompt') {
     return (
       <div className="flex justify-end">
-        <Surface
-          className="max-w-[85%] rounded-lg rounded-br-sm border border-border bg-surface-elevated px-4 py-3"
+        <div
+          className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
           data-testid={`managed-content-${item.kind}`}
         >
-          <pre className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+          <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
             {item.text}
           </pre>
-          <p className="mt-1 text-right text-[10px] tabular-nums text-muted-foreground/70">
+          <ManagedComposerAttachments attachments={item.attachments ?? []} />
+          <p className="mt-1 text-right text-[11px] tabular-nums text-muted-foreground/70">
             {formatMessageTime(item.updatedAt)}
           </p>
-        </Surface>
+        </div>
       </div>
     )
   }
@@ -390,48 +397,44 @@ function ContentItemBlock({
       isLong && !isExpanded ? lines.slice(0, 5).join('\n') : item.text
 
     return (
-      <Surface
-        className="rounded-md border border-border bg-surface px-4 py-3"
+      <div
+        className="rounded-lg border border-[var(--border-soft)] bg-surface-1 px-4 py-3"
         data-testid={`managed-content-${item.kind}`}
       >
-        <div className="flex items-center gap-2 pb-2">
-          <Terminal className="size-3 text-accent-green" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-green">
-            Command output
-          </p>
+        <div className="flex items-center gap-2 pb-2 text-xs font-semibold text-foreground">
+          <Terminal className="size-3.5 text-accent-green" />
+          Command output
         </div>
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body">
           {displayText}
         </pre>
         {isLong ? (
           <button
-            className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+            className="mt-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setIsExpanded((prev) => !prev)}
             type="button"
           >
             {isExpanded ? 'Show less' : `Show ${lines.length - 5} more lines`}
           </button>
         ) : null}
-      </Surface>
+      </div>
     )
   }
 
   if (item.kind === 'file-change-output') {
     return (
-      <Surface
-        className="rounded-md border border-border bg-surface px-4 py-3"
+      <div
+        className="rounded-lg border border-[var(--border-soft)] bg-surface-1 px-4 py-3"
         data-testid={`managed-content-${item.kind}`}
       >
-        <div className="flex items-center gap-2 pb-2">
-          <FileCode className="size-3 text-accent-yellow" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-yellow">
-            File changes
-          </p>
+        <div className="flex items-center gap-2 pb-2 text-xs font-semibold text-foreground">
+          <FileCode className="size-3.5 text-accent-yellow" />
+          File changes
         </div>
-        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/80">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body">
           {item.text}
         </pre>
-      </Surface>
+      </div>
     )
   }
 
@@ -440,39 +443,33 @@ function ContentItemBlock({
     item.kind === 'reasoning-summary-text'
   ) {
     return (
-      <Surface
-        className="rounded-md border border-border px-3 py-2"
+      <div
+        className="rounded-lg border border-[var(--border-soft)] px-3 py-2"
         data-testid={`managed-content-${item.kind}`}
-        variant="tertiary"
       >
         <button
-          className="flex w-full items-center gap-2 text-left"
+          className="flex w-full items-center gap-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
           onClick={() => setIsExpanded((prev) => !prev)}
           type="button"
         >
-          <Brain className="size-3 text-accent-blue" />
-          <p className="text-[10px] uppercase tracking-[0.18em] text-accent-blue">
-            {item.kind === 'reasoning-text' ? 'Reasoning' : 'Reasoning summary'}
-          </p>
+          <Brain className="size-3.5 text-accent-blue" />
+          {item.kind === 'reasoning-text' ? 'Reasoning' : 'Reasoning summary'}
           <ChevronDown
-            className={`ml-auto size-3 text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`ml-auto size-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
           />
         </button>
         {isExpanded ? (
-          <pre className="mt-2 whitespace-pre-wrap break-words text-xs italic leading-relaxed text-muted-foreground">
+          <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-[13px] leading-[1.6] text-muted-foreground">
             {item.text}
           </pre>
         ) : null}
-      </Surface>
+      </div>
     )
   }
 
   if (item.kind === 'system') {
     return (
-      <p
-        className="py-2 text-center text-xs italic text-muted-foreground/60"
-        data-testid={`managed-content-${item.kind}`}
-      >
+      <p className="system-notice" data-testid={`managed-content-${item.kind}`}>
         {item.text}
       </p>
     )
@@ -481,9 +478,22 @@ function ContentItemBlock({
   return (
     <div className="px-1" data-testid={`managed-content-${item.kind}`}>
       {item.kind === 'assistant-text' && item.provider ? (
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          {item.provider === 'claude' ? 'Claude' : 'Codex'}
-          {item.model ? ` · ${item.model}` : ''}
+        <p className="mb-2 flex items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-2 ring-1 ring-[var(--border-soft)]">
+            {item.provider === 'claude' ? (
+              <AnthropicIcon className="size-3.5" />
+            ) : (
+              <OpenAIIcon className="size-3.5" />
+            )}
+          </span>
+          <span className="text-[13px] font-semibold text-foreground">
+            {item.provider === 'claude' ? 'Claude' : 'Codex'}
+          </span>
+          {item.model ? (
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {` · ${item.model}`}
+            </span>
+          ) : null}
         </p>
       ) : null}
       <MarkdownContent text={item.text} />
@@ -560,17 +570,17 @@ function TurnGroupBlock({
   }, [group.items])
 
   return (
-    <div className="group/turn relative space-y-2">
+    <div className={cn('group/turn relative space-y-3', isRunning && 'turn')}>
       {group.items.map((item) => (
         <ContentItemBlock item={item} key={`${item.kind}:${item.id}`} />
       ))}
       {isRunning ? (
-        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin text-primary" />
+        <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
+          <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
           {providerLabel} is working...
           {recipientAlias ? (
             <button
-              className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+              className="ml-auto text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => onInterrupt(recipientAlias)}
               type="button"
             >
@@ -590,11 +600,18 @@ function TurnGroupBlock({
         </div>
       ) : null}
       {group.items.length > 0 ? (
-        <div className="pointer-events-none absolute right-0 top-0 flex gap-1 opacity-0 transition-opacity group-hover/turn:pointer-events-auto group-hover/turn:opacity-100">
+        <div
+          className={cn(
+            'absolute right-0 top-0 z-10 flex gap-1 transition-opacity duration-150',
+            canRetry
+              ? 'pointer-events-auto opacity-100'
+              : 'pointer-events-none opacity-0 group-hover/turn:pointer-events-auto group-hover/turn:opacity-100 group-focus-within/turn:pointer-events-auto group-focus-within/turn:opacity-100',
+          )}
+        >
           {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
-              className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+              className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:text-foreground"
               onClick={() => onRetry(requestText, recipientAlias)}
               type="button"
             >
@@ -604,7 +621,7 @@ function TurnGroupBlock({
           ) : null}
           <button
             aria-label={copied ? 'Copied turn' : 'Copy turn'}
-            className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-secondary px-2 py-1 text-[10px] text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+            className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:text-foreground"
             onClick={() => void handleCopy()}
             type="button"
           >
@@ -1320,37 +1337,37 @@ export default function ManagedAgentPane({
     [sessionId],
   )
 
-  const handleAgentModeToggle = useCallback(async () => {
-    const interactionMode: ManagedSessionInteractionMode =
-      agentMode === 'plan' ? 'build' : 'plan'
+  const applyAgentMode = useCallback(
+    async (interactionMode: ManagedSessionInteractionMode) => {
+      if (!startedSessionRef.current) {
+        setAgentMode(interactionMode)
+        return
+      }
 
-    if (!startedSessionRef.current) {
-      setAgentMode(interactionMode)
-      return
-    }
+      const api = getAideApi()
 
-    const api = getAideApi()
+      if (!api) {
+        setError('Managed provider bridge did not load.')
+        return
+      }
 
-    if (!api) {
-      setError('Managed provider bridge did not load.')
-      return
-    }
-
-    setIsSubmitting(true)
-    try {
-      const updated = await api.configureManagedSessionMode(
-        sessionId,
-        interactionMode,
-      )
-      setSnapshot(updated)
-      setAgentMode(updated.interactionMode)
-      setError(null)
-    } catch (modeError) {
-      setError(getErrorMessage(modeError))
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [agentMode, sessionId])
+      setIsSubmitting(true)
+      try {
+        const updated = await api.configureManagedSessionMode(
+          sessionId,
+          interactionMode,
+        )
+        setSnapshot(updated)
+        setAgentMode(updated.interactionMode)
+        setError(null)
+      } catch (modeError) {
+        setError(getErrorMessage(modeError))
+      } finally {
+        setIsSubmitting(false)
+      }
+    },
+    [sessionId],
+  )
 
   const handleProviderSelectionChange = useCallback(
     async (
@@ -1641,6 +1658,7 @@ export default function ManagedAgentPane({
 
   const slashContext = useMemo<SlashCommandContext>(
     () => ({
+      agentMode,
       clearDraft: () => setDraftInput(''),
       copyTranscript: async () => {
         const text = (snapshot?.content ?? [])
@@ -1670,9 +1688,16 @@ export default function ManagedAgentPane({
         }
       },
       sessionState: snapshot?.sessionState,
+      setAgentMode: applyAgentMode,
       setDraft: (text: string) => setDraftInput(text),
     }),
-    [sessionId, snapshot?.content, snapshot?.sessionState],
+    [
+      agentMode,
+      applyAgentMode,
+      sessionId,
+      snapshot?.content,
+      snapshot?.sessionState,
+    ],
   )
 
   const recipientMentionQuery = getRecipientMentionQuery(draftInput)
@@ -1880,7 +1905,7 @@ export default function ManagedAgentPane({
         ref={scrollRef}
       >
         {visibleTurnGroups.length > 0 ? (
-          <div className="mx-auto max-w-3xl space-y-4">
+          <div className="mx-auto max-w-3xl space-y-8">
             {visibleTurnGroups.map((group) => {
               const turn = snapshot?.turns.find(
                 (candidate) => candidate.id === group.turnId,
@@ -1912,8 +1937,8 @@ export default function ManagedAgentPane({
             })}
 
             {snapshot?.sessionState === 'running' && runningTurnId === null ? (
-              <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-                <LoaderCircle className="size-3 animate-spin text-primary" />
+              <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
+                <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
                 {providerLabel} is working...
               </div>
             ) : null}
@@ -1977,10 +2002,8 @@ export default function ManagedAgentPane({
         />
 
         <div
-          className={cn(
-            'relative mx-auto w-full max-w-3xl rounded-lg border bg-surface transition-colors',
-            agentMode === 'plan' ? 'border-primary/60' : 'border-border',
-          )}
+          className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-3 shadow-sm transition-colors focus-within:bg-surface-4"
+          data-testid="managed-composer"
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes('Files'))
               event.preventDefault()
@@ -2223,7 +2246,7 @@ export default function ManagedAgentPane({
             aria-label={
               activeQuestion ? 'Free-form answer' : `${providerLabel} prompt`
             }
-            className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-sm focus:outline-none"
+            className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-[1.5] placeholder:text-muted-foreground/70 focus:outline-none"
             disabled={!isDraftHydrated}
             onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
               const value = event.target.value
@@ -2370,7 +2393,7 @@ export default function ManagedAgentPane({
             value={activeQuestion ? primaryAnswer : draftInput}
           />
 
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/40 px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-0.5 border-t border-border/40 px-2 py-2">
             <ManagedComposerAttachmentButton
               isDisabled={isSubmitting || Boolean(activeQuestion)}
               onPickFiles={() => void handlePickWorkspaceFiles()}
@@ -2386,9 +2409,7 @@ export default function ManagedAgentPane({
                 provider={selectedProvider}
               />
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-                {providerLabel}
-              </span>
+              <span className="composer-tool">{providerLabel}</span>
             )}
             <ConfiguredAgentSettings
               agents={configuredAgents}
@@ -2412,19 +2433,11 @@ export default function ManagedAgentPane({
               serviceTier={serviceTier}
               thinkingBudget={thinkingBudget}
             />
-            <button
-              className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold transition-colors ${
-                agentMode === 'plan'
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              disabled={isSubmitting}
-              onClick={() => void handleAgentModeToggle()}
-              type="button"
-            >
-              <ClipboardList className="size-3" />
-              {agentMode === 'plan' ? 'Plan' : 'Build'}
-            </button>
+            {agentMode === 'plan' ? (
+              <span className="composer-tool is-pill" data-active="true">
+                Plan mode
+              </span>
+            ) : null}
             <PermissionDropdown
               onPermissionModeChange={setPermissionMode}
               permissionMode={permissionMode}
@@ -2451,7 +2464,7 @@ export default function ManagedAgentPane({
             ) : (
               <button
                 aria-label="Send prompt"
-                className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,background-color] duration-150 hover:bg-primary-focus disabled:opacity-30"
                 disabled={
                   isSubmitting ||
                   !isDraftHydrated ||

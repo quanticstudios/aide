@@ -8,7 +8,6 @@ import type {
 import {
   applyPaneSelection,
   applyProjectSelection,
-  applySurfaceSelection,
   applyWorkspaceSelection,
   createDefaultSpatialNavigationState,
   moveRelativePane,
@@ -187,6 +186,10 @@ describe('resolveSpatialNavigationState', () => {
       activeProjectId: 'project-b',
       activeSurfaceId: 'workspace-b2:surface:terminal',
       activeWorkspaceId: 'workspace-b2',
+      rememberedSurfaceIdsByWorkspace: {
+        'workspace-a2': 'workspace-a2:surface:preview',
+        'workspace-b2': 'workspace-b2:surface:terminal',
+      },
     })
   })
 
@@ -275,7 +278,7 @@ describe('spatial navigation transitions', () => {
     })
   })
 
-  it('remembers surfaces per workspace and restores them when switching back', () => {
+  it('restores a workspace surface and pane when switching away and back', () => {
     const snapshot = createSnapshot()
     const baseState = resolveSpatialNavigationState(
       snapshot,
@@ -283,16 +286,16 @@ describe('spatial navigation transitions', () => {
       getSurfaceIdsForWorkspace,
       getPaneIdsForSurface,
     )
-    const changedSurface = applySurfaceSelection(
+    const changedPane = applyPaneSelection(
       snapshot,
       baseState,
-      'workspace-b2:surface:git',
+      'logs',
       getSurfaceIdsForWorkspace,
       getPaneIdsForSurface,
     )
     const movedWorkspace = applyWorkspaceSelection(
       snapshot,
-      changedSurface,
+      changedPane,
       'workspace-b1',
       getSurfaceIdsForWorkspace,
       getPaneIdsForSurface,
@@ -305,11 +308,11 @@ describe('spatial navigation transitions', () => {
       getPaneIdsForSurface,
     )
 
-    expect(backAgain.activeSurfaceId).toBe('workspace-b2:surface:git')
-    expect(backAgain.activePaneId).toBe('git')
+    expect(backAgain.activeSurfaceId).toBe('workspace-b2:surface:terminal')
+    expect(backAgain.activePaneId).toBe('logs')
   })
 
-  it('wraps surface and workspace movement without resetting to zero first', () => {
+  it('keeps workspace row order during repeated project-local movement', () => {
     const snapshot = createSnapshot()
     const baseState = resolveSpatialNavigationState(
       snapshot,
@@ -318,23 +321,68 @@ describe('spatial navigation transitions', () => {
       getPaneIdsForSurface,
     )
 
-    expect(
-      moveRelativePane(
-        snapshot,
-        baseState,
-        1,
-        getSurfaceIdsForWorkspace,
-        getPaneIdsForSurface,
-      ).activeSurfaceId,
-    ).toBe('workspace-b2:surface:git')
+    const firstMove = moveRelativeWorkspace(
+      snapshot,
+      baseState,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const secondMove = moveRelativeWorkspace(
+      snapshot,
+      firstMove,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    expect(firstMove.activeWorkspaceId).toBe('workspace-b1')
+    expect(secondMove.activeWorkspaceId).toBe('workspace-b2')
     expect(
       moveRelativeWorkspace(
         snapshot,
         baseState,
-        1,
+        -1,
         getSurfaceIdsForWorkspace,
         getPaneIdsForSurface,
       ).activeWorkspaceId,
     ).toBe('workspace-b1')
+  })
+
+  it('keeps horizontal pane order during repeated movement', () => {
+    const snapshot = createSnapshot()
+    const baseState = resolveSpatialNavigationState(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    const firstMove = moveRelativePane(
+      snapshot,
+      baseState,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const secondMove = moveRelativePane(
+      snapshot,
+      firstMove,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    expect(firstMove.activeSurfaceId).toBe('workspace-b2:surface:git')
+    expect(secondMove.activeSurfaceId).toBe('workspace-b2:surface:preview')
+    expect(
+      moveRelativePane(
+        snapshot,
+        baseState,
+        -1,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForSurface,
+      ).activeSurfaceId,
+    ).toBe('workspace-b2:surface:preview')
   })
 })

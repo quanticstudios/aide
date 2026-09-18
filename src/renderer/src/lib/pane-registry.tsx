@@ -30,7 +30,11 @@ const LazyTerminalPane = lazy(() => import('../components/TerminalPane'))
 
 interface PaneRenderArgs {
   activePaneId: string | null
-  onClosePane: (paneId: string) => void
+  onClosePane: (
+    paneId: string,
+    shouldCloseViewOnly?: boolean,
+    workspaceId?: string,
+  ) => void
   onPreviewBrowserControl: (control: PreviewBrowserControl) => void
   onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
   onPreviewNavigate: (
@@ -69,7 +73,13 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
       paneId={args.pane.id}
       paneName={args.pane.label}
     >
-      <LazyTerminalPane paneId={args.pane.id} workspace={args.workspace} />
+      <LazyTerminalPane
+        onShellExit={() =>
+          args.onClosePane(args.pane.id, true, args.workspace.id)
+        }
+        paneId={args.pane.id}
+        workspace={args.workspace}
+      />
     </PaneLoadBoundary>
   ) : (
     <PaneLoadBoundary

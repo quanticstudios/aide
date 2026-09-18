@@ -1,12 +1,44 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatClaudeModelLabel,
   normalizeClaudeModelList,
   normalizeCodexModelList,
   resolveProviderSelection,
 } from './provider-capabilities'
 
 describe('provider capabilities', () => {
+  it('labels Claude models with family and version from the resolved id', () => {
+    expect(
+      formatClaudeModelLabel({
+        displayName: 'Fable',
+        resolvedModel: 'claude-fable-5-1',
+        value: 'fable',
+      }),
+    ).toBe('Claude Fable 5.1')
+    expect(
+      formatClaudeModelLabel({
+        displayName: 'Haiku',
+        resolvedModel: 'claude-haiku-4-5-20251001',
+        value: 'haiku',
+      }),
+    ).toBe('Claude Haiku 4.5')
+    expect(
+      formatClaudeModelLabel({
+        displayName: 'Default (recommended)',
+        resolvedModel: 'claude-opus-5[1m]',
+        value: 'default',
+      }),
+    ).toBe('Claude Opus 5 · 1M (default)')
+    expect(
+      formatClaudeModelLabel({
+        displayName: 'Legacy thing',
+        resolvedModel: 'claude-3-5-sonnet-20241022',
+        value: 'legacy',
+      }),
+    ).toBe('Legacy thing')
+  })
+
   it('normalizes the Claude SDK model list and preserves effortless models', () => {
     const capabilities = normalizeClaudeModelList([
       {
@@ -43,7 +75,7 @@ describe('provider capabilities', () => {
       aliases: [
         {
           explanation:
-            'The saved model “claude-opus-5[1m]” is available as Default (recommended).',
+            'The saved model “claude-opus-5[1m]” is available as Claude Opus 5 · 1M (default).',
           id: 'claude-opus-5[1m]',
         },
       ],
@@ -137,7 +169,7 @@ describe('provider capabilities', () => {
     ).toMatchObject({
       effort: 'max',
       explanation:
-        'The saved model “claude-opus-5[1m]” is available as Default (recommended).',
+        'The saved model “claude-opus-5[1m]” is available as Claude Opus 5 · 1M (default).',
       modelId: 'default',
     })
 
@@ -150,7 +182,7 @@ describe('provider capabilities', () => {
     ).toMatchObject({
       effort: 'high',
       explanation:
-        'The saved model “retired-model” is not supported by this Claude installation. Using Default (recommended) instead.',
+        'The saved model “retired-model” is not supported by this Claude installation. Using Claude Opus 5 · 1M (default) instead.',
       modelId: 'default',
       serviceTier: null,
     })
@@ -174,7 +206,7 @@ describe('provider capabilities', () => {
     ).toEqual({
       effort: null,
       explanation:
-        'Haiku does not support reasoning levels. Using the provider default instead.',
+        'Claude Haiku 4.5 does not support reasoning levels. Using the provider default instead.',
       modelId: 'haiku',
       serviceTier: null,
     })

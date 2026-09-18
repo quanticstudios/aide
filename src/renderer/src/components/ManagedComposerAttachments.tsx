@@ -1,9 +1,9 @@
-import { FileCode, Image, Paperclip, X } from 'lucide-react'
+import { FileCode, Paperclip, X } from 'lucide-react'
 import type { ManagedSessionAttachment } from '../../../shared/managed-session'
 
 interface ManagedComposerAttachmentsProps {
   readonly attachments: readonly ManagedSessionAttachment[]
-  readonly onRemove: (id: string) => void
+  readonly onRemove?: (id: string) => void
 }
 
 export default function ManagedComposerAttachments({
@@ -13,31 +13,57 @@ export default function ManagedComposerAttachments({
   return attachments.length > 0 ? (
     <div
       className="flex flex-wrap gap-1.5 px-3 pt-3"
-      data-testid="composer-attachments"
+      data-testid={onRemove ? 'composer-attachments' : 'message-attachments'}
     >
       {attachments.map((attachment) => {
         const label =
           attachment.kind === 'image' ? attachment.name : attachment.path
+        if (attachment.kind === 'image') {
+          return (
+            <div
+              className="relative size-20 shrink-0 overflow-hidden rounded-xl border border-border bg-surface-secondary"
+              key={attachment.id}
+              title={label}
+            >
+              <img
+                alt={label}
+                className="size-full object-cover"
+                src={`data:${attachment.mimeType};base64,${attachment.data}`}
+              />
+              <span className="sr-only">{label}</span>
+              {onRemove ? (
+                <button
+                  aria-label={`Remove ${label}`}
+                  className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-foreground text-surface shadow-sm hover:opacity-80"
+                  onClick={() => onRemove(attachment.id)}
+                  type="button"
+                >
+                  <X aria-hidden className="size-3" />
+                </button>
+              ) : null}
+            </div>
+          )
+        }
         return (
-          <span
-            className="inline-flex max-w-64 items-center gap-1.5 rounded-md border border-border bg-surface-secondary px-2 py-1 text-xs text-foreground"
+          <div
+            className="flex max-w-64 flex-col gap-2 rounded-md bg-surface-secondary p-2 text-xs text-foreground"
             key={attachment.id}
           >
-            {attachment.kind === 'image' ? (
-              <Image aria-hidden className="size-3 shrink-0" />
-            ) : (
+            <div className="flex min-w-0 items-center gap-2">
               <FileCode aria-hidden className="size-3 shrink-0" />
-            )}
-            <span className="truncate">{label}</span>
-            <button
-              aria-label={`Remove ${label}`}
-              className="rounded-sm text-muted-foreground hover:text-foreground"
-              onClick={() => onRemove(attachment.id)}
-              type="button"
-            >
-              <X aria-hidden className="size-3" />
-            </button>
-          </span>
+              <span className="min-w-0 flex-1 break-all">{label}</span>
+              {onRemove ? (
+                <button
+                  aria-label={`Remove ${label}`}
+                  className="flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => onRemove(attachment.id)}
+                  type="button"
+                >
+                  <X aria-hidden className="size-3" />
+                </button>
+              ) : null}
+            </div>
+          </div>
         )
       })}
     </div>
@@ -54,13 +80,13 @@ export function ManagedComposerAttachmentButton({
   return (
     <button
       aria-label="Attach workspace files"
-      className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-secondary hover:text-foreground disabled:opacity-40"
+      className="composer-tool"
       disabled={isDisabled}
       onClick={onPickFiles}
       title="Attach workspace files"
       type="button"
     >
-      <Paperclip aria-hidden className="size-3.5" />
+      <Paperclip aria-hidden className="size-4" />
     </button>
   )
 }

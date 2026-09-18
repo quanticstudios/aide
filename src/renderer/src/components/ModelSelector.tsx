@@ -272,21 +272,24 @@ export default function ModelSelector({
   return (
     <div ref={containerRef} className="relative min-w-0">
       <button
-        className="flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        className="composer-tool max-w-full"
         disabled={isDisabled || !capabilities || Boolean(providerError)}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
-        <ActiveProviderIcon className="size-3.5" />
+        <ActiveProviderIcon className="size-4 shrink-0" />
         <span className="truncate">
           {activeModel?.label ??
             (providerError ? 'Models unavailable' : 'Loading models…')}
         </span>
-        <ChevronDown className="size-3 opacity-50" />
+        <ChevronDown className="size-3.5 opacity-50" />
       </button>
 
       {isOpen ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div
+          data-model-selector-menu
+          className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        >
           <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-[var(--surface-1)] py-2">
             <ProviderRailButton
               ariaLabel="Favorites"

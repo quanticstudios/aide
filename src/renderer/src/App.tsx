@@ -61,6 +61,7 @@ import {
   applySurfaceSelection,
   applyWorkspaceSelection,
   moveRelativePane,
+  moveRelativeWorkspace,
   resolveSpatialNavigationState,
   type SpatialNavigationState,
 } from './lib/spatial-navigation-state'
@@ -449,7 +450,9 @@ function WorkspaceApp() {
     ],
   )
   storageSnapshotRef.current = storageSnapshot
-  resolvedNavigationStateRef.current = resolvedNavigationState
+  useEffect(() => {
+    resolvedNavigationStateRef.current = resolvedNavigationState
+  }, [resolvedNavigationState])
   const legacyPaneIdsByWorkspace = useMemo(
     () =>
       Object.entries(
@@ -585,13 +588,14 @@ function WorkspaceApp() {
 
         const nextState = applyWorkspaceSelection(
           snapshot,
-          resolvedNavigationState,
+          resolvedNavigationStateRef.current ?? resolvedNavigationState,
           latestWorkspaceId,
-          getSurfaceIdsForWorkspace,
-          getPaneIdsForWorkspace,
+          (workspaceId) => getSurfaceIdsForSnapshot(snapshot, workspaceId),
+          (surfaceId) => getPaneIdsForSnapshotBySurface(snapshot, surfaceId),
         )
 
         setStorageSnapshot(snapshot)
+        resolvedNavigationStateRef.current = nextState
         setSelection(nextState)
         setActionError(null)
         setShellError(null)
@@ -602,8 +606,8 @@ function WorkspaceApp() {
       }
     },
     [
-      getPaneIdsForWorkspace,
-      getSurfaceIdsForWorkspace,
+      getPaneIdsForSnapshotBySurface,
+      getSurfaceIdsForSnapshot,
       resolvedNavigationState,
       setSelection,
     ],
@@ -638,13 +642,14 @@ function WorkspaceApp() {
 
         const nextState = applyWorkspaceSelection(
           snapshot,
-          resolvedNavigationState,
+          resolvedNavigationStateRef.current ?? resolvedNavigationState,
           latestWorkspaceId,
-          getSurfaceIdsForWorkspace,
-          getPaneIdsForWorkspace,
+          (workspaceId) => getSurfaceIdsForSnapshot(snapshot, workspaceId),
+          (surfaceId) => getPaneIdsForSnapshotBySurface(snapshot, surfaceId),
         )
 
         setStorageSnapshot(snapshot)
+        resolvedNavigationStateRef.current = nextState
         setSelection(nextState)
         setActionError(null)
         setShellError(null)
@@ -655,8 +660,8 @@ function WorkspaceApp() {
       }
     },
     [
-      getPaneIdsForWorkspace,
-      getSurfaceIdsForWorkspace,
+      getPaneIdsForSnapshotBySurface,
+      getSurfaceIdsForSnapshot,
       resolvedNavigationState,
       setSelection,
     ],
@@ -970,15 +975,15 @@ function WorkspaceApp() {
 
   const handleWorkspaceSelection = useCallback(
     (workspaceId: string) => {
-      setSelection(
-        applyWorkspaceSelection(
-          navigationSnapshot,
-          resolvedNavigationState,
-          workspaceId,
-          getSurfaceIdsForWorkspace,
-          getPaneIdsForWorkspace,
-        ),
+      const selection = applyWorkspaceSelection(
+        navigationSnapshot,
+        resolvedNavigationStateRef.current ?? resolvedNavigationState,
+        workspaceId,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForWorkspace,
       )
+      resolvedNavigationStateRef.current = selection
+      setSelection(selection)
       setIsWorkspaceSwitcherVisible(false)
       setIsOverviewVisible(false)
     },
@@ -993,35 +998,15 @@ function WorkspaceApp() {
 
   const handleRelativeWorkspaceSelection = useCallback(
     (direction: -1 | 1) => {
-      const projectWorkspaces = navigationSnapshot.workspaces.filter(
-        (workspace) =>
-          workspace.projectId === resolvedNavigationState.activeProjectId,
+      const selection = moveRelativeWorkspace(
+        navigationSnapshot,
+        resolvedNavigationStateRef.current ?? resolvedNavigationState,
+        direction,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForWorkspace,
       )
-
-      if (projectWorkspaces.length === 0) return
-
-      const currentIndex = Math.max(
-        projectWorkspaces.findIndex(
-          (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
-        ),
-        0,
-      )
-      const nextIndex =
-        (currentIndex + direction + projectWorkspaces.length) %
-        projectWorkspaces.length
-      const nextWorkspace = projectWorkspaces[nextIndex]
-
-      if (nextWorkspace) {
-        setSelection(
-          applyWorkspaceSelection(
-            navigationSnapshot,
-            resolvedNavigationState,
-            nextWorkspace.id,
-            getSurfaceIdsForWorkspace,
-            getPaneIdsForWorkspace,
-          ),
-        )
-      }
+      resolvedNavigationStateRef.current = selection
+      setSelection(selection)
     },
     [
       getPaneIdsForWorkspace,
@@ -1034,15 +1019,15 @@ function WorkspaceApp() {
 
   const handleRelativePaneSelection = useCallback(
     (direction: -1 | 1) => {
-      setSelection(
-        moveRelativePane(
-          navigationSnapshot,
-          resolvedNavigationState,
-          direction,
-          getSurfaceIdsForWorkspace,
-          getPaneIdsForWorkspace,
-        ),
+      const selection = moveRelativePane(
+        navigationSnapshot,
+        resolvedNavigationStateRef.current ?? resolvedNavigationState,
+        direction,
+        getSurfaceIdsForWorkspace,
+        getPaneIdsForWorkspace,
       )
+      resolvedNavigationStateRef.current = selection
+      setSelection(selection)
     },
     [
       getPaneIdsForWorkspace,
@@ -1105,6 +1090,7 @@ function WorkspaceApp() {
       layouts: Record<string, SurfaceLayoutRecord>,
       nextActiveSurfaceId: string | null,
       nextActivePaneId: string | null,
+      shouldUpdateSelection = true,
     ) => {
       const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
       const currentSurfaceIds = resolveWorkspaceSurfaces(
@@ -1154,6 +1140,11 @@ function WorkspaceApp() {
 
       storageSnapshotRef.current = snapshot
       setStorageSnapshot(snapshot)
+      if (!shouldUpdateSelection) {
+        setShellError(null)
+        return
+      }
+
       const nextSelection = resolveSelectionForSnapshot(
         snapshot,
         workspaceId,
@@ -1174,6 +1165,7 @@ function WorkspaceApp() {
       mutateLayout: (
         layout: WorkspaceLayoutRecord,
       ) => ReturnType<typeof splitWorkspacePane>,
+      shouldUpdateSelection = true,
     ) => {
       const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
 
@@ -1220,12 +1212,16 @@ function WorkspaceApp() {
           return
         }
 
+        const collectSessionPaneIds = (layout: WorkspaceLayoutRecord) =>
+          layout.nodes.flatMap((node) =>
+            node.type === 'pane' ? node.viewIds : [],
+          )
         const nextPaneIds = new Set(
-          nextLayout ? collectWorkspaceLayoutPaneIds(nextLayout) : [],
+          nextLayout ? collectSessionPaneIds(nextLayout) : [],
         )
-        const removedPaneIds = collectWorkspaceLayoutPaneIds(
-          currentLayout,
-        ).filter((paneId) => !nextPaneIds.has(paneId))
+        const removedPaneIds = collectSessionPaneIds(currentLayout).filter(
+          (paneId) => !nextPaneIds.has(paneId),
+        )
 
         await Promise.all(
           removedPaneIds.map(async (paneId) => {
@@ -1273,6 +1269,7 @@ function WorkspaceApp() {
                   )[0] ?? null)
                 : null
               : null,
+            shouldUpdateSelection,
           )
           await closeRemovedSessions(null)
           return
@@ -1293,6 +1290,7 @@ function WorkspaceApp() {
           nextLayouts,
           surfaceId,
           result.nextActivePaneId,
+          shouldUpdateSelection,
         )
         await closeRemovedSessions(result.layout)
       } catch (error) {
@@ -1450,22 +1448,71 @@ function WorkspaceApp() {
   )
 
   const handleClosePane = useCallback(
-    (paneId: string) => {
-      const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
-      if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
+    (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
+      const snapshot = storageSnapshotRef.current ?? navigationSnapshot
+      const targetWorkspaceId =
+        workspaceId ?? resolvedNavigationStateRef.current?.activeWorkspaceId
+      const paneLocation = snapshot.workspaces
+        .filter((workspace) => workspace.id === targetWorkspaceId)
+        .flatMap((workspace) =>
+          resolveWorkspaceSurfaces(snapshot, workspace.id).map((surface) => ({
+            layout: resolveSurfaceLayout(snapshot, workspace.id, surface.id),
+            surfaceId: surface.id,
+            workspaceId: workspace.id,
+          })),
+        )
+        .find(({ layout }) =>
+          layout?.nodes.some(
+            (node) =>
+              node.type === 'pane' &&
+              (node.paneId === paneId || node.viewIds.includes(paneId)),
+          ),
+        )
+
+      if (!paneLocation) return
+
+      const currentSelection = resolvedNavigationStateRef.current
+      const shouldUpdateSelection = Boolean(
+        paneLocation.workspaceId === currentSelection?.activeWorkspaceId &&
+          paneLocation.surfaceId === currentSelection?.activeSurfaceId &&
+          paneLocation.layout?.nodes.some(
+            (node) =>
+              node.type === 'pane' &&
+              node.paneId === currentSelection?.activePaneId &&
+              (node.paneId === paneId || node.viewIds.includes(paneId)),
+          ),
+      )
+
+      void workspaceMutationQueue.enqueue(paneLocation.workspaceId, () =>
         applyWorkspaceLayoutChange(
-          activeWorkspaceId,
-          activeSurfaceId,
-          (layout) => closeWorkspacePane(layout, paneId),
+          paneLocation.workspaceId,
+          paneLocation.surfaceId,
+          (layout) => {
+            const paneNode = layout.nodes.find(
+              (node) =>
+                node.type === 'pane' &&
+                (node.paneId === paneId || node.viewIds.includes(paneId)),
+            )
+
+            if (paneNode?.type !== 'pane') {
+              return closeWorkspacePane(layout, paneId)
+            }
+
+            if (shouldCloseViewOnly && paneNode.viewIds.length > 1) {
+              return removePaneView(
+                layout,
+                paneNode.paneId,
+                paneNode.viewIds.indexOf(paneId),
+              )
+            }
+
+            return closeWorkspacePane(layout, paneNode.paneId)
+          },
+          shouldUpdateSelection,
         ),
       )
     },
-    [
-      applyWorkspaceLayoutChange,
-      resolvedNavigationState,
-      workspaceMutationQueue,
-    ],
+    [applyWorkspaceLayoutChange, navigationSnapshot, workspaceMutationQueue],
   )
 
   const handleResizePane = useCallback(
@@ -1813,7 +1860,11 @@ function WorkspaceApp() {
       }
 
       const shortcutProject =
-        event.ctrlKey || event.metaKey
+        (event.ctrlKey || event.metaKey) &&
+        !(
+          event.target instanceof Element &&
+          event.target.closest('[data-model-selector-menu]')
+        )
           ? resolveProjectShortcutTarget(navigationSnapshot.projects, event.key)
           : null
 
@@ -1886,6 +1937,7 @@ function WorkspaceApp() {
   ])
 
   useEffect(() => {
+    if (isSettingsOpen) return
     let openedByHold = false
 
     const handleAltDown = (event: KeyboardEvent) => {
@@ -1935,7 +1987,7 @@ function WorkspaceApp() {
       window.removeEventListener('keyup', handleAltUp, true)
       window.removeEventListener('blur', handleBlur)
     }
-  }, [])
+  }, [isSettingsOpen])
 
   useEffect(() => {
     if (
@@ -2338,17 +2390,17 @@ function WorkspaceApp() {
           activeWorkspaceId: null,
         })
       }
-      onSelectPane={(paneId: string) =>
-        setSelection(
-          applySurfaceSelection(
-            navigationSnapshot,
-            resolvedNavigationState,
-            paneId,
-            getSurfaceIdsForWorkspace,
-            getPaneIdsForWorkspace,
-          ),
+      onSelectPane={(paneId: string) => {
+        const selection = applySurfaceSelection(
+          navigationSnapshot,
+          resolvedNavigationStateRef.current ?? resolvedNavigationState,
+          paneId,
+          getSurfaceIdsForWorkspace,
+          getPaneIdsForWorkspace,
         )
-      }
+        resolvedNavigationStateRef.current = selection
+        setSelection(selection)
+      }}
       onCreateProject={openProject}
       onCreatePane={createPane}
       onCreateWorkspace={createWorkspace}

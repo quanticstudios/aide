@@ -6,10 +6,11 @@ import {
   GitBranch,
   LifeBuoy,
   type LucideIcon,
+  PanelBottom,
+  PanelRight,
   Plus,
   Rows2,
   Shrink,
-  Workflow,
   X,
 } from 'lucide-react'
 import type { RefObject } from 'react'
@@ -29,6 +30,7 @@ import type {
 import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
 import TaskLibraryControl from './TaskLibraryControl'
+import IconTooltip from './ui/icon-tooltip'
 import UpdateIndicator from './UpdateIndicator'
 
 interface TopBarProps {
@@ -39,12 +41,15 @@ interface TopBarProps {
   readonly fleetToggleRef: RefObject<HTMLButtonElement | null>
   readonly isFleetAvailable: boolean
   readonly isFleetOpen: boolean
+  readonly isTerminalAvailable: boolean
+  readonly isTerminalOpen: boolean
   readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
   readonly onOpenDiagnostics: () => void
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly onToggleFleet: () => void
+  readonly onToggleTerminal: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
     paneId: string,
@@ -199,21 +204,22 @@ function PaneActionBar({
               : 'text-muted-foreground hover:bg-surface-tertiary hover:text-foreground'
 
           return (
-            <Button
-              aria-label={action.label}
-              className={cn(
-                'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40',
-                toneClass,
-              )}
-              isDisabled={isDisabled}
-              isIconOnly
-              key={action.label}
-              onPress={action.onPress}
-              size="sm"
-              variant="ghost"
-            >
-              <Icon className="size-4" />
-            </Button>
+            <IconTooltip key={action.label} label={action.label}>
+              <Button
+                aria-label={action.label}
+                className={cn(
+                  'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40',
+                  toneClass,
+                )}
+                isDisabled={isDisabled}
+                isIconOnly
+                onPress={action.onPress}
+                size="sm"
+                variant="ghost"
+              >
+                <Icon className="size-4" />
+              </Button>
+            </IconTooltip>
           )
         })}
       </div>
@@ -263,12 +269,15 @@ export default function TopBar({
   fleetToggleRef,
   isFleetAvailable,
   isFleetOpen,
+  isTerminalAvailable,
+  isTerminalOpen,
   onClosePane,
   onCreatePane,
   onOpenDiagnostics,
   onOpenTask,
   onOpenUpdate,
   onToggleFleet,
+  onToggleTerminal,
   onResizePane,
   onSplitPane,
   surfaces,
@@ -319,16 +328,18 @@ export default function TopBar({
             ))}
 
             {activeWorkspace ? (
-              <Button
-                aria-label="Add pane"
-                className="size-8 shrink-0 rounded-md"
-                isIconOnly
-                onPress={onCreatePane}
-                size="sm"
-                variant="ghost"
-              >
-                <Plus className="size-4" />
-              </Button>
+              <IconTooltip label="Add pane">
+                <Button
+                  aria-label="Add pane"
+                  className="size-8 shrink-0 rounded-md"
+                  isIconOnly
+                  onPress={onCreatePane}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </IconTooltip>
             ) : null}
           </Toolbar>
         </div>
@@ -341,18 +352,45 @@ export default function TopBar({
           projectKind={activeProject?.kind ?? 'git'}
         />
         <TaskLibraryControl onOpenTask={onOpenTask} />
-        <Button
-          aria-label={isFleetOpen ? 'Close agent fleet' : 'Open agent fleet'}
-          className="size-8 shrink-0 rounded-md"
-          isDisabled={!isFleetAvailable && !isFleetOpen}
-          isIconOnly
-          onPress={onToggleFleet}
-          ref={fleetToggleRef}
-          size="sm"
-          variant={isFleetOpen ? 'secondary' : 'ghost'}
+        <IconTooltip
+          label={
+            <span className="flex items-center gap-2">
+              {isTerminalOpen ? 'Hide terminal' : 'Show terminal'}
+              <span className="flex gap-1">
+                <kbd className="keycap">Ctrl</kbd>
+                <kbd className="keycap">`</kbd>
+              </span>
+            </span>
+          }
         >
-          <Workflow aria-hidden="true" className="size-4" />
-        </Button>
+          <Button
+            aria-label={isTerminalOpen ? 'Close terminal' : 'Open terminal'}
+            className="size-8 shrink-0 rounded-md"
+            isDisabled={!isTerminalAvailable}
+            isIconOnly
+            onPress={onToggleTerminal}
+            size="sm"
+            variant={isTerminalOpen ? 'secondary' : 'ghost'}
+          >
+            <PanelBottom aria-hidden="true" className="size-4" />
+          </Button>
+        </IconTooltip>
+        <IconTooltip
+          label={isFleetOpen ? 'Hide agent fleet' : 'Show agent fleet'}
+        >
+          <Button
+            aria-label={isFleetOpen ? 'Close agent fleet' : 'Open agent fleet'}
+            className="size-8 shrink-0 rounded-md"
+            isDisabled={!isFleetAvailable && !isFleetOpen}
+            isIconOnly
+            onPress={onToggleFleet}
+            ref={fleetToggleRef}
+            size="sm"
+            variant={isFleetOpen ? 'secondary' : 'ghost'}
+          >
+            <PanelRight aria-hidden="true" className="size-4" />
+          </Button>
+        </IconTooltip>
         <UpdateIndicator
           onOpen={onOpenUpdate}
           presentation={updatePresentation}

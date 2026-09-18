@@ -7,6 +7,7 @@ import type {
   TaskLibrarySnapshot,
   TaskMetadataUpdate,
 } from '../../../shared/task-library'
+import IconTooltip from './ui/icon-tooltip'
 
 const STATUS_LABELS: Record<SavedTask['status'], string> = {
   approval: 'Needs approval',
@@ -189,32 +190,42 @@ export default function TaskLibraryControl({
 
   return (
     <>
-      <Button
-        aria-label="Open task history"
-        isIconOnly
-        size="sm"
-        variant="ghost"
-        onPress={() => {
-          setMode('history')
-          setQuery('')
-          setError(null)
-        }}
+      <IconTooltip label="Task history">
+        <Button
+          aria-label="Open task history"
+          isIconOnly
+          size="sm"
+          variant="ghost"
+          onPress={() => {
+            setMode('history')
+            setQuery('')
+            setError(null)
+          }}
+        >
+          <History aria-hidden="true" className="size-4" />
+        </Button>
+      </IconTooltip>
+      <IconTooltip
+        label={
+          unreadCount
+            ? `Activity inbox · ${unreadCount} unread`
+            : 'Activity inbox'
+        }
       >
-        <History aria-hidden="true" className="size-4" />
-      </Button>
-      <Button
-        aria-label={`Open activity inbox${unreadCount ? ` (${unreadCount} unread)` : ''}`}
-        size="sm"
-        variant="ghost"
-        onPress={() => {
-          setMode('activity')
-          setQuery('')
-          setError(null)
-        }}
-      >
-        <Bell aria-hidden="true" className="size-4" />
-        {unreadCount > 0 ? <span>{unreadCount}</span> : null}
-      </Button>
+        <Button
+          aria-label={`Open activity inbox${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+          size="sm"
+          variant="ghost"
+          onPress={() => {
+            setMode('activity')
+            setQuery('')
+            setError(null)
+          }}
+        >
+          <Bell aria-hidden="true" className="size-4" />
+          {unreadCount > 0 ? <span>{unreadCount}</span> : null}
+        </Button>
+      </IconTooltip>
       <Modal>
         <Modal.Backdrop
           isDismissable

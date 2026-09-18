@@ -185,24 +185,21 @@ export function resolveSpatialNavigationState(
     activeProjectId,
     activeSurfaceId,
     activeWorkspaceId,
-    rememberedPaneIdsBySurface: activeSurfaceId
-      ? {
-          ...state.rememberedPaneIdsBySurface,
-          [activeSurfaceId]: activePaneId,
-        }
-      : state.rememberedPaneIdsBySurface,
-    rememberedSurfaceIdsByWorkspace: activeWorkspaceId
-      ? {
-          ...state.rememberedSurfaceIdsByWorkspace,
-          [activeWorkspaceId]: activeSurfaceId,
-        }
-      : state.rememberedSurfaceIdsByWorkspace,
-    rememberedWorkspaceIdsByProject: activeProjectId
-      ? {
-          ...state.rememberedWorkspaceIdsByProject,
-          [activeProjectId]: activeWorkspaceId,
-        }
-      : state.rememberedWorkspaceIdsByProject,
+    rememberedPaneIdsBySurface: {
+      ...(snapshot.lastActivePaneIdsBySurface ?? {}),
+      ...state.rememberedPaneIdsBySurface,
+      ...(activeSurfaceId ? { [activeSurfaceId]: activePaneId } : {}),
+    },
+    rememberedSurfaceIdsByWorkspace: {
+      ...(snapshot.lastActiveSurfaceIdsByWorkspace ?? {}),
+      ...state.rememberedSurfaceIdsByWorkspace,
+      ...(activeWorkspaceId ? { [activeWorkspaceId]: activeSurfaceId } : {}),
+    },
+    rememberedWorkspaceIdsByProject: {
+      ...snapshot.lastActiveWorkspaceIdsByProject,
+      ...state.rememberedWorkspaceIdsByProject,
+      ...(activeProjectId ? { [activeProjectId]: activeWorkspaceId } : {}),
+    },
   }
 }
 

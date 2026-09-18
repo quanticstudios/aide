@@ -10,7 +10,7 @@ interface MarkdownContentProps {
 
 export default function MarkdownContent({ text }: MarkdownContentProps) {
   return (
-    <div className="prose max-w-none text-sm">
+    <div className="prose max-w-none">
       <ReactMarkdown
         rehypePlugins={[rehypeHighlight]}
         remarkPlugins={[remarkGfm]}

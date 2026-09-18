@@ -1,10 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { initializeAnimationPreference } from './lib/animation-preference'
 import './styles.css'
 
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'dark'
+initializeAnimationPreference()
 
 function reportRendererFault(
   type: 'renderer-exception' | 'renderer-unhandled-rejection',

@@ -13,18 +13,26 @@ import {
   MessageSquare,
   MoreHorizontal,
   PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Settings,
   Terminal,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { formatWorkspaceShortcutLabel } from '@/lib/platform'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
 import {
-  type WorkspaceSummary,
   resolveProjectSummaryActivity,
+  type WorkspaceSummary,
 } from '@/lib/workspace-summary'
 import type { WorktreeBranchStats } from '../../../shared/git'
 import type {
@@ -41,6 +49,7 @@ import {
   resolveWorkspaceAttentionTier,
   shouldPulseWorkspaceActivity,
 } from '../../../shared/workspace-activity'
+import './SidebarTree.css'
 
 const BRANCH_STATS_POLL_INTERVAL_MS = 30_000
 const TIMESTAMP_TICK_INTERVAL_MS = 10_000
@@ -250,7 +259,7 @@ function ProjectOverflowMenu({
     <div className="relative">
       <button
         aria-label={`More options for ${projectName}`}
-        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-all hover:bg-surface-secondary hover:text-foreground group-hover/project:opacity-100"
+        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-surface-secondary hover:text-foreground group-hover/project:opacity-100"
         onClick={() => setIsOpen((current) => !current)}
         ref={triggerRef}
         type="button"
@@ -315,6 +324,8 @@ export default function SidebarTree({
   summaries,
   workspaces,
 }: SidebarTreeProps) {
+  const expandedTreeRef = useRef<HTMLElement | null>(null)
+  const collapsedFocusKeyRef = useRef<string | null>(null)
   const [expandedProjectIds, setExpandedProjectIds] = useState<
     Record<string, boolean>
   >({})
@@ -435,119 +446,140 @@ export default function SidebarTree({
     return result
   }, [workspaces])
 
+  useLayoutEffect(() => {
+    const focusKey = collapsedFocusKeyRef.current
+
+    if (!isExpanded || !focusKey) {
+      return
+    }
+
+    expandedTreeRef.current
+      ?.querySelector<HTMLElement>(`[data-sidebar-focus-key="${focusKey}"]`)
+      ?.focus()
+    collapsedFocusKeyRef.current = null
+  }, [isExpanded])
+
   // ── Collapsed rail ──────────────────────────────
 
-  if (!isExpanded) {
-    return (
-      <aside
-        className="flex h-full w-12 flex-col items-center border-r border-border bg-sidebar px-1 py-3"
-        data-expanded="false"
-        data-testid="workspace-tree-panel"
+  const collapsedRail = (
+    <aside
+      aria-hidden={isExpanded}
+      className="flex h-full w-12 flex-col items-center border-r border-border bg-sidebar px-1 py-3"
+      data-sidebar-surface="collapsed"
+      inert={isExpanded}
+      onFocusCapture={(event) => {
+        collapsedFocusKeyRef.current =
+          event.target instanceof HTMLElement
+            ? (event.target.dataset.sidebarFocusKey ?? null)
+            : null
+      }}
+    >
+      <button
+        aria-label="Pin workspace sidebar open"
+        className="flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-secondary hover:text-foreground"
+        data-sidebar-focus-key="home"
+        onClick={onTogglePinnedOpen}
+        tabIndex={0}
+        type="button"
       >
-        <button
-          aria-label="Workspace sidebar"
-          className="flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground"
-          tabIndex={0}
-          type="button"
-        >
-          <FolderKanban className="size-3.5" />
-        </button>
+        <PanelLeftOpen className="size-3.5" />
+      </button>
 
-        <div className="mt-4 flex flex-1 flex-col items-center gap-2">
-          {projects.map((project, index) => {
-            const isActive = project.id === activeProjectId
-            const projectActivity = resolveProjectSummaryActivity(
-              summaries,
-              workspaces,
-              project.id,
-            )
-            const attentionCount = workspaces
-              .filter((ws) => ws.projectId === project.id)
-              .filter(
-                (ws) =>
-                  resolveWorkspaceAttentionTier(
-                    summaries[ws.id]?.activity ?? null,
-                  ) === 'attention',
-              ).length
+      <div className="mt-4 flex flex-1 flex-col items-center gap-2">
+        {projects.map((project, index) => {
+          const isActive = project.id === activeProjectId
+          const projectActivity = resolveProjectSummaryActivity(
+            summaries,
+            workspaces,
+            project.id,
+          )
+          const attentionCount = workspaces
+            .filter((ws) => ws.projectId === project.id)
+            .filter(
+              (ws) =>
+                resolveWorkspaceAttentionTier(
+                  summaries[ws.id]?.activity ?? null,
+                ) === 'attention',
+            ).length
 
-            return (
-              <button
-                aria-label={`Project ${project.name}`}
-                className={cn(
-                  'relative flex size-9 items-center justify-center rounded-md border text-[10px] font-semibold tracking-[0.1em] transition-colors',
-                  isActive
-                    ? 'border-border bg-surface-elevated text-foreground'
-                    : 'border-border bg-surface text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
-                )}
-                data-testid={`project-rail-button-${project.id}`}
-                key={project.id}
-                onClick={() => onSelectProject(project.id)}
-                type="button"
-              >
-                {getProjectGlyph(project.name)}
-                {attentionCount > 0 ? (
-                  <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
-                    {attentionCount}
-                  </span>
-                ) : projectActivity ? (
-                  <span
-                    className={cn(
-                      'absolute -left-0.5 -top-0.5 size-2.5 rounded-full',
-                      resolveWorkspaceActivityDotClassName(projectActivity),
-                      shouldPulseWorkspaceActivity(projectActivity) &&
-                        'animate-pulse',
-                    )}
-                  />
-                ) : null}
-                {showProjectHints ? (
-                  <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-surface-tertiary text-[8px] font-semibold text-muted-foreground">
-                    {index + 1}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
+          return (
+            <button
+              aria-label={`Project ${project.name}`}
+              className={cn(
+                'relative flex size-9 items-center justify-center rounded-md border text-[10px] font-semibold tracking-[0.1em] transition-colors',
+                isActive
+                  ? 'border-border bg-surface-elevated text-foreground'
+                  : 'border-border bg-surface text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
+              )}
+              data-testid={
+                isExpanded ? undefined : `project-rail-button-${project.id}`
+              }
+              data-sidebar-focus-key={`project-${project.id}`}
+              key={project.id}
+              onClick={() => onSelectProject(project.id)}
+              type="button"
+            >
+              {getProjectGlyph(project.name)}
+              {attentionCount > 0 ? (
+                <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
+                  {attentionCount}
+                </span>
+              ) : projectActivity ? (
+                <span
+                  className={cn(
+                    'absolute -left-0.5 -top-0.5 size-2.5 rounded-full',
+                    resolveWorkspaceActivityDotClassName(projectActivity),
+                    shouldPulseWorkspaceActivity(projectActivity) &&
+                      'animate-pulse',
+                  )}
+                />
+              ) : null}
+              {showProjectHints ? (
+                <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-surface-tertiary text-[8px] font-semibold text-muted-foreground">
+                  {index + 1}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
 
-        <Button
-          aria-label="Open project"
-          className="size-8 rounded-md"
-          isIconOnly
-          onPress={onCreateProject}
-          size="sm"
-          variant="ghost"
-        >
-          <Plus className="size-3.5" />
-        </Button>
-      </aside>
-    )
-  }
+      <Button
+        aria-label="Open project"
+        className="size-8 rounded-md"
+        data-sidebar-focus-key="add-project"
+        isIconOnly
+        onPress={onCreateProject}
+        size="sm"
+        variant="ghost"
+      >
+        <Plus className="size-3.5" />
+      </Button>
+      <button
+        aria-label="Open settings"
+        className="mt-1 flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        data-sidebar-action="settings"
+        data-sidebar-focus-key="settings"
+        onClick={(event) => onOpenSettings(event.currentTarget)}
+        type="button"
+      >
+        <Settings aria-hidden className="size-3.5" />
+      </button>
+    </aside>
+  )
 
   // ── Expanded tree ───────────────────────────────
 
-  return (
+  const expandedTree = (
     <aside
-      className="flex h-full w-72 flex-col overflow-hidden border-r border-border bg-sidebar transition-[width,opacity] duration-180 ease-out opacity-100"
-      data-expanded="true"
-      data-testid="workspace-tree-panel"
+      aria-hidden={!isExpanded}
+      className="sidebar-tree-expanded absolute inset-y-0 left-0 z-20 flex w-72 flex-col overflow-hidden border-r border-border bg-sidebar"
+      data-sidebar-surface="expanded"
+      data-visible={isExpanded ? 'true' : 'false'}
+      inert={!isExpanded}
+      ref={expandedTreeRef}
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
-        <button
-          aria-current={activeProjectId === null ? 'true' : undefined}
-          className={cn(
-            'project-row flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left',
-            activeProjectId === null && 'is-active',
-          )}
-          data-testid="sidebar-home-button"
-          onClick={onSelectHome}
-          type="button"
-        >
-          <Home className="size-3.5 text-muted-foreground" />
-          <span className="truncate text-sm font-semibold text-foreground">
-            Home
-          </span>
-        </button>
-
         <Button
           aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
           className={cn(
@@ -559,8 +591,28 @@ export default function SidebarTree({
           size="sm"
           variant="ghost"
         >
-          <PanelLeftClose className="size-3.5" />
+          {isPinnedOpen ? (
+            <PanelLeftClose className="size-3.5" />
+          ) : (
+            <PanelLeftOpen className="size-3.5" />
+          )}
         </Button>
+        <button
+          aria-current={activeProjectId === null ? 'true' : undefined}
+          className={cn(
+            'project-row flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left',
+            activeProjectId === null && 'is-active',
+          )}
+          data-sidebar-focus-key="home"
+          data-testid="sidebar-home-button"
+          onClick={onSelectHome}
+          type="button"
+        >
+          <Home className="size-3.5 text-muted-foreground" />
+          <span className="truncate text-sm font-semibold text-foreground">
+            Home
+          </span>
+        </button>
       </div>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
@@ -615,7 +667,12 @@ export default function SidebarTree({
                         ? 'text-foreground'
                         : 'text-foreground/80',
                     )}
-                    data-testid={`project-rail-button-${project.id}`}
+                    data-testid={
+                      isExpanded
+                        ? `project-rail-button-${project.id}`
+                        : undefined
+                    }
+                    data-sidebar-focus-key={`project-${project.id}`}
                     onClick={toggleProject}
                     type="button"
                   >
@@ -820,6 +877,7 @@ export default function SidebarTree({
       <div className="flex items-center gap-1 border-t border-border px-2 py-2">
         <Button
           className="flex h-7 flex-1 items-center justify-start gap-2 rounded-md px-2 text-[12.5px] font-medium text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+          data-sidebar-focus-key="add-project"
           onPress={onCreateProject}
           variant="ghost"
         >
@@ -845,6 +903,7 @@ export default function SidebarTree({
         <button
           aria-label="Open settings"
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-sidebar-focus-key="settings"
           onClick={(event) => onOpenSettings(event.currentTarget)}
           type="button"
         >
@@ -852,5 +911,16 @@ export default function SidebarTree({
         </button>
       </div>
     </aside>
+  )
+
+  return (
+    <div
+      className="relative h-full w-full overflow-visible"
+      data-expanded={isExpanded ? 'true' : 'false'}
+      data-testid="workspace-tree-panel"
+    >
+      {collapsedRail}
+      {expandedTree}
+    </div>
   )
 }

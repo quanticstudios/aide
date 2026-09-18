@@ -128,13 +128,13 @@ export default function ReasoningExtrasDropdown({
   return (
     <div ref={containerRef} className="relative">
       <button
-        className="composer-pill flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold disabled:pointer-events-none disabled:opacity-30"
+        className="composer-tool is-pill"
         disabled={isDisabled || !modelCapability || !hasReasoningOptions}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
         {extraLabel ? `${effortLabel} · ${extraLabel}` : effortLabel}
-        <ChevronDown className="size-3 opacity-50" />
+        <ChevronDown className="size-3.5 opacity-50" />
       </button>
 
       {isOpen && modelCapability ? (

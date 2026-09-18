@@ -1,11 +1,11 @@
 import type { ManagedSessionAgentConfig } from './conversation-routing'
-import type { ResolvedProviderSkill } from './provider-skills'
 import type { FleetState } from './fleet'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
 } from './provider-runtime'
+import type { ResolvedProviderSkill } from './provider-skills'
 import type { ManagedSessionMode } from './terminal'
 
 export type ManagedSessionProvider = ManagedProviderRuntimeProvider
@@ -148,6 +148,7 @@ export interface ManagedSessionTurnSummary {
 }
 
 export interface ManagedSessionContentItem {
+  attachments?: ManagedSessionAttachment[]
   id: string
   kind: ManagedSessionContentKind
   model?: string | null
