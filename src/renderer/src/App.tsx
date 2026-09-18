@@ -1383,7 +1383,11 @@ function WorkspaceApp() {
   )
 
   const handleCreatePane = useCallback(
-    async (templatePaneId: string, requestedWorkspaceId?: string) => {
+    async (
+      templatePaneId: string,
+      requestedWorkspaceId?: string,
+      shouldRestoreClosedAgent = true,
+    ) => {
       const workspaceId =
         requestedWorkspaceId ??
         resolvedNavigationStateRef.current?.activeWorkspaceId ??
@@ -1394,6 +1398,45 @@ function WorkspaceApp() {
       }
 
       try {
+        if (
+          shouldRestoreClosedAgent &&
+          getPaneTemplateId(templatePaneId) === 'agent'
+        ) {
+          const api = getAideApi()
+          if (!api) {
+            throw new Error(
+              'Desktop bridge did not load. Reload the app window.',
+            )
+          }
+          const currentSnapshot =
+            storageSnapshotRef.current ?? navigationSnapshot
+          const openPaneIds = new Set(
+            resolveWorkspaceSurfaces(currentSnapshot, workspaceId).flatMap(
+              (surface) => {
+                const layout = resolveSurfaceLayout(
+                  currentSnapshot,
+                  workspaceId,
+                  surface.id,
+                )
+                return layout ? collectWorkspaceLayoutPaneIds(layout) : []
+              },
+            ),
+          )
+          const closedAgentTask = (await api.getTaskLibrary()).tasks.find(
+            (task) =>
+              !task.archived &&
+              task.workspaceId === workspaceId &&
+              getPaneTemplateId(task.paneId) === 'agent' &&
+              !openPaneIds.has(task.paneId),
+          )
+
+          if (closedAgentTask) {
+            await handleOpenTask(closedAgentTask)
+            setIsPaneCreationOpen(false)
+            return
+          }
+        }
+
         await workspaceMutationQueue.enqueue(workspaceId, async () => {
           const currentSnapshot =
             storageSnapshotRef.current ?? navigationSnapshot
@@ -1444,6 +1487,7 @@ function WorkspaceApp() {
     },
     [
       navigationSnapshot,
+      handleOpenTask,
       persistWorkspaceSurfaceStateChange,
       resolvedNavigationState.activeWorkspaceId,
       workspaceMutationQueue,
@@ -1472,7 +1516,7 @@ function WorkspaceApp() {
         null
 
       if (workspaceId) {
-        void handleCreatePane('agent', workspaceId)
+        void handleCreatePane('agent', workspaceId, false)
       }
     },
     [handleCreatePane, navigationSnapshot, resolvedNavigationState],
