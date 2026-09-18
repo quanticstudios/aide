@@ -432,25 +432,6 @@ button:active:not(:disabled),
   transition: scale 160ms var(--ease-out-strong);
 }
 
-/* ── Sidebar — solid canvas, no glass blur ──────── */
-
-[data-state="expanded"] [data-sidebar="sidebar"] {
-  background: var(--sidebar);
-}
-
-/* ── Active sidebar item — white inset rail + ladder lift, no tint ── */
-
-[data-sidebar="menu-button"][data-active="true"] {
-  box-shadow: inset 2px 0 0 var(--primary);
-  background: var(--surface);
-}
-
-/* ── Sidebar hover — ladder lift, no shadow ────── */
-
-[data-sidebar="menu-button"]:hover {
-  background: var(--surface-secondary);
-}
-
 /* ── Editor pane ─────────────────────────────── */
 
 .editor-pane {
@@ -838,37 +819,24 @@ textarea:focus-visible {
 
 /* ── Hover/interactive utilities ──────────────────────────────────────── */
 
-.btn-ghost,
 .btn-icon,
 .btn-surface,
 .btn-primary,
 .btn-danger-ghost,
 .pane-tab,
 .filter-pill,
-.composer-pill,
 .row-hover,
 .overview-card,
 .notif-item,
 .editor-tab,
 .job-row,
-.change-row,
-.project-row,
-.workspace-row,
-.pane-tool {
+.change-row {
   transition:
     background-color var(--t-fast),
     color var(--t-fast),
     border-color var(--t-fast),
     box-shadow var(--t-fast),
     transform var(--t-fast);
-}
-
-.btn-ghost {
-  background-color: transparent;
-}
-.btn-ghost:hover {
-  background-color: var(--surface-2);
-  color: var(--foreground);
 }
 
 .btn-icon {
@@ -935,52 +903,10 @@ textarea:focus-visible {
   background-color: var(--surface-2);
 }
 
-.composer-pill {
-  background-color: var(--surface-2);
-  color: var(--body);
-  border: 1px solid var(--border);
-}
-.composer-pill:hover {
-  background-color: var(--surface-3);
-  color: var(--foreground);
-  border-color: var(--border-strong);
-}
-
-.pane-tool {
-  background-color: transparent;
-  color: var(--body);
-  border: 1px solid var(--border);
-}
-.pane-tool:hover {
-  background-color: var(--surface-2);
-  color: var(--foreground);
-  border-color: var(--border-strong);
-}
-
 .row-hover {
   background-color: transparent;
 }
 .row-hover:hover {
-  background-color: var(--surface-2);
-}
-
-.project-row {
-  background-color: transparent;
-}
-.project-row:hover:not(.is-active) {
-  background-color: var(--surface-1);
-}
-.project-row.is-active {
-  background-color: var(--surface-1);
-}
-
-.workspace-row {
-  background-color: transparent;
-}
-.workspace-row:hover:not(.is-active) {
-  background-color: var(--surface-2);
-}
-.workspace-row.is-active {
   background-color: var(--surface-2);
 }
 
@@ -1069,6 +995,18 @@ textarea:focus-visible {
     opacity: 0;
     transform: translateX(8px);
   }
+}
+
+.fleet-drawer-shell {
+  position: relative;
+  flex-shrink: 0;
+  width: 0;
+  overflow: clip;
+  transition: width 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.fleet-drawer-shell[data-open="true"] {
+  width: min(30rem, 50%);
 }
 
 .fleet-drawer {

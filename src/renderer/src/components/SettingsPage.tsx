@@ -1,16 +1,15 @@
-import { Button, Input, ListBox, Select, Switch } from '@heroui/react'
+import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-
+import type {
+  UpdatePreferencesInput,
+  UpdatePreferencesSnapshot,
+} from '../../../shared/update'
 import {
   type AnimationPreference,
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
-import type {
-  UpdatePreferencesInput,
-  UpdatePreferencesSnapshot,
-} from '../../../shared/update'
 
 export interface SettingsShortcut {
   readonly description?: string
@@ -28,6 +27,7 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
     label: 'Navigate',
     shortcuts: [
       { keys: ['Ctrl', 'K'], label: 'Open command palette' },
+      { keys: ['Ctrl', 'B'], label: 'Toggle left sidebar' },
       { keys: ['Ctrl/Cmd', 'Tab'], label: 'Open workspace overview' },
       { keys: ['Alt', 'Space'], label: 'Open workspace switcher' },
       {
@@ -108,17 +108,25 @@ export function filterSettingsShortcutGroups(
 ): readonly SettingsShortcutGroup[] {
   const normalizedQuery = query.trim().toLowerCase()
   if (!normalizedQuery) return SETTINGS_SHORTCUT_GROUPS
+  const queryWords = normalizedQuery.split(/[\s+]+/).filter(Boolean)
 
   return SETTINGS_SHORTCUT_GROUPS.map((group) => ({
     ...group,
-    shortcuts: group.shortcuts.filter((shortcut) =>
-      [
+    shortcuts: group.shortcuts.filter((shortcut) => {
+      const searchableText = [
         group.label,
         shortcut.label,
         shortcut.description ?? '',
         shortcut.keys.join(' '),
-      ].some((value) => value.toLowerCase().includes(normalizedQuery)),
-    ),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return queryWords.every((word) =>
+        word.length === 1
+          ? searchableText.split(/[^a-z0-9]+/).includes(word)
+          : searchableText.includes(word),
+      )
+    }),
   })).filter((group) => group.shortcuts.length > 0)
 }
 
@@ -335,26 +343,27 @@ export default function SettingsPage({
           </h1>
         </div>
 
-        <label
-          htmlFor="settings-search"
-          className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-surface-3 px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring"
+        <InputGroup
+          fullWidth
+          className="h-8 min-h-0 min-w-0 rounded-md border border-border bg-surface-3 shadow-none"
         >
-          <Search
-            aria-hidden="true"
-            className="size-3.5 text-muted-foreground"
-          />
-          <span className="sr-only">Search settings</span>
-          <Input
+          <InputGroup.Prefix className="px-2">
+            <Search
+              aria-hidden="true"
+              className="size-3.5 text-muted-foreground"
+            />
+          </InputGroup.Prefix>
+          <InputGroup.Input
             aria-label="Search settings"
             id="settings-search"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            className="min-w-0 text-[13px] placeholder:text-muted-foreground"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search settings"
             ref={searchRef}
             type="search"
             value={query}
           />
-        </label>
+        </InputGroup>
 
         <nav
           aria-label="Settings categories"

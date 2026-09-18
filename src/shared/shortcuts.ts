@@ -1,5 +1,6 @@
 export type AppShortcutEvent =
   | { type: 'command-palette-open' }
+  | { type: 'sidebar-toggle' }
   | { type: 'overview-open' }
   | { type: 'pane-create' }
   | { type: 'pane-next' }
@@ -90,6 +91,10 @@ export function mapShortcutInputToAppEvent(
 
   if (isCtrlOnly && normalizedKey === 'k') {
     return { type: 'command-palette-open' }
+  }
+
+  if (isCtrlOnly && normalizedKey === 'b') {
+    return { type: 'sidebar-toggle' }
   }
 
   if (isAltOnly && normalizedKey === 'n') {

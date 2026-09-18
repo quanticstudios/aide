@@ -8,32 +8,19 @@ import {
   Folder,
   FolderKanban,
   GitBranch,
-  Home,
   Loader2,
   MessageSquare,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Settings,
   Terminal,
 } from 'lucide-react'
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatWorkspaceShortcutLabel } from '@/lib/platform'
 import { formatRelativeTime } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
-import {
-  resolveProjectSummaryActivity,
-  type WorkspaceSummary,
-} from '@/lib/workspace-summary'
+import type { WorkspaceSummary } from '@/lib/workspace-summary'
+import aideIcon from '../../../../build/icon.png'
 import type { WorktreeBranchStats } from '../../../shared/git'
 import type {
   ProjectRecord,
@@ -58,31 +45,17 @@ interface SidebarTreeProps {
   readonly activeProjectId: string | null
   readonly activeWorkspaceId: string | null
   readonly isExpanded: boolean
-  readonly isPinnedOpen: boolean
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenSettings: (trigger: HTMLElement) => void
-  readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
-  readonly onTogglePinnedOpen: () => void
   readonly projects: readonly ProjectRecord[]
   readonly showProjectHints: boolean
   readonly summaries: Record<string, WorkspaceSummary>
   readonly workspaces: readonly WorkspaceRecord[]
-}
-
-function getProjectGlyph(projectName: string): string {
-  const [first = '', second = ''] = projectName
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-
-  return (
-    `${first}${second}`.slice(0, 2).toUpperCase() ||
-    projectName.slice(0, 2).toUpperCase()
-  )
 }
 
 function renderWorkspaceStateIcon(input: {
@@ -309,23 +282,18 @@ export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
   isExpanded,
-  isPinnedOpen,
   onCreateProject,
   onCreateWorkspace,
   onConfigureProjectSetup,
   onOpenSettings,
-  onSelectHome,
   onSelectPane,
   onSelectProject,
   onSelectWorkspace,
-  onTogglePinnedOpen,
   projects,
   showProjectHints,
   summaries,
   workspaces,
 }: SidebarTreeProps) {
-  const expandedTreeRef = useRef<HTMLElement | null>(null)
-  const collapsedFocusKeyRef = useRef<string | null>(null)
   const [expandedProjectIds, setExpandedProjectIds] = useState<
     Record<string, boolean>
   >({})
@@ -446,130 +414,6 @@ export default function SidebarTree({
     return result
   }, [workspaces])
 
-  useLayoutEffect(() => {
-    const focusKey = collapsedFocusKeyRef.current
-
-    if (!isExpanded || !focusKey) {
-      return
-    }
-
-    expandedTreeRef.current
-      ?.querySelector<HTMLElement>(`[data-sidebar-focus-key="${focusKey}"]`)
-      ?.focus()
-    collapsedFocusKeyRef.current = null
-  }, [isExpanded])
-
-  // ── Collapsed rail ──────────────────────────────
-
-  const collapsedRail = (
-    <aside
-      aria-hidden={isExpanded}
-      className="flex h-full w-12 flex-col items-center border-r border-border bg-sidebar px-1 py-3"
-      data-sidebar-surface="collapsed"
-      inert={isExpanded}
-      onFocusCapture={(event) => {
-        collapsedFocusKeyRef.current =
-          event.target instanceof HTMLElement
-            ? (event.target.dataset.sidebarFocusKey ?? null)
-            : null
-      }}
-    >
-      <button
-        aria-label="Pin workspace sidebar open"
-        className="flex size-8 items-center justify-center rounded-md border border-border bg-surface text-muted-foreground transition-colors hover:bg-surface-secondary hover:text-foreground"
-        data-sidebar-focus-key="home"
-        onClick={onTogglePinnedOpen}
-        tabIndex={0}
-        type="button"
-      >
-        <PanelLeftOpen className="size-3.5" />
-      </button>
-
-      <div className="mt-4 flex flex-1 flex-col items-center gap-2">
-        {projects.map((project, index) => {
-          const isActive = project.id === activeProjectId
-          const projectActivity = resolveProjectSummaryActivity(
-            summaries,
-            workspaces,
-            project.id,
-          )
-          const attentionCount = workspaces
-            .filter((ws) => ws.projectId === project.id)
-            .filter(
-              (ws) =>
-                resolveWorkspaceAttentionTier(
-                  summaries[ws.id]?.activity ?? null,
-                ) === 'attention',
-            ).length
-
-          return (
-            <button
-              aria-label={`Project ${project.name}`}
-              className={cn(
-                'relative flex size-9 items-center justify-center rounded-md border text-[10px] font-semibold tracking-[0.1em] transition-colors',
-                isActive
-                  ? 'border-border bg-surface-elevated text-foreground'
-                  : 'border-border bg-surface text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
-              )}
-              data-testid={
-                isExpanded ? undefined : `project-rail-button-${project.id}`
-              }
-              data-sidebar-focus-key={`project-${project.id}`}
-              key={project.id}
-              onClick={() => onSelectProject(project.id)}
-              type="button"
-            >
-              {getProjectGlyph(project.name)}
-              {attentionCount > 0 ? (
-                <span className="absolute -left-0.5 -top-0.5 flex size-4 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
-                  {attentionCount}
-                </span>
-              ) : projectActivity ? (
-                <span
-                  className={cn(
-                    'absolute -left-0.5 -top-0.5 size-2.5 rounded-full',
-                    resolveWorkspaceActivityDotClassName(projectActivity),
-                    shouldPulseWorkspaceActivity(projectActivity) &&
-                      'animate-pulse',
-                  )}
-                />
-              ) : null}
-              {showProjectHints ? (
-                <span className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-border bg-surface-tertiary text-[8px] font-semibold text-muted-foreground">
-                  {index + 1}
-                </span>
-              ) : null}
-            </button>
-          )
-        })}
-      </div>
-
-      <Button
-        aria-label="Open project"
-        className="size-8 rounded-md"
-        data-sidebar-focus-key="add-project"
-        isIconOnly
-        onPress={onCreateProject}
-        size="sm"
-        variant="ghost"
-      >
-        <Plus className="size-3.5" />
-      </Button>
-      <button
-        aria-label="Open settings"
-        className="mt-1 flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-        data-sidebar-action="settings"
-        data-sidebar-focus-key="settings"
-        onClick={(event) => onOpenSettings(event.currentTarget)}
-        type="button"
-      >
-        <Settings aria-hidden className="size-3.5" />
-      </button>
-    </aside>
-  )
-
-  // ── Expanded tree ───────────────────────────────
-
   const expandedTree = (
     <aside
       aria-hidden={!isExpanded}
@@ -577,42 +421,22 @@ export default function SidebarTree({
       data-sidebar-surface="expanded"
       data-visible={isExpanded ? 'true' : 'false'}
       inert={!isExpanded}
-      ref={expandedTreeRef}
     >
       <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3">
-        <Button
-          aria-label={isPinnedOpen ? 'Unpin sidebar' : 'Pin sidebar open'}
-          className={cn(
-            'size-7 rounded-md',
-            isPinnedOpen && 'border-border bg-surface-elevated text-foreground',
-          )}
-          isIconOnly
-          onPress={onTogglePinnedOpen}
-          size="sm"
-          variant="ghost"
+        <div
+          className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1"
+          data-testid="sidebar-brand"
         >
-          {isPinnedOpen ? (
-            <PanelLeftClose className="size-3.5" />
-          ) : (
-            <PanelLeftOpen className="size-3.5" />
-          )}
-        </Button>
-        <button
-          aria-current={activeProjectId === null ? 'true' : undefined}
-          className={cn(
-            'project-row flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left',
-            activeProjectId === null && 'is-active',
-          )}
-          data-sidebar-focus-key="home"
-          data-testid="sidebar-home-button"
-          onClick={onSelectHome}
-          type="button"
-        >
-          <Home className="size-3.5 text-muted-foreground" />
+          <img
+            alt=""
+            className="size-6 shrink-0 object-contain"
+            src={aideIcon}
+            style={{ transform: 'translateY(-3px)' }}
+          />
           <span className="truncate text-sm font-semibold text-foreground">
-            Home
+            aIDE
           </span>
-        </button>
+        </div>
       </div>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
@@ -919,7 +743,6 @@ export default function SidebarTree({
       data-expanded={isExpanded ? 'true' : 'false'}
       data-testid="workspace-tree-panel"
     >
-      {collapsedRail}
       {expandedTree}
     </div>
   )

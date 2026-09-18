@@ -32,6 +32,14 @@ describe('SettingsPage', () => {
     ])
   })
 
+  it('finds shortcut keys with plus signs and words in either order', () => {
+    for (const query of ['Ctrl+B', 'B Ctrl', 'left sidebar']) {
+      expect(
+        filterSettingsShortcutGroups(query).flatMap((group) => group.shortcuts),
+      ).toEqual([expect.objectContaining({ label: 'Toggle left sidebar' })])
+    }
+  })
+
   it('renders persisted preferences and searchable shortcut groups', () => {
     const markup = renderToStaticMarkup(
       <SettingsPage
@@ -56,6 +64,9 @@ describe('SettingsPage', () => {
     expect(markup).not.toContain('Download updates automatically')
     expect(markup).not.toContain('Share update health reports')
     expect(markup).toContain('Search settings')
+    expect(markup).toContain('data-slot="input-group"')
+    expect(markup).toContain('data-slot="input-group-input"')
+    expect(markup).not.toContain('data-slot="input"')
     expect(markup).toContain('Settings categories')
     expect(markup).toContain('Back to app')
     expect(markup).toContain('Appearance')

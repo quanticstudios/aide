@@ -16,6 +16,7 @@ import {
   LockOpen,
   PenLine,
   RefreshCw,
+  ShieldCheck,
   Terminal,
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
@@ -45,7 +46,6 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
-  ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session'
@@ -101,9 +101,11 @@ import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 import RecipientMentionMenu from './RecipientMentionMenu'
+import IconTooltip from './ui/icon-tooltip'
 import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 interface ManagedAgentPaneProps {
+  readonly isActive: boolean
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -641,6 +643,7 @@ function TurnGroupBlock({
 type DraftAnswersState = Record<string, Record<string, string>>
 
 export default function ManagedAgentPane({
+  isActive,
   paneId,
   workspace,
 }: ManagedAgentPaneProps) {
@@ -701,8 +704,6 @@ export default function ManagedAgentPane({
   const [effort, setEffort] = useState<ManagedSessionEffort | undefined>(
     undefined,
   )
-  const [thinkingBudget, setThinkingBudget] =
-    useState<ManagedSessionThinkingBudget>('default')
   const [contextWindow] = useState<ManagedSessionContextWindow>('200k')
   const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
@@ -710,10 +711,15 @@ export default function ManagedAgentPane({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
+  const jevSettingsButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [isJevSetupOpen, setIsJevSetupOpen] = useState(false)
   const startedSessionRef = useRef(false)
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
+  const paneRef = useRef<HTMLElement>(null)
+  const shouldFocusComposerRef = useRef(false)
+  const wasActiveRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -808,6 +814,25 @@ export default function ManagedAgentPane({
       textareaRef.current.style.height = 'auto'
     }
   }, [draftInput])
+
+  useLayoutEffect(() => {
+    if (!isActive) {
+      shouldFocusComposerRef.current = false
+      wasActiveRef.current = false
+      return
+    }
+    if (!wasActiveRef.current) shouldFocusComposerRef.current = true
+    wasActiveRef.current = true
+    if (!isDraftHydrated || !shouldFocusComposerRef.current) return
+    shouldFocusComposerRef.current = false
+    const activeElement = document.activeElement
+    if (
+      activeElement instanceof HTMLElement &&
+      paneRef.current?.contains(activeElement)
+    )
+      return
+    textareaRef.current?.focus({ preventScroll: true })
+  }, [isActive, isDraftHydrated])
 
   const hydrateManagedDraft = useCallback(async () => {
     const generation = draftLoadGenerationRef.current + 1
@@ -929,13 +954,12 @@ export default function ManagedAgentPane({
           effort,
           mode: selectedProvider,
           model: selectedModel,
-          ...(serviceTier ? { serviceTier } : {}),
+          serviceTier,
         },
         paneId,
         permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
-        ...(serviceTier ? { serviceTier } : {}),
-        thinkingBudget,
+        serviceTier,
         workspaceId: workspace.id,
       })
       setSnapshot(created)
@@ -967,7 +991,6 @@ export default function ManagedAgentPane({
     sessionId,
     serviceTier,
     terminalMode,
-    thinkingBudget,
     workspace.id,
     workspace.worktreePath,
   ])
@@ -1601,13 +1624,14 @@ export default function ManagedAgentPane({
   const selectRecipient = useCallback(
     (agent: ManagedSessionAgentConfig) => {
       const mention = removeRecipientMention(draftInput)
+      const mentionQuery = getRecipientMentionQuery(draftInput)
 
-      if (!mention) {
+      if (!mention && mentionQuery === null) {
         return
       }
 
       const alias = agent.alias.toLowerCase()
-      setDraftInput(mention.draft)
+      setDraftInput(mention?.draft ?? '')
       setSelectedRecipientAliases((aliases) =>
         aliases.includes(alias) ? aliases : [...aliases, alias],
       )
@@ -1618,10 +1642,21 @@ export default function ManagedAgentPane({
         )
       }
       setIsRecipientMenuDismissed(true)
+      textareaRef.current?.focus()
       setError(null)
     },
     [draftInput, selectedSkill],
   )
+
+  const selectWorkspaceFilesFromMention = useCallback(() => {
+    const mention = removeRecipientMention(draftInput)
+    const mentionQuery = getRecipientMentionQuery(draftInput)
+    if (!mention && mentionQuery === null) return
+
+    setDraftInput(mention?.draft ?? '')
+    setIsRecipientMenuDismissed(true)
+    void handlePickWorkspaceFiles().finally(() => textareaRef.current?.focus())
+  }, [draftInput, handlePickWorkspaceFiles])
 
   const loadProviderSkills = useCallback(
     async (forceReload = false) => {
@@ -1754,7 +1789,8 @@ export default function ManagedAgentPane({
   const recipientMenuOpen =
     !isRecipientMenuDismissed &&
     !slashMenuOpen &&
-    recipientSuggestions.length > 0
+    recipientMentionQuery !== null
+  const recipientMenuItemCount = recipientSuggestions.length + 1
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
@@ -1847,6 +1883,7 @@ export default function ManagedAgentPane({
     <section
       className="managed-agent-pane flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
       data-testid="managed-agent-pane"
+      ref={paneRef}
     >
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
         <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
@@ -1854,6 +1891,19 @@ export default function ManagedAgentPane({
         </h2>
 
         <div className="flex items-center gap-2">
+          <IconTooltip label="Jev settings">
+            <Button
+              aria-label="Jev settings"
+              className="size-8 rounded-md"
+              isIconOnly
+              onPress={() => setIsJevSetupOpen(true)}
+              ref={jevSettingsButtonRef}
+              size="sm"
+              variant="ghost"
+            >
+              <ShieldCheck aria-hidden="true" className="size-4" />
+            </Button>
+          </IconTooltip>
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
             isDisabled={!isSubmitting && snapshot?.sessionState !== 'running'}
@@ -1872,7 +1922,17 @@ export default function ManagedAgentPane({
         </div>
       </div>
 
-      <JevSetup key={workspace.id} workspaceId={workspace.id} />
+      <JevSetup
+        isOpen={isJevSetupOpen}
+        key={workspace.id}
+        onOpenChange={(isOpen) => {
+          setIsJevSetupOpen(isOpen)
+          if (!isOpen) {
+            requestAnimationFrame(() => jevSettingsButtonRef.current?.focus())
+          }
+        }}
+        workspaceId={workspace.id}
+      />
 
       {error ? (
         <div className="flex items-center gap-3 border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
@@ -2014,7 +2074,9 @@ export default function ManagedAgentPane({
             <RecipientMentionMenu
               activeIndex={recipientActiveIndex}
               agents={recipientSuggestions}
+              onActiveIndexChange={setRecipientActiveIndex}
               onSelect={selectRecipient}
+              onSelectFiles={selectWorkspaceFilesFromMention}
             />
           ) : null}
 
@@ -2214,21 +2276,26 @@ export default function ManagedAgentPane({
           ) : null}
 
           {selectedRecipientAliases.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+            <div
+              className="flex flex-wrap gap-1.5 px-4 pt-3"
+              data-testid="managed-recipient-chips"
+            >
               {selectedRecipientAliases.map((alias) => (
-                <button
+                <Button
                   aria-label={`Remove @${alias}`}
-                  className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20"
+                  className="h-6 rounded-full border border-primary/40 bg-primary/10 px-2 text-xs font-semibold text-primary hover:bg-primary/20"
                   key={alias}
-                  onClick={() =>
+                  onPress={() => {
                     setSelectedRecipientAliases((aliases) =>
                       aliases.filter((value) => value !== alias),
                     )
-                  }
-                  type="button"
+                    textareaRef.current?.focus()
+                  }}
+                  size="sm"
+                  variant="ghost"
                 >
                   @{alias} ×
-                </button>
+                </Button>
               ))}
             </div>
           ) : null}
@@ -2268,6 +2335,20 @@ export default function ManagedAgentPane({
             }}
             onKeyDown={(event) => {
               if (
+                !activeQuestion &&
+                event.key === 'Backspace' &&
+                draftInput.length === 0 &&
+                selectedRecipientAliases.length > 0 &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey
+              ) {
+                event.preventDefault()
+                setSelectedRecipientAliases((aliases) => aliases.slice(0, -1))
+                return
+              }
+
+              if (
                 activeQuestion &&
                 /^[1-9]$/.test(event.key) &&
                 !event.metaKey &&
@@ -2297,7 +2378,7 @@ export default function ManagedAgentPane({
                   event.preventDefault()
                   const nextIndex = getNextRecipientSuggestionIndex(
                     recipientActiveIndex,
-                    recipientSuggestions.length,
+                    recipientMenuItemCount,
                     event.key,
                   )
                   if (nextIndex !== null) {
@@ -2315,6 +2396,10 @@ export default function ManagedAgentPane({
                   const agent = recipientSuggestions[recipientActiveIndex]
                   if (agent) {
                     selectRecipient(agent)
+                  } else if (
+                    recipientActiveIndex === recipientSuggestions.length
+                  ) {
+                    selectWorkspaceFilesFromMention()
                   }
                   return
                 }
@@ -2428,10 +2513,8 @@ export default function ManagedAgentPane({
               onServiceTierChange={(nextServiceTier) =>
                 void handleServiceTierChange(nextServiceTier)
               }
-              onThinkingBudgetChange={setThinkingBudget}
               provider={selectedProvider}
               serviceTier={serviceTier}
-              thinkingBudget={thinkingBudget}
             />
             {agentMode === 'plan' ? (
               <span className="composer-tool is-pill" data-active="true">

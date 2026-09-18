@@ -1,13 +1,18 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   CloudDownload,
+  Expand,
   Eye,
   FolderKanban,
   GitBranch,
   Layers,
+  PanelLeft,
+  PanelRight,
   Plus,
+  Shrink,
   SquareTerminal,
   Wrench,
+  X,
 } from 'lucide-react'
 
 import type {
@@ -26,14 +31,19 @@ export interface PaletteCommand {
 }
 
 export interface CommandContext {
+  readonly activePaneId: string | null
   readonly canCreateWorkspace?: boolean
+  readonly onClosePane: (paneId: string) => void
   readonly onCreatePane: () => void
   readonly onCreateWorkspace: () => void
   readonly onOpenOverview: () => void
   readonly onOpenProject: () => void
   readonly onOpenSoftwareUpdate: () => void
+  readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
+  readonly onToggleSidebar: () => void
+  readonly onToggleFleet: () => void
   readonly projects: readonly ProjectRecord[]
   readonly updateAction?: {
     readonly id:
@@ -49,6 +59,54 @@ export interface CommandContext {
 
 export function buildCommandList(context: CommandContext): PaletteCommand[] {
   const commands: PaletteCommand[] = []
+  const activePaneId = context.activePaneId
+
+  commands.push({
+    group: 'view',
+    icon: PanelRight,
+    id: 'toggle-fleet',
+    keywords: ['fleet', 'plan', 'drawer'],
+    label: 'Toggle right sidebar',
+    onSelect: context.onToggleFleet,
+  })
+  commands.push({
+    group: 'view',
+    icon: PanelLeft,
+    id: 'toggle-sidebar',
+    keywords: ['projects', 'workspaces', 'navigation'],
+    label: 'Toggle left sidebar',
+    onSelect: context.onToggleSidebar,
+    shortcut: 'Ctrl B',
+  })
+
+  if (activePaneId) {
+    commands.push(
+      {
+        group: 'view',
+        icon: X,
+        id: 'close-pane',
+        keywords: ['tab', 'dismiss'],
+        label: 'Close pane',
+        onSelect: () => context.onClosePane(activePaneId),
+      },
+      {
+        group: 'view',
+        icon: Expand,
+        id: 'grow-pane',
+        keywords: ['resize', 'widen'],
+        label: 'Grow pane',
+        onSelect: () => context.onResizePane(activePaneId, 0.25),
+      },
+      {
+        group: 'view',
+        icon: Shrink,
+        id: 'shrink-pane',
+        keywords: ['resize', 'narrow'],
+        label: 'Shrink pane',
+        onSelect: () => context.onResizePane(activePaneId, -0.25),
+      },
+    )
+  }
 
   for (const workspace of context.workspaces) {
     commands.push({

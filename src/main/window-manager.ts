@@ -139,12 +139,14 @@ export class WindowManager {
 
       if (
         shortcut?.type !== 'overview-open' &&
+        shortcut?.type !== 'sidebar-toggle' &&
         shortcut?.type !== 'command-palette-open'
       ) {
         return
       }
 
       event.preventDefault()
+      if (input.type === 'keyUp' || input.isAutoRepeat) return
       window.webContents.send(IPC_CHANNELS.appShortcut, shortcut)
     })
 

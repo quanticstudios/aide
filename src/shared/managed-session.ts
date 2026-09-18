@@ -109,7 +109,7 @@ export interface ManagedSessionConfig {
   permissionMode?: ManagedSessionPermissionMode
   readOnly?: boolean
   /** Codex app-server `model/list` service tier identifier. */
-  serviceTier?: string
+  serviceTier?: string | null
   sessionId: string
   /** A safe fallback explanation prepared by the main-process capability gate. */
   selectionNotice?: string | null
@@ -126,7 +126,7 @@ export interface ManagedSessionProviderSelection {
   effort?: ManagedSessionEffort
   mode: ManagedSessionMode
   model?: string
-  serviceTier?: string
+  serviceTier?: string | null
 }
 
 export type ManagedSessionTurnState =

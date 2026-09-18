@@ -1,18 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { JevSettingsStatus } from '../../../shared/jev'
 
+interface JevSetupProps {
+  readonly isOpen: boolean
+  readonly onOpenChange: (isOpen: boolean) => void
+  readonly workspaceId: string
+}
+
 /** Jev setup grants workspace processing permission without exposing stored credentials. */
-export default function JevSetup({ workspaceId }: { workspaceId: string }) {
+export default function JevSetup({
+  isOpen,
+  onOpenChange,
+  workspaceId,
+}: JevSetupProps) {
   const [status, setStatus] = useState<JevSettingsStatus | null>(null)
   const [apiKey, setApiKey] = useState('')
   const [allowProcessing, setAllowProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const detailsRef = useRef<HTMLDetailsElement>(null)
 
   function closeSetup() {
-    detailsRef.current?.removeAttribute('open')
-    detailsRef.current?.querySelector('summary')?.focus()
+    onOpenChange(false)
   }
 
   useEffect(() => {
@@ -32,21 +40,37 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
     }
   }, [workspaceId])
 
+  const isReady = Boolean(status?.allowProcessing && status.hasCredential)
+
+  if (isReady && !isOpen && !error) {
+    return null
+  }
+
   return (
     <details
       className="shrink-0 border-b border-border px-4 py-2 text-sm"
       onKeyDown={(event) => {
         if (event.key === 'Escape') closeSetup()
       }}
-      ref={detailsRef}
+      open={isOpen}
     >
-      <summary className="cursor-pointer">
+      <summary
+        className="cursor-pointer"
+        onClick={(event) => {
+          event.preventDefault()
+          onOpenChange(!isOpen)
+        }}
+      >
         Jev ·{' '}
-        {status?.allowProcessing && status.hasCredential
-          ? 'Ready'
-          : status?.hasCredential
-            ? 'Workspace permission required'
-            : 'API key required'}
+        {error
+          ? 'Setup error'
+          : status?.allowProcessing && status.hasCredential
+            ? 'Ready'
+            : status?.hasCredential
+              ? 'Workspace permission required'
+              : status
+                ? 'API key required'
+                : 'Loading'}
       </summary>
       <form
         className="mx-auto mt-3 flex max-h-[40vh] max-w-3xl flex-col gap-3 overflow-y-auto pb-2"

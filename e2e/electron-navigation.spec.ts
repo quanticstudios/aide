@@ -157,7 +157,10 @@ async function addPane(page: Page, paneName: RegExp): Promise<void> {
 }
 
 async function expandSidebar(page: Page): Promise<void> {
-  await page.getByTestId('sidebar-shell').getByRole('button').first().focus()
+  const sidebarShell = page.getByTestId('sidebar-shell')
+  if ((await sidebarShell.getAttribute('data-expanded')) !== 'true') {
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+  }
   await expect(page.getByTestId('workspace-tree-panel')).toHaveAttribute(
     'data-expanded',
     'true',
@@ -278,6 +281,7 @@ test.describe('electron spatial navigation', () => {
 
     await importProject(page)
 
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
     ).toHaveCount(1)
@@ -345,6 +349,40 @@ test.describe('electron spatial navigation', () => {
     await expectRestingViewportClean(page)
   })
 
+  test('closes an inactive split surface without changing selection', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await page.getByLabel(/split vertically/i).click()
+    await page.getByRole('button', { name: /^Chat$/i }).click()
+    await addPane(page, /git/i)
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    const terminalTab = page.getByRole('button', {
+      name: 'Workspace terminal',
+      exact: true,
+    })
+    await terminalTab.hover()
+    await page
+      .getByRole('button', { name: 'Close Workspace terminal', exact: true })
+      .click()
+
+    await expect(terminalTab).toHaveCount(0)
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+    await expect(
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(1)
+  })
+
   test('moves panes horizontally without counting split children', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
@@ -364,7 +402,7 @@ test.describe('electron spatial navigation', () => {
       page.locator('.workspace-strip .workspace-strip-item'),
     ).toHaveCount(3)
 
-    await page.getByRole('button', { name: /git review/i }).click()
+    await page.getByRole('button', { name: 'Git review', exact: true }).click()
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await page.getByLabel(/split vertically/i).click()
     await page.getByRole('button', { name: /^Chat$/i }).click()
@@ -452,6 +490,7 @@ test.describe('electron spatial navigation', () => {
 
     await expandSidebar(page)
     await page.getByRole('button', { name: /add project folder/i }).click()
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
     ).toHaveCount(2)
@@ -543,7 +582,7 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
-  test('supports sidebar hover, focus, and pinned-open persistence', async () => {
+  test('toggles the sidebar from the header and moves workspace content', async () => {
     const launched = await launchAideApp()
     app = launched.app
     tempDirectory = launched.tempDirectory
@@ -558,29 +597,51 @@ test.describe('electron spatial navigation', () => {
 
     const sidebarShell = page.getByTestId('sidebar-shell')
     const workspaceTree = page.getByTestId('workspace-tree-panel')
+    const openSidebar = page.getByRole('button', { name: 'Open sidebar' })
 
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
+    await expect(sidebarShell).toHaveCSS('width', '0px')
 
-    await sidebarShell.hover()
+    await openSidebar.click()
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+    const brand = page.getByTestId('sidebar-brand')
+    await expect(brand).toHaveText('aIDE')
+    await expect(brand.locator('img')).toBeVisible()
+    await expect(brand.locator('button, a, [role="button"]')).toHaveCount(0)
+    await expect(brand).not.toHaveAttribute('tabindex')
+    await expect
+      .poll(() =>
+        sidebarShell.evaluate(
+          (element) => element.nextElementSibling?.getBoundingClientRect().left,
+        ),
+      )
+      .toBeGreaterThan(280)
+
+    await page.screenshot({ path: test.info().outputPath('sidebar-open.png') })
 
     await page.mouse.move(1400, 120)
-    await page.waitForTimeout(180)
-    await expect(workspaceTree).toHaveAttribute('data-expanded', 'false')
-
-    await sidebarShell.getByRole('button').first().focus()
-    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
-    await page.mouse.move(1400, 120)
-    await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
-
-    await page.getByRole('button', { name: /pin sidebar open/i }).click()
-    await page.mouse.move(1400, 120)
-    await page.waitForTimeout(180)
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
 
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(workspaceTree).toHaveAttribute('data-expanded', 'true')
+
+    await workspaceTree.getByRole('button').first().focus()
+    await page.keyboard.press('Control+B')
+    await expect(openSidebar).toBeFocused()
+    await expect(sidebarShell).toHaveCSS('width', '0px')
+
+    await page.screenshot({
+      path: test.info().outputPath('sidebar-closed.png'),
+    })
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
+    await expect(openSidebar).toBeVisible()
+    await page.keyboard.press('Control+B')
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'true')
   })
 
   test('persists explicit Jev workspace consent without exposing credentials', async () => {
@@ -645,7 +706,6 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await addPane(page, /^agent\b/i)
     await expandSidebar(page)
-    await page.getByRole('button', { name: /pin sidebar open/i }).click()
     await prepareSyntheticJev(app, page)
     const workspaceSidebarRow = page
       .getByTestId('workspace-tree-panel')
@@ -1040,9 +1100,13 @@ test.describe('electron spatial navigation', () => {
     await addPane(page, /git/i)
 
     const terminalPaneButton = page.getByRole('button', {
-      name: /workspace terminal/i,
+      name: 'Workspace terminal',
+      exact: true,
     })
-    const gitPaneButton = page.getByRole('button', { name: /git review/i })
+    const gitPaneButton = page.getByRole('button', {
+      name: 'Git review',
+      exact: true,
+    })
 
     await terminalPaneButton.click()
     await expect(page.getByTestId('active-pane-name')).toHaveText(
@@ -1341,7 +1405,7 @@ test.describe('electron spatial navigation', () => {
       'Workspace terminal',
     )
 
-    await page.getByLabel(/close pane/i).click()
+    await runPaletteCommand(page, 'Close pane')
     await expect(page.getByText('Empty workspace')).toBeVisible()
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
 

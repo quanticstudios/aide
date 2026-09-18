@@ -97,7 +97,14 @@ async function createWorkspace(
   name: string,
   branchName: string,
 ): Promise<void> {
-  await page.getByTestId('sidebar-shell').getByRole('button').first().focus()
+  if (
+    (await page.getByTestId('sidebar-shell').getAttribute('data-expanded')) !==
+    'true'
+  ) {
+    await page
+      .getByRole('button', { name: 'Open sidebar', exact: true })
+      .click()
+  }
   await page
     .getByRole('button', { name: /new workspace/i })
     .last()

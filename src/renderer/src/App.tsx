@@ -251,6 +251,10 @@ function WorkspaceApp() {
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [isFleetOpen, setIsFleetOpen] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    () => window.localStorage.getItem('aide.sidebar.pinned') === 'true',
+  )
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isUpdateOpen, setIsUpdateOpen] = useState(false)
@@ -324,11 +328,11 @@ function WorkspaceApp() {
   const activeSurfaceId = useWorkspaceSelectionStore(
     (state) => state.activeSurfaceId,
   )
-  const activePaneIdsBySurface = useWorkspaceSelectionStore(
-    (state) => state.activePaneIdsBySurface,
+  const rememberedPaneIdsBySurface = useWorkspaceSelectionStore(
+    (state) => state.rememberedPaneIdsBySurface,
   )
-  const activeSurfaceIdsByWorkspace = useWorkspaceSelectionStore(
-    (state) => state.activeSurfaceIdsByWorkspace,
+  const rememberedSurfaceIdsByWorkspace = useWorkspaceSelectionStore(
+    (state) => state.rememberedSurfaceIdsByWorkspace,
   )
   const rememberedWorkspaceIdsByProject = useWorkspaceSelectionStore(
     (state) => state.rememberedWorkspaceIdsByProject,
@@ -420,16 +424,16 @@ function WorkspaceApp() {
       activeSurfaceId,
       activeProjectId,
       activeWorkspaceId,
-      rememberedPaneIdsBySurface: activePaneIdsBySurface,
-      rememberedSurfaceIdsByWorkspace: activeSurfaceIdsByWorkspace,
+      rememberedPaneIdsBySurface,
+      rememberedSurfaceIdsByWorkspace,
       rememberedWorkspaceIdsByProject,
     }),
     [
       activePaneId,
-      activePaneIdsBySurface,
+      rememberedPaneIdsBySurface,
       activeProjectId,
       activeSurfaceId,
-      activeSurfaceIdsByWorkspace,
+      rememberedSurfaceIdsByWorkspace,
       activeWorkspaceId,
       rememberedWorkspaceIdsByProject,
     ],
@@ -887,11 +891,11 @@ function WorkspaceApp() {
       activeProjectId === resolvedNavigationState.activeProjectId &&
       activeWorkspaceId === resolvedNavigationState.activeWorkspaceId &&
       recordsEqual(
-        activePaneIdsBySurface,
+        rememberedPaneIdsBySurface,
         resolvedNavigationState.rememberedPaneIdsBySurface,
       ) &&
       recordsEqual(
-        activeSurfaceIdsByWorkspace,
+        rememberedSurfaceIdsByWorkspace,
         resolvedNavigationState.rememberedSurfaceIdsByWorkspace,
       ) &&
       recordsEqual(
@@ -912,9 +916,9 @@ function WorkspaceApp() {
   }, [
     activePaneId,
     activeSurfaceId,
-    activePaneIdsBySurface,
+    rememberedPaneIdsBySurface,
     activeProjectId,
-    activeSurfaceIdsByWorkspace,
+    rememberedSurfaceIdsByWorkspace,
     activeWorkspaceId,
     rememberedWorkspaceIdsByProject,
     resolvedNavigationState,
@@ -1447,6 +1451,29 @@ function WorkspaceApp() {
     ],
   )
 
+  const handleCloseSurface = useCallback(
+    (surfaceId: string) => {
+      const currentSelection = resolvedNavigationStateRef.current
+      const workspaceId = currentSelection?.activeWorkspaceId
+      if (!workspaceId) return
+
+      void workspaceMutationQueue.enqueue(workspaceId, () =>
+        applyWorkspaceLayoutChange(
+          workspaceId,
+          surfaceId,
+          (layout) => ({
+            blockedReason: null,
+            didChange: true,
+            layout: { ...layout, nodes: [], rootNodeId: '' },
+            nextActivePaneId: null,
+          }),
+          currentSelection.activeSurfaceId === surfaceId,
+        ),
+      )
+    },
+    [applyWorkspaceLayoutChange, workspaceMutationQueue],
+  )
+
   const handleClosePane = useCallback(
     (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
       const snapshot = storageSnapshotRef.current ?? navigationSnapshot
@@ -1709,6 +1736,11 @@ function WorkspaceApp() {
     return window.aide.onAppShortcut((event) => {
       if (isSettingsOpen) return
 
+      if (event.type === 'sidebar-toggle') {
+        setIsSidebarOpen((current) => !current)
+        return
+      }
+
       if (event.type === 'overview-open') {
         setIsCommandPaletteOpen(false)
         setIsWorkspaceSwitcherVisible(false)
@@ -1840,6 +1872,12 @@ function WorkspaceApp() {
         setIsCommandPaletteOpen(false)
         setIsWorkspaceSwitcherVisible(false)
         setIsOverviewVisible(true)
+        return
+      }
+
+      if (isCtrlChord && normalizedKey === 'b') {
+        event.preventDefault()
+        if (!event.repeat) setIsSidebarOpen((current) => !current)
         return
       }
 
@@ -1991,12 +2029,24 @@ function WorkspaceApp() {
 
   useEffect(() => {
     if (
+      isCommandPaletteOpen ||
+      isOverviewVisible ||
+      isSettingsOpen ||
+      isWorkspaceSwitcherVisible ||
       !resolvedNavigationState.activePaneId ||
       resolvePaneType(
         resolvePaneMetadata(resolvedNavigationState.activePaneId).type,
       ) !== 'terminal'
     ) {
       return
+    }
+
+    const timeoutIds: number[] = []
+
+    const cancelFocusAttempts = () => {
+      for (const timeoutId of timeoutIds) {
+        window.clearTimeout(timeoutId)
+      }
     }
 
     const focusTerminal = () => {
@@ -2012,17 +2062,37 @@ function WorkspaceApp() {
         return
       }
 
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur()
+      const activeElement = document.activeElement
+      const isEditingOutsideTerminal =
+        activeElement instanceof HTMLElement &&
+        activeElement !== document.body &&
+        !activePaneElement?.contains(activeElement) &&
+        (activeElement.matches('input, textarea, select') ||
+          activeElement.isContentEditable)
+
+      if (isEditingOutsideTerminal) {
+        cancelFocusAttempts()
+        return
       }
 
       textarea.focus()
+      if (document.activeElement === textarea) {
+        cancelFocusAttempts()
+      }
     }
 
     for (const delay of [0, 50, 150, 300, 600]) {
-      window.setTimeout(focusTerminal, delay)
+      timeoutIds.push(window.setTimeout(focusTerminal, delay))
     }
-  }, [resolvedNavigationState.activePaneId])
+
+    return cancelFocusAttempts
+  }, [
+    isCommandPaletteOpen,
+    isOverviewVisible,
+    isSettingsOpen,
+    isWorkspaceSwitcherVisible,
+    resolvedNavigationState.activePaneId,
+  ])
 
   const projects = navigationSnapshot.projects
   const allWorkspaces = navigationSnapshot.workspaces
@@ -2281,14 +2351,19 @@ function WorkspaceApp() {
   const paletteCommands = useMemo(
     () =>
       buildCommandList({
+        activePaneId: resolvedNavigationState.activePaneId,
         canCreateWorkspace: activeProject?.kind === 'git',
+        onClosePane: handleClosePane,
         onCreatePane: createPane,
         onCreateWorkspace: createWorkspace,
         onOpenOverview: () => setIsOverviewVisible(true),
         onOpenProject: openProject,
         onOpenSoftwareUpdate: openUpdateModal,
+        onResizePane: handleResizePane,
         onSelectProject: handleProjectSelection,
         onSelectWorkspace: handleWorkspaceSelection,
+        onToggleFleet: () => setIsFleetOpen((current) => !current),
+        onToggleSidebar: () => setIsSidebarOpen((current) => !current),
         projects,
         updateAction: paletteUpdateAction,
         workspaces: projectWorkspaces,
@@ -2297,6 +2372,8 @@ function WorkspaceApp() {
       activeProject?.kind,
       createPane,
       createWorkspace,
+      handleClosePane,
+      handleResizePane,
       handleProjectSelection,
       handleWorkspaceSelection,
       openProject,
@@ -2304,6 +2381,7 @@ function WorkspaceApp() {
       paletteUpdateAction,
       projects,
       projectWorkspaces,
+      resolvedNavigationState.activePaneId,
     ],
   )
 
@@ -2376,20 +2454,17 @@ function WorkspaceApp() {
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
+      isSidebarOpen={isSidebarOpen}
+      onToggleSidebar={() => setIsSidebarOpen((current) => !current)}
+      isFleetOpen={isFleetOpen}
+      onFleetOpenChange={setIsFleetOpen}
       onClosePane={handleClosePane}
+      onCloseSurface={handleCloseSurface}
       onResizePane={handleResizePane}
       onSplitPane={handleSplitPane}
       surfaces={activeWorkspaceSurfaces}
       surfaceManagedSessionIds={surfaceManagedSessionIds}
       showProjectHints={showProjectHints}
-      onSelectHome={() =>
-        setSelection({
-          activePaneId: null,
-          activeProjectId: null,
-          activeSurfaceId: null,
-          activeWorkspaceId: null,
-        })
-      }
       onSelectPane={(paneId: string) => {
         const selection = applySurfaceSelection(
           navigationSnapshot,

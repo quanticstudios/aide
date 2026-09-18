@@ -1,10 +1,7 @@
+import { Dropdown } from '@heroui/react/dropdown'
 import { Check, ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
-import type {
-  ManagedSessionEffort,
-  ManagedSessionThinkingBudget,
-} from '../../../shared/managed-session'
+import type { ManagedSessionEffort } from '../../../shared/managed-session'
 import type {
   ProviderCapabilitiesSnapshot,
   ProviderModelCapability,
@@ -19,10 +16,8 @@ interface ReasoningExtrasDropdownProps {
   readonly model: string | undefined
   readonly onEffortChange: (value: ManagedSessionEffort) => void
   readonly onServiceTierChange: (value: string | null) => void
-  readonly onThinkingBudgetChange: (value: ManagedSessionThinkingBudget) => void
   readonly provider: ManagedSessionMode
   readonly serviceTier: string | null
-  readonly thinkingBudget: ManagedSessionThinkingBudget
 }
 
 function getModelCapability(
@@ -47,19 +42,8 @@ function getModelCapability(
   )
 }
 
-function getThinkingLabel(
-  effort: ManagedSessionEffort | undefined,
-  thinkingBudget: ManagedSessionThinkingBudget,
-): string {
-  if (thinkingBudget === 'ultra') {
-    return 'Ultrathink'
-  }
-
-  if (thinkingBudget === 'extra') {
-    return 'Max'
-  }
-
-  return effort ?? 'Default'
+function formatReasoningLabel(id: string, label: string): string {
+  return id === 'xhigh' ? 'Extra High' : label
 }
 
 export default function ReasoningExtrasDropdown({
@@ -69,13 +53,9 @@ export default function ReasoningExtrasDropdown({
   model,
   onEffortChange,
   onServiceTierChange,
-  onThinkingBudgetChange,
   provider,
   serviceTier,
-  thinkingBudget,
 }: ReasoningExtrasDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
   const modelCapability = getModelCapability(capabilities, provider, model)
   const effortOption = modelCapability?.reasoningEfforts.find(
     (candidate) => candidate.id === effort,
@@ -86,9 +66,9 @@ export default function ReasoningExtrasDropdown({
   const effortLabel =
     modelCapability?.reasoningEfforts.length === 0
       ? 'Provider default'
-      : provider === 'claude'
-        ? getThinkingLabel(effort, thinkingBudget)
-        : (effortOption?.label ?? effort)
+      : effortOption
+        ? formatReasoningLabel(effortOption.id, effortOption.label)
+        : effort
   const extraLabel =
     serviceTierOption?.label ?? (provider === 'claude' ? null : 'Default')
   const hasReasoningOptions = modelCapability
@@ -96,158 +76,145 @@ export default function ReasoningExtrasDropdown({
       modelCapability.serviceTiers.length > 0
     : false
 
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false)
-      }
-    }
-
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        setIsOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [isOpen])
-
   return (
-    <div ref={containerRef} className="relative">
-      <button
+    <Dropdown>
+      <Dropdown.Trigger
+        aria-label="Reasoning settings"
         className="composer-tool is-pill"
-        disabled={isDisabled || !modelCapability || !hasReasoningOptions}
-        onClick={() => setIsOpen(!isOpen)}
-        type="button"
+        isDisabled={isDisabled || !modelCapability || !hasReasoningOptions}
       >
         {extraLabel ? `${effortLabel} · ${extraLabel}` : effortLabel}
         <ChevronDown className="size-3.5 opacity-50" />
-      </button>
+      </Dropdown.Trigger>
 
-      {isOpen && modelCapability ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-[250px] rounded-md border border-border bg-surface py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
-          <p className="eyebrow px-4 pb-1.5">Reasoning</p>
-          {modelCapability.reasoningEfforts.map((option) => {
-            const isSelected = option.id === effort
+      {modelCapability ? (
+        <Dropdown.Popover
+          className="z-50 mb-1 w-[250px] rounded-md border border-border bg-surface py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          placement="top start"
+        >
+          <Dropdown.Menu aria-label="Reasoning settings">
+            {modelCapability.reasoningEfforts.length > 0 ? (
+              <Dropdown.Section aria-label="Reasoning">
+                <Dropdown.Item
+                  className="eyebrow px-4 pb-1.5"
+                  id="reasoning-heading"
+                  isDisabled
+                  textValue="Reasoning"
+                >
+                  Reasoning
+                </Dropdown.Item>
+                {modelCapability.reasoningEfforts.map((option) => {
+                  const isSelected = option.id === effort
+                  const label = formatReasoningLabel(option.id, option.label)
 
-            return (
-              <button
-                className={cn(
-                  'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
-                  isSelected ? 'text-foreground' : 'text-foreground/80',
-                )}
-                key={option.id}
-                onClick={() => {
-                  onEffortChange(option.id)
-                  setIsOpen(false)
-                }}
-                type="button"
-              >
-                {isSelected ? (
-                  <Check className="size-3.5" />
-                ) : (
-                  <span className="size-3.5" />
-                )}
-                <span className="flex flex-col text-left">
-                  {option.label}
-                  <span className="text-xs text-muted-foreground">
-                    {option.description}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
-
-          {modelCapability.serviceTiers.length > 0 ? (
-            <>
-              <div className="my-2 border-t border-border" />
-              <p className="eyebrow px-4 pb-1.5">Service Tier</p>
-              {modelCapability.serviceTiers.map((option) => {
-                const isSelected = option.id === serviceTier
-
-                return (
-                  <button
-                    className={cn(
-                      'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
-                      isSelected ? 'text-foreground' : 'text-foreground/80',
-                    )}
-                    key={option.id}
-                    onClick={() => {
-                      onServiceTierChange(option.id)
-                      setIsOpen(false)
-                    }}
-                    type="button"
-                  >
-                    {isSelected ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <span className="size-3.5" />
-                    )}
-                    <span className="flex flex-col text-left">
-                      {option.label}
-                      <span className="text-xs text-muted-foreground">
-                        {option.description}
+                  return (
+                    <Dropdown.Item
+                      className={cn(
+                        'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
+                        isSelected
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-foreground/80',
+                      )}
+                      id={`effort:${option.id}`}
+                      key={option.id}
+                      onAction={() => onEffortChange(option.id)}
+                      textValue={label}
+                    >
+                      {isSelected ? (
+                        <Check className="size-3.5" />
+                      ) : (
+                        <span className="size-3.5" />
+                      )}
+                      <span className="flex flex-col text-left">
+                        <span className="flex items-center gap-1">
+                          {label}
+                          {option.id ===
+                          modelCapability.defaultReasoningEffort ? (
+                            <span className="rounded bg-[var(--surface-2)] px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                              Default
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {option.description}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                )
-              })}
-            </>
-          ) : null}
+                    </Dropdown.Item>
+                  )
+                })}
+              </Dropdown.Section>
+            ) : null}
 
-          {provider === 'claude' &&
-          modelCapability.reasoningEfforts.length > 0 ? (
-            <>
-              <div className="my-2 border-t border-border" />
-              <p className="eyebrow px-4 pb-1.5">Thinking Budget</p>
-              {(
-                [
-                  { id: 'default', label: 'Default' },
-                  { id: 'extra', label: 'Max' },
-                  { id: 'ultra', label: 'Ultrathink' },
-                ] as const
-              ).map((option) => {
-                const isSelected = option.id === thinkingBudget
+            {modelCapability.serviceTiers.length > 0 ? (
+              <Dropdown.Section aria-label="Service Tier">
+                <Dropdown.Item
+                  className="eyebrow px-4 pb-1.5"
+                  id="service-tier-heading"
+                  isDisabled
+                  textValue="Service Tier"
+                >
+                  Service Tier
+                </Dropdown.Item>
+                <Dropdown.Item
+                  className={cn(
+                    'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
+                    serviceTier === null
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-foreground/80',
+                  )}
+                  id="service-tier:provider-default"
+                  onAction={() => onServiceTierChange(null)}
+                  textValue="Provider default"
+                >
+                  {serviceTier === null ? (
+                    <Check className="size-3.5" />
+                  ) : (
+                    <span className="size-3.5" />
+                  )}
+                  <span>Provider default</span>
+                </Dropdown.Item>
+                {modelCapability.serviceTiers.map((option) => {
+                  const isSelected = option.id === serviceTier
 
-                return (
-                  <button
-                    className={cn(
-                      'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
-                      isSelected ? 'text-foreground' : 'text-foreground/80',
-                    )}
-                    key={option.id}
-                    onClick={() => {
-                      onThinkingBudgetChange(option.id)
-                      setIsOpen(false)
-                    }}
-                    type="button"
-                  >
-                    {isSelected ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <span className="size-3.5" />
-                    )}
-                    {option.label}
-                  </button>
-                )
-              })}
-            </>
-          ) : null}
-        </div>
+                  return (
+                    <Dropdown.Item
+                      className={cn(
+                        'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
+                        isSelected
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-foreground/80',
+                      )}
+                      id={`service-tier:${option.id}`}
+                      key={option.id}
+                      onAction={() => onServiceTierChange(option.id)}
+                      textValue={option.label}
+                    >
+                      {isSelected ? (
+                        <Check className="size-3.5" />
+                      ) : (
+                        <span className="size-3.5" />
+                      )}
+                      <span className="flex flex-col text-left">
+                        <span className="flex items-center gap-1">
+                          {option.label}
+                          {option.id === modelCapability.defaultServiceTier ? (
+                            <span className="rounded bg-[var(--surface-2)] px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                              Default
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {option.description}
+                        </span>
+                      </span>
+                    </Dropdown.Item>
+                  )
+                })}
+              </Dropdown.Section>
+            ) : null}
+          </Dropdown.Menu>
+        </Dropdown.Popover>
       ) : null}
-    </div>
+    </Dropdown>
   )
 }
