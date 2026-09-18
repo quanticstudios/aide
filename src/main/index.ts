@@ -350,8 +350,14 @@ function initializeServices(): void {
     getCapabilities: () => providerCapabilityService.getSnapshot(),
     store: {
       getWorkspace: (workspaceId) => database.getWorkspace(workspaceId),
-      renameWorkspaceIfUnchanged: (workspaceId, input) =>
-        database.renameWorkspaceIfUnchanged(workspaceId, input),
+      renameWorkspaceIfUnchanged: (workspaceId, input) => {
+        const workspace = database.renameWorkspaceIfUnchanged(
+          workspaceId,
+          input,
+        )
+        if (workspace) publishPersistenceSnapshot()
+        return workspace
+      },
     },
   })
   managedSessionManager = new ManagedSessionManager({
@@ -591,6 +597,15 @@ const windowManager = new WindowManager({
   setTimeout,
 })
 
+function publishPersistenceSnapshot() {
+  const snapshot = database.getSnapshot()
+  windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {
+    revision: snapshot.catalogRevision,
+    snapshot,
+  })
+  return snapshot
+}
+
 function createRuntimeSnapshot(): RuntimeSnapshot {
   return {
     appName: app.getName(),
@@ -743,15 +758,6 @@ function registerIpcHandlers(): void {
       return jevSettings.update(workspace.worktreePath, input)
     },
   )
-  const publishPersistenceSnapshot = () => {
-    const snapshot = database.getSnapshot()
-    windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {
-      revision: snapshot.catalogRevision,
-      snapshot,
-    })
-    return snapshot
-  }
-
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, (event) => {
     requireTrustedRenderer(event)
     return database.getSnapshot()

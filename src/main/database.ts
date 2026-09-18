@@ -375,7 +375,9 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE workspaces ADD COLUMN name_source TEXT NOT NULL DEFAULT 'default'
       CHECK (name_source IN ('default', 'generated', 'manual'));
-      UPDATE workspaces SET name_source = 'manual' WHERE name <> branch_name;
+      UPDATE workspaces
+      SET name_source = 'manual'
+      WHERE branch_name <> '' AND name <> branch_name;
     `,
   },
 ]
