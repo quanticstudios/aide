@@ -1053,8 +1053,12 @@ textarea:focus-visible {
 
 .conversation-minimap {
   position: absolute;
-  inset: 16px auto 16px 2px;
-  width: 26px;
+  inset: 0 auto 0 0;
+  width: 38px;
+  z-index: 10;
+}
+.conversation-minimap-viewport {
+  height: 100%;
   overflow: hidden;
   mask-image: linear-gradient(
     transparent,
@@ -1066,26 +1070,17 @@ textarea:focus-visible {
 .conversation-minimap-track {
   transition: transform 160ms var(--ease-out-strong);
 }
-.conversation-minimap-position {
-  position: absolute;
-  top: 0;
-  left: 8px;
-  width: 10px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--foreground);
-  pointer-events: none;
-  transition: transform 160ms var(--ease-out-strong);
-}
 .conversation-minimap-tick {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
+  justify-content: flex-start;
+  padding-left: 10px;
+  width: 38px;
   height: 12px;
   cursor: pointer;
 }
 .conversation-minimap-tick span {
+  transform-origin: left center;
   width: 6px;
   height: 2px;
   border-radius: 1px;
@@ -1105,22 +1100,58 @@ textarea:focus-visible {
   outline-offset: -1px;
   border-radius: 3px;
 }
-.conversation-minimap[data-keyboard-navigation="true"]
-  .conversation-minimap-track,
-.conversation-minimap[data-keyboard-navigation="true"]
-  .conversation-minimap-position {
-  transition: none;
-}
 @media (hover: hover) and (pointer: fine) {
   .conversation-minimap-tick:hover span {
     opacity: 1;
-    transform: scaleX(2);
+    transform: scaleX(4.3);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .conversation-minimap-track,
-  .conversation-minimap-position,
   .conversation-minimap-tick span {
+    transform-origin: left center;
     transition: none;
   }
+}
+
+.conversation-minimap-preview {
+  position: absolute;
+  top: 0;
+  left: 44px;
+  width: min(320px, calc(100vw - 100px));
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface-3);
+  box-shadow: 0 4px 20px #0003;
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.6;
+  transition: transform 160ms var(--ease-out-strong);
+}
+.conversation-minimap-preview-label {
+  color: var(--foreground);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-minimap-preview-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-minimap-preview {
+    transition: none;
+  }
+}
+
+.conversation-minimap[data-keyboard-navigation="true"]
+  .conversation-minimap-track,
+.conversation-minimap[data-keyboard-navigation="true"]
+  .conversation-minimap-preview {
+  transition: none;
 }

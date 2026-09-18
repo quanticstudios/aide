@@ -11,7 +11,6 @@ import {
   Clipboard,
   ClipboardCheck,
   FileCode,
-  FolderOpen,
   GitBranch,
   LoaderCircle,
   Lock,
@@ -59,7 +58,6 @@ import type {
   ProviderSkillsSnapshot,
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
-import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import { createImageAttachments } from '../lib/managed-composer'
 import {
   loadManagedDraft,
@@ -828,7 +826,6 @@ export default function ManagedAgentPane({
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
-  const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
   const workingProviderLabel =
@@ -2200,7 +2197,7 @@ export default function ManagedAgentPane({
 
       <div className="relative min-h-0 flex-1">
         <div
-          className="relative h-full overflow-y-auto pl-8 pr-4 py-4"
+          className="relative h-full overflow-y-auto pl-12 pr-4 py-4"
           data-testid="managed-session-content"
           onScroll={handleScroll}
           ref={scrollRef}
@@ -2843,22 +2840,6 @@ export default function ManagedAgentPane({
               </button>
             )}
           </div>
-        </div>
-
-        <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-muted-foreground/70">
-          <span className="flex items-center gap-1.5">
-            <FolderOpen className="size-3" />
-            {workspace.name}
-          </span>
-          {gitInfo.branchName ? (
-            <span className="flex items-center gap-1 font-mono">
-              <GitBranch className="size-3" />
-              <span className="max-w-[10rem] truncate">
-                {gitInfo.branchName}
-              </span>
-              <ChevronDown className="size-2.5 opacity-50" />
-            </span>
-          ) : null}
         </div>
       </div>
     </section>

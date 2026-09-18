@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect, useRef, useState } from 'react'
+import { type RefObject, useId, useLayoutEffect, useRef, useState } from 'react'
 
 const tickSpacing = 12
 
@@ -9,6 +9,8 @@ export function ConversationMinimap({
   readonly scrollRef: RefObject<HTMLDivElement | null>
   readonly contentLength: number
 }) {
+  const previewId = useId()
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const railRef = useRef<HTMLElement>(null)
   const messagesRef = useRef<HTMLElement[]>([])
   const [labels, setLabels] = useState<string[]>([])
@@ -114,7 +116,36 @@ export function ConversationMinimap({
     ),
     Math.max(0, labels.length * tickSpacing - position.height + 24),
   )
+  const trackOffset =
+    Math.max(12, (position.height - labels.length * tickSpacing) / 2) - shift
+  const highlightedIndex = hoveredIndex ?? position.active
   const isVisible = position.hasOverflow && labels.length > 1
+  const readPreview = (message: HTMLElement | undefined) =>
+    (
+      message?.querySelector<HTMLElement>('pre, .prose')?.innerText ??
+      message?.innerText ??
+      ''
+    ).trim()
+  let promptIndex = hoveredIndex ?? 0
+  while (
+    promptIndex > 0 &&
+    messagesRef.current[promptIndex]?.dataset.minimapMessage !== 'Your message'
+  )
+    promptIndex--
+  let replyIndex = promptIndex + 1
+  while (
+    replyIndex + 1 < messagesRef.current.length &&
+    messagesRef.current[replyIndex + 1]?.dataset.minimapMessage !==
+      'Your message'
+  )
+    replyIndex++
+  const previewPrompt =
+    hoveredIndex === null ? '' : readPreview(messagesRef.current[promptIndex])
+  const previewReply =
+    hoveredIndex !== null &&
+    messagesRef.current[replyIndex]?.dataset.minimapMessage === 'Agent response'
+      ? readPreview(messagesRef.current[replyIndex])
+      : ''
 
   return (
     <nav
@@ -123,48 +154,80 @@ export function ConversationMinimap({
       className="conversation-minimap"
       style={{ visibility: isVisible ? 'visible' : 'hidden' }}
       ref={railRef}
+      onPointerLeave={() => setHoveredIndex(null)}
     >
-      <div
-        className="conversation-minimap-track"
-        style={{ transform: `translateY(${12 - shift}px)` }}
-      >
-        {labels.map((label, index) => (
-          <button
-            aria-label={`Go to message ${label}`}
-            aria-current={index === position.active ? 'location' : undefined}
-            className="conversation-minimap-tick"
-            key={label}
-            onClick={(event) => navigate(index, event.detail === 0)}
-            onKeyDown={(event) => {
-              const target =
-                event.key === 'ArrowDown'
-                  ? Math.min(labels.length - 1, index + 1)
-                  : event.key === 'ArrowUp'
-                    ? Math.max(0, index - 1)
-                    : event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? labels.length - 1
-                        : null
-              if (target === null) return
-              event.preventDefault()
-              navigate(target, true)
-            }}
-            tabIndex={isVisible && index === position.active ? 0 : -1}
-            title={label}
-            type="button"
-          >
-            <span />
-          </button>
-        ))}
+      <div className="conversation-minimap-viewport">
+        <div
+          className="conversation-minimap-track"
+          style={{ transform: `translateY(${trackOffset}px)` }}
+        >
+          {labels.map((label, index) => (
+            <button
+              aria-label={`Go to message ${label}`}
+              aria-current={index === position.active ? 'location' : undefined}
+              className="conversation-minimap-tick"
+              key={label}
+              onClick={(event) => navigate(index, event.detail === 0)}
+              onKeyDown={(event) => {
+                const target =
+                  event.key === 'ArrowDown'
+                    ? Math.min(labels.length - 1, index + 1)
+                    : event.key === 'ArrowUp'
+                      ? Math.max(0, index - 1)
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? labels.length - 1
+                          : null
+                if (target === null) return
+                event.preventDefault()
+                navigate(target, true)
+              }}
+              tabIndex={isVisible && index === position.active ? 0 : -1}
+              aria-describedby={hoveredIndex === index ? previewId : undefined}
+              onPointerEnter={(event) => {
+                if (event.pointerType === 'mouse') setHoveredIndex(index)
+              }}
+              onFocus={() => setHoveredIndex(index)}
+              onBlur={() => setHoveredIndex(null)}
+              type="button"
+            >
+              <span
+                style={{
+                  transform: `scaleX(${[4.3, 3.3, 2.3, 1.5, 1.1][Math.abs(index - highlightedIndex)] ?? 1})`,
+                  opacity:
+                    index === highlightedIndex
+                      ? 1
+                      : Math.abs(index - highlightedIndex) < 3
+                        ? 0.55
+                        : 0.3,
+                  background:
+                    index === highlightedIndex
+                      ? 'var(--foreground)'
+                      : 'var(--muted-foreground)',
+                }}
+              />
+            </button>
+          ))}
+        </div>
       </div>
-      <span
-        aria-hidden="true"
-        className="conversation-minimap-position"
-        style={{
-          transform: `translateY(${position.active * tickSpacing + 17 - shift}px)`,
-        }}
-      />
+      {hoveredIndex !== null && labels[hoveredIndex] ? (
+        <div
+          className="conversation-minimap-preview"
+          id={previewId}
+          role="tooltip"
+          style={{
+            transform: `translateY(${Math.max(56, Math.min(position.height - 56, hoveredIndex * tickSpacing + trackOffset + tickSpacing / 2))}px) translateY(-50%)`,
+          }}
+        >
+          <div className="conversation-minimap-preview-label">
+            {previewPrompt || labels[hoveredIndex]}
+          </div>
+          <div className="conversation-minimap-preview-text">
+            {previewReply.slice(0, 400) || 'No reply yet'}
+          </div>
+        </div>
+      ) : null}
     </nav>
   )
 }

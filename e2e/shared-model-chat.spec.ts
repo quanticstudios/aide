@@ -956,6 +956,25 @@ test.describe('shared model chat', () => {
       .toBe(0)
     await ticks.nth(4).click()
     await expect(ticks.nth(4)).toHaveAttribute('aria-current', 'location')
+    await ticks.nth(4).hover()
+    await expect(rail.getByRole('tooltip')).toContainText('Minimap message 1')
+    const tickWidth = (index: number) =>
+      ticks
+        .nth(index)
+        .locator('span')
+        .evaluate((element) => element.getBoundingClientRect().width)
+    await expect.poll(() => tickWidth(4)).toBeGreaterThan(24)
+    expect(await tickWidth(3)).toBeGreaterThan(await tickWidth(2))
+    await expect(ticks.nth(4).locator('span')).toHaveCSS('opacity', '1')
+    const preview = await rail.getByRole('tooltip').boundingBox()
+    const tick = await ticks.nth(4).boundingBox()
+    if (!preview || !tick) throw new Error('Minimap preview or tick is hidden')
+    expect(
+      Math.abs(preview.y + preview.height / 2 - (tick.y + tick.height / 2)),
+    ).toBeLessThan(2)
+    await page.screenshot({ path: '/tmp/aide-minimap-hover.png' })
+    await page.mouse.move(400, 400)
+    await expect(rail.getByRole('tooltip')).toBeHidden()
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(track).toHaveCSS('transition-duration', '0s')
     await ticks.nth(2).click()
