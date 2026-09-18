@@ -67,7 +67,7 @@ import {
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
 import { PreviewManager } from './preview-manager'
-import { readProjectFile } from './project-files'
+import { readProjectFile, searchProjectFiles } from './project-files'
 import { pickProjectRoot } from './project-picker'
 import { ProviderCapabilityService } from './provider-capability-service'
 import {
@@ -1232,6 +1232,16 @@ function registerIpcHandlers(): void {
         }
         return relativePath
       })
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSearchFiles,
+    (event, workspaceId: unknown, query: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      if (typeof query !== 'string' || !query.trim() || query.length > 128) {
+        throw new Error('Enter a file name to search.')
+      }
+      return searchProjectFiles(workspace.worktreePath, query)
     },
   )
   ipcMain.handle(

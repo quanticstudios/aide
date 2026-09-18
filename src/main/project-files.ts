@@ -1,8 +1,113 @@
+import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
+import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import type { ProjectTextFile } from '../shared/editor'
+
+const execFileAsync = promisify(execFile)
+const MAX_FILE_LIST_BYTES = 2_000_000
+const MAX_FILE_RESULTS = 8
+const MAX_SCANNED_FILES = 5_000
+const SKIPPED_DIRECTORIES = new Set([
+  '.git',
+  '.cache',
+  'dist',
+  'node_modules',
+  'out',
+])
+
+export function rankProjectFilePaths(
+  filePaths: readonly string[],
+  query: string,
+  limit = MAX_FILE_RESULTS,
+): string[] {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return []
+
+  return filePaths
+    .flatMap((filePath) => {
+      const normalizedPath = filePath.toLowerCase()
+      const fileName = path.posix.basename(normalizedPath)
+      const matchIndex = fileName.indexOf(normalizedQuery)
+      const pathMatchIndex = normalizedPath.indexOf(normalizedQuery)
+      if (matchIndex < 0 && pathMatchIndex < 0) return []
+
+      const rank =
+        fileName === normalizedQuery
+          ? 0
+          : matchIndex === 0
+            ? 1
+            : matchIndex > 0
+              ? 2
+              : 3
+      return [{ filePath, rank }]
+    })
+    .sort(
+      (left, right) =>
+        left.rank - right.rank ||
+        path.posix.basename(left.filePath).length -
+          path.posix.basename(right.filePath).length ||
+        left.filePath.localeCompare(right.filePath),
+    )
+    .slice(0, limit)
+    .map(({ filePath }) => filePath)
+}
+
+export async function searchProjectFiles(
+  projectRoot: string,
+  query: string,
+): Promise<string[]> {
+  let filePaths: string[]
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['ls-files', '-co', '--exclude-standard', '-z'],
+      {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        maxBuffer: MAX_FILE_LIST_BYTES,
+        timeout: 1_500,
+      },
+    )
+    filePaths = stdout
+      .split('\0')
+      .filter((filePath) => filePath && !/[\t\r\n]/.test(filePath))
+  } catch (error) {
+    const stderr =
+      (error as { stderr?: Buffer | string }).stderr?.toString() ?? ''
+    if (
+      (error as NodeJS.ErrnoException).code !== 'ENOENT' &&
+      !/not a git repository/i.test(stderr)
+    ) {
+      throw error
+    }
+    filePaths = await listRegularProjectFiles(projectRoot)
+  }
+  return rankProjectFilePaths(filePaths, query)
+}
+
+async function listRegularProjectFiles(projectRoot: string): Promise<string[]> {
+  const directories = ['']
+  const filePaths: string[] = []
+  while (directories.length > 0 && filePaths.length < MAX_SCANNED_FILES) {
+    const relativeDirectory = directories.pop() ?? ''
+    const entries = await readdir(path.join(projectRoot, relativeDirectory), {
+      withFileTypes: true,
+    })
+    for (const entry of entries) {
+      const relativePath = path.posix.join(relativeDirectory, entry.name)
+      if (entry.isDirectory() && !SKIPPED_DIRECTORIES.has(entry.name)) {
+        directories.push(relativePath)
+      } else if (entry.isFile() && !/[\t\r\n]/.test(relativePath)) {
+        filePaths.push(relativePath)
+        if (filePaths.length >= MAX_SCANNED_FILES) break
+      }
+    }
+  }
+  return filePaths
+}
 
 function isInsideRoot(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate)

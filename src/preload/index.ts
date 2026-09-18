@@ -4,7 +4,6 @@ import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
-import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
@@ -15,6 +14,7 @@ import type {
 } from '../shared/managed-session'
 import type { WorkspacePersistenceEvent } from '../shared/persistence'
 import type { PreviewNavigationReport } from '../shared/preview'
+import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type {
   TerminalEvent,
@@ -172,6 +172,12 @@ const aideApi: AideApi = {
     ),
   pickManagedSessionFiles: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionPickFiles, workspaceId),
+  searchManagedSessionFiles: (workspaceId, query) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionSearchFiles,
+      workspaceId,
+      query,
+    ),
   resumeManagedSessionQueue: (sessionId) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionResumeQueue, sessionId),
   sendManagedSessionQueuedInputNow: (sessionId, queuedInputId) =>

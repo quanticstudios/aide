@@ -87,6 +87,13 @@ import {
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { cn } from '../lib/utils'
+import {
+  appendWorkspaceFileAttachment,
+  getWorkspaceFileMention,
+  removeWorkspaceFileMention,
+  resolveMentionMenuSelection,
+  WorkspaceFileMentionSearch,
+} from '../lib/workspace-file-mentions'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import JevSetup from './JevSetup'
@@ -696,6 +703,13 @@ export default function ManagedAgentPane({
   const draftLoadGenerationRef = useRef(0)
   const draftSaveChainRef = useRef<Promise<void> | null>(null)
   const [recipientActiveIndex, setRecipientActiveIndex] = useState(0)
+  const [composerCursorIndex, setComposerCursorIndex] = useState(0)
+  const [workspaceFileSuggestions, setWorkspaceFileSuggestions] = useState<
+    readonly string[]
+  >([])
+  const [isWorkspaceFileSearchLoading, setIsWorkspaceFileSearchLoading] =
+    useState(false)
+  const workspaceFileSearchRef = useRef(new WorkspaceFileMentionSearch())
   const [isRecipientMenuDismissed, setIsRecipientMenuDismissed] =
     useState(false)
   const [draftAnswers, setDraftAnswers] = useState<DraftAnswersState>({})
@@ -1648,15 +1662,36 @@ export default function ManagedAgentPane({
     [draftInput, selectedSkill],
   )
 
-  const selectWorkspaceFilesFromMention = useCallback(() => {
-    const mention = removeRecipientMention(draftInput)
-    const mentionQuery = getRecipientMentionQuery(draftInput)
-    if (!mention && mentionQuery === null) return
+  const selectWorkspaceFileFromMention = useCallback(
+    (filePath: string) => {
+      const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
+      if (!mention) return
 
-    setDraftInput(mention?.draft ?? '')
-    setIsRecipientMenuDismissed(true)
-    void handlePickWorkspaceFiles().finally(() => textareaRef.current?.focus())
-  }, [draftInput, handlePickWorkspaceFiles])
+      try {
+        const nextAttachments = appendWorkspaceFileAttachment(
+          attachments,
+          filePath,
+          crypto.randomUUID(),
+        )
+        setAttachments(nextAttachments)
+        const nextDraft = removeWorkspaceFileMention(draftInput, mention)
+        setDraftInput(nextDraft)
+        setComposerCursorIndex(mention.startIndex)
+        setIsRecipientMenuDismissed(true)
+        setError(null)
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus()
+          textareaRef.current?.setSelectionRange(
+            mention.startIndex,
+            mention.startIndex,
+          )
+        })
+      } catch (attachmentError) {
+        setError(getErrorMessage(attachmentError))
+      }
+    },
+    [attachments, composerCursorIndex, draftInput],
+  )
 
   const loadProviderSkills = useCallback(
     async (forceReload = false) => {
@@ -1736,6 +1771,10 @@ export default function ManagedAgentPane({
   )
 
   const recipientMentionQuery = getRecipientMentionQuery(draftInput)
+  const workspaceFileMention = getWorkspaceFileMention(
+    draftInput,
+    composerCursorIndex,
+  )
   const recipientSuggestions = useMemo(
     () =>
       getRecipientSuggestions(recipientMentionQuery, configuredAgents).filter(
@@ -1789,8 +1828,34 @@ export default function ManagedAgentPane({
   const recipientMenuOpen =
     !isRecipientMenuDismissed &&
     !slashMenuOpen &&
-    recipientMentionQuery !== null
-  const recipientMenuItemCount = recipientSuggestions.length + 1
+    (recipientMentionQuery !== null || workspaceFileMention !== null)
+  const recipientMenuItemCount =
+    recipientSuggestions.length + workspaceFileSuggestions.length
+
+  useEffect(() => {
+    const query = workspaceFileMention?.query.trim() ?? ''
+    const api = getAideApi()
+    if (!recipientMenuOpen || !api || !query) {
+      workspaceFileSearchRef.current.cancel()
+      setWorkspaceFileSuggestions([])
+      setIsWorkspaceFileSearchLoading(false)
+      return
+    }
+
+    setIsWorkspaceFileSearchLoading(true)
+    void workspaceFileSearchRef.current.run(
+      () => api.searchManagedSessionFiles(workspace.id, query),
+      (filePaths) => {
+        setWorkspaceFileSuggestions(filePaths)
+        setIsWorkspaceFileSearchLoading(false)
+      },
+      () => {
+        setWorkspaceFileSuggestions([])
+        setIsWorkspaceFileSearchLoading(false)
+      },
+    )
+    return () => workspaceFileSearchRef.current.cancel()
+  }, [recipientMenuOpen, workspace.id, workspaceFileMention?.query])
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
@@ -2074,9 +2139,11 @@ export default function ManagedAgentPane({
             <RecipientMentionMenu
               activeIndex={recipientActiveIndex}
               agents={recipientSuggestions}
+              filePaths={workspaceFileSuggestions}
+              isFileSearchLoading={isWorkspaceFileSearchLoading}
               onActiveIndexChange={setRecipientActiveIndex}
-              onSelect={selectRecipient}
-              onSelectFiles={selectWorkspaceFilesFromMention}
+              onSelectAgent={selectRecipient}
+              onSelectFile={selectWorkspaceFileFromMention}
             />
           ) : null}
 
@@ -2325,6 +2392,7 @@ export default function ManagedAgentPane({
                 )
               } else {
                 setDraftInput(value)
+                setComposerCursorIndex(event.target.selectionStart)
                 setRecipientActiveIndex(0)
                 setIsRecipientMenuDismissed(false)
                 setIsSlashMenuDismissed(false)
@@ -2393,13 +2461,16 @@ export default function ManagedAgentPane({
                   !event.ctrlKey
                 ) {
                   event.preventDefault()
-                  const agent = recipientSuggestions[recipientActiveIndex]
-                  if (agent) {
-                    selectRecipient(agent)
-                  } else if (
-                    recipientActiveIndex === recipientSuggestions.length
-                  ) {
-                    selectWorkspaceFilesFromMention()
+                  const selection = resolveMentionMenuSelection(
+                    recipientActiveIndex,
+                    recipientSuggestions.length,
+                    workspaceFileSuggestions,
+                  )
+                  if (selection?.kind === 'agent') {
+                    const agent = recipientSuggestions[selection.agentIndex]
+                    if (agent) selectRecipient(agent)
+                  } else if (selection?.kind === 'file') {
+                    selectWorkspaceFileFromMention(selection.filePath)
                   }
                   return
                 }
@@ -2469,6 +2540,10 @@ export default function ManagedAgentPane({
               }
             }}
             onPaste={handleComposerPaste}
+            onSelect={(event) => {
+              setComposerCursorIndex(event.currentTarget.selectionStart)
+              setIsRecipientMenuDismissed(false)
+            }}
             placeholder={
               activeQuestion
                 ? 'Type your own answer, or leave this blank to use the selected option'
