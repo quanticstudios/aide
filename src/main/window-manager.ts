@@ -41,7 +41,7 @@ export class WindowManager {
       minHeight: 720,
       show: false,
       backgroundColor: '#18181b',
-      title: 'aide',
+      title: 'aIDE',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

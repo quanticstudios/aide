@@ -108,7 +108,7 @@ export default function DiagnosticsModal({
                   <>
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border border-border p-3 text-xs">
                       <div>
-                        <dt className="text-muted-foreground">Aide</dt>
+                        <dt className="text-muted-foreground">aIDE</dt>
                         <dd>{snapshot.runtime.appVersion}</dd>
                       </div>
                       <div>

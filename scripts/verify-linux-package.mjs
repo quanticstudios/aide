@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -68,7 +68,10 @@ async function verifyPackagedRuntime(appRoot) {
   )
 }
 
-export async function verifyLinuxPackage(directory) {
+export async function verifyLinuxPackage(
+  directory,
+  { appImageOnly = false } = {},
+) {
   const entries = await readdir(directory, { withFileTypes: true })
   const artifacts = entries
     .filter((entry) => entry.isFile() && artifactPattern.test(entry.name))
@@ -78,38 +81,40 @@ export async function verifyLinuxPackage(directory) {
   const appImage = artifacts.find((artifact) => artifact.endsWith('.AppImage'))
   const archive = artifacts.find((artifact) => artifact.endsWith('.tar.gz'))
   assert.ok(appImage, 'Expected one Linux AppImage artifact.')
-  assert.ok(archive, 'Expected one Linux tar.gz artifact.')
+  if (!appImageOnly) assert.ok(archive, 'Expected one Linux tar.gz artifact.')
   assert.equal(
     artifacts.length,
-    2,
-    'Expected exactly one AppImage and one tar.gz Linux artifact.',
+    appImageOnly ? 1 : 2,
+    'Unexpected number of Linux artifacts.',
   )
   assert.ok((await stat(join(directory, appImage))).mode & 0o111)
 
-  const { stdout } = await run('tar', ['-tzf', join(directory, archive)])
-  assert.match(stdout, /resources\/app\.asar\n/)
-  assert.match(stdout, /resources\/app-update\.yml\n/)
-  assert.match(
-    stdout,
-    /resources\/app\.asar\.unpacked\/node_modules\/node-pty\/.*pty\.node\n/,
-  )
-  assert.match(
-    stdout,
-    /resources\/app\.asar\.unpacked\/node_modules\/@anthropic-ai\/claude-agent-sdk-linux-x64\//,
-  )
+  if (!appImageOnly) {
+    const { stdout } = await run('tar', ['-tzf', join(directory, archive)])
+    assert.match(stdout, /resources\/app\.asar\n/)
+    assert.match(stdout, /resources\/app-update\.yml\n/)
+    assert.match(
+      stdout,
+      /resources\/app\.asar\.unpacked\/node_modules\/node-pty\/.*pty\.node\n/,
+    )
+    assert.match(
+      stdout,
+      /resources\/app\.asar\.unpacked\/node_modules\/@anthropic-ai\/claude-agent-sdk-linux-x64\//,
+    )
 
-  const extractionDirectory = await mkdtemp(join(tmpdir(), 'aide-package-'))
-  try {
-    await run('tar', [
-      '-xzf',
-      join(directory, archive),
-      '-C',
-      extractionDirectory,
-    ])
-    const appRoot = await findAppRoot(extractionDirectory)
-    await verifyPackagedRuntime(appRoot)
-  } finally {
-    await rm(extractionDirectory, { force: true, recursive: true })
+    const extractionDirectory = await mkdtemp(join(tmpdir(), 'aide-package-'))
+    try {
+      await run('tar', [
+        '-xzf',
+        join(directory, archive),
+        '-C',
+        extractionDirectory,
+      ])
+      const appRoot = await findAppRoot(extractionDirectory)
+      await verifyPackagedRuntime(appRoot)
+    } finally {
+      await rm(extractionDirectory, { force: true, recursive: true })
+    }
   }
 
   const appImageExtractionDirectory = await mkdtemp(
@@ -126,7 +131,10 @@ export async function verifyLinuxPackage(directory) {
     await rm(appImageExtractionDirectory, { force: true, recursive: true })
   }
 
-  return { appImage: basename(appImage), archive: basename(archive) }
+  return {
+    appImage: basename(appImage),
+    ...(archive ? { archive: basename(archive) } : {}),
+  }
 }
 
 if (
@@ -137,6 +145,8 @@ if (
     throw new Error('Linux package verification must run on Linux.')
   }
   const directory = resolve(process.cwd(), process.argv[2] ?? 'dist')
-  const artifacts = await verifyLinuxPackage(directory)
-  console.log(`Verified ${artifacts.appImage} and ${artifacts.archive}.`)
+  const artifacts = await verifyLinuxPackage(directory, {
+    appImageOnly: process.argv.includes('--appimage-only'),
+  })
+  console.log(`Verified ${Object.values(artifacts).join(' and ')}.`)
 }

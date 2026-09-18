@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import test from 'node:test'
-
+import { installLinux } from './install-linux.mjs'
 import {
   assertMacReleaseCredentials,
   hasMacNotarizationCredentials,
@@ -27,14 +35,16 @@ test('locks a reproducible desktop packaging configuration', () => {
     'node --test scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
   )
   assert.equal(build.appId, 'studio.quantic.aide')
-  assert.equal(build.productName, 'Aide')
+  assert.equal(build.productName, 'aIDE')
+  assert.equal(build.icon, 'build/icon.png')
+  assert.equal(existsSync(resolve(root, build.icon)), true)
   assert.equal(build.executableName, 'aide')
   assert.equal(packageJson.author, 'Quantic Studios')
-  assert.equal(packageJson.desktopName, 'Aide')
+  assert.equal(packageJson.desktopName, 'aIDE')
   assert.equal(
     build.artifactName,
     [
-      '$' + '{productName}',
+      'Aide',
       '$' + '{version}',
       '$' + '{os}',
       '$' + '{arch}.' + '$' + '{ext}',
@@ -42,6 +52,7 @@ test('locks a reproducible desktop packaging configuration', () => {
   )
   assert.equal(build.asar, true)
   assert.deepEqual(build.extraResources, [
+    { from: 'build/icon.png', to: 'icon.png' },
     { from: 'build/app-update.yml', to: 'app-update.yml' },
   ])
   const updaterConfig = readFileSync(
@@ -60,6 +71,56 @@ test('locks a reproducible desktop packaging configuration', () => {
   ])
   assert.equal(build.linux.syncDesktopName, true)
   assert.deepEqual(build.mac.target, ['dmg', 'zip'])
+})
+
+test('reinstalls behind one launcher without truncating an open image or changing saved data', async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "aide install 'space-"))
+  const dataHome = resolve(directory, 'share')
+  const source = resolve(directory, 'build.AppImage')
+  const imageBytes = (version) =>
+    Buffer.concat([
+      Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0, 0, 0, 0, 0x41, 0x49, 0x02]),
+      Buffer.from(version),
+    ])
+  try {
+    await writeFile(source, imageBytes('first'))
+    const first = await installLinux(source, { home: directory, dataHome })
+    const desktop = await readFile(first.desktopFile, 'utf8')
+    const savedData = resolve(dataHome, 'aide/saved-workspace')
+    await writeFile(savedData, 'keep this')
+    const runningImage = await open(first.installedImage, 'r')
+    try {
+      await writeFile(source, imageBytes('second'))
+      assert.deepEqual(
+        await installLinux(source, { home: directory, dataHome }),
+        first,
+      )
+      assert.deepEqual(await runningImage.readFile(), imageBytes('first'))
+    } finally {
+      await runningImage.close()
+    }
+    assert.deepEqual(await readFile(first.installedImage), imageBytes('second'))
+    assert.equal(await readFile(first.desktopFile, 'utf8'), desktop)
+    assert.deepEqual(await readdir(resolve(dataHome, 'applications')), [
+      'aide.desktop',
+    ])
+    assert.equal(await readFile(savedData, 'utf8'), 'keep this')
+    assert.ok((await stat(first.launcher)).mode & 0o111)
+    assert.ok((await stat(first.installedImage)).mode & 0o111)
+    assert.match(await readFile(first.launcher, 'utf8'), /launch-env/)
+    assert.deepEqual(
+      await readFile(resolve(dataHome, 'aide/icon.png')),
+      await readFile(resolve(root, build.icon)),
+    )
+    await writeFile(source, 'broken build')
+    await assert.rejects(
+      installLinux(source, { home: directory, dataHome }),
+      /AppImage/,
+    )
+    assert.deepEqual(await readFile(first.installedImage), imageBytes('second'))
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('uses hardened runtime entitlements and native-only packaging entry points', () => {

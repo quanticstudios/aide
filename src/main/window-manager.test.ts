@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
 import type { BrowserWindow } from 'electron'
+import { describe, expect, it, vi } from 'vitest'
 
 import { WindowManager } from './window-manager'
 
@@ -68,7 +68,7 @@ describe('WindowManager', () => {
       minHeight: 720,
       minWidth: 1100,
       show: false,
-      title: 'aide',
+      title: 'aIDE',
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

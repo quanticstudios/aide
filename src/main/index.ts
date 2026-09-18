@@ -90,6 +90,7 @@ import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+if (process.platform === 'linux') app.setDesktopName('aide.desktop')
 if (process.env.AIDE_DATABASE_PATH) {
   const userDataPath = path.dirname(
     path.resolve(process.env.AIDE_DATABASE_PATH),
@@ -560,7 +561,13 @@ const renderingConfiguration = resolveRenderingConfiguration({
 applyRenderingConfiguration(app, renderingConfiguration, process.env)
 
 const windowManager = new WindowManager({
-  createBrowserWindow: (options) => new BrowserWindow(options),
+  createBrowserWindow: (options) =>
+    new BrowserWindow({
+      ...options,
+      icon: app.isPackaged
+        ? path.join(process.resourcesPath, 'icon.png')
+        : path.join(app.getAppPath(), 'build/icon.png'),
+    }),
   fromWebContents: (webContents) => BrowserWindow.fromWebContents(webContents),
   getAllWindows: () => BrowserWindow.getAllWindows(),
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,

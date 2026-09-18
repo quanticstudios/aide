@@ -4,7 +4,7 @@
   "private": true,
   "description": "Workspace-first AI-native coding shell prototype",
   "author": "Quantic Studios",
-  "desktopName": "Aide",
+  "desktopName": "aIDE",
   "type": "module",
   "main": "./out/main/index.js",
   "packageManager": "bun@1.3.14",
@@ -32,6 +32,7 @@
     "test:native": "ELECTRON_RUN_AS_NODE=1 electron -e \"require('node-pty')\"",
     "package:checksums": "node scripts/write-checksums.mjs dist",
     "package:linux": "node scripts/package-linux.mjs",
+    "install:linux": "node scripts/install-linux.mjs",
     "test:ota-linux-upgrade": "node scripts/linux-ota-upgrade-drill.mjs",
     "package:mac": "node scripts/package-macos.mjs",
     "package:mac:x64": "bun run package:mac -- --x64",
@@ -109,9 +110,10 @@
   ],
   "build": {
     "appId": "studio.quantic.aide",
-    "productName": "Aide",
+    "productName": "aIDE",
+    "icon": "build/icon.png",
     "executableName": "aide",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Aide-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -120,6 +122,10 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
       {
         "from": "build/app-update.yml",
         "to": "app-update.yml"

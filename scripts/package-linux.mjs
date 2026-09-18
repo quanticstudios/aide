@@ -30,7 +30,10 @@ function run(command, args, options = {}) {
   })
 }
 
-export async function packageLinux() {
+export async function packageLinux(
+  outputDirectory = resolve(root, 'dist'),
+  { appImageOnly = false } = {},
+) {
   if (process.platform !== 'linux') {
     throw new Error('Linux packages must be built on a native Linux host.')
   }
@@ -38,15 +41,17 @@ export async function packageLinux() {
     throw new Error('Aide currently ships Linux packages for x64 only.')
   }
 
-  await rm(resolve(root, 'dist'), { force: true, recursive: true })
+  await rm(outputDirectory, { force: true, recursive: true })
   await run('bun', ['run', 'build'])
   await run('bun', ['run', 'rebuild:native'])
   await run('bun', ['run', 'test:native'])
   await run(resolve(root, 'node_modules/.bin/electron-builder'), [
     '--linux',
+    ...(appImageOnly ? ['AppImage'] : []),
     '--x64',
     '--publish',
     'never',
+    `--config.directories.output=${outputDirectory}`,
     ...(process.env.AIDE_PACKAGE_VERSION
       ? [`--config.extraMetadata.version=${process.env.AIDE_PACKAGE_VERSION}`]
       : []),
@@ -58,10 +63,14 @@ export async function packageLinux() {
     '--arch',
     'x64',
     '--directory',
-    'dist',
+    outputDirectory,
   ])
-  await run(process.execPath, ['scripts/write-checksums.mjs', 'dist'])
-  await run(process.execPath, ['scripts/verify-linux-package.mjs', 'dist'])
+  await run(process.execPath, ['scripts/write-checksums.mjs', outputDirectory])
+  await run(process.execPath, [
+    'scripts/verify-linux-package.mjs',
+    outputDirectory,
+    ...(appImageOnly ? ['--appimage-only'] : []),
+  ])
 }
 
 if (
