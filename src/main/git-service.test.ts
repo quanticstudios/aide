@@ -132,12 +132,22 @@ describe('GitWorkspaceService', () => {
     const service = new GitWorkspaceService(database)
 
     const firstImport = await service.importProject(repoRoot)
+    database.updateWorkspace(firstImport.workspaceId, {
+      name: 'Launch review',
+      nameSource: 'manual',
+    })
     const secondImport = await service.importProject(repoRoot)
 
     expect(secondImport.projectId).toBe(firstImport.projectId)
     expect(secondImport.workspaceId).toBe(firstImport.workspaceId)
     expect(secondImport.snapshot.projects).toHaveLength(1)
     expect(secondImport.snapshot.workspaces).toHaveLength(1)
+    expect(secondImport.snapshot.workspaces[0]).toMatchObject({
+      branchName: 'main',
+      name: 'Launch review',
+      nameSource: 'manual',
+      worktreePath: repoRoot,
+    })
 
     database.close()
   })

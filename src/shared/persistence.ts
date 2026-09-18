@@ -1,4 +1,5 @@
 export type ProjectKind = 'folder' | 'git'
+export type WorkspaceNameSource = 'default' | 'generated' | 'manual'
 
 export interface ProjectRecord {
   id: string
@@ -21,6 +22,7 @@ export interface WorkspaceRecord {
   id: string
   projectId: string
   name: string
+  nameSource?: WorkspaceNameSource
   branchName: string
   worktreePath: string
   windowId: string | null
@@ -126,6 +128,7 @@ export interface UpdateProjectInput {
 export interface CreateWorkspaceInput {
   branchName: string
   name: string
+  nameSource?: WorkspaceNameSource
   projectId: string
   windowId: string | null
   worktreePath: string
@@ -134,6 +137,7 @@ export interface CreateWorkspaceInput {
 export interface UpdateWorkspaceInput {
   branchName?: string
   name?: string
+  nameSource?: WorkspaceNameSource
   projectId?: string
   windowId?: string | null
   worktreePath?: string

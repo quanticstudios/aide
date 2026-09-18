@@ -91,6 +91,8 @@ const aideApi: AideApi = {
     ),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
+  renameWorkspace: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.renameWorkspace, workspaceId, name),
   detectWorktreeBranch: (worktreePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
   closeManagedSession: (sessionId: string) =>

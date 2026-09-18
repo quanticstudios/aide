@@ -102,6 +102,7 @@ export const IPC_CHANNELS = {
   getDiagnosticsSnapshot: 'diagnostics:get-snapshot',
   reportRendererFault: 'diagnostics:report-renderer-fault',
   createWorkspace: 'storage:create-workspace',
+  renameWorkspace: 'storage:rename-workspace',
   detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
@@ -215,6 +216,10 @@ export interface AideApi {
   ) => Promise<PersistenceSnapshot>
   createWorkspace: (
     input: CreateWorkspaceRequest,
+  ) => Promise<PersistenceSnapshot>
+  renameWorkspace: (
+    workspaceId: string,
+    name: string,
   ) => Promise<PersistenceSnapshot>
   detectWorktreeBranch: (
     worktreePath: string,

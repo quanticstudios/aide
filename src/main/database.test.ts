@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 11,
+      schemaVersion: 12,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -798,6 +798,7 @@ describe('createAideDatabase', () => {
     const updatedWorkspace = database.updateWorkspace(createdWorkspace.id, {
       branchName: 'feature/nav-2',
       name: 'Navigation shell v2',
+      nameSource: 'manual',
       projectId: secondProject.id,
       windowId: 'window-1',
       worktreePath: '/workspace/aide-next/.worktrees/navigation-2',
@@ -807,6 +808,7 @@ describe('createAideDatabase', () => {
       branchName: 'feature/nav-2',
       id: createdWorkspace.id,
       name: 'Navigation shell v2',
+      nameSource: 'manual',
       projectId: secondProject.id,
       windowId: 'window-1',
       worktreePath: '/workspace/aide-next/.worktrees/navigation-2',
@@ -826,6 +828,50 @@ describe('createAideDatabase', () => {
     expect(database.getWorkspace('missing')).toBeNull()
     expect(database.updateWorkspace('missing', { name: 'ignored' })).toBeNull()
     expect(database.deleteWorkspace('missing')).toBe(false)
+
+    database.close()
+  })
+
+  it('lets generated names update only untouched workspaces', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'feature/nav',
+      name: 'feature/nav',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide/.worktrees/nav',
+    })
+
+    expect(workspace.nameSource).toBe('default')
+    expect(
+      database.renameWorkspaceIfUnchanged(workspace.id, {
+        expectedUpdatedAt: workspace.updatedAt,
+        name: 'Navigation polish',
+        nameSource: 'generated',
+      }),
+    ).toMatchObject({ name: 'Navigation polish', nameSource: 'generated' })
+
+    const manuallyRenamed = database.updateWorkspace(workspace.id, {
+      name: 'My navigation work',
+      nameSource: 'manual',
+    })
+    expect(
+      database.renameWorkspaceIfUnchanged(workspace.id, {
+        expectedUpdatedAt: manuallyRenamed?.updatedAt ?? '',
+        name: 'Overwrite attempt',
+        nameSource: 'generated',
+      }),
+    ).toBeNull()
+    expect(database.getWorkspace(workspace.id)).toMatchObject({
+      name: 'My navigation work',
+      nameSource: 'manual',
+    })
 
     database.close()
   })

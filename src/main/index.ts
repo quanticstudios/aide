@@ -891,6 +891,29 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.renameWorkspace,
+    (event, workspaceId: unknown, name: unknown) => {
+      requireTrustedRenderer(event)
+      const id = requireRuntimeId(workspaceId, 'workspace id')
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        throw new Error('Enter a workspace name.')
+      }
+      const normalizedName = name.trim()
+      if (normalizedName.length > 80) {
+        throw new Error('Workspace names must be 80 characters or fewer.')
+      }
+      if (
+        !database.updateWorkspace(id, {
+          name: normalizedName,
+          nameSource: 'manual',
+        })
+      ) {
+        throw new Error('Workspace not found.')
+      }
+      return publishPersistenceSnapshot()
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.attachWorkspace,
     async (event, input: AttachWorkspaceRequest) => {
       requireTrustedRenderer(event)

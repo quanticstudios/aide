@@ -59,6 +59,7 @@ interface SqlWorkspaceRow {
   created_at: string
   id: string
   name: string
+  name_source: 'default' | 'generated' | 'manual'
   project_id: string
   updated_at: string
   window_id: string | null
@@ -367,6 +368,14 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'git'
       CHECK (kind IN ('git', 'folder'));
+    `,
+  },
+  {
+    version: 12,
+    sql: `
+      ALTER TABLE workspaces ADD COLUMN name_source TEXT NOT NULL DEFAULT 'default'
+      CHECK (name_source IN ('default', 'generated', 'manual'));
+      UPDATE workspaces SET name_source = 'manual' WHERE name <> branch_name;
     `,
   },
 ]
@@ -1555,6 +1564,7 @@ export class AideDatabase {
     const workspace: WorkspaceRecord = {
       id: randomUUID(),
       name: input.name,
+      nameSource: input.nameSource ?? 'default',
       projectId: input.projectId,
       branchName: input.branchName,
       worktreePath: input.worktreePath,
@@ -1566,14 +1576,15 @@ export class AideDatabase {
     this.database
       .prepare(
         `
-          INSERT INTO workspaces (id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO workspaces (id, project_id, name, name_source, branch_name, worktree_path, window_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         workspace.id,
         workspace.projectId,
         workspace.name,
+        workspace.nameSource ?? 'default',
         workspace.branchName,
         workspace.worktreePath,
         workspace.windowId,
@@ -1608,7 +1619,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, created_at, updated_at
           FROM workspaces
           WHERE id = ?
         `,
@@ -1622,7 +1633,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, created_at, updated_at
           FROM workspaces
           ORDER BY created_at ASC, id ASC
         `,
@@ -1636,7 +1647,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, created_at, updated_at
           FROM workspaces
           WHERE project_id = ?
           ORDER BY created_at ASC
@@ -1654,7 +1665,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, project_id, name, branch_name, worktree_path, window_id, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, created_at, updated_at
           FROM workspaces
           WHERE project_id = ? AND worktree_path = ?
           LIMIT 1
@@ -1679,6 +1690,7 @@ export class AideDatabase {
       ...existingWorkspace,
       branchName: input.branchName ?? existingWorkspace.branchName,
       name: input.name ?? existingWorkspace.name,
+      nameSource: input.nameSource ?? existingWorkspace.nameSource ?? 'default',
       projectId: input.projectId ?? existingWorkspace.projectId,
       windowId:
         input.windowId !== undefined
@@ -1692,13 +1704,14 @@ export class AideDatabase {
       .prepare(
         `
           UPDATE workspaces
-          SET project_id = ?, name = ?, branch_name = ?, worktree_path = ?, window_id = ?, updated_at = ?
+          SET project_id = ?, name = ?, name_source = ?, branch_name = ?, worktree_path = ?, window_id = ?, updated_at = ?
           WHERE id = ?
         `,
       )
       .run(
         updatedWorkspace.projectId,
         updatedWorkspace.name,
+        updatedWorkspace.nameSource ?? 'default',
         updatedWorkspace.branchName,
         updatedWorkspace.worktreePath,
         updatedWorkspace.windowId,
@@ -1708,6 +1721,36 @@ export class AideDatabase {
 
     this.incrementCatalogRevision()
 
+    return this.getWorkspace(workspaceId)
+  }
+
+  public renameWorkspaceIfUnchanged(
+    workspaceId: string,
+    input: {
+      expectedUpdatedAt: string
+      name: string
+      nameSource: 'generated'
+    },
+  ): WorkspaceRecord | null {
+    const updatedAt = new Date().toISOString()
+    const result = this.database
+      .prepare(
+        `
+          UPDATE workspaces
+          SET name = ?, name_source = ?, updated_at = ?
+          WHERE id = ? AND updated_at = ? AND name_source = 'default'
+        `,
+      )
+      .run(
+        input.name,
+        input.nameSource,
+        updatedAt,
+        workspaceId,
+        input.expectedUpdatedAt,
+      ) as { changes: number }
+
+    if (result.changes === 0) return null
+    this.incrementCatalogRevision()
     return this.getWorkspace(workspaceId)
   }
 
@@ -2094,6 +2137,7 @@ export class AideDatabase {
     return {
       id: row.id,
       name: row.name,
+      nameSource: row.name_source,
       projectId: row.project_id,
       branchName: row.branch_name,
       worktreePath: row.worktree_path,

@@ -553,6 +553,23 @@ function WorkspaceApp() {
     setIsWorkspaceCreationOpen(true)
   }, [activeProjectId, navigationSnapshot.projects])
 
+  const renameWorkspace = useCallback(
+    async (workspaceId: string, name: string): Promise<string | null> => {
+      const api = getAideApi()
+      if (!api) return 'Desktop bridge did not load. Reload the app window.'
+
+      try {
+        const snapshot = await api.renameWorkspace(workspaceId, name)
+        storageSnapshotRef.current = snapshot
+        setStorageSnapshot(snapshot)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [],
+  )
+
   const createPane = useCallback(() => {
     if (!resolvedNavigationState.activeWorkspaceId) {
       return
@@ -2479,6 +2496,7 @@ function WorkspaceApp() {
       onCreateProject={openProject}
       onCreatePane={createPane}
       onCreateWorkspace={createWorkspace}
+      onRenameWorkspace={renameWorkspace}
       onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       onOpenSettings={openSettings}

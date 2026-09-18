@@ -1052,6 +1052,7 @@ export class GitWorkspaceService {
       const workspace = this.store.createWorkspace({
         branchName,
         name,
+        nameSource: 'manual',
         projectId: project.id,
         windowId: input.windowId,
         worktreePath,
@@ -1140,6 +1141,7 @@ export class GitWorkspaceService {
     this.store.createWorkspace({
       branchName,
       name,
+      nameSource: 'manual',
       projectId: project.id,
       windowId: input.windowId,
       worktreePath,
@@ -1389,7 +1391,9 @@ export class GitWorkspaceService {
     return (
       this.store.updateWorkspace(existingWorkspace.id, {
         branchName: metadata.currentBranchLabel,
-        name: metadata.currentBranchLabel || metadata.projectName,
+        ...(existingWorkspace.nameSource === 'default'
+          ? { name: metadata.currentBranchLabel || metadata.projectName }
+          : {}),
         worktreePath: metadata.repoRoot,
       }) ?? existingWorkspace
     )
