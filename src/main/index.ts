@@ -1221,7 +1221,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.managedSessionSendInput,
     (
-      _event,
+      event,
       sessionId: unknown,
       text: unknown,
       recipients: unknown,
@@ -1231,6 +1231,10 @@ function registerIpcHandlers(): void {
       if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
         throw new Error('Enter a message between 1 and 65,536 characters.')
       }
+      const session = managedSessionManager.getSnapshots()[id]
+      if (!session) throw new Error('Managed session is unavailable.')
+      const workspace = requireWorkspaceForSetup(event, session.workspaceId)
+      jevSettings.requireApiKey(workspace.worktreePath)
       return managedSessionManager.sendInput(
         id,
         text,

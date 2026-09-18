@@ -908,9 +908,6 @@ export class GitWorkspaceService {
       metadata = await this.inspectRepository(projectDirectory)
     } catch (error) {
       if (!(error instanceof NotGitRepositoryError)) throw error
-      if (existsSync(path.join(projectDirectory, '.git'))) {
-        throw new Error('The selected Git repository is invalid.')
-      }
 
       metadata = {
         currentBranchLabel: '',

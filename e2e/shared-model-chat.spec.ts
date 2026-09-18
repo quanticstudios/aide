@@ -85,6 +85,7 @@ async function launchAideApp(
 async function prepareSyntheticJev(
   app: ElectronApplication,
   page: Page,
+  allowProcessing = true,
 ): Promise<void> {
   await app.evaluate(() => {
     const nativeFetch = globalThis.fetch
@@ -111,6 +112,7 @@ async function prepareSyntheticJev(
       )
     }
   })
+  if (!allowProcessing) return
   await page.evaluate(async () => {
     const storage = await window.aide.getStorageSnapshot()
     await Promise.all(
@@ -240,9 +242,50 @@ test.describe('shared model chat', () => {
     expect(imported.workspaces[0]?.worktreePath).toBe(repository)
     await page.getByRole('button', { name: /add pane/i }).click()
     await page.getByRole('button', { name: /^agent\b/i }).click()
-    await prepareSyntheticJev(app, page)
+    await page.setViewportSize({ width: 1100, height: 720 })
+    await prepareSyntheticJev(app, page, false)
+    await page.getByText('Jev · Workspace permission required').click()
+    await page.getByRole('button', { name: 'Close Jev setup' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeHidden()
+    await page.getByText('Jev · Workspace permission required').click()
+    await page
+      .getByRole('checkbox', {
+        name: 'Allow TypeSafe processing for this workspace',
+      })
+      .focus()
+    await page.keyboard.press('Escape')
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeHidden()
+    await page.getByText('Jev · Workspace permission required').click()
+    await expect(
+      page.getByText(/Enable your operating system keyring/),
+    ).toHaveCount(0)
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await expect(prompt).toBeInViewport({ ratio: 1 })
+    await expect(
+      page.getByRole('button', { name: 'Send prompt', exact: true }),
+    ).toBeInViewport({ ratio: 1 })
     await prompt.fill('help with this ordinary folder')
+    await prompt.press('Enter')
+    await expect(
+      page.getByText(
+        'Allow TypeSafe processing for this workspace in Jev setup before sending a message.',
+      ),
+    ).toBeVisible()
+    await expect(prompt).toHaveValue('help with this ordinary folder')
+    await page
+      .getByRole('checkbox', {
+        name: 'Allow TypeSafe processing for this workspace',
+      })
+      .check()
+    await page.getByRole('button', { name: 'Save Jev settings' }).click()
+    await expect(page.getByText('Jev · Ready')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeHidden()
     await prompt.press('Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: help with this ordinary folder',
@@ -250,6 +293,9 @@ test.describe('shared model chat', () => {
     await expect
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({ sessionState: 'ready' })
+    await page.screenshot({
+      path: 'docs/verification/chat-polish-2026-09-18.png',
+    })
     const session = await getOnlySnapshot(page)
     expect(
       await page.evaluate(

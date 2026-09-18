@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { JevSettingsStatus } from '../../../shared/jev'
 
 /** Jev setup grants workspace processing permission without exposing stored credentials. */
@@ -8,6 +8,12 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
   const [allowProcessing, setAllowProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+
+  function closeSetup() {
+    detailsRef.current?.removeAttribute('open')
+    detailsRef.current?.querySelector('summary')?.focus()
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -27,15 +33,23 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId])
 
   return (
-    <details className="border-b border-border px-4 py-2 text-sm">
+    <details
+      className="shrink-0 border-b border-border px-4 py-2 text-sm"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') closeSetup()
+      }}
+      ref={detailsRef}
+    >
       <summary className="cursor-pointer">
         Jev ·{' '}
         {status?.allowProcessing && status.hasCredential
           ? 'Ready'
-          : 'Setup required'}
+          : status?.hasCredential
+            ? 'Workspace permission required'
+            : 'API key required'}
       </summary>
       <form
-        className="mt-3 flex flex-col gap-3"
+        className="mx-auto mt-3 flex max-h-[40vh] max-w-3xl flex-col gap-3 overflow-y-auto pb-2"
         onSubmit={async (event) => {
           event.preventDefault()
           setSaving(true)
@@ -47,6 +61,7 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
             })
             setStatus(value)
             setApiKey('')
+            if (value.allowProcessing && value.hasCredential) closeSetup()
           } catch {
             setError(
               'Jev settings could not be saved. Check secure credential storage and try again.',
@@ -73,7 +88,13 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
             value={apiKey}
           />
         </label>
-        {status && !status.canStoreCredential ? (
+        {status?.hasCredential && !status.allowProcessing ? (
+          <p>
+            Allow processing below and save to enable messages in this
+            workspace.
+          </p>
+        ) : null}
+        {status && !status.canStoreCredential && !status.hasCredential ? (
           <p>
             Enable your operating system keyring, or launch Aide with
             TYPESAFE_API_KEY.
@@ -88,15 +109,22 @@ export default function JevSetup({ workspaceId }: { workspaceId: string }) {
           />
           Allow TypeSafe processing for this workspace
         </label>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <button
-            className="rounded border border-border px-3 py-1"
+            className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
             disabled={saving || !status}
             type="submit"
           >
             {saving ? 'Saving…' : 'Save Jev settings'}
           </button>
-          {status?.hasCredential ? (
+          <button
+            className="rounded-md px-3 py-2 text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+            onClick={closeSetup}
+            type="button"
+          >
+            Close Jev setup
+          </button>
+          {status?.hasCredential && status.canStoreCredential ? (
             <button
               className="rounded border border-border px-3 py-1"
               disabled={saving}

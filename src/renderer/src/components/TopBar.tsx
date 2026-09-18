@@ -19,6 +19,7 @@ import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
 import type { UpdatePresentation } from '@/lib/update-presentation'
 import { cn } from '@/lib/utils'
+import { version } from '../../../../package.json'
 import type {
   PersistedSplitLayoutNode,
   ProjectRecord,
@@ -358,13 +359,13 @@ export default function TopBar({
         />
         <Button
           aria-label="Open diagnostics"
-          className="size-8 shrink-0 rounded-md"
-          isIconOnly
+          className="h-8 shrink-0 gap-2 rounded-md px-2 text-xs"
           onPress={onOpenDiagnostics}
           size="sm"
           variant="ghost"
         >
           <LifeBuoy aria-hidden="true" className="size-4" />
+          <span data-testid="app-version">aIDE v{version}</span>
         </Button>
       </div>
     </header>

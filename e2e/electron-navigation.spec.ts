@@ -262,6 +262,10 @@ test.describe('electron spatial navigation', () => {
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
+    const runtime = await page.evaluate(() => window.aide.getRuntimeSnapshot())
+    await expect(page.getByTestId('app-version')).toHaveText(
+      `aIDE v${runtime.appVersion}`,
+    )
     const consoleErrors: string[] = []
     page.on('console', (message) => {
       if (message.type() === 'error') {

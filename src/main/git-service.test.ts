@@ -407,16 +407,41 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
-  it('does not downgrade a corrupt Git repository to a folder project', async () => {
-    const repoRoot = createGitRepository()
-    writeFileSync(path.join(repoRoot, '.git', 'HEAD'), 'broken-head\n')
+  it('opens a folder containing leftover Git metadata without changing it', async () => {
+    const folderRoot = createTempDirectory('aide-leftover-git-')
+    mkdirSync(path.join(folderRoot, '.git', 'info'), { recursive: true })
+    const markerPath = path.join(folderRoot, '.git', 'opencode')
+    writeFileSync(markerPath, 'tool state\n')
     const database = createAideDatabase(':memory:')
     const service = new GitWorkspaceService(database)
 
-    await expect(service.importProject(repoRoot)).rejects.toThrow()
-    expect(database.getSnapshot().projects).toEqual([])
+    try {
+      const result = await service.importProject(folderRoot)
+      expect(result.snapshot.projects[0]).toMatchObject({
+        kind: 'folder',
+        repoRoot: folderRoot,
+      })
+      expect(readFileSync(markerPath, 'utf8')).toBe('tool state\n')
+      expect(existsSync(path.join(folderRoot, '.git', 'HEAD'))).toBe(false)
+    } finally {
+      database.close()
+    }
+  })
 
-    database.close()
+  it('opens an unrecognized repository as a folder without repairing its metadata', async () => {
+    const repoRoot = createGitRepository()
+    const headPath = path.join(repoRoot, '.git', 'HEAD')
+    writeFileSync(headPath, 'broken-head\n')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+
+    try {
+      const result = await service.importProject(repoRoot)
+      expect(result.snapshot.projects[0]?.kind).toBe('folder')
+      expect(readFileSync(headPath, 'utf8')).toBe('broken-head\n')
+    } finally {
+      database.close()
+    }
   })
 
   it('returns workspace-scoped branch and file status data', async () => {

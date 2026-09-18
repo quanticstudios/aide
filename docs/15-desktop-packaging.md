@@ -53,6 +53,10 @@ the packaged Electron executable.
 
 ## Install or update the Linux desktop launcher
 
+The app displays its packaged version beside Diagnostics in the top bar. Local
+releases start at `0.0.1`; increment the patch version in `package.json` for each
+subsequent release, such as `0.0.2`, before building.
+
 ```sh
 bun run install:linux
 ```
