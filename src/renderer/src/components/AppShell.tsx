@@ -204,7 +204,16 @@ export default function AppShell({
         return
       }
 
-      const bounds = sidebarShell.getBoundingClientRect()
+      const interactionSurface = isSidebarExpanded
+        ? sidebarShell.querySelector<HTMLElement>(
+            '[data-sidebar-surface="expanded"]',
+          )
+        : sidebarShell
+      const bounds = interactionSurface?.getBoundingClientRect()
+
+      if (!bounds) {
+        return
+      }
       const isInsideBounds =
         event.clientX >= bounds.left &&
         event.clientX <= bounds.right &&
@@ -240,6 +249,7 @@ export default function AppShell({
   }, [
     clearPendingCollapse,
     blurSidebarActiveElement,
+    isSidebarExpanded,
     isSidebarPinnedOpen,
     sidebarContainsActiveElement,
   ])
@@ -303,7 +313,7 @@ export default function AppShell({
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <div
-        className="flex h-full"
+        className={`relative flex h-full shrink-0 ${isSidebarPinnedOpen ? 'w-72' : 'w-12'}`}
         data-expanded={isSidebarExpanded ? 'true' : 'false'}
         data-testid="sidebar-shell"
         onBlurCapture={handleSidebarBlur}
