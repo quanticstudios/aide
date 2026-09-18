@@ -271,14 +271,31 @@ test.describe('shared model chat', () => {
     await startSharedChat(page, app)
     const reply = page.getByTestId('managed-content-assistant-text').last()
     const actions = page.getByTestId('response-actions').last()
+    const userMessage = page.getByTestId('managed-content-user-prompt').last()
+    await page.getByRole('banner').hover()
+    await expect(actions).toHaveCSS('opacity', '0')
+    await expect(userMessage.locator('time')).toHaveCSS('opacity', '0')
+    await userMessage.hover()
+    await expect(userMessage.locator('time')).toHaveCSS('opacity', '1')
+    await expect(actions).toHaveCSS('opacity', '0')
     await reply.hover()
+    await expect(actions).toHaveCSS('opacity', '1')
+    await expect(userMessage.locator('time')).toHaveCSS('opacity', '0')
+    await expect(actions.locator('time')).not.toHaveText('')
     await expect(actions).toBeVisible()
     const replyBounds = await reply.boundingBox()
     const actionBounds = await actions.boundingBox()
     expect(actionBounds?.y).toBeGreaterThanOrEqual(
       (replyBounds?.y ?? 0) + (replyBounds?.height ?? 0),
     )
-    await actions.getByRole('button', { name: 'Copy response' }).click()
+    const copyButton = actions.getByRole('button').first()
+    await expect(copyButton).toHaveAttribute('aria-label', 'Copy response')
+    await expect(copyButton).toHaveText('')
+    await copyButton.hover()
+    await expect(
+      page.getByRole('tooltip', { name: 'Copy response' }),
+    ).toBeVisible()
+    await copyButton.click()
     await expect
       .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
       .toBe('Handled: initialize shared chat')

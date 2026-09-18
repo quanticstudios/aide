@@ -1034,3 +1034,7 @@ textarea:focus-visible {
 :root[data-motion="reduced"] [role="button"]:active {
   scale: 1;
 }
+
+.chat-turn:has(.assistant-message:hover) .response-actions {
+  opacity: 1;
+}

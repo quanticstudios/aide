@@ -46,6 +46,19 @@ export interface PaneCatalogEntry {
 
 const paneCatalogEntries = [
   {
+    createDescription: 'Unified AI agent chat. Pick your model.',
+    defaultMetadata: {
+      accent: 'emerald',
+      description: 'AI agent session with model selection.',
+      label: 'Agent',
+      type: 'Agent',
+    },
+    id: 'agent',
+    icon: Bot,
+    terminalMode: 'agent',
+    type: 'terminal',
+  },
+  {
     createDescription: 'Task steering, notes, and AI coordination.',
     defaultMetadata: {
       accent: 'blue',
@@ -53,6 +66,7 @@ const paneCatalogEntries = [
       label: 'Chat task thread',
       type: 'Chat',
     },
+    hidden: true,
     id: 'chat',
     icon: MessageSquareText,
     type: 'chat',
@@ -68,19 +82,6 @@ const paneCatalogEntries = [
     id: 'terminal',
     icon: SquareTerminal,
     terminalMode: 'shell',
-    type: 'terminal',
-  },
-  {
-    createDescription: 'Unified AI agent chat. Pick your model.',
-    defaultMetadata: {
-      accent: 'emerald',
-      description: 'AI agent session with model selection.',
-      label: 'Agent',
-      type: 'Agent',
-    },
-    id: 'agent',
-    icon: Bot,
-    terminalMode: 'agent',
     type: 'terminal',
   },
   {
@@ -131,6 +132,7 @@ const paneCatalogEntries = [
       label: 'Editor inspect',
       type: 'Editor',
     },
+    hidden: true,
     id: 'editor',
     icon: SquarePen,
     type: 'editor',

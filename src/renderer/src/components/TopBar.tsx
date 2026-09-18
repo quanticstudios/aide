@@ -29,6 +29,7 @@ import type {
 } from '../../../shared/persistence'
 import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
 import TaskLibraryControl from './TaskLibraryControl'
 import UpdateIndicator from './UpdateIndicator'
 import IconTooltip from './ui/icon-tooltip'
@@ -335,7 +336,20 @@ export default function TopBar({
             )}
           </Button>
         </IconTooltip>
-        <div className="flex shrink-0 items-center rounded-md border border-border bg-surface px-2 py-1">
+        <div
+          className="flex shrink-0 items-center gap-2"
+          data-testid="workspace-heading"
+        >
+          {activeProject?.icon ? (
+            <span
+              aria-hidden="true"
+              className={getProjectColorClassName(
+                activeProject.color ?? 'neutral',
+              )}
+            >
+              <ProjectIconView icon={activeProject.icon} />
+            </span>
+          ) : null}
           <p className="display whitespace-nowrap text-[13px] text-foreground">
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
           </p>

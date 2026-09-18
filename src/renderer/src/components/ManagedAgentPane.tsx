@@ -382,16 +382,19 @@ function ContentItemBlock({
     return (
       <div className="flex justify-end">
         <div
-          className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
+          className="group/user-message max-w-[85%] rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
           data-testid={`managed-content-${item.kind}`}
         >
           <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
             {item.text}
           </pre>
           <ManagedComposerAttachments attachments={item.attachments ?? []} />
-          <p className="mt-1 text-right text-[11px] tabular-nums text-muted-foreground/70">
+          <time
+            dateTime={item.updatedAt}
+            className="mt-1 block text-right text-[11px] tabular-nums text-muted-foreground/70 opacity-0 transition-opacity group-hover/user-message:opacity-100 group-focus-within/user-message:opacity-100"
+          >
             {formatMessageTime(item.updatedAt)}
-          </p>
+          </time>
         </div>
       </div>
     )
@@ -483,7 +486,13 @@ function ContentItemBlock({
   }
 
   return (
-    <div className="px-1" data-testid={`managed-content-${item.kind}`}>
+    <div
+      className={cn(
+        'px-1',
+        item.kind === 'assistant-text' && 'assistant-message',
+      )}
+      data-testid={`managed-content-${item.kind}`}
+    >
       {item.kind === 'assistant-text' && item.provider ? (
         <p className="mb-2 flex items-center gap-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-2 ring-1 ring-[var(--border-soft)]">
@@ -534,9 +543,10 @@ function TurnGroupBlock({
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
-  const responseContentItemId = group.items
+  const responseItem = group.items
     .filter((item) => item.kind === 'assistant-text')
-    .at(-1)?.id
+    .at(-1)
+  const responseContentItemId = responseItem?.id
 
   useEffect(() => {
     return () => {
@@ -569,7 +579,7 @@ function TurnGroupBlock({
   }, [group.items])
 
   return (
-    <div className={cn('group/turn relative space-y-3', isRunning && 'turn')}>
+    <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
       {group.items.map((item) => (
         <ContentItemBlock item={item} key={`${item.kind}:${item.id}`} />
       ))}
@@ -592,9 +602,25 @@ function TurnGroupBlock({
       (canRetry ||
         group.items.some((item) => item.kind === 'assistant-text')) ? (
         <div
-          className="flex items-center gap-1 px-1"
+          className="response-actions flex items-center gap-1 px-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="response-actions"
         >
+          <IconTooltip label={copied ? 'Copied response' : 'Copy response'}>
+            <Button
+              aria-label={copied ? 'Copied response' : 'Copy response'}
+              className="size-7 rounded-md text-muted-foreground"
+              isIconOnly
+              onPress={() => void handleCopy()}
+              size="sm"
+              variant="ghost"
+            >
+              {copied ? (
+                <ClipboardCheck className="size-3.5" />
+              ) : (
+                <Clipboard className="size-3.5" />
+              )}
+            </Button>
+          </IconTooltip>
           {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
@@ -620,20 +646,14 @@ function TurnGroupBlock({
               </Button>
             </IconTooltip>
           ) : null}
-          <Button
-            aria-label={copied ? 'Copied response' : 'Copy response'}
-            className="h-7 gap-1 rounded-md px-2 text-xs text-muted-foreground"
-            onPress={() => void handleCopy()}
-            size="sm"
-            variant="ghost"
-          >
-            {copied ? (
-              <ClipboardCheck className="size-3" />
-            ) : (
-              <Clipboard className="size-3" />
-            )}
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
+          {responseItem ? (
+            <time
+              dateTime={responseItem.updatedAt}
+              className="ml-1 text-[11px] tabular-nums text-muted-foreground/70"
+            >
+              {formatMessageTime(responseItem.updatedAt)}
+            </time>
+          ) : null}
         </div>
       ) : null}
     </div>

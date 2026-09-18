@@ -13,17 +13,14 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
-  Code2,
   Folder,
   FolderKanban,
   GitBranch,
-  Layers3,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   Plus,
   Settings,
-  Sparkles,
   Terminal,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -50,6 +47,7 @@ import {
   resolveWorkspaceAttentionTier,
   shouldPulseWorkspaceActivity,
 } from '../../../shared/workspace-activity'
+import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
 import './SidebarTree.css'
 
 const BRANCH_STATS_POLL_INTERVAL_MS = 30_000
@@ -99,35 +97,6 @@ interface SidebarTreeProps {
   readonly showProjectHints: boolean
   readonly summaries: Record<string, WorkspaceSummary>
   readonly workspaces: readonly WorkspaceRecord[]
-}
-
-function getProjectColorClassName(color: ProjectColor): string {
-  switch (color) {
-    case 'blue':
-      return 'text-accent-blue'
-    case 'violet':
-      return 'text-violet-400'
-    case 'green':
-      return 'text-accent-green'
-    case 'amber':
-      return 'text-accent-yellow'
-    default:
-      return 'text-muted-foreground'
-  }
-}
-
-function ProjectIconView({ icon }: { readonly icon: ProjectIcon }) {
-  const className = 'size-3.5 shrink-0'
-  switch (icon) {
-    case 'code':
-      return <Code2 className={className} />
-    case 'layers':
-      return <Layers3 className={className} />
-    case 'sparkles':
-      return <Sparkles className={className} />
-    default:
-      return <Folder className={className} />
-  }
 }
 
 function renderWorkspaceStateIcon(input: {

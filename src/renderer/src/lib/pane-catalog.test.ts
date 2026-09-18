@@ -13,9 +13,9 @@ import {
 describe('pane catalog', () => {
   it('lists all pane templates including hidden ones', () => {
     expect(listAllPaneCatalogEntries().map((entry) => entry.id)).toEqual([
+      'agent',
       'chat',
       'terminal',
-      'agent',
       'terminal-claude',
       'terminal-codex',
       'git',
@@ -26,11 +26,9 @@ describe('pane catalog', () => {
 
   it('lists only creatable (non-hidden) pane templates', () => {
     expect(listCreatablePaneCatalogEntries().map((entry) => entry.id)).toEqual([
-      'chat',
-      'terminal',
       'agent',
+      'terminal',
       'git',
-      'editor',
       'preview',
     ])
   })
@@ -38,7 +36,7 @@ describe('pane catalog', () => {
   it('omits Git panes for folder projects', () => {
     expect(
       listCreatablePaneCatalogEntries('folder').map((entry) => entry.id),
-    ).toEqual(['chat', 'terminal', 'agent', 'editor', 'preview'])
+    ).toEqual(['agent', 'terminal', 'preview'])
   })
 
   it('creates central default metadata for registered pane types', () => {

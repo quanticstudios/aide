@@ -150,10 +150,11 @@ async function prepareSyntheticJev(
 
 async function addPane(page: Page, paneName: RegExp): Promise<void> {
   await page.getByRole('button', { name: /add pane/i }).click()
-  await page
-    .getByRole('dialog', { name: 'Add pane' })
-    .getByRole('button', { name: paneName })
-    .click()
+  const dialog = page.getByRole('dialog', { name: 'Add pane' })
+  await expect(dialog.getByRole('button').first()).toContainText('Agent')
+  await expect(dialog.getByRole('button', { name: /^Chat\b/ })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: /^Editor\b/ })).toHaveCount(0)
+  await dialog.getByRole('button', { name: paneName }).click()
 }
 
 async function expandSidebar(page: Page): Promise<void> {
@@ -369,6 +370,15 @@ test.describe('electron spatial navigation', () => {
       page.getByRole('button', { name: 'Violet project color' }),
     ).toHaveAttribute('aria-pressed', 'true')
 
+    const heading = page.getByTestId('workspace-heading')
+    await expect(heading.locator('svg.lucide-sparkles')).toBeVisible()
+    await expect(heading.locator('.text-violet-400')).toBeVisible()
+    expect(
+      await heading.evaluate((element) => ({
+        border: getComputedStyle(element).borderTopWidth,
+        background: getComputedStyle(element).backgroundColor,
+      })),
+    ).toEqual({ border: '0px', background: 'rgba(0, 0, 0, 0)' })
     await page.reload()
     const openSidebarButton = page.getByRole('button', { name: 'Open sidebar' })
     if (await openSidebarButton.isVisible()) await openSidebarButton.click()
