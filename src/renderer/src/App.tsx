@@ -1991,12 +1991,24 @@ function WorkspaceApp() {
 
   useEffect(() => {
     if (
+      isCommandPaletteOpen ||
+      isOverviewVisible ||
+      isSettingsOpen ||
+      isWorkspaceSwitcherVisible ||
       !resolvedNavigationState.activePaneId ||
       resolvePaneType(
         resolvePaneMetadata(resolvedNavigationState.activePaneId).type,
       ) !== 'terminal'
     ) {
       return
+    }
+
+    const timeoutIds: number[] = []
+
+    const cancelFocusAttempts = () => {
+      for (const timeoutId of timeoutIds) {
+        window.clearTimeout(timeoutId)
+      }
     }
 
     const focusTerminal = () => {
@@ -2012,17 +2024,37 @@ function WorkspaceApp() {
         return
       }
 
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur()
+      const activeElement = document.activeElement
+      const isEditingOutsideTerminal =
+        activeElement instanceof HTMLElement &&
+        activeElement !== document.body &&
+        !activePaneElement?.contains(activeElement) &&
+        (activeElement.matches('input, textarea, select') ||
+          activeElement.isContentEditable)
+
+      if (isEditingOutsideTerminal) {
+        cancelFocusAttempts()
+        return
       }
 
       textarea.focus()
+      if (document.activeElement === textarea) {
+        cancelFocusAttempts()
+      }
     }
 
     for (const delay of [0, 50, 150, 300, 600]) {
-      window.setTimeout(focusTerminal, delay)
+      timeoutIds.push(window.setTimeout(focusTerminal, delay))
     }
-  }, [resolvedNavigationState.activePaneId])
+
+    return cancelFocusAttempts
+  }, [
+    isCommandPaletteOpen,
+    isOverviewVisible,
+    isSettingsOpen,
+    isWorkspaceSwitcherVisible,
+    resolvedNavigationState.activePaneId,
+  ])
 
   const projects = navigationSnapshot.projects
   const allWorkspaces = navigationSnapshot.workspaces
