@@ -472,6 +472,9 @@ test.describe('shared model chat', () => {
     await expect(
       page.getByRole('option', { name: /fleet\.ts/ }),
     ).toHaveAttribute('aria-selected', 'true')
+    await page.screenshot({
+      path: test.info().outputPath('inline-file-search.png'),
+    })
     await prompt.press('Enter')
     await expect(page.getByTestId('composer-attachments')).toContainText(
       'fleet.ts',
@@ -481,6 +484,9 @@ test.describe('shared model chat', () => {
     await prompt.fill('@claude-test')
     const skill = page.getByRole('option', { name: /\/claude-test-skill/ })
     await expect(skill).toHaveAttribute('aria-selected', 'true')
+    await page.screenshot({
+      path: test.info().outputPath('inline-skill-search.png'),
+    })
     await prompt.press('Tab')
     await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
       '@Claude · /claude-test-skill',

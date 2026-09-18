@@ -47,7 +47,7 @@ export default function JevSetup({
 
   return (
     <div
-      className="grid shrink-0 transition-[grid-template-rows] duration-200 ease-out"
+      className={`grid shrink-0 transition-[grid-template-rows] duration-200 ease-out ${isReady && !isOpen && !error ? 'invisible' : ''}`}
       style={{ gridTemplateRows: !isReady || isOpen || error ? '1fr' : '0fr' }}
       inert={isReady && !isOpen && !error}
       onKeyDown={(event) => {
@@ -79,7 +79,7 @@ export default function JevSetup({
                     : 'Loading'}
           </Button>
           <div
-            className="grid transition-[grid-template-rows] duration-200 ease-out"
+            className={`grid transition-[grid-template-rows] duration-200 ease-out ${isOpen ? '' : 'invisible'}`}
             style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}
             inert={!isOpen}
           >

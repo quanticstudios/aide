@@ -2096,7 +2096,13 @@ export default function ManagedAgentPane({
                   onRetry={(text, recipientAlias) =>
                     void handleRetryTurn(text, recipientAlias)
                   }
-                  providerLabel={providerLabel}
+                  providerLabel={
+                    turn?.provider === 'claude'
+                      ? 'Claude'
+                      : turn?.provider === 'codex'
+                        ? 'Codex'
+                        : providerLabel
+                  }
                   recipientAlias={turn?.recipientAlias ?? null}
                   requestText={turn?.requestText ?? null}
                   sessionId={sessionId}
