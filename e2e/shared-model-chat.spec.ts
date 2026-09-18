@@ -287,6 +287,82 @@ test.describe('shared model chat', () => {
     })
   })
 
+  test('branches a response into an independent same-workspace conversation', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const source = await startSharedChat(page, app)
+
+    await page
+      .getByTestId('response-actions')
+      .last()
+      .getByRole('button', { name: 'Branch conversation' })
+      .click()
+
+    await expect
+      .poll(async () => {
+        const snapshots = await page.evaluate(() =>
+          window.aide.getManagedSessionSnapshots(),
+        )
+        return Object.keys(snapshots).length
+      })
+      .toBe(2)
+
+    const branched = await page.evaluate(async (sourceSessionId) => {
+      const snapshots = await window.aide.getManagedSessionSnapshots()
+      const sourceSnapshot = snapshots[sourceSessionId]
+      const branchSnapshot = Object.values(snapshots).find(
+        (snapshot) => snapshot.sessionId !== sourceSessionId,
+      )
+      const discussion = (snapshot: typeof sourceSnapshot | undefined) =>
+        snapshot?.content.filter(
+          (item) =>
+            item.kind === 'assistant-text' || item.kind === 'user-prompt',
+        ) ?? []
+
+      return {
+        discussionMatches:
+          JSON.stringify(discussion(sourceSnapshot)) ===
+          JSON.stringify(discussion(branchSnapshot)),
+        sessionId: branchSnapshot?.sessionId ?? null,
+        workspaceId: branchSnapshot?.workspaceId ?? null,
+      }
+    }, source.sessionId)
+    expect(branched.discussionMatches).toBe(true)
+    expect(branched.sessionId).not.toBe(source.sessionId)
+    expect(branched.workspaceId).toBe(source.workspaceId)
+
+    const branchPrompt = page
+      .locator('[data-active-pane="true"]')
+      .getByRole('textbox', { name: /claude prompt/i })
+    await branchPrompt.fill('take a different path')
+    await branchPrompt.press('Enter')
+    await expect
+      .poll(async () => {
+        const snapshots = await page.evaluate(() =>
+          window.aide.getManagedSessionSnapshots(),
+        )
+        return snapshots[source.sessionId]?.content.some((item) =>
+          item.text.includes('take a different path'),
+        )
+      })
+      .toBe(false)
+    await expect
+      .poll(async () => {
+        const snapshots = await page.evaluate(() =>
+          window.aide.getManagedSessionSnapshots(),
+        )
+        return branched.sessionId
+          ? snapshots[branched.sessionId]?.content.some((item) =>
+              item.text.includes('take a different path'),
+            )
+          : false
+      })
+      .toBe(true)
+  })
+
   test('chats in an ordinary folder without Git and restores the project after restart', async () => {
     repository = mkdtempSync(path.join(tmpdir(), 'aide-folder-chat-'))
     writeFileSync(path.join(repository, 'README.md'), '# Ordinary folder\n')
@@ -1642,6 +1718,33 @@ test.describe('shared model chat', () => {
       'Steered: change direction now',
     )
     await expect(page.getByTestId('managed-input-queue')).not.toBeVisible()
+  })
+
+  test('labels a running Codex opinion response under a Claude parent', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+
+    await prompt.fill('@Codex wait-codex')
+    await page.getByRole('button', { name: 'Send prompt' }).click()
+    await expect(page.getByText('Codex is working...')).toBeVisible()
+    await expect(page.getByText('Claude is working...')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Interrupt @codex' }).click()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({
+        turns: expect.arrayContaining([
+          expect.objectContaining({
+            recipientAlias: 'codex',
+            state: 'cancelled',
+          }),
+        ]),
+      })
   })
 
   test('attaches a selected workspace file to a required-Jev turn', async () => {

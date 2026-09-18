@@ -508,6 +508,7 @@ function ContentItemBlock({
 
 function TurnGroupBlock({
   group,
+  canBranch,
   isFailed,
   isRunning,
   onBranch,
@@ -518,6 +519,7 @@ function TurnGroupBlock({
   requestText,
 }: {
   readonly group: TurnGroup
+  readonly canBranch: boolean
   readonly isFailed: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
@@ -602,7 +604,7 @@ function TurnGroupBlock({
               Retry
             </button>
           ) : null}
-          {responseContentItemId ? (
+          {canBranch && responseContentItemId ? (
             <IconTooltip label="Branch conversation">
               <Button
                 aria-label="Branch conversation"
@@ -2092,6 +2094,7 @@ export default function ManagedAgentPane({
 
               return (
                 <TurnGroupBlock
+                  canBranch={turn?.state === 'completed'}
                   group={group}
                   isFailed={turn?.state === 'failed'}
                   isRunning={turn?.state === 'running'}
