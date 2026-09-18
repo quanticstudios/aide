@@ -173,6 +173,15 @@ function getWorkspaceBackgroundClassName(
   return ''
 }
 
+function isActiveAgentActivity(activity: WorkspaceActivitySnapshot): boolean {
+  return (
+    activity.state === 'working' ||
+    activity.state === 'connecting' ||
+    activity.state === 'pending-approval' ||
+    activity.state === 'awaiting-input'
+  )
+}
+
 function ActivityPill({
   activity,
 }: {
@@ -595,6 +604,12 @@ export default function SidebarTree({
                   summaries[ws.id]?.activity ?? null,
                 ) === 'attention',
             ).length
+            const projectAgentActivities = projectWorkspaces.flatMap(
+              (workspace) => summaries[workspace.id]?.activities ?? [],
+            )
+            const activeAgentCount = projectAgentActivities.filter(
+              isActiveAgentActivity,
+            ).length
             const isProjectExpanded =
               expandedProjectIds[project.id] ?? isActiveProject
 
@@ -628,37 +643,64 @@ export default function SidebarTree({
                     />
                   </button>
 
-                  <button
-                    aria-current={isActiveProject ? 'true' : undefined}
-                    className={cn(
-                      'flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary',
-                      isActiveProject
-                        ? 'text-foreground'
-                        : 'text-foreground/80',
-                    )}
-                    data-testid={
-                      isExpanded
-                        ? `project-rail-button-${project.id}`
-                        : undefined
-                    }
-                    data-sidebar-focus-key={`project-${project.id}`}
-                    onClick={toggleProject}
-                    type="button"
-                  >
-                    <span className="truncate text-sm font-semibold">
-                      {project.name}
-                    </span>
-                    {showProjectHints && projectIndex < 9 ? (
-                      <Kbd className="keycap ml-auto !h-4 !min-w-4 !px-1.5 !text-[9px] tabular-nums">
-                        {formatWorkspaceShortcutLabel(projectIndex + 1)}
-                      </Kbd>
-                    ) : null}
-                    {attentionCount > 0 ? (
-                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
-                        {attentionCount}
+                  <Tooltip closeDelay={100} delay={500}>
+                    <Tooltip.Trigger
+                      aria-current={isActiveProject ? 'true' : undefined}
+                      aria-expanded={isProjectExpanded}
+                      className={cn(
+                        'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+                        isActiveProject
+                          ? 'text-foreground'
+                          : 'text-foreground/80',
+                      )}
+                      data-testid={
+                        isExpanded
+                          ? `project-rail-button-${project.id}`
+                          : undefined
+                      }
+                      data-sidebar-focus-key={`project-${project.id}`}
+                      onClick={toggleProject}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return
+                        event.preventDefault()
+                        toggleProject()
+                      }}
+                    >
+                      <span className="truncate text-sm font-semibold">
+                        {project.name}
                       </span>
-                    ) : null}
-                  </button>
+                      {showProjectHints && projectIndex < 9 ? (
+                        <Kbd className="keycap ml-auto !h-4 !min-w-4 !px-1.5 !text-[9px] tabular-nums">
+                          {formatWorkspaceShortcutLabel(projectIndex + 1)}
+                        </Kbd>
+                      ) : null}
+                      {attentionCount > 0 ? (
+                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
+                          {attentionCount}
+                        </span>
+                      ) : null}
+                    </Tooltip.Trigger>
+                    <Tooltip.Content
+                      className="w-64 rounded-lg border border-border bg-surface-elevated p-3 text-foreground shadow-[0_16px_48px_rgba(0,0,0,0.36)]"
+                      placement="right"
+                    >
+                      <div className="flex flex-col gap-1.5">
+                        <span className="truncate text-[13px] font-semibold">
+                          {project.name}
+                        </span>
+                        <span className="text-[12px] text-muted-foreground">
+                          {projectAgentActivities.length}{' '}
+                          {projectAgentActivities.length === 1
+                            ? 'agent'
+                            : 'agents'}{' '}
+                          · {activeAgentCount} active
+                        </span>
+                        <span className="break-all font-mono text-[11px] leading-4 text-muted-foreground/80">
+                          {project.repoRoot}
+                        </span>
+                      </div>
+                    </Tooltip.Content>
+                  </Tooltip>
                   <Dropdown>
                     <Dropdown.Trigger
                       aria-label={`Add to ${project.name}`}
