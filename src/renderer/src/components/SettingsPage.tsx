@@ -1,4 +1,4 @@
-import { Button, Input, ListBox, Select, Switch } from '@heroui/react'
+import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -335,26 +335,27 @@ export default function SettingsPage({
           </h1>
         </div>
 
-        <label
-          htmlFor="settings-search"
-          className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-surface-3 px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring"
+        <InputGroup
+          fullWidth
+          className="h-8 min-h-0 min-w-0 rounded-md border border-border bg-surface-3 shadow-none"
         >
-          <Search
-            aria-hidden="true"
-            className="size-3.5 text-muted-foreground"
-          />
-          <span className="sr-only">Search settings</span>
-          <Input
+          <InputGroup.Prefix className="px-2">
+            <Search
+              aria-hidden="true"
+              className="size-3.5 text-muted-foreground"
+            />
+          </InputGroup.Prefix>
+          <InputGroup.Input
             aria-label="Search settings"
             id="settings-search"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            className="min-w-0 text-[13px] placeholder:text-muted-foreground"
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search settings"
             ref={searchRef}
             type="search"
             value={query}
           />
-        </label>
+        </InputGroup>
 
         <nav
           aria-label="Settings categories"
