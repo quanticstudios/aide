@@ -1083,7 +1083,6 @@ textarea:focus-visible {
   transform-origin: left center;
   width: 6px;
   height: 2px;
-  border-radius: 1px;
   background: var(--muted-foreground);
   opacity: 0.35;
   transition:

@@ -26,7 +26,9 @@ export function ConversationMinimap({
     const rail = railRef.current
     if (!scroll || !rail) return
     const messages = Array.from(
-      scroll.querySelectorAll<HTMLElement>('[data-minimap-message]'),
+      scroll.querySelectorAll<HTMLElement>(
+        '[data-minimap-message="Your message"]',
+      ),
     )
     messagesRef.current = messages
     setLabels(
@@ -116,8 +118,9 @@ export function ConversationMinimap({
     ),
     Math.max(0, labels.length * tickSpacing - position.height + 24),
   )
-  const trackOffset =
-    Math.max(12, (position.height - labels.length * tickSpacing) / 2) - shift
+  const trackOffset = Math.round(
+    Math.max(12, (position.height - labels.length * tickSpacing) / 2) - shift,
+  )
   const highlightedIndex = hoveredIndex ?? position.active
   const isVisible = position.hasOverflow && labels.length > 1
   const readPreview = (message: HTMLElement | undefined) =>
@@ -126,26 +129,13 @@ export function ConversationMinimap({
       message?.innerText ??
       ''
     ).trim()
-  let promptIndex = hoveredIndex ?? 0
-  while (
-    promptIndex > 0 &&
-    messagesRef.current[promptIndex]?.dataset.minimapMessage !== 'Your message'
-  )
-    promptIndex--
-  let replyIndex = promptIndex + 1
-  while (
-    replyIndex + 1 < messagesRef.current.length &&
-    messagesRef.current[replyIndex + 1]?.dataset.minimapMessage !==
-      'Your message'
-  )
-    replyIndex++
-  const previewPrompt =
-    hoveredIndex === null ? '' : readPreview(messagesRef.current[promptIndex])
-  const previewReply =
-    hoveredIndex !== null &&
-    messagesRef.current[replyIndex]?.dataset.minimapMessage === 'Agent response'
-      ? readPreview(messagesRef.current[replyIndex])
-      : ''
+  const prompt =
+    hoveredIndex === null ? undefined : messagesRef.current[hoveredIndex]
+  const previewPrompt = readPreview(prompt)
+  const reply = prompt
+    ?.closest('.chat-turn')
+    ?.querySelectorAll<HTMLElement>('[data-minimap-message="Agent response"]')
+  const previewReply = readPreview(reply?.[reply.length - 1])
 
   return (
     <nav
@@ -194,7 +184,7 @@ export function ConversationMinimap({
             >
               <span
                 style={{
-                  transform: `scaleX(${[4.3, 3.3, 2.3, 1.5, 1.1][Math.abs(index - highlightedIndex)] ?? 1})`,
+                  transform: `scaleX(${hoveredIndex === null ? 1 : ([4.3, 3.3, 2.3, 1.5, 1.1][Math.abs(index - highlightedIndex)] ?? 1)})`,
                   opacity:
                     index === highlightedIndex
                       ? 1

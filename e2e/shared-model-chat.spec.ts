@@ -919,7 +919,7 @@ test.describe('shared model chat', () => {
     const session = await startSharedChat(page, app)
     const rail = page.getByRole('navigation', { name: 'Conversation minimap' })
     await expect(rail).toBeHidden()
-    for (let index = 0; index < 30; index++) {
+    for (let index = 0; index < 60; index++) {
       await page.evaluate(
         async ({ id, index }) => {
           await window.aide.sendManagedSessionInput(
@@ -931,10 +931,10 @@ test.describe('shared model chat', () => {
       )
     }
     const content = page.getByTestId('managed-session-content')
-    await expect(content).toContainText('Handled: Minimap message 29')
+    await expect(content).toContainText('Handled: Minimap message 59')
     await expect(rail).toBeVisible()
     const ticks = rail.getByRole('button')
-    await expect(ticks).toHaveCount(62)
+    await expect(ticks).toHaveCount(61)
     await content.evaluate((element) => {
       element.scrollTop = element.scrollHeight
     })
@@ -957,7 +957,7 @@ test.describe('shared model chat', () => {
     await ticks.nth(4).click()
     await expect(ticks.nth(4)).toHaveAttribute('aria-current', 'location')
     await ticks.nth(4).hover()
-    await expect(rail.getByRole('tooltip')).toContainText('Minimap message 1')
+    await expect(rail.getByRole('tooltip')).toContainText('Minimap message 3')
     const tickWidth = (index: number) =>
       ticks
         .nth(index)
@@ -975,8 +975,20 @@ test.describe('shared model chat', () => {
     await page.screenshot({ path: '/tmp/aide-minimap-hover.png' })
     await page.mouse.move(400, 400)
     await expect(rail.getByRole('tooltip')).toBeHidden()
+    await expect
+      .poll(() =>
+        ticks
+          .first()
+          .locator('span')
+          .evaluate((element) => element.getBoundingClientRect().width),
+      )
+      .toBe(6)
+    await expect(ticks.nth(4).locator('span')).toHaveCSS('opacity', '1')
+    await expect(ticks.nth(4).locator('span')).toHaveCSS('border-radius', '0px')
+    await expect.poll(() => tickWidth(4)).toBe(6)
+
     await page.emulateMedia({ reducedMotion: 'reduce' })
-    await expect(track).toHaveCSS('transition-duration', '0s')
+    await expect(track).not.toHaveCSS('transition-property', /transform/)
     await ticks.nth(2).click()
     await expect(ticks.nth(2)).toHaveAttribute('aria-current', 'location')
     await page.keyboard.press('End')
