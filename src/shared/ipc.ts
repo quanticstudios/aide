@@ -165,6 +165,7 @@ export const IPC_CHANNELS = {
   managedSessionInterrupt: 'managed-session:interrupt',
   managedSessionCancelQueuedInput: 'managed-session:cancel-queued-input',
   managedSessionPickFiles: 'managed-session:pick-files',
+  managedSessionSearchFiles: 'managed-session:search-files',
   managedSessionResumeQueue: 'managed-session:resume-queue',
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
@@ -353,6 +354,10 @@ export interface AideApi {
     queuedInputId: string,
   ) => Promise<void>
   pickManagedSessionFiles: (workspaceId: string) => Promise<string[]>
+  searchManagedSessionFiles: (
+    workspaceId: string,
+    query: string,
+  ) => Promise<string[]>
   resumeManagedSessionQueue: (sessionId: string) => Promise<void>
   sendManagedSessionQueuedInputNow: (
     sessionId: string,

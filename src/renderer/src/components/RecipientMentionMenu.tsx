@@ -1,12 +1,16 @@
 import { Button } from '@heroui/react/button'
+import { File } from 'lucide-react'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
+import { materialIconUrlForFile } from '../lib/material-file-icon'
 
 interface RecipientMentionMenuProps {
   readonly activeIndex: number
   readonly agents: readonly ManagedSessionAgentConfig[]
+  readonly filePaths: readonly string[]
+  readonly isFileSearchLoading: boolean
   readonly onActiveIndexChange: (index: number) => void
-  readonly onSelect: (agent: ManagedSessionAgentConfig) => void
-  readonly onSelectFiles: () => void
+  readonly onSelectAgent: (agent: ManagedSessionAgentConfig) => void
+  readonly onSelectFile: (filePath: string) => void
 }
 
 function selectionLabel(agent: ManagedSessionAgentConfig): string {
@@ -16,70 +20,114 @@ function selectionLabel(agent: ManagedSessionAgentConfig): string {
     : provider
 }
 
+function fileParts(filePath: string): { fileName: string; parentPath: string } {
+  const separatorIndex = filePath.lastIndexOf('/')
+  return separatorIndex < 0
+    ? { fileName: filePath, parentPath: '.' }
+    : {
+        fileName: filePath.slice(separatorIndex + 1),
+        parentPath: filePath.slice(0, separatorIndex),
+      }
+}
+
 export default function RecipientMentionMenu({
   activeIndex,
   agents,
+  filePaths,
+  isFileSearchLoading,
   onActiveIndexChange,
-  onSelect,
-  onSelectFiles,
+  onSelectAgent,
+  onSelectFile,
 }: RecipientMentionMenuProps) {
   return (
     <div
       aria-label="Mention suggestions"
-      className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+      className="absolute bottom-full left-0 z-20 mb-2 w-full rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
       data-testid="managed-recipient-menu"
       role="listbox"
     >
-      <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-        Agents
-      </div>
-      <ul className="p-1">
-        {agents.map((agent, index) => (
-          <li key={agent.alias}>
-            <Button
-              aria-selected={index === activeIndex}
-              className={`flex h-auto w-full flex-col items-start gap-0 rounded-lg px-3 py-2 text-left transition-colors ${
-                index === activeIndex
-                  ? 'bg-surface-tertiary text-foreground'
-                  : 'text-foreground/80 hover:bg-surface-secondary'
-              }`}
-              onPress={() => onSelect(agent)}
-              onMouseEnter={() => onActiveIndexChange(index)}
-              role="option"
-              variant="ghost"
-            >
-              <span className="font-semibold">@{agent.alias}</span>
-              <span className="text-xs text-muted-foreground">
-                {selectionLabel(agent)}
-              </span>
-            </Button>
-          </li>
-        ))}
-      </ul>
-      <div className="border-t border-border/60 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+      {agents.length > 0 ? (
+        <>
+          <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            Agents
+          </div>
+          <div className="p-1 pt-0">
+            {agents.map((agent, index) => (
+              <div
+                aria-selected={index === activeIndex}
+                key={agent.alias}
+                role="option"
+                tabIndex={-1}
+              >
+                <Button
+                  className={`flex h-auto w-full flex-col items-start gap-0 rounded-lg px-3 py-2 text-left transition-colors ${
+                    index === activeIndex
+                      ? 'bg-surface-tertiary text-foreground'
+                      : 'text-foreground/80 hover:bg-surface-secondary'
+                  }`}
+                  onMouseEnter={() => onActiveIndexChange(index)}
+                  onPress={() => onSelectAgent(agent)}
+                  variant="ghost"
+                >
+                  <span className="font-semibold">@{agent.alias}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectionLabel(agent)}
+                  </span>
+                </Button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+      <div className="border-t border-border/60 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground first:border-t-0">
         Files
       </div>
-      <ul className="p-1 pt-0">
-        <li>
-          <Button
-            aria-selected={activeIndex === agents.length}
-            className={`flex h-auto w-full flex-col items-start gap-0 rounded-lg px-3 py-2 text-left transition-colors ${
-              activeIndex === agents.length
-                ? 'bg-surface-tertiary text-foreground'
-                : 'text-foreground/80 hover:bg-surface-secondary'
-            }`}
-            onPress={onSelectFiles}
-            onMouseEnter={() => onActiveIndexChange(agents.length)}
-            role="option"
-            variant="ghost"
-          >
-            <span className="font-semibold">Files</span>
-            <span className="text-xs text-muted-foreground">
-              Attach workspace files
-            </span>
-          </Button>
-        </li>
-      </ul>
+      <div className="p-1 pt-0">
+        {filePaths.map((filePath, fileIndex) => {
+          const index = agents.length + fileIndex
+          const { fileName, parentPath } = fileParts(filePath)
+          const iconUrl = materialIconUrlForFile(filePath)
+          return (
+            <div
+              aria-selected={index === activeIndex}
+              key={filePath}
+              role="option"
+              tabIndex={-1}
+            >
+              <Button
+                className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left transition-colors ${
+                  index === activeIndex
+                    ? 'bg-surface-tertiary text-foreground'
+                    : 'text-foreground/80 hover:bg-surface-secondary'
+                }`}
+                onMouseEnter={() => onActiveIndexChange(index)}
+                onPress={() => onSelectFile(filePath)}
+                variant="ghost"
+              >
+                {iconUrl ? (
+                  <img alt="" className="size-4 shrink-0" src={iconUrl} />
+                ) : (
+                  <File aria-hidden className="size-4 shrink-0" />
+                )}
+                <span className="min-w-0 truncate font-medium">{fileName}</span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  {parentPath}
+                </span>
+              </Button>
+            </div>
+          )
+        })}
+        {!isFileSearchLoading && filePaths.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            No matching files
+          </div>
+        ) : null}
+        {isFileSearchLoading ? (
+          <div className="px-3 py-2 text-xs text-muted-foreground">
+            Searching files…
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

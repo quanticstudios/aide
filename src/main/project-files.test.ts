@@ -1,10 +1,15 @@
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { readProjectFile, resolveProjectFilePath } from './project-files'
+import {
+  rankProjectFilePaths,
+  readProjectFile,
+  resolveProjectFilePath,
+  searchProjectFiles,
+} from './project-files'
 
 const tempRoots: string[] = []
 
@@ -37,6 +42,36 @@ describe('resolveProjectFilePath', () => {
     expect(() => resolveProjectFilePath(tempRoot, '../secret.txt')).toThrow(
       'File path must stay inside the project root',
     )
+  })
+})
+
+describe('rankProjectFilePaths', () => {
+  it('ranks filename prefix matches for an inline @file query', () => {
+    expect(
+      rankProjectFilePaths(
+        [
+          'docs/fleet-policy-drawer.md',
+          'src/shared/fleet.ts',
+          'src/renderer/src/lib/fleet-flow.test.ts',
+          'src/unrelated.ts',
+        ],
+        'flee',
+      ),
+    ).toEqual([
+      'src/shared/fleet.ts',
+      'src/renderer/src/lib/fleet-flow.test.ts',
+      'docs/fleet-policy-drawer.md',
+    ])
+  })
+
+  it('searches ordinary project folders that are not git repositories', async () => {
+    const projectRoot = await createTempRoot()
+    await mkdir(path.join(projectRoot, 'src', 'shared'), { recursive: true })
+    await writeFile(path.join(projectRoot, 'src', 'shared', 'fleet.ts'), '')
+
+    await expect(searchProjectFiles(projectRoot, 'flee')).resolves.toEqual([
+      'src/shared/fleet.ts',
+    ])
   })
 })
 
