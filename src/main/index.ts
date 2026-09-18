@@ -1198,6 +1198,18 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.managedSessionBranch,
+    (event, sessionId: unknown, responseContentItemId: unknown) => {
+      requireTrustedRenderer(event)
+      const branch = managedSessionManager.branchSession(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        requireRuntimeId(responseContentItemId, 'response id'),
+      )
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      event.sender.send(IPC_CHANNELS.taskOpen, branch.sessionId)
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.managedSessionClose,
     (_event, sessionId: string) =>
       managedSessionManager.closeSession(sessionId),

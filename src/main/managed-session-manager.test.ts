@@ -1043,6 +1043,56 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshot.sessionState).toBe('ready')
   })
 
+  it('branches a completed response with an independent conversation prefix', async () => {
+    const store = createMemoryStore()
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      store,
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first request')
+    await manager.sendInput(config.sessionId, 'second request')
+
+    const source = manager.getSnapshots()[config.sessionId]
+    const response = source.content.find(
+      (item) => item.kind === 'assistant-text',
+    )
+    if (!response) throw new Error('Expected an assistant response.')
+
+    const branch = manager.branchSession(config.sessionId, response.id)
+    const responseIndex = source.content.findIndex(
+      (item) => item.id === response.id,
+    )
+    expect(branch.sessionId).not.toBe(config.sessionId)
+    expect(branch.paneId).toMatch(/^agent::copy-branch-/)
+    expect(branch.content).toEqual(source.content.slice(0, responseIndex + 1))
+    expect(branch.turns).toHaveLength(1)
+    expect(manager.getSnapshots()[config.sessionId]).toEqual(source)
+
+    await manager.createSession({
+      ...config,
+      paneId: branch.paneId,
+      sessionId: branch.sessionId,
+    })
+    await manager.sendInput(branch.sessionId, 'continue differently')
+
+    const branchResponse = manager
+      .getSnapshots()
+      [branch.sessionId]?.content.at(-1)?.text
+    expect(branchResponse).toContain('User:\n<quote>first request</quote>')
+    expect(branchResponse).toContain(
+      'Assistant (claude):\n<quote>Handled: first request</quote>',
+    )
+    expect(branchResponse).toContain(
+      'Current user request:\ncontinue differently',
+    )
+    expect(manager.getSnapshots()[config.sessionId]?.content).toEqual(
+      source.content,
+    )
+  })
+
   it('limits snapshot broadcasts during a rapid Codex text stream', async () => {
     let snapshotCount = 0
     const manager = new ManagedSessionManager({

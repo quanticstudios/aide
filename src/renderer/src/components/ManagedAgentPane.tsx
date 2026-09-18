@@ -510,6 +510,7 @@ function TurnGroupBlock({
   group,
   isFailed,
   isRunning,
+  onBranch,
   onInterrupt,
   onRetry,
   providerLabel,
@@ -519,6 +520,7 @@ function TurnGroupBlock({
   readonly group: TurnGroup
   readonly isFailed: boolean
   readonly isRunning: boolean
+  readonly onBranch: (responseContentItemId: string) => void
   readonly onInterrupt: (recipientAlias: string) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
@@ -528,6 +530,9 @@ function TurnGroupBlock({
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
+  const responseContentItemId = group.items
+    .filter((item) => item.kind === 'assistant-text')
+    .at(-1)?.id
 
   useEffect(() => {
     return () => {
@@ -596,6 +601,20 @@ function TurnGroupBlock({
               <RefreshCw className="size-3" />
               Retry
             </button>
+          ) : null}
+          {responseContentItemId ? (
+            <IconTooltip label="Branch conversation">
+              <Button
+                aria-label="Branch conversation"
+                className="size-7 rounded-md text-muted-foreground"
+                isIconOnly
+                onPress={() => onBranch(responseContentItemId)}
+                size="sm"
+                variant="ghost"
+              >
+                <GitBranch className="size-3.5" />
+              </Button>
+            </IconTooltip>
           ) : null}
           <Button
             aria-label={copied ? 'Copied response' : 'Copy response'}
@@ -1320,6 +1339,22 @@ export default function ManagedAgentPane({
       await sendPromptText(text, [recipientAlias])
     },
     [sendPromptText],
+  )
+
+  const handleBranchConversation = useCallback(
+    async (responseContentItemId: string) => {
+      const api = getAideApi()
+      if (!api) {
+        setError('Managed provider bridge did not load.')
+        return
+      }
+      try {
+        await api.branchManagedSession(sessionId, responseContentItemId)
+      } catch (branchError) {
+        setError(getErrorMessage(branchError))
+      }
+    },
+    [sessionId],
   )
 
   const handleInterruptRecipient = useCallback(
@@ -2061,6 +2096,9 @@ export default function ManagedAgentPane({
                   isFailed={turn?.state === 'failed'}
                   isRunning={turn?.state === 'running'}
                   key={group.turnId ?? `system-${group.items[0]?.id}`}
+                  onBranch={(responseContentItemId) =>
+                    void handleBranchConversation(responseContentItemId)
+                  }
                   onInterrupt={handleInterruptRecipient}
                   onRetry={(text, recipientAlias) =>
                     void handleRetryTurn(text, recipientAlias)

@@ -2191,6 +2191,78 @@ export class ManagedSessionManager {
     return structuredClone(saved.snapshot)
   }
 
+  public branchSession(
+    sessionId: string,
+    responseContentItemId: string,
+  ): ManagedSessionSnapshot {
+    const source = this.sessions.get(sessionId)
+    if (!source) throw new Error('Managed session is unavailable.')
+
+    const responseIndex = source.snapshot.content.findIndex(
+      (item) =>
+        item.id === responseContentItemId && item.kind === 'assistant-text',
+    )
+    if (responseIndex === -1) {
+      throw new Error('The selected response is unavailable.')
+    }
+
+    const response = source.snapshot.content[responseIndex]
+    const turnIndex = source.snapshot.turns.findIndex(
+      (turn) => turn.id === response?.turnId,
+    )
+    const turn = turnIndex === -1 ? null : source.snapshot.turns[turnIndex]
+    if (turn?.state !== 'completed') {
+      throw new Error('Wait for the response to finish before branching.')
+    }
+
+    const paneId = `agent::copy-branch-${randomUUID()}`
+    const branchConfig = structuredClone({
+      ...source.config,
+      paneId,
+      sessionId: `${source.config.workspaceId}:${paneId}`,
+    })
+    const {
+      fleet: _fleet,
+      preparingActivityId: _preparingActivityId,
+      usage: _usage,
+      usageReports: _usageReports,
+      usageSummary: _usageSummary,
+      ...sourceSnapshot
+    } = source.snapshot
+    const updatedAt = this.getNow()
+    const branchSnapshot: ManagedSessionSnapshot = {
+      ...structuredClone(sourceSnapshot),
+      content: structuredClone(
+        source.snapshot.content.slice(0, responseIndex + 1),
+      ),
+      detail:
+        'Branched from this response. The next request includes the discussion above.',
+      lastCompletedAt: turn.completedAt,
+      lastError: null,
+      lastErrorAt: null,
+      paneId,
+      pendingApprovals: [],
+      pendingUserInputs: [],
+      planApproval: null,
+      queuePaused: false,
+      queuedInputs: [],
+      revision: source.snapshot.revision + 1,
+      running: false,
+      sessionId: branchConfig.sessionId,
+      sessionState: 'stopped',
+      turns: structuredClone(source.snapshot.turns.slice(0, turnIndex + 1)),
+      updatedAt,
+      workspaceId: branchConfig.workspaceId,
+    }
+    const persisted = {
+      config: branchConfig,
+      snapshot: branchSnapshot,
+    }
+    const saved = this.options.store?.saveManagedSession(persisted) ?? persisted
+    this.persistedSessions.set(branchConfig.sessionId, structuredClone(saved))
+    return structuredClone(saved.snapshot)
+  }
+
   /** Blocks new providers while an explicit update restart is being prepared. */
   public beginQuiescing(): () => void {
     this.quiescing = true

@@ -158,6 +158,7 @@ export const IPC_CHANNELS = {
   runWorkspaceSetup: 'workspace-setup:run',
   cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
+  managedSessionBranch: 'managed-session:branch',
   managedFleetAcceptNode: 'managed-session:accept-fleet-node',
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
@@ -335,6 +336,10 @@ export interface AideApi {
   createManagedSession: (
     input: ManagedSessionConfig,
   ) => Promise<ManagedSessionSnapshot>
+  branchManagedSession: (
+    sessionId: string,
+    responseContentItemId: string,
+  ) => Promise<void>
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],
