@@ -63,6 +63,7 @@ describe('managed session selection', () => {
       selection: {
         mode: 'claude',
         model: 'haiku',
+        serviceTier: null,
       },
     })
   })

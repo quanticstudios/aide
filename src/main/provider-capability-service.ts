@@ -119,9 +119,12 @@ function validateProviderSelection(
     }),
     mode: validateMode(input.mode),
     model: validateString(input.model, 'model', { optional: true }),
-    serviceTier: validateString(input.serviceTier, 'service tier', {
-      optional: true,
-    }),
+    serviceTier:
+      input.serviceTier === null
+        ? null
+        : validateString(input.serviceTier, 'service tier', {
+            optional: true,
+          }),
   }
 }
 
@@ -161,7 +164,9 @@ function validateManagedSessionConfig(input: unknown): ManagedSessionConfig {
     ...(selection.model ? { model: selection.model } : {}),
     paneId: validateString(input.paneId, 'pane id') ?? '',
     ...(permissionMode ? { permissionMode } : {}),
-    ...(selection.serviceTier ? { serviceTier: selection.serviceTier } : {}),
+    ...(selection.serviceTier !== undefined
+      ? { serviceTier: selection.serviceTier }
+      : {}),
     sessionId: validateString(input.sessionId, 'session id') ?? '',
     ...(thinkingBudget ? { thinkingBudget } : {}),
     workspaceId: validateString(input.workspaceId, 'workspace id') ?? '',
@@ -687,7 +692,9 @@ export class ProviderCapabilityService {
       selectionNotice: resolution.explanation,
       ...(resolution.serviceTier
         ? { serviceTier: resolution.serviceTier }
-        : {}),
+        : config.serviceTier === null
+          ? { serviceTier: null }
+          : {}),
     }
   }
 
@@ -716,7 +723,9 @@ export class ProviderCapabilityService {
       selectionNotice: resolution.explanation,
       ...(resolution.serviceTier
         ? { serviceTier: resolution.serviceTier }
-        : {}),
+        : selection.serviceTier === null
+          ? { serviceTier: null }
+          : {}),
     }
   }
 

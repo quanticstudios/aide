@@ -407,7 +407,7 @@ const persistedProviderSelection = z.object({
   effort: z.string().max(200).optional(),
   mode: persistedProvider,
   model: z.string().max(200).optional(),
-  serviceTier: z.string().max(200).optional(),
+  serviceTier: z.string().max(200).nullable().optional(),
 })
 const persistedAgentConfig = z.object({
   alias: z
@@ -476,7 +476,7 @@ const persistedManagedSessionSchema = z
         .enum(['acceptEdits', 'bypassPermissions', 'default', 'plan'])
         .optional(),
       selectionNotice: z.string().max(2_000).nullable().optional(),
-      serviceTier: z.string().max(200).optional(),
+      serviceTier: z.string().max(200).nullable().optional(),
       sessionId: persistedIdentifier,
       thinkingBudget: z.enum(['default', 'extra', 'ultra']).optional(),
       workspaceId: persistedIdentifier,

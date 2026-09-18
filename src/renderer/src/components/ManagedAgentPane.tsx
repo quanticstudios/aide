@@ -45,7 +45,6 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
-  ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session'
@@ -701,8 +700,6 @@ export default function ManagedAgentPane({
   const [effort, setEffort] = useState<ManagedSessionEffort | undefined>(
     undefined,
   )
-  const [thinkingBudget, setThinkingBudget] =
-    useState<ManagedSessionThinkingBudget>('default')
   const [contextWindow] = useState<ManagedSessionContextWindow>('200k')
   const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
@@ -935,7 +932,6 @@ export default function ManagedAgentPane({
         permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
         sessionId,
         ...(serviceTier ? { serviceTier } : {}),
-        thinkingBudget,
         workspaceId: workspace.id,
       })
       setSnapshot(created)
@@ -967,7 +963,6 @@ export default function ManagedAgentPane({
     sessionId,
     serviceTier,
     terminalMode,
-    thinkingBudget,
     workspace.id,
     workspace.worktreePath,
   ])
@@ -2428,10 +2423,8 @@ export default function ManagedAgentPane({
               onServiceTierChange={(nextServiceTier) =>
                 void handleServiceTierChange(nextServiceTier)
               }
-              onThinkingBudgetChange={setThinkingBudget}
               provider={selectedProvider}
               serviceTier={serviceTier}
-              thinkingBudget={thinkingBudget}
             />
             {agentMode === 'plan' ? (
               <span className="composer-tool is-pill" data-active="true">

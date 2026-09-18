@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type {
+  ManagedSessionConfig,
   ManagedSessionEvent,
   PersistedManagedSession,
 } from '../shared/managed-session'
@@ -617,6 +618,44 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(switched.provider).toBe('codex')
     expect(switched.effort).toBe('high')
     expect(switched.serviceTier).toBe('priority')
+  })
+
+  it('clears a legacy Claude thinking override when the reasoning effort changes', async () => {
+    const launchedConfigs: ManagedSessionConfig[] = []
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => {
+        launchedConfigs.push(config)
+        return {
+          close: async () => undefined,
+          interrupt: async () => undefined,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          sendInput: async () => undefined,
+          start: async () => {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            })
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = {
+      ...createConfig('claude'),
+      thinkingBudget: 'ultra' as const,
+    }
+
+    await manager.createSession(config)
+    await manager.switchSessionProvider(config.sessionId, {
+      effort: 'low',
+      mode: 'claude',
+    })
+
+    expect(launchedConfigs.at(-1)).not.toHaveProperty('thinkingBudget')
   })
 
   it('keeps the active selection when a busy session rejects a switch', async () => {

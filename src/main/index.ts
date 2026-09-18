@@ -230,7 +230,7 @@ async function resolveConfiguredAgents(
           effort: selection.effort,
           mode: selection.mode,
           model: selection.model,
-          ...(selection.serviceTier
+          ...(selection.serviceTier !== undefined
             ? { serviceTier: selection.serviceTier }
             : {}),
         },
@@ -1149,7 +1149,9 @@ function registerIpcHandlers(): void {
           effort: config.effort,
           mode: config.mode,
           model: config.model,
-          ...(config.serviceTier ? { serviceTier: config.serviceTier } : {}),
+          ...(config.serviceTier !== undefined
+            ? { serviceTier: config.serviceTier }
+            : {}),
         },
       })
     },

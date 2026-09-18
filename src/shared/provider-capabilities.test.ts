@@ -147,6 +147,15 @@ describe('provider capabilities', () => {
         ],
       },
     ])
+    expect(
+      resolveProviderSelection(capabilities, {
+        modelId: 'gpt-5.6-terra',
+        serviceTier: null,
+      }),
+    ).toMatchObject({
+      effort: 'medium',
+      serviceTier: null,
+    })
   })
 
   it('migrates known aliases and explains a persisted selection that is no longer supported', () => {

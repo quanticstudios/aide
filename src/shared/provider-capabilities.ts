@@ -460,7 +460,9 @@ export function resolveProviderSelection(
     (candidate) => candidate.id === requestedServiceTier,
   )
     ? requestedServiceTier
-    : selected.defaultServiceTier
+    : selection.serviceTier === null
+      ? null
+      : selected.defaultServiceTier
 
   if (
     requestedServiceTier &&

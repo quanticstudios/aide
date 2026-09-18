@@ -100,6 +100,22 @@ describe('ProviderCapabilityService', () => {
       selectionNotice: null,
       serviceTier: 'priority',
     })
+
+    await expect(
+      service.resolveManagedSessionConfig({
+        cwd: '/tmp/project',
+        effort: 'high',
+        mode: 'codex',
+        model: 'gpt-test',
+        paneId: 'pane-1',
+        serviceTier: null,
+        sessionId: 'session-1',
+        workspaceId: 'workspace-1',
+      }),
+    ).resolves.toMatchObject({
+      model: 'gpt-test',
+      serviceTier: null,
+    })
   })
 
   it('rejects malformed IPC input before it can reach a provider process', async () => {

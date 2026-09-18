@@ -3395,15 +3395,20 @@ export class ManagedSessionManager {
     )
     try {
       if (signal.aborted) throw new Error('Agent response cancelled.')
+      const { serviceTier: agentServiceTier, ...agentSelection } =
+        agent.selection
+      const { serviceTier: _parentServiceTier, ...parentConfig } = state.config
       await Promise.race([
         child.createSession({
-          ...state.config,
-          ...agent.selection,
+          ...parentConfig,
+          ...agentSelection,
           agents: [],
           contextWindow: undefined,
           thinkingBudget: undefined,
           effort: agent.selection.effort,
-          serviceTier: agent.selection.serviceTier,
+          ...(agentServiceTier !== undefined
+            ? { serviceTier: agentServiceTier }
+            : {}),
           orchestratorSelection: agent.selection,
           interactionMode: 'plan',
           permissionMode: 'default',
@@ -3592,7 +3597,11 @@ export class ManagedSessionManager {
       }
 
       const now = this.getNow()
-      const previousConfig = state.config
+      const {
+        serviceTier: _previousServiceTier,
+        thinkingBudget: _previousThinkingBudget,
+        ...previousConfig
+      } = state.config
       const candidateConfig: ManagedSessionConfig = {
         ...previousConfig,
         effort: selection.effort,
@@ -3612,7 +3621,9 @@ export class ManagedSessionManager {
             }
           : {}),
         selectionNotice: selection.selectionNotice ?? null,
-        serviceTier: selection.serviceTier,
+        ...(selection.serviceTier !== undefined
+          ? { serviceTier: selection.serviceTier }
+          : {}),
       }
 
       await state.backend.close()
