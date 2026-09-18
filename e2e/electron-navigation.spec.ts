@@ -385,14 +385,18 @@ test.describe('electron spatial navigation', () => {
       page.getByRole('button', { name: 'Violet project color' }),
     ).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({
+      animations: 'disabled',
       path: test.info().outputPath('project-appearance.png'),
     })
     await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await page.getByRole('banner').hover()
     await page.locator('[data-testid^="project-rail-button-"]').hover()
     await expect(
       page.getByText(chosenProjectRoot, { exact: true }),
     ).toBeVisible()
     await page.screenshot({
+      animations: 'disabled',
       path: test.info().outputPath('project-details.png'),
     })
     expect(consoleErrors).toEqual([])
