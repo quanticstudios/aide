@@ -198,6 +198,7 @@ export interface ManagedSessionUsage {
 }
 
 export interface ManagedSessionSnapshot {
+  pendingProviderSelection?: ManagedSessionProviderSelection
   preparingActivityId?: string
   fleet?: FleetState
   agents?: readonly ManagedSessionAgentConfig[]

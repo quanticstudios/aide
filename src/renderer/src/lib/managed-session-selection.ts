@@ -1,4 +1,7 @@
-import type { ManagedSessionProviderSelection } from '../../../shared/managed-session'
+import type {
+  ManagedSessionProviderSelection,
+  ManagedSessionSnapshot,
+} from '../../../shared/managed-session'
 import type { ProviderSelectionResolution } from '../../../shared/provider-capabilities'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
 import type { ManagedSessionMode } from '../../../shared/terminal'
@@ -64,5 +67,18 @@ export function canChangeManagedSessionSelection(
         session.sessionState === 'error') &&
         session.pendingApprovals.length === 0 &&
         session.pendingUserInputs.length === 0),
+  )
+}
+
+export function getComposerProviderSelection(
+  snapshot: ManagedSessionSnapshot,
+): ManagedSessionProviderSelection {
+  return (
+    snapshot.pendingProviderSelection ?? {
+      mode: snapshot.provider,
+      model: snapshot.model ?? undefined,
+      effort: snapshot.effort ?? undefined,
+      serviceTier: snapshot.serviceTier,
+    }
   )
 }

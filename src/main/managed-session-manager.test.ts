@@ -658,7 +658,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(launchedConfigs.at(-1)).not.toHaveProperty('thinkingBudget')
   })
 
-  it('keeps the active selection when a busy session rejects a switch', async () => {
+  it('keeps the active selection while recording a switch for the next message', async () => {
     const manager = new ManagedSessionManager({
       getNow: () => '2026-04-11T10:00:00.000Z',
       onRuntimeEvent: () => undefined,
@@ -670,18 +670,97 @@ createInterface({ input: process.stdin }).on('line', line => {
     await manager.sendInput(config.sessionId, 'approval')
     const before = manager.getSnapshots()[config.sessionId]
 
-    await expect(
-      manager.switchSessionProvider(config.sessionId, {
-        effort: 'high',
-        mode: 'codex',
-        model: 'gpt-test',
-        serviceTier: 'priority',
-      }),
-    ).rejects.toThrow(
-      'Cannot switch provider while a turn is active or approvals/inputs are pending',
-    )
+    const pending = await manager.switchSessionProvider(config.sessionId, {
+      effort: 'high',
+      mode: 'codex',
+      model: 'gpt-test',
+      serviceTier: 'priority',
+    })
+    expect(pending.model).toBe(before.model)
+    expect(pending.pendingApprovals).toEqual(before.pendingApprovals)
+    expect(pending.pendingProviderSelection).toEqual({
+      effort: 'high',
+      mode: 'codex',
+      model: 'gpt-test',
+      serviceTier: 'priority',
+    })
+  })
 
-    expect(manager.getSnapshots()[config.sessionId]).toEqual(before)
+  it('finishes the active reply before applying the latest choice to queued input', async () => {
+    const emitters: Array<(event: ManagedProviderRuntimeEvent) => void> = []
+    const sent: Array<{ model?: string; text: string }> = []
+    const interrupt = vi.fn(async () => undefined)
+    const steer = vi.fn(async () => undefined)
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => {
+        emitters.push(emit)
+        return {
+          close: async () => undefined,
+          interrupt,
+          steerInput: steer,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          start: async () =>
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            }),
+          sendInput: async (text) => {
+            sent.push({ model: config.model, text })
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              turnId: `turn-${sent.length}`,
+              type: 'turn.started',
+            })
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = { ...createConfig('codex'), model: 'original' }
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    await manager.switchSessionProvider(config.sessionId, {
+      mode: 'claude',
+      model: 'intermediate',
+    })
+    await manager.switchSessionProvider(config.sessionId, {
+      mode: 'claude',
+      model: 'latest',
+      effort: 'high',
+    })
+    await manager.sendInput(config.sessionId, 'second')
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      model: 'original',
+      pendingProviderSelection: { model: 'latest' },
+    })
+    expect(sent).toHaveLength(1)
+    expect(interrupt).not.toHaveBeenCalled()
+    expect(steer).not.toHaveBeenCalled()
+    const queuedId =
+      manager.getSnapshots()[config.sessionId].queuedInputs?.[0]?.id
+    expect(queuedId).toBeDefined()
+    await expect(
+      manager.sendQueuedInputNow(config.sessionId, queuedId ?? ''),
+    ).rejects.toThrow('waiting for the selected model')
+    emitters[0]({
+      createdAt: '2026-04-11T10:00:01.000Z',
+      provider: 'codex',
+      turnId: 'turn-1',
+      state: 'completed',
+      type: 'turn.completed',
+    })
+    await vi.waitFor(() => expect(sent).toHaveLength(2))
+    expect(sent[1].model).toBe('latest')
+    expect(sent[1].text).toContain('second')
+    expect(
+      manager.getSnapshots()[config.sessionId].pendingProviderSelection,
+    ).toBeUndefined()
+    await manager.closeAll()
   })
 
   it('rolls back a failed provider selection without publishing it', async () => {
@@ -862,7 +941,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     ).resolves.toMatchObject({ provider: 'codex', sessionState: 'ready' })
   })
 
-  it('rejects provider switches while a session is still connecting', async () => {
+  it('records a provider switch while a session is still connecting', async () => {
     const manager = new ManagedSessionManager({
       createBackend: () => ({
         close: async () => undefined,
@@ -882,10 +961,13 @@ createInterface({ input: process.stdin }).on('line', line => {
 
     await expect(
       manager.switchSessionProvider(config.sessionId, { mode: 'codex' }),
-    ).rejects.toThrow('connecting')
+    ).resolves.toMatchObject({
+      provider: 'claude',
+      pendingProviderSelection: { mode: 'codex' },
+    })
   })
 
-  it('rejects a concurrent provider switch while the first switch is closing', async () => {
+  it('applies the latest selection after an in-progress switch finishes', async () => {
     const closeStarted = createDeferred()
     const releaseClose = createDeferred()
     const starts: string[] = []
@@ -928,12 +1010,14 @@ createInterface({ input: process.stdin }).on('line', line => {
 
     await expect(
       manager.switchSessionProvider(config.sessionId, { mode: 'claude' }),
-    ).rejects.toThrow('already in progress')
+    ).resolves.toMatchObject({ pendingProviderSelection: { mode: 'claude' } })
 
     releaseClose.resolve()
     await expect(firstSwitch).resolves.toMatchObject({ provider: 'codex' })
-    expect(closeCount).toBe(1)
-    expect(starts).toEqual(['claude', 'codex'])
+    await vi.waitFor(() =>
+      expect(starts).toEqual(['claude', 'codex', 'claude']),
+    )
+    expect(closeCount).toBe(2)
   })
 
   it('ignores events emitted by any superseded backend generation', async () => {

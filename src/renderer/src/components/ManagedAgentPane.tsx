@@ -71,6 +71,7 @@ import {
 } from '../lib/managed-session-grouping'
 import {
   canChangeManagedSessionSelection,
+  getComposerProviderSelection,
   isProviderSelectionHydrated,
   planManagedSessionSelectionChange,
   providerSelectionHydrationKey,
@@ -825,6 +826,12 @@ export default function ManagedAgentPane({
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
+  const workingProviderLabel =
+    snapshot?.provider === 'claude'
+      ? 'Claude'
+      : snapshot?.provider === 'codex'
+        ? 'Codex'
+        : providerLabel
   const selectionHydrationKey = providerSelectionHydrationKey(
     workspace.id,
     selectedProvider,
@@ -860,6 +867,11 @@ export default function ManagedAgentPane({
     hydratedProviderSelectionKeyRef.current = null
 
     if (!providerCapabilities) {
+      return
+    }
+
+    if (startedSessionRef.current) {
+      hydratedProviderSelectionKeyRef.current = selectionHydrationKey
       return
     }
 
@@ -1022,12 +1034,13 @@ export default function ManagedAgentPane({
           setConfiguredAgents(existing.agents)
           configuredAgentsInitializedRef.current = true
         }
-        setSelectedModel(existing.model ?? undefined)
-        setEffort(existing.effort ?? effort)
-        setServiceTier(existing.serviceTier)
+        const composerSelection = getComposerProviderSelection(existing)
+        setSelectedModel(composerSelection.model)
+        setEffort(composerSelection.effort)
+        setServiceTier(composerSelection.serviceTier ?? null)
         setSelectionNotice(existing.selectionNotice)
         if (isUnifiedPane) {
-          setSelectedProvider(existing.provider as ManagedSessionMode)
+          setSelectedProvider(composerSelection.mode)
         }
         startedSessionRef.current = true
         return true
@@ -1120,12 +1133,13 @@ export default function ManagedAgentPane({
         setConfiguredAgents(nextSnapshot.agents)
         configuredAgentsInitializedRef.current = true
       }
-      setSelectedModel(nextSnapshot.model ?? undefined)
-      setEffort(nextSnapshot.effort ?? effort)
-      setServiceTier(nextSnapshot.serviceTier)
+      const composerSelection = getComposerProviderSelection(nextSnapshot)
+      setSelectedModel(composerSelection.model)
+      setEffort(composerSelection.effort)
+      setServiceTier(composerSelection.serviceTier ?? null)
       setSelectionNotice(nextSnapshot.selectionNotice)
       if (isUnifiedPane) {
-        setSelectedProvider(nextSnapshot.provider as ManagedSessionMode)
+        setSelectedProvider(composerSelection.mode)
       }
       startedSessionRef.current = true
     }
@@ -1165,7 +1179,7 @@ export default function ManagedAgentPane({
     })
 
     return unsubscribe
-  }, [effort, isUnifiedPane, sessionId, terminalMode])
+  }, [isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
   const pendingApprovalCount = snapshot?.pendingApprovals.length ?? 0
@@ -1600,20 +1614,21 @@ export default function ManagedAgentPane({
           change.selection,
         )
         setSnapshot(updated)
-        setSelectedModel(updated.model ?? undefined)
-        setEffort(updated.effort ?? undefined)
-        setServiceTier(updated.serviceTier)
+        const composerSelection = getComposerProviderSelection(updated)
+        setSelectedModel(composerSelection.model)
+        setEffort(composerSelection.effort)
+        setServiceTier(composerSelection.serviceTier ?? null)
         setSelectionNotice(updated.selectionNotice)
-        persistProviderSelection(workspace.id, updated.provider, {
-          effort: updated.effort ?? undefined,
-          modelId: updated.model ?? undefined,
-          serviceTier: updated.serviceTier,
+        persistProviderSelection(workspace.id, composerSelection.mode, {
+          effort: composerSelection.effort,
+          modelId: composerSelection.model,
+          serviceTier: composerSelection.serviceTier ?? null,
         })
         if (isUnifiedPane) {
-          setSelectedProvider(updated.provider)
+          setSelectedProvider(composerSelection.mode)
           localStorage.setItem(
             `aide:workspace:${workspace.id}:provider`,
-            updated.provider,
+            composerSelection.mode,
           )
         }
         setError(null)
@@ -2210,7 +2225,7 @@ export default function ManagedAgentPane({
                       ? 'Claude'
                       : turn?.provider === 'codex'
                         ? 'Codex'
-                        : providerLabel
+                        : workingProviderLabel
                   }
                   recipientAlias={turn?.recipientAlias ?? null}
                   requestText={turn?.requestText ?? null}
@@ -2221,7 +2236,7 @@ export default function ManagedAgentPane({
             {snapshot?.sessionState === 'running' && runningTurnId === null ? (
               <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
                 <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
-                {providerLabel} is working...
+                {workingProviderLabel} is working...
               </div>
             ) : null}
           </div>
@@ -2259,6 +2274,7 @@ export default function ManagedAgentPane({
         <ManagedInputQueue
           canSteer={Boolean(
             snapshot?.provider === 'codex' &&
+              !snapshot.pendingProviderSelection &&
               snapshot.turns.some(
                 (turn) => turn.state === 'running' && !turn.recipientAlias,
               ),
@@ -2725,7 +2741,7 @@ export default function ManagedAgentPane({
             {isUnifiedPane ? (
               <ModelSelector
                 capabilities={capabilities}
-                isDisabled={!canChangeProviderSelection}
+                isDisabled={capabilities === null}
                 model={selectedModel}
                 onChange={(mode, modelId) =>
                   void handleModelSwitch(mode, modelId)
@@ -2735,6 +2751,14 @@ export default function ManagedAgentPane({
             ) : (
               <span className="composer-tool">{providerLabel}</span>
             )}
+            {snapshot?.pendingProviderSelection ? (
+              <span
+                className="px-1 text-[10px] text-muted-foreground"
+                role="status"
+              >
+                Next message
+              </span>
+            ) : null}
             <ConfiguredAgentSettings
               agents={configuredAgents}
               capabilities={capabilities}
@@ -2744,7 +2768,7 @@ export default function ManagedAgentPane({
             <ReasoningExtrasDropdown
               capabilities={capabilities}
               effort={effort}
-              isDisabled={!canChangeProviderSelection}
+              isDisabled={capabilities === null}
               model={selectedModel}
               onEffortChange={(nextEffort) =>
                 void handleEffortChange(nextEffort)

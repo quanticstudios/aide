@@ -139,6 +139,11 @@ describe('createAideDatabase', () => {
           workspaceId: workspace.id,
         },
         snapshot: {
+          pendingProviderSelection: {
+            mode: 'codex',
+            model: 'gpt-test',
+            effort: 'high',
+          },
           agents,
           fleet: {
             plan: {

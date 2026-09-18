@@ -524,6 +524,7 @@ const persistedManagedSessionSchema = z
       workspaceId: persistedIdentifier,
     }),
     snapshot: z.object({
+      pendingProviderSelection: persistedProviderSelection.optional(),
       content: z.array(
         z.object({
           attachments: z.array(persistedManagedAttachment).max(8).optional(),

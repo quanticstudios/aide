@@ -170,6 +170,7 @@ interface ManagedSessionMutableState {
   contentByKey: Map<string, ManagedSessionContentItem>
   emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void
   orderedContentKeys: string[]
+  pendingProviderSelection?: ManagedSessionProviderSelection
   pendingApprovals: Map<string, ManagedSessionPendingApproval>
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
   pendingUserPromptText: string | null
@@ -2346,6 +2347,7 @@ export class ManagedSessionManager {
         }
       : config
     const state: ManagedSessionMutableState = {
+      pendingProviderSelection: persisted?.snapshot.pendingProviderSelection,
       activeTurnId: null,
       agentRuns: new Map(),
       backend: null as never,
@@ -2592,7 +2594,11 @@ export class ManagedSessionManager {
     }
 
     this.resolveRecipientAgents(state, recipients)
-    if (skill && skill.provider !== state.config.mode) {
+    if (
+      skill &&
+      skill.provider !==
+        (state.pendingProviderSelection?.mode ?? state.config.mode)
+    ) {
       throw new Error('Selected provider skill does not match this session.')
     }
     if (skill && recipients.length > 0) {
@@ -2623,6 +2629,7 @@ export class ManagedSessionManager {
       state.queuedInputs.length === 0 &&
       !state.queuePaused &&
       queuedInput.recipients.length === 0 &&
+      !state.pendingProviderSelection &&
       !queuedInput.skill
 
     state.queuedInputs.push(queuedInput)
@@ -2705,6 +2712,9 @@ export class ManagedSessionManager {
       (input) => input.id === queuedInputId,
     )
     if (!state || !queuedInput) return
+    if (state.pendingProviderSelection) {
+      throw new Error('This message is waiting for the selected model.')
+    }
     if (
       state.config.mode !== 'codex' ||
       !state.activeTurnId ||
@@ -2803,12 +2813,14 @@ export class ManagedSessionManager {
 
   private isInputBusy(state: ManagedSessionMutableState): boolean {
     return Boolean(
-      state.activeTurnId ||
+      state.switchInProgress ||
+        state.activeTurnId ||
         state.pendingApprovals.size > 0 ||
         state.pendingUserInputs.size > 0 ||
         state.checkpointCompletion ||
         state.preparationAbortController ||
         state.pendingUserPromptItemId ||
+        state.pendingUserPromptText !== null ||
         state.agentRuns.size > 0,
     )
   }
@@ -2818,7 +2830,6 @@ export class ManagedSessionManager {
   ): Promise<void> {
     if (
       state.queueDraining ||
-      state.queuePaused ||
       state.closed ||
       state.closing ||
       this.quiescing
@@ -2828,7 +2839,30 @@ export class ManagedSessionManager {
 
     state.queueDraining = true
     try {
-      while (state.queuedInputs.length > 0 && !this.isInputBusy(state)) {
+      while (!this.isInputBusy(state)) {
+        if (state.pendingProviderSelection) {
+          if (
+            !['ready', 'stopped', 'error'].includes(state.snapshot.sessionState)
+          )
+            return
+          const selection = state.pendingProviderSelection
+          state.pendingProviderSelection = undefined
+          try {
+            await this.switchSessionProvider(state.config.sessionId, selection)
+          } catch (error) {
+            state.queuePaused = true
+            state.emitRuntimeEvent({
+              type: 'runtime.error',
+              provider: state.config.mode,
+              createdAt: this.getNow(),
+              message:
+                error instanceof Error ? error.message : 'Model switch failed.',
+            })
+            return
+          }
+          continue
+        }
+        if (state.queuePaused || state.queuedInputs.length === 0) return
         const queuedInput = state.queuedInputs[0]
         if (!queuedInput) return
         state.queuedInputInProgressId = queuedInput.id
@@ -3750,24 +3784,19 @@ export class ManagedSessionManager {
       throw new Error(`Session ${sessionId} not found`)
     }
 
-    if (state.closing || state.switchInProgress) {
-      throw new Error(
-        'A provider switch is already in progress for this session',
-      )
-    }
-
+    if (state.closing) throw new Error('This session is closing.')
     if (
-      state.activeTurnId !== null ||
-      state.pendingApprovals.size > 0 ||
-      state.pendingUserInputs.size > 0 ||
+      this.isInputBusy(state) ||
       state.pendingUserPromptText !== null ||
-      state.agentRuns.size > 0
+      !['ready', 'stopped', 'error'].includes(state.snapshot.sessionState)
     ) {
-      throw new Error(
-        'Cannot switch provider while a turn is active or approvals/inputs are pending',
-      )
+      state.pendingProviderSelection = { ...selection }
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+      return state.snapshot
     }
 
+    state.pendingProviderSelection = undefined
     state.switchInProgress = true
 
     try {
@@ -3975,6 +4004,7 @@ export class ManagedSessionManager {
       return state.snapshot
     } finally {
       state.switchInProgress = false
+      void this.drainQueuedInputs(state)
     }
   }
 
@@ -4402,7 +4432,14 @@ export class ManagedSessionManager {
       )
       state.checkpointCompletion = checkpointCompletion
       void checkpointCompletion
-    } else if (event.type === 'turn.completed' && event.state === 'completed') {
+    } else if (
+      (event.type === 'turn.completed' &&
+        (event.state === 'completed' || state.pendingProviderSelection)) ||
+      (state.pendingProviderSelection &&
+        (event.type === 'session.state.changed' ||
+          event.type === 'request.resolved' ||
+          event.type === 'user-input.resolved'))
+    ) {
       void this.drainQueuedInputs(state)
     }
   }
@@ -4494,6 +4531,9 @@ export class ManagedSessionManager {
       !state.preparationAbortController.signal.aborted &&
       state.pendingUserPromptItemId
         ? { preparingActivityId: state.pendingUserPromptItemId }
+        : {}),
+      ...(state.pendingProviderSelection
+        ? { pendingProviderSelection: state.pendingProviderSelection }
         : {}),
       ...(state.snapshot.fleet ? { fleet: state.snapshot.fleet } : {}),
       ...(state.config.agents ? { agents: state.config.agents } : {}),

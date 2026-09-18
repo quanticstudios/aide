@@ -910,6 +910,84 @@ test.describe('shared model chat', () => {
     )
   })
 
+  test('keeps model and effort controls available during a reply and applies the next choice after it finishes', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const session = await startSharedChat(page, app)
+    await page.evaluate(
+      async (id) => window.aide.sendManagedSessionInput(id, 'approval'),
+      session.sessionId,
+    )
+    const waiting = await getOnlySnapshot(page)
+    expect(waiting.pendingApprovals).toHaveLength(1)
+    const capabilities = await page.evaluate(() =>
+      window.aide.getProviderCapabilities(),
+    )
+    const original = capabilities.providers.claude.models.find(
+      (model) => model.id === waiting.model,
+    )
+    const target = capabilities.providers.codex.models.find(
+      (model) => model.id === 'gpt-5.6-terra',
+    )
+    if (!original || !target) throw new Error('Missing test models')
+    await page
+      .getByRole('button', { name: original.label, exact: true })
+      .click()
+    const picker = page.locator('[data-model-selector-menu]')
+    await picker.getByRole('button', { name: 'Codex', exact: true }).click()
+    await picker.getByRole('button').filter({ hasText: target.label }).click()
+    await expect(page.getByText('Next message', { exact: true })).toBeVisible()
+    await page
+      .getByRole('button', { name: 'Reasoning settings', exact: true })
+      .click()
+    await page
+      .getByRole('menu', { name: 'Reasoning settings' })
+      .getByRole('menuitem', { name: /^High\b/ })
+      .click()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({
+        provider: 'claude',
+        model: waiting.model,
+        pendingProviderSelection: {
+          mode: 'codex',
+          model: target.id,
+          effort: 'high',
+        },
+      })
+    await page.reload()
+    await expect(
+      page.getByRole('button', { name: target.label, exact: true }),
+    ).toBeEnabled()
+    await expect(page.getByText('Next message', { exact: true })).toBeVisible()
+    await page.evaluate(
+      async ({ sessionId, requestId }) =>
+        window.aide.resolveManagedSessionRequest(
+          sessionId,
+          requestId,
+          'accept',
+        ),
+      {
+        sessionId: session.sessionId,
+        requestId: waiting.pendingApprovals[0].id,
+      },
+    )
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ provider: 'codex', model: target.id, effort: 'high' })
+    await expect(page.getByText('Next message', { exact: true })).toBeHidden()
+    const prompt = page.getByRole('textbox', { name: /codex prompt/i })
+    await prompt.fill('next model reply')
+    await prompt.press('Enter')
+    await expect(
+      page.getByTestId('managed-content-assistant-text').last(),
+    ).toContainText('Handled: next model reply')
+    expect((await getOnlySnapshot(page)).turns.at(-1)?.provider).toBe('codex')
+  })
+
   test('shows provider reasoning options and applies keyboard selections', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
