@@ -1585,13 +1585,18 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(sent[1]).toContain('queued after cancellation')
   })
 
-  it('steers an active Codex turn without starting a concurrent turn', async () => {
+  it('automatically steers an eligible active Codex turn with prepared context', async () => {
     const checkpoints: string[] = []
+    const preparedInputs: string[] = []
     const steered: string[] = []
     const manager = new ManagedSessionManager({
       beforeInput: async ({ text }) => {
         checkpoints.push(text)
         return { checkpointId: `checkpoint-${text}` }
+      },
+      prepareInput: async ({ text }) => {
+        preparedInputs.push(text)
+        return { text: `prepared ${text}` }
       },
       createBackend: (config, emit) => ({
         close: async () => undefined,
@@ -1625,12 +1630,111 @@ createInterface({ input: process.stdin }).on('line', line => {
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'start')
     await manager.sendInput(config.sessionId, 'steer this')
-    const queuedInputId =
-      manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id
-    await manager.sendQueuedInputNow(config.sessionId, queuedInputId ?? '')
+
     expect(checkpoints).toEqual(['start'])
-    expect(steered).toEqual([expect.stringContaining('steer this')])
-    expect(manager.getSnapshots()[config.sessionId]?.turns).toHaveLength(1)
+    expect(preparedInputs).toEqual(['start', 'steer this'])
+    expect(steered).toEqual(['prepared steer this'])
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      content: [
+        expect.objectContaining({ text: 'start' }),
+        expect.objectContaining({ text: 'steer this', turnId: 'active' }),
+      ],
+      queuedInputs: [],
+      turns: [expect.objectContaining({ id: 'active', state: 'running' })],
+    })
+
+    await manager.sendInput(config.sessionId, 'run skill', [], [], {
+      id: 'codex:skill:test',
+      nativeName: 'test',
+      provider: 'codex',
+    })
+
+    expect(steered).toEqual(['prepared steer this'])
+    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([
+      expect.objectContaining({
+        skill: expect.objectContaining({ id: 'codex:skill:test' }),
+        text: 'run skill',
+      }),
+    ])
+  })
+
+  it('persists an active Codex follow-up before preparation without steering a completed turn', async () => {
+    const preparationStarted = createDeferred()
+    const releasePreparation = createDeferred()
+    const sent: string[] = []
+    const steered: string[] = []
+    const store = createMemoryStore()
+    const save = vi.spyOn(store, 'saveManagedSession')
+    let emitRuntimeEvent:
+      | ((event: ManagedProviderRuntimeEvent) => void)
+      | undefined
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => {
+        emitRuntimeEvent = emit
+        return {
+          close: async () => undefined,
+          interrupt: async () => undefined,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          sendInput: async (text) => {
+            sent.push(text)
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              turnId: text === 'start' ? 'active' : 'next',
+              type: 'turn.started',
+            })
+          },
+          start: async () => {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            })
+          },
+          steerInput: async (text) => {
+            steered.push(text)
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        if (text === 'follow up') {
+          preparationStarted.resolve()
+          await releasePreparation.promise
+        }
+        return { text }
+      },
+      store,
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+    const followUp = manager.sendInput(config.sessionId, 'follow up')
+    await preparationStarted.promise
+
+    expect(save.mock.calls.at(-1)?.[0].snapshot.queuedInputs).toEqual([
+      expect.objectContaining({ text: 'follow up' }),
+    ])
+    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
+
+    emitRuntimeEvent?.({
+      createdAt: '2026-04-11T10:00:01.000Z',
+      provider: 'codex',
+      state: 'completed',
+      turnId: 'active',
+      type: 'turn.completed',
+    })
+    releasePreparation.resolve()
+    await followUp
+
+    expect(steered).toEqual([])
+    expect(sent.map((text) => text.split('\n\nFleet policy.')[0])).toEqual([
+      'start',
+      'follow up',
+    ])
   })
 
   it('registers a restored session without starting a backend', async () => {
