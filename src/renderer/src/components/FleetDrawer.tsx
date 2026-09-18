@@ -508,7 +508,7 @@ export default function FleetDrawer({
 
   useEffect(() => {
     if (!isOpen) return
-    closeButtonRef.current?.focus()
+    closeButtonRef.current?.focus({ preventScroll: true })
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
@@ -541,7 +541,7 @@ export default function FleetDrawer({
       aria-hidden={!isOpen}
       inert={!isOpen}
       data-open={isOpen}
-      className="fleet-drawer absolute inset-y-0 right-0 z-30 flex w-[min(30rem,calc(100vw-1rem))] flex-col border-l border-border bg-background shadow-[-16px_0_48px_rgba(0,0,0,0.22)]"
+      className="fleet-drawer absolute inset-y-0 right-0 flex w-full flex-col border-l border-border bg-background"
       data-testid="fleet-drawer"
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">

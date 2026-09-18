@@ -381,7 +381,7 @@ export default function ModelSelector({
                           {option.label}
                         </span>
                         <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
-                          <ProviderIcon className="size-3" />
+                          <ProviderIcon className="size-3 shrink-0" />
                           {option.description ||
                             getProviderLabel(option.provider)}
                         </span>

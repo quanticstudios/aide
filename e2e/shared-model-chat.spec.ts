@@ -237,6 +237,32 @@ test.describe('shared model chat', () => {
     repository = null
   })
 
+  test('focuses the composer when entering and returning to an agent pane', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await expect(prompt).toBeFocused()
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^git\b/i }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
+    await expect(prompt).toBeFocused()
+  })
+
   test('chats in an ordinary folder without Git and restores the project after restart', async () => {
     repository = mkdtempSync(path.join(tmpdir(), 'aide-folder-chat-'))
     writeFileSync(path.join(repository, 'README.md'), '# Ordinary folder\n')
@@ -303,10 +329,23 @@ test.describe('shared model chat', () => {
       })
       .check()
     await page.getByRole('button', { name: 'Save Jev settings' }).click()
-    await expect(page.getByText('Jev · Ready')).toBeVisible()
+    await expect(page.getByText('Jev · Ready')).toHaveCount(0)
     await expect(
       page.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeHidden()
+    const jevSettingsButton = page.getByRole('button', {
+      name: 'Jev settings',
+    })
+    await jevSettingsButton.click()
+    await expect(page.getByText('Jev · Ready')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Close Jev setup' }).click()
+    await expect(
+      page.getByRole('button', { name: 'Save Jev settings' }),
+    ).toBeHidden()
+    await expect(jevSettingsButton).toBeFocused()
     await prompt.press('Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: help with this ordinary folder',
@@ -383,6 +422,134 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
       '@Claude · /claude-test-skill',
     )
+  })
+
+  test('selects the highlighted agent mention with the keyboard', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await app.evaluate(
+      ({ dialog }, filePath) => {
+        Object.defineProperty(dialog, 'showOpenDialog', {
+          value: async () => ({ canceled: false, filePaths: [filePath] }),
+        })
+      },
+      path.join(repository, 'README.md'),
+    )
+
+    await prompt.fill('@')
+    await expect(
+      page.getByRole('option', { name: /@claude/i }),
+    ).toHaveAttribute('aria-selected', 'true')
+    await page.screenshot({ path: test.info().outputPath('mention-menu.png') })
+    await prompt.press('ArrowDown')
+    await expect(page.getByRole('option', { name: /@codex/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await prompt.press('Enter')
+
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeVisible()
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('managed-recipient-menu')).toHaveCount(0)
+
+    await page.screenshot({ path: test.info().outputPath('recipient-tag.png') })
+    await prompt.press('Backspace')
+    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
+    await prompt.fill('@')
+    await prompt.press('Enter')
+    await page.getByRole('button', { name: 'Remove @claude' }).click()
+    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
+    await expect(prompt).toBeFocused()
+    await prompt.fill('@')
+    await prompt.press('ArrowUp')
+    await expect(page.getByRole('option', { name: /^Files/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await prompt.press('Enter')
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await expect(prompt).toHaveValue('')
+  })
+
+  test('shows provider reasoning options and applies keyboard selections', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const session = await startSharedChat(page, app)
+    const trigger = page.getByRole('button', {
+      name: 'Reasoning settings',
+      exact: true,
+    })
+    await trigger.click()
+    const menu = page.getByRole('menu', { name: 'Reasoning settings' })
+    await expect(menu).toBeVisible()
+    await expect(menu).not.toContainText('Thinking Budget')
+    await expect(menu).not.toContainText('Service Tier')
+    await page
+      .locator('[data-slot="dropdown-popover"]')
+      .evaluate(async (element) => {
+        await Promise.all(
+          element
+            .getAnimations({ subtree: true })
+            .map((animation) => animation.finished),
+        )
+      })
+    await page.screenshot({
+      path: test.info().outputPath('claude-reasoning.png'),
+    })
+    const low = menu.getByRole('menuitem', { name: /^Low\b/ })
+    await low.focus()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeHidden()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ effort: 'low' })
+    await page.evaluate(async (sessionId) => {
+      await window.aide.switchManagedSessionProvider(sessionId, {
+        mode: 'codex',
+        model: 'gpt-5.6-terra',
+        effort: 'medium',
+        serviceTier: 'priority',
+      })
+    }, session.sessionId)
+    await trigger.click()
+    await expect(menu).toContainText('Service Tier')
+    await expect(menu).toContainText('Fast')
+    await expect(menu).not.toContainText('Thinking Budget')
+    await page
+      .locator('[data-slot="dropdown-popover"]')
+      .evaluate(async (element) => {
+        await Promise.all(
+          element
+            .getAnimations({ subtree: true })
+            .map((animation) => animation.finished),
+        )
+      })
+    await page.screenshot({
+      path: test.info().outputPath('codex-reasoning.png'),
+    })
+    await menu.getByRole('menuitem', { name: /^Provider default/ }).click()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ serviceTier: null })
+    await page.reload()
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ serviceTier: null })
+    await trigger.click()
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
   })
 
   test('ranks skill names first and removes stale suggestions while typing', async () => {
@@ -599,13 +766,51 @@ test.describe('shared model chat', () => {
     await page.evaluate(async (sessionId) => {
       await window.aide.sendManagedSessionInput(sessionId, 'fleet plan')
     }, session.sessionId)
-    await page
-      .getByRole('button', { name: 'Open agent fleet', exact: true })
-      .click()
     const drawer = page.getByTestId('fleet-drawer')
+    const workspaceContent = page.getByTestId('workspace-content')
+    const fullContentWidth = await workspaceContent.evaluate(
+      (element) => element.getBoundingClientRect().width,
+    )
+    const closedPosition = await drawer.evaluate((element) => ({
+      left: element.getBoundingClientRect().left,
+      parentRight: element.parentElement?.getBoundingClientRect().right ?? 0,
+    }))
+    expect(closedPosition.left).toBeGreaterThanOrEqual(
+      closedPosition.parentRight,
+    )
+    await page.getByRole('button', { name: 'Open agent fleet' }).click()
+    await expect
+      .poll(() =>
+        drawer.evaluate((element) => element.parentElement?.scrollLeft),
+      )
+      .toBe(0)
+    await expect
+      .poll(() =>
+        drawer.evaluate((element) =>
+          Math.round(new DOMMatrix(getComputedStyle(element).transform).m41),
+        ),
+      )
+      .toBe(0)
+    await expect
+      .poll(() =>
+        workspaceContent.evaluate(
+          (element) => element.getBoundingClientRect().width,
+        ),
+      )
+      .toBeLessThan(fullContentWidth - 300)
+    const contentRight = await workspaceContent.evaluate(
+      (element) => element.getBoundingClientRect().right,
+    )
+    expect(
+      await drawer.evaluate((element) => element.getBoundingClientRect().left),
+    ).toBeGreaterThanOrEqual(contentRight - 1)
     await expect(
       drawer.getByRole('tab', { name: 'Plan', exact: true }),
     ).toHaveAttribute('aria-selected', 'true')
+    await drawer.getByRole('button', { name: 'Close agent fleet' }).click()
+    await expect(drawer).toBeHidden()
+    await page.getByRole('button', { name: 'Open agent fleet' }).click()
+    await expect(drawer).toBeVisible()
     await expect(drawer.getByTestId('fleet-plan-flow')).toContainText(
       'Persist plan',
     )
@@ -701,6 +906,13 @@ test.describe('shared model chat', () => {
     await expect(flow).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()
+    await expect
+      .poll(() =>
+        workspaceContent.evaluate(
+          (element) => element.getBoundingClientRect().width,
+        ),
+      )
+      .toBe(fullContentWidth)
     await expect(
       page.getByRole('button', { name: 'Open agent fleet', exact: true }),
     ).toBeFocused()
@@ -853,6 +1065,7 @@ test.describe('shared model chat', () => {
     await page.setViewportSize({ width: 1100, height: 720 })
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('Keep this draft while I check settings')
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
     const trigger = page.getByRole('button', {
       name: 'Open settings',
       exact: true,
@@ -864,9 +1077,15 @@ test.describe('shared model chat', () => {
       name: 'Search settings',
     })
     await expect(search).toBeFocused()
+    await page.screenshot({
+      path: test.info().outputPath('settings-search-focused.png'),
+    })
     await search.fill('visible model')
     await expect(settings).toContainText('Choose a visible model')
     await expect(settings).not.toContainText('Open command palette')
+    await search.fill('Ctrl+B')
+    await expect(settings).toContainText('Toggle left sidebar')
+    await expect(settings).not.toContainText('Choose a visible model')
     await search.fill('')
     const notifications = settings.getByRole('switch', {
       name: /Background task notifications/,
@@ -1105,7 +1324,7 @@ test.describe('shared model chat', () => {
     await expect(queue).not.toBeVisible()
   })
 
-  test('steers an active Codex turn through required Jev preparation', async () => {
+  test('sends Codex follow-ups immediately through required Jev preparation', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
@@ -1127,10 +1346,6 @@ test.describe('shared model chat', () => {
       .toMatchObject({ sessionState: 'running' })
     await prompt.fill('change direction now')
     await page.getByRole('button', { name: 'Send prompt' }).click()
-    await page
-      .getByTestId('managed-input-queue')
-      .getByRole('button', { name: 'Send now' })
-      .click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Steered: change direction now',
     )

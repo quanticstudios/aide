@@ -89,6 +89,37 @@ describe('provider capabilities', () => {
     })
   })
 
+  it('updates the bundled Fable 5 discovery row to the current provider id', () => {
+    const capabilities = normalizeClaudeModelList([
+      {
+        description:
+          'Fable 5 · Most capable for your hardest and longest-running tasks',
+        displayName: 'Fable',
+        resolvedModel: 'claude-fable-5',
+        supportedEffortLevels: ['high', 'max'],
+        supportsEffort: true,
+        value: 'claude-fable-5[1m]',
+      },
+    ])
+
+    expect(capabilities.models[0]).toMatchObject({
+      aliases: [
+        { id: 'claude-fable-5-1' },
+        { id: 'claude-fable-5[1m]' },
+        { id: 'claude-fable-5' },
+      ],
+      description:
+        'Fable 5.1 · Most capable for your hardest and longest-running tasks',
+      id: 'claude-fable-5-1[1m]',
+      label: 'Claude Fable 5.1',
+    })
+    expect(
+      resolveProviderSelection(capabilities, {
+        modelId: 'claude-fable-5[1m]',
+      }).modelId,
+    ).toBe('claude-fable-5-1[1m]')
+  })
+
   it('normalizes the structured Codex model/list response without inventing capabilities', () => {
     const capabilities = normalizeCodexModelList({
       data: [
@@ -147,6 +178,15 @@ describe('provider capabilities', () => {
         ],
       },
     ])
+    expect(
+      resolveProviderSelection(capabilities, {
+        modelId: 'gpt-5.6-terra',
+        serviceTier: null,
+      }),
+    ).toMatchObject({
+      effort: 'medium',
+      serviceTier: null,
+    })
   })
 
   it('migrates known aliases and explains a persisted selection that is no longer supported', () => {

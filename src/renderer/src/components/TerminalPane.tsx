@@ -43,14 +43,36 @@ function safeFit(fitAddon: FitAddon): void {
 function scheduleTerminalFocus(
   terminal: Terminal,
   container: HTMLDivElement,
-): void {
+): () => void {
+  let animationFrameId = 0
+  const timeoutIds: number[] = []
+
+  const cancelFocusAttempts = () => {
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId)
+    }
+    for (const timeoutId of timeoutIds) {
+      window.clearTimeout(timeoutId)
+    }
+  }
+
   const focusTerminal = () => {
     if (!container.isConnected) {
+      cancelFocusAttempts()
       return
     }
 
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur()
+    const activeElement = document.activeElement
+    const isEditingOutsideTerminal =
+      activeElement instanceof HTMLElement &&
+      activeElement !== document.body &&
+      !container.contains(activeElement) &&
+      (activeElement.matches('input, textarea, select') ||
+        activeElement.isContentEditable)
+
+    if (isEditingOutsideTerminal) {
+      cancelFocusAttempts()
+      return
     }
 
     const textarea = container.querySelector<HTMLTextAreaElement>(
@@ -59,17 +81,26 @@ function scheduleTerminalFocus(
 
     if (textarea) {
       textarea.focus()
+      if (document.activeElement === textarea) {
+        cancelFocusAttempts()
+      }
       return
     }
 
     terminal.focus()
+    if (container.contains(document.activeElement)) {
+      cancelFocusAttempts()
+    }
   }
 
-  requestAnimationFrame(() => {
+  animationFrameId = requestAnimationFrame(() => {
+    animationFrameId = 0
     for (const delay of [0, 50, 150, 300, 600]) {
-      window.setTimeout(focusTerminal, delay)
+      timeoutIds.push(window.setTimeout(focusTerminal, delay))
     }
   })
+
+  return cancelFocusAttempts
 }
 
 export default function TerminalPane({
@@ -192,7 +223,7 @@ export default function TerminalPane({
 
     terminal.loadAddon(fitAddon)
     terminal.open(container)
-    scheduleTerminalFocus(terminal, container)
+    const cancelScheduledFocus = scheduleTerminalFocus(terminal, container)
 
     const aideApi = getAideApi()
 
@@ -204,6 +235,7 @@ export default function TerminalPane({
       terminal.writeln('Terminal unavailable outside the desktop shell.')
 
       return () => {
+        cancelScheduledFocus()
         terminal.dispose()
         terminalRef.current = null
         fitAddonRef.current = null
@@ -254,15 +286,12 @@ export default function TerminalPane({
 
     resizeObserver.observe(container)
 
-    void startSession()
-      .then(() => {
-        scheduleTerminalFocus(terminal, container)
-      })
-      .catch((startError) => {
-        setError(getErrorMessage(startError))
-      })
+    void startSession().catch((startError) => {
+      setError(getErrorMessage(startError))
+    })
 
     return () => {
+      cancelScheduledFocus()
       resizeObserver.disconnect()
       inputDisposable.dispose()
       resizeDisposable.dispose()

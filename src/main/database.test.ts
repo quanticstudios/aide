@@ -86,7 +86,12 @@ describe('createAideDatabase', () => {
           agents,
           cwd: '/workspace/aide',
           mode: 'claude',
+          orchestratorSelection: {
+            mode: 'claude',
+            serviceTier: null,
+          },
           paneId: 'pane-1',
+          serviceTier: null,
           sessionId: 'session-1',
           workspaceId: workspace.id,
         },
@@ -130,6 +135,10 @@ describe('createAideDatabase', () => {
           lastError: null,
           lastErrorAt: null,
           model: null,
+          orchestratorSelection: {
+            mode: 'claude',
+            serviceTier: null,
+          },
           paneId: 'pane-1',
           pendingApprovals: [],
           pendingUserInputs: [],

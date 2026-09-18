@@ -45,6 +45,7 @@ function createWorkspace(
 function createActivity(
   workspaceId: string,
   state: WorkspaceActivitySnapshot['state'],
+  overrides?: Partial<WorkspaceActivitySnapshot>,
 ): WorkspaceActivitySnapshot {
   return {
     detail: null,
@@ -55,6 +56,7 @@ function createActivity(
     state,
     updatedAt: '2026-04-06T12:00:00Z',
     workspaceId,
+    ...overrides,
   }
 }
 
@@ -100,6 +102,42 @@ describe('buildWorkspaceSummaryMap', () => {
     )
 
     expect(summaries['demo-workspace-aide-review']?.activity).toBeNull()
+  })
+
+  it('excludes terminal sessions from agent activity summaries', () => {
+    const summaries = buildWorkspaceSummaryMap(
+      [createProject('project-a', 'aide')],
+      [
+        createWorkspace('workspace-agent', 'project-a', 'agent'),
+        createWorkspace('workspace-terminal', 'project-a', 'terminal'),
+      ],
+      {
+        'workspace-agent': [
+          createActivity('workspace-agent', 'terminal-running', {
+            provider: 'terminal',
+            source: 'fallback',
+          }),
+          createActivity('workspace-agent', 'working', {
+            provider: 'codex',
+          }),
+        ],
+        'workspace-terminal': [
+          createActivity('workspace-terminal', 'terminal-running', {
+            provider: 'terminal',
+            source: 'fallback',
+          }),
+        ],
+      },
+    )
+
+    expect(summaries['workspace-agent']).toMatchObject({
+      activities: [{ provider: 'codex', state: 'working' }],
+      activity: { provider: 'codex', state: 'working' },
+    })
+    expect(summaries['workspace-terminal']).toMatchObject({
+      activities: [],
+      activity: null,
+    })
   })
 })
 

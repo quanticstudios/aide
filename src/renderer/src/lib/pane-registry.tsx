@@ -87,7 +87,11 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
       paneId={args.pane.id}
       paneName={args.pane.label}
     >
-      <LazyManagedAgentPane paneId={args.pane.id} workspace={args.workspace} />
+      <LazyManagedAgentPane
+        isActive={args.pane.id === args.activePaneId}
+        paneId={args.pane.id}
+        workspace={args.workspace}
+      />
     </PaneLoadBoundary>
   )
 

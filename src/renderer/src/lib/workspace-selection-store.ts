@@ -3,11 +3,11 @@ import { createStore } from 'zustand/vanilla'
 
 export interface WorkspaceSelectionState {
   activePaneId: string | null
-  activePaneIdsBySurface: Record<string, string | null>
   activeProjectId: string | null
   activeSurfaceId: string | null
-  activeSurfaceIdsByWorkspace: Record<string, string | null>
   activeWorkspaceId: string | null
+  rememberedPaneIdsBySurface: Record<string, string | null>
+  rememberedSurfaceIdsByWorkspace: Record<string, string | null>
   rememberedWorkspaceIdsByProject: Record<string, string | null>
 }
 
@@ -33,11 +33,11 @@ export type WorkspaceSelectionStore = WorkspaceSelectionState &
 
 const defaultSelectionState: WorkspaceSelectionState = {
   activePaneId: null,
-  activePaneIdsBySurface: {},
   activeProjectId: null,
   activeSurfaceId: null,
-  activeSurfaceIdsByWorkspace: {},
   activeWorkspaceId: null,
+  rememberedPaneIdsBySurface: {},
+  rememberedSurfaceIdsByWorkspace: {},
   rememberedWorkspaceIdsByProject: {},
 }
 
@@ -52,23 +52,23 @@ export function createWorkspaceSelectionStore(
     setActivePaneForSurface: (surfaceId, paneId) =>
       set((state) => ({
         activePaneId: paneId,
-        activePaneIdsBySurface: surfaceId
+        rememberedPaneIdsBySurface: surfaceId
           ? {
-              ...state.activePaneIdsBySurface,
+              ...state.rememberedPaneIdsBySurface,
               [surfaceId]: paneId,
             }
-          : state.activePaneIdsBySurface,
+          : state.rememberedPaneIdsBySurface,
       })),
     setActiveProjectId: (activeProjectId) => set({ activeProjectId }),
     setActiveSurfaceForWorkspace: (workspaceId, surfaceId) =>
       set((state) => ({
         activeSurfaceId: surfaceId,
-        activeSurfaceIdsByWorkspace: workspaceId
+        rememberedSurfaceIdsByWorkspace: workspaceId
           ? {
-              ...state.activeSurfaceIdsByWorkspace,
+              ...state.rememberedSurfaceIdsByWorkspace,
               [workspaceId]: surfaceId,
             }
-          : state.activeSurfaceIdsByWorkspace,
+          : state.rememberedSurfaceIdsByWorkspace,
       })),
     setActiveSurfaceId: (activeSurfaceId) => set({ activeSurfaceId }),
     setActiveWorkspaceId: (activeWorkspaceId) => set({ activeWorkspaceId }),

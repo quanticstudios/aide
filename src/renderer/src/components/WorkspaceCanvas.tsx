@@ -1,7 +1,7 @@
 import { Button } from '@heroui/react'
 import { FolderOpen, Plus, X } from 'lucide-react'
 import { useMemo } from 'react'
-
+import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import {
   createFallbackPaneMetadata,
   getPaneCatalogEntry,
@@ -9,14 +9,6 @@ import {
   getPaneTemplateId,
   resolvePaneMetadata,
 } from '@/lib/pane-catalog'
-import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
-import { useManagedSessionState } from '../hooks/useManagedSessionState'
-import type {
-  PreviewBrowserControl,
-  PreviewPresentation,
-} from './PreviewBrowserHost'
-
-import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import { getPaneFrameClassName } from '@/lib/pane-frame'
 import { createFallbackPane, renderPaneFromRegistry } from '@/lib/pane-registry'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
@@ -42,6 +34,13 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
+import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
+import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import type {
+  PreviewBrowserControl,
+  PreviewPresentation,
+} from './PreviewBrowserHost'
+
 interface WorkspaceCanvasProps {
   readonly activePaneId: string | null
   readonly activeProject: ProjectRecord | null
@@ -318,7 +317,7 @@ function renderLayoutNode(args: {
         ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[calc(theme(borderRadius.lg)-1px)]">
           {resolvePaneContent({
-            activePaneId: args.activePaneId,
+            activePaneId: isActive ? activeViewId : null,
             activeProject: args.activeProject,
             onClosePane: args.onClosePane,
             onPreviewBrowserControl: args.onPreviewBrowserControl,

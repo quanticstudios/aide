@@ -2421,14 +2421,55 @@ export class ManagedSessionManager {
     if (skill && recipients.length > 0) {
       throw new Error('A provider skill cannot target read-only agents.')
     }
-    state.queuedInputs.push({
+    const queuedInput: ManagedSessionQueuedInput = {
       attachments: attachments.map((attachment) => ({ ...attachment })),
       createdAt: this.getNow(),
       id: randomUUID(),
       recipients: recipients.map((alias) => alias.toLowerCase()),
       ...(skill ? { skill: { ...skill } } : {}),
       text,
-    })
+    }
+    const canSteerImmediately =
+      state.config.mode === 'codex' &&
+      state.activeTurnId !== null &&
+      state.pendingApprovals.size === 0 &&
+      state.pendingUserInputs.size === 0 &&
+      state.preparationAbortController === null &&
+      state.agentRuns.size === 0 &&
+      state.backend.steerInput !== undefined &&
+      state.queuedInputs.length === 0 &&
+      !state.queuePaused &&
+      queuedInput.recipients.length === 0 &&
+      !queuedInput.skill
+
+    state.queuedInputs.push(queuedInput)
+    if (canSteerImmediately) {
+      this.persistSession(state, {
+        ...state.snapshot,
+        queuedInputs: state.queuedInputs.map((input) => ({
+          ...input,
+          attachments: input.attachments.map((attachment) => ({
+            ...attachment,
+          })),
+          recipients: [...input.recipients],
+        })),
+      })
+      try {
+        await this.sendQueuedInputNow(sessionId, queuedInput.id)
+      } catch (error) {
+        if (state.queuedInputs.some((input) => input.id === queuedInput.id)) {
+          queuedInput.lastError =
+            error instanceof Error
+              ? error.message
+              : 'Message failed to steer the active Codex turn.'
+          state.queuePaused = true
+          this.publishSnapshot(state, this.getNow())
+          this.persistSession(state)
+        }
+        throw error
+      }
+      return
+    }
     this.publishSnapshot(state, this.getNow())
     this.persistSession(state)
     await this.drainQueuedInputs(state)
@@ -2506,6 +2547,7 @@ export class ManagedSessionManager {
       throw new Error('Another queued message is being prepared.')
     }
 
+    const activeTurnId = state.activeTurnId
     const preparationAbortController = new AbortController()
     state.queuedInputInProgressId = queuedInput.id
     state.preparationAbortController = preparationAbortController
@@ -2521,27 +2563,29 @@ export class ManagedSessionManager {
       ) {
         throw new Error('Queued message was cancelled.')
       }
-      state.queuedInputCommittedId = queuedInput.id
-      const promptItemId = `user-prompt:${randomUUID()}`
-      const promptKey = createContentKey('user-prompt', promptItemId)
-      state.contentByKey.set(promptKey, {
-        attachments: queuedInput.attachments.map((attachment) => ({
-          ...attachment,
-        })),
-        id: promptItemId,
-        kind: 'user-prompt',
-        provider: null,
-        text: queuedInput.text,
-        turnId: state.activeTurnId,
-        updatedAt: this.getNow(),
-      })
-      state.orderedContentKeys.push(promptKey)
-      this.consumeQueuedInput(state, queuedInput.id)
-      try {
-        await state.backend.steerInput(prepared.text, prepared.images)
-      } catch (error) {
-        this.recordAmbiguousDispatch(state, queuedInput.text)
-        throw error
+      if (state.activeTurnId === activeTurnId) {
+        state.queuedInputCommittedId = queuedInput.id
+        const promptItemId = `user-prompt:${randomUUID()}`
+        const promptKey = createContentKey('user-prompt', promptItemId)
+        state.contentByKey.set(promptKey, {
+          attachments: queuedInput.attachments.map((attachment) => ({
+            ...attachment,
+          })),
+          id: promptItemId,
+          kind: 'user-prompt',
+          provider: null,
+          text: queuedInput.text,
+          turnId: state.activeTurnId,
+          updatedAt: this.getNow(),
+        })
+        state.orderedContentKeys.push(promptKey)
+        this.consumeQueuedInput(state, queuedInput.id)
+        try {
+          await state.backend.steerInput(prepared.text, prepared.images)
+        } catch (error) {
+          this.recordAmbiguousDispatch(state, queuedInput.text)
+          throw error
+        }
       }
     } finally {
       if (state.preparationAbortController === preparationAbortController) {
@@ -3351,15 +3395,20 @@ export class ManagedSessionManager {
     )
     try {
       if (signal.aborted) throw new Error('Agent response cancelled.')
+      const { serviceTier: agentServiceTier, ...agentSelection } =
+        agent.selection
+      const { serviceTier: _parentServiceTier, ...parentConfig } = state.config
       await Promise.race([
         child.createSession({
-          ...state.config,
-          ...agent.selection,
+          ...parentConfig,
+          ...agentSelection,
           agents: [],
           contextWindow: undefined,
           thinkingBudget: undefined,
           effort: agent.selection.effort,
-          serviceTier: agent.selection.serviceTier,
+          ...(agentServiceTier !== undefined
+            ? { serviceTier: agentServiceTier }
+            : {}),
           orchestratorSelection: agent.selection,
           interactionMode: 'plan',
           permissionMode: 'default',
@@ -3548,7 +3597,11 @@ export class ManagedSessionManager {
       }
 
       const now = this.getNow()
-      const previousConfig = state.config
+      const {
+        serviceTier: _previousServiceTier,
+        thinkingBudget: _previousThinkingBudget,
+        ...previousConfig
+      } = state.config
       const candidateConfig: ManagedSessionConfig = {
         ...previousConfig,
         effort: selection.effort,
@@ -3568,7 +3621,9 @@ export class ManagedSessionManager {
             }
           : {}),
         selectionNotice: selection.selectionNotice ?? null,
-        serviceTier: selection.serviceTier,
+        ...(selection.serviceTier !== undefined
+          ? { serviceTier: selection.serviceTier }
+          : {}),
       }
 
       await state.backend.close()
@@ -4312,7 +4367,10 @@ export class ManagedSessionManager {
     })
   }
 
-  private persistSession(state: ManagedSessionMutableState): void {
+  private persistSession(
+    state: ManagedSessionMutableState,
+    snapshotForPersistence: ManagedSessionSnapshot = state.snapshot,
+  ): void {
     if (state.closed || this.sessions.get(state.config.sessionId) !== state) {
       return
     }
@@ -4322,7 +4380,7 @@ export class ManagedSessionManager {
     }
     const persisted = this.options.store?.saveManagedSession({
       config: state.config,
-      snapshot: { ...state.snapshot, preparingActivityId: undefined },
+      snapshot: { ...snapshotForPersistence, preparingActivityId: undefined },
     })
     if (persisted) {
       this.persistedSessions.set(persisted.config.sessionId, persisted)

@@ -35,6 +35,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
   },
   renderer: {
+    build: { minify: 'esbuild' },
     resolve: {
       alias: {
         '@': resolve(root, 'src/renderer/src'),

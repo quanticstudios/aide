@@ -269,6 +269,19 @@ describe('WindowManager', () => {
     })
     expect(unhandledEvent.preventDefault).not.toHaveBeenCalled()
     expect(created.webContents.send).toHaveBeenCalledTimes(1)
+    for (const type of ['keyDown', 'keyUp']) {
+      created.handlers.get('before-input-event')?.(handledEvent, {
+        type,
+        alt: false,
+        control: true,
+        key: 'b',
+        meta: false,
+      })
+    }
+    expect(created.webContents.send).toHaveBeenCalledTimes(2)
+    expect(created.webContents.send).toHaveBeenLastCalledWith('app:shortcut', {
+      type: 'sidebar-toggle',
+    })
   })
 
   it('broadcasts only through windows it owns', () => {

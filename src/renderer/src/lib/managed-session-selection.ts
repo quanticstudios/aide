@@ -45,9 +45,7 @@ export function planManagedSessionSelectionChange(
       ...(resolution.effort ? { effort: resolution.effort } : {}),
       mode,
       model: resolution.modelId,
-      ...(resolution.serviceTier
-        ? { serviceTier: resolution.serviceTier }
-        : {}),
+      serviceTier: resolution.serviceTier,
     },
   }
 }

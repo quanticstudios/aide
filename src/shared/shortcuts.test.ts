@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  type ShortcutInput,
   mapShortcutInputToAppEvent,
+  type ShortcutInput,
   shouldBlockTerminalShortcutInput,
 } from './shortcuts'
 
@@ -62,6 +62,14 @@ describe('mapShortcutInputToAppEvent', () => {
         createInput({ control: true, code: 'KeyK', key: 'k' }),
       ),
     ).toEqual({ type: 'command-palette-open' })
+  })
+
+  it('reserves Ctrl+B for the left sidebar', () => {
+    const input = createInput({ control: true, code: 'KeyB', key: 'b' })
+    expect(mapShortcutInputToAppEvent(input)).toEqual({
+      type: 'sidebar-toggle',
+    })
+    expect(shouldBlockTerminalShortcutInput(input)).toBe(true)
   })
 
   it('ignores unrelated keys', () => {

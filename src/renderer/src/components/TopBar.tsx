@@ -7,6 +7,8 @@ import {
   LifeBuoy,
   type LucideIcon,
   PanelBottom,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   Plus,
   Rows2,
@@ -30,8 +32,8 @@ import type {
 import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
 import TaskLibraryControl from './TaskLibraryControl'
-import IconTooltip from './ui/icon-tooltip'
 import UpdateIndicator from './UpdateIndicator'
+import IconTooltip from './ui/icon-tooltip'
 
 interface TopBarProps {
   readonly activePaneId: string | null
@@ -41,14 +43,17 @@ interface TopBarProps {
   readonly fleetToggleRef: RefObject<HTMLButtonElement | null>
   readonly isFleetAvailable: boolean
   readonly isFleetOpen: boolean
+  readonly isSidebarOpen: boolean
   readonly isTerminalAvailable: boolean
   readonly isTerminalOpen: boolean
   readonly onClosePane: (paneId: string) => void
+  readonly onCloseSurface: (surfaceId: string) => void
   readonly onCreatePane: () => void
   readonly onOpenDiagnostics: () => void
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly onToggleFleet: () => void
+  readonly onToggleSidebar: () => void
   readonly onToggleTerminal: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -59,6 +64,7 @@ interface TopBarProps {
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly onSelectPane: (paneId: string) => void
+  readonly sidebarToggleRef: RefObject<HTMLButtonElement | null>
   readonly updatePresentation: UpdatePresentation
 }
 
@@ -66,40 +72,58 @@ function SurfaceTab({
   index,
   isActive,
   managedSessionId,
+  onClose,
   onSelect,
   surface,
 }: {
   readonly index: number
   readonly isActive: boolean
   readonly managedSessionId: string | null
+  readonly onClose: () => void
   readonly onSelect: () => void
   readonly surface: WorkspaceSurfaceRecord
 }) {
   const sessionState = useManagedSessionState(managedSessionId)
 
   return (
-    <Button
-      aria-label={surface.title}
-      className={cn(
-        'pane-tab workspace-strip-item h-8 shrink-0 rounded-md px-2.5 text-left text-[12px] font-semibold',
-        isActive && 'is-active',
-      )}
-      onMouseDown={(event) => {
-        event.preventDefault()
-      }}
-      onPress={onSelect}
-      variant={isActive ? 'secondary' : 'ghost'}
-    >
-      <span className="grid size-5 place-items-center rounded-full border border-border bg-surface-tertiary text-[10px] font-semibold leading-none text-muted-foreground">
-        {index + 1}
-      </span>
-      <span>{surface.title}</span>
-      {managedSessionId ? (
-        <span
-          className={`size-2 shrink-0 rounded-full ${getSessionStateDotClass(sessionState)}`}
-        />
-      ) : null}
-    </Button>
+    <div className="group/surface-tab relative flex shrink-0 items-center">
+      <Button
+        aria-label={surface.title}
+        className={cn(
+          'pane-tab workspace-strip-item h-8 rounded-md pl-2.5 pr-8 text-left text-[12px] font-semibold',
+          isActive && 'is-active',
+        )}
+        onMouseDown={(event) => {
+          event.preventDefault()
+        }}
+        onPress={onSelect}
+        variant={isActive ? 'secondary' : 'ghost'}
+      >
+        <span className="grid size-5 place-items-center rounded-full border border-border bg-surface-tertiary text-[10px] font-semibold leading-none text-muted-foreground">
+          {index + 1}
+        </span>
+        <span>{surface.title}</span>
+        {managedSessionId ? (
+          <span
+            className={`size-2 shrink-0 rounded-full ${getSessionStateDotClass(sessionState)}`}
+          />
+        ) : null}
+      </Button>
+      <Button
+        aria-label={`Close ${surface.title}`}
+        className="absolute right-1 size-6 rounded opacity-0 transition-opacity hover:bg-surface-tertiary focus-visible:opacity-100 group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
+        isIconOnly
+        onMouseDown={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onPress={onClose}
+        size="sm"
+        variant="ghost"
+      >
+        <X aria-hidden="true" className="size-3.5" />
+      </Button>
+    </div>
   )
 }
 
@@ -269,20 +293,24 @@ export default function TopBar({
   fleetToggleRef,
   isFleetAvailable,
   isFleetOpen,
+  isSidebarOpen,
   isTerminalAvailable,
   isTerminalOpen,
   onClosePane,
+  onCloseSurface,
   onCreatePane,
   onOpenDiagnostics,
   onOpenTask,
   onOpenUpdate,
   onToggleFleet,
+  onToggleSidebar,
   onToggleTerminal,
   onResizePane,
   onSplitPane,
   surfaces,
   surfaceManagedSessionIds,
   onSelectPane,
+  sidebarToggleRef,
   updatePresentation,
 }: TopBarProps) {
   const visibleSurfaces = surfaces
@@ -290,6 +318,25 @@ export default function TopBar({
   return (
     <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-3">
       <div className="flex w-full items-center gap-3 overflow-hidden">
+        <IconTooltip label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}>
+          <Button
+            aria-controls="workspace-sidebar"
+            aria-expanded={isSidebarOpen}
+            aria-label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+            className="size-8 shrink-0 rounded-md"
+            isIconOnly
+            onPress={onToggleSidebar}
+            ref={sidebarToggleRef}
+            size="sm"
+            variant={isSidebarOpen ? 'secondary' : 'ghost'}
+          >
+            {isSidebarOpen ? (
+              <PanelLeftClose aria-hidden="true" className="size-4" />
+            ) : (
+              <PanelLeftOpen aria-hidden="true" className="size-4" />
+            )}
+          </Button>
+        </IconTooltip>
         <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface px-2 py-1">
           <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
@@ -322,6 +369,7 @@ export default function TopBar({
                 isActive={surface.id === activeSurfaceId}
                 key={surface.id}
                 managedSessionId={surfaceManagedSessionIds[surface.id] ?? null}
+                onClose={() => onCloseSurface(surface.id)}
                 onSelect={() => onSelectPane(surface.id)}
                 surface={surface}
               />

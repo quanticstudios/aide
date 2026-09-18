@@ -251,7 +251,7 @@ Fields:
 - left/right only means pane navigation
 - projects are switched via sidebar, hints, overview
 - workspaces are switched via sidebar, overview, and dedicated shortcuts
-- sidebar is always present as a structural map
+- the header toggle opens or fully hides the sidebar
 
 ### Candidate shortcut model
 
@@ -460,3 +460,4 @@ Use the installed HeroUI components for buttons, selects, switches, inputs, and 
 - Focusing a pane or workspace never changes its order. Explicit add, remove, or reorder actions change positions.
 - Slides preserve direction and can reverse before they finish. Switching between projects does not animate through unrelated workspaces.
 - Animation preferences support System default, On, and Reduced motion. Reduced motion preserves status and feedback without spatial movement.
+- The left sidebar slides from the left and resizes the workspace. Its collapsed state leaves only the header toggle. The fleet drawer slides from the right and takes space from the workspace, capped at half its width.

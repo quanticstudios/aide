@@ -1,18 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { type CommandContext, buildCommandList } from './command-registry'
+import { buildCommandList, type CommandContext } from './command-registry'
 
 function createContext(
   overrides: Partial<CommandContext> = {},
 ): CommandContext {
   return {
+    activePaneId: null,
+    onClosePane: vi.fn(),
     onCreatePane: vi.fn(),
     onCreateWorkspace: vi.fn(),
     onOpenOverview: vi.fn(),
     onOpenProject: vi.fn(),
     onOpenSoftwareUpdate: vi.fn(),
+    onResizePane: vi.fn(),
     onSelectProject: vi.fn(),
     onSelectWorkspace: vi.fn(),
+    onToggleFleet: vi.fn(),
+    onToggleSidebar: vi.fn(),
     projects: [],
     workspaces: [],
     ...overrides,
@@ -20,6 +25,25 @@ function createContext(
 }
 
 describe('buildCommandList', () => {
+  it('offers close and resize actions only for an active pane', () => {
+    const context = createContext({ activePaneId: 'active-pane' })
+    const commands = buildCommandList(context)
+    const emptyCommands = buildCommandList(createContext())
+    for (const id of ['close-pane', 'grow-pane', 'shrink-pane']) {
+      const command = commands.find((candidate) => candidate.id === id)
+      expect(command).toBeDefined()
+      command?.onSelect()
+      expect(emptyCommands.some((candidate) => candidate.id === id)).toBe(false)
+    }
+    expect(context.onClosePane).toHaveBeenCalledWith('active-pane')
+    expect(context.onResizePane).toHaveBeenNthCalledWith(1, 'active-pane', 0.25)
+    expect(context.onResizePane).toHaveBeenNthCalledWith(
+      2,
+      'active-pane',
+      -0.25,
+    )
+  })
+
   it('includes static commands when there are no workspaces or projects', () => {
     const commands = buildCommandList(createContext())
     const ids = commands.map((cmd) => cmd.id)
@@ -29,6 +53,7 @@ describe('buildCommandList', () => {
     expect(ids).toContain('open-project')
     expect(ids).toContain('open-overview')
     expect(ids).toContain('open-software-update')
+    expect(ids).toContain('toggle-fleet')
   })
 
   it('omits Git workspace creation for folder projects', () => {
