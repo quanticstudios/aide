@@ -345,7 +345,6 @@ export default function TopBar({
           <Toolbar
             aria-label="Pane selector"
             className="workspace-strip inline-flex min-w-max gap-1 bg-transparent"
-            isAttached
           >
             {visibleSurfaces.map((surface, index) => (
               <SurfaceTab
