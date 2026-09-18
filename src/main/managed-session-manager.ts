@@ -1988,6 +1988,31 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       this.activeTurnId = null
       return
     }
+    if (trimmed === 'stream-codex' && this.provider === 'codex') {
+      const itemId = randomUUID()
+      for (let index = 0; index < 120; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        if (this.activeTurnId !== turnId) return
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId,
+          kind: 'assistant-text',
+          provider: this.provider,
+          text: `${index.toString().padStart(3, '0')} `,
+          type: 'content.delta',
+        })
+      }
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId,
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: 'complete',
+        type: 'content.delta',
+      })
+      this.finishTurn('completed')
+      return
+    }
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       itemId: randomUUID(),

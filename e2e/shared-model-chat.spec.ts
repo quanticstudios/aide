@@ -493,6 +493,60 @@ test.describe('shared model chat', () => {
     )
   })
 
+  test('keeps the composer responsive during a sustained Codex stream', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.evaluate(
+      ({ sessionId }) =>
+        window.aide.switchManagedSessionProvider(sessionId, {
+          effort: 'medium',
+          mode: 'codex',
+          model: 'gpt-5.6-terra',
+          serviceTier: 'priority',
+        }),
+      { sessionId: session.sessionId },
+    )
+    const prompt = page.getByRole('textbox', { name: /codex prompt/i })
+    await prompt.fill('stream-codex')
+    const startedAt = Date.now()
+    await prompt.press('Enter')
+    await expect(page.getByText('Codex is working...')).toBeVisible()
+
+    await prompt.fill('draft typed during stream')
+    await expect(prompt).toHaveValue('draft typed during stream')
+    await page
+      .getByRole('button', { name: 'Supervised', exact: true })
+      .first()
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Auto-accept edits', exact: true }),
+    ).toBeVisible()
+    await prompt.click()
+
+    await expect
+      .poll(() => getOnlySnapshot(page), { timeout: 5_000 })
+      .toMatchObject({ sessionState: 'ready' })
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000)
+    await expect(prompt).toHaveValue('draft typed during stream')
+    const streamedText = await page.evaluate(async (sessionId) => {
+      const snapshot = (await window.aide.getManagedSessionSnapshots())[
+        sessionId
+      ]
+      return snapshot?.content
+        .filter(
+          (item) => item.kind === 'assistant-text' && item.provider === 'codex',
+        )
+        .at(-1)?.text
+    }, session.sessionId)
+    expect(streamedText).toBe(
+      `${Array.from({ length: 120 }, (_, index) => `${index.toString().padStart(3, '0')} `).join('')}complete`,
+    )
+  })
+
   test('shows provider reasoning options and applies keyboard selections', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
