@@ -151,6 +151,7 @@ interface ManagedSessionManagerOptions {
     },
     event: ManagedProviderRuntimeEvent,
   ) => void
+  onUserPrompt?: (input: { text: string; workspaceId: string }) => void
   onUpdate: (event: ManagedSessionEvent) => void
   store?: ManagedSessionPersistenceStore
 }
@@ -1068,7 +1069,7 @@ interface CodexPendingUserInput {
   jsonRpcId: string | number
 }
 
-class CodexManagedSessionBackend implements ManagedSessionBackend {
+export class CodexManagedSessionBackend implements ManagedSessionBackend {
   private stderrTail = ''
   private activeTurnId: string | null = null
   private child: ChildProcessWithoutNullStreams | null = null
@@ -2421,6 +2422,12 @@ export class ManagedSessionManager {
     if (skill && recipients.length > 0) {
       throw new Error('A provider skill cannot target read-only agents.')
     }
+    try {
+      this.options.onUserPrompt?.({
+        text,
+        workspaceId: state.config.workspaceId,
+      })
+    } catch {}
     const queuedInput: ManagedSessionQueuedInput = {
       attachments: attachments.map((attachment) => ({ ...attachment })),
       createdAt: this.getNow(),
