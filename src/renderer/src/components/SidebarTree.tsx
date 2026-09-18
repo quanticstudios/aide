@@ -659,6 +659,40 @@ export default function SidebarTree({
                       </span>
                     ) : null}
                   </button>
+                  <Dropdown>
+                    <Dropdown.Trigger
+                      aria-label={`Add to ${project.name}`}
+                      className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-surface-secondary hover:text-foreground"
+                    >
+                      <Plus className="size-3.5 shrink-0" />
+                    </Dropdown.Trigger>
+                    <Dropdown.Popover
+                      className="min-w-44 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+                      placement="bottom end"
+                    >
+                      <Dropdown.Menu aria-label={`Add to ${project.name}`}>
+                        <Dropdown.Item
+                          id="new-chat"
+                          onAction={() => onCreateChat(project.id)}
+                          textValue="New chat"
+                        >
+                          New chat
+                        </Dropdown.Item>
+                        {project.kind === 'git' ? (
+                          <Dropdown.Item
+                            id="new-workspace"
+                            onAction={() => {
+                              onSelectProject(project.id)
+                              onCreateWorkspace(project.id)
+                            }}
+                            textValue="New workspace"
+                          >
+                            New workspace
+                          </Dropdown.Item>
+                        ) : null}
+                      </Dropdown.Menu>
+                    </Dropdown.Popover>
+                  </Dropdown>
                   <ProjectOverflowMenu
                     onConfigureSetup={() => onConfigureProjectSetup(project.id)}
                     projectName={project.name}
@@ -667,41 +701,6 @@ export default function SidebarTree({
 
                 {isProjectExpanded ? (
                   <div className="mx-3 pb-1">
-                    <Dropdown>
-                      <Dropdown.Trigger
-                        aria-label={`Add to ${project.name}`}
-                        className="row-hover flex w-full items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
-                      >
-                        <Plus className="size-3.5" />
-                        <span>Add</span>
-                      </Dropdown.Trigger>
-                      <Dropdown.Popover
-                        className="min-w-44 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
-                        placement="bottom start"
-                      >
-                        <Dropdown.Menu aria-label={`Add to ${project.name}`}>
-                          <Dropdown.Item
-                            id="new-chat"
-                            onAction={() => onCreateChat(project.id)}
-                            textValue="New chat"
-                          >
-                            New chat
-                          </Dropdown.Item>
-                          {project.kind === 'git' ? (
-                            <Dropdown.Item
-                              id="new-workspace"
-                              onAction={() => {
-                                onSelectProject(project.id)
-                                onCreateWorkspace(project.id)
-                              }}
-                              textValue="New workspace"
-                            >
-                              New workspace
-                            </Dropdown.Item>
-                          ) : null}
-                        </Dropdown.Menu>
-                      </Dropdown.Popover>
-                    </Dropdown>
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
@@ -719,9 +718,29 @@ export default function SidebarTree({
                         activity,
                         isActiveWorkspace,
                       )
-                      const tooltipContent = summary?.activities.length ? (
-                        <div className="flex flex-col gap-1">
-                          {summary.activities.map((entry) => (
+                      const tooltipContent = (
+                        <div className="flex max-w-sm flex-col gap-1">
+                          <span className="font-medium">{workspace.name}</span>
+                          {project.kind === 'git' ? (
+                            <span className="break-all font-mono">
+                              {summary?.branchName ?? workspace.branchName}
+                            </span>
+                          ) : null}
+                          <span className="break-all text-muted-foreground">
+                            {workspace.worktreePath}
+                          </span>
+                          {stats &&
+                          (stats.additions > 0 || stats.deletions > 0) ? (
+                            <span>
+                              <span className="text-accent-green">
+                                +{stats.additions}
+                              </span>{' '}
+                              <span className="text-accent-red">
+                                -{stats.deletions}
+                              </span>
+                            </span>
+                          ) : null}
+                          {summary?.activities.map((entry) => (
                             <div
                               className="flex items-center gap-1.5"
                               key={entry.sessionId}
@@ -744,7 +763,7 @@ export default function SidebarTree({
                             </div>
                           ))}
                         </div>
-                      ) : null
+                      )
 
                       const rowElement = (
                         <div
@@ -865,10 +884,6 @@ export default function SidebarTree({
                           </div>
                         </div>
                       )
-
-                      if (!tooltipContent) {
-                        return <div key={workspace.id}>{rowElement}</div>
-                      }
 
                       return (
                         <Tooltip delay={400} key={workspace.id}>

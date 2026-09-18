@@ -279,9 +279,9 @@ test.describe('shared model chat', () => {
       (replyBounds?.y ?? 0) + (replyBounds?.height ?? 0),
     )
     await actions.getByRole('button', { name: 'Copy response' }).click()
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-      'Handled: initialize shared chat',
-    )
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe('Handled: initialize shared chat')
     await page.screenshot({
       path: test.info().outputPath('response-actions.png'),
     })
@@ -666,7 +666,7 @@ test.describe('shared model chat', () => {
     await expect(
       page.getByRole('button', { name: /^Auto-accept edits\b/ }),
     ).toBeVisible()
-    await prompt.click()
+    await page.getByRole('heading', { name: 'Agent', exact: true }).click()
 
     await expect
       .poll(() => getOnlySnapshot(page), { timeout: 5_000 })

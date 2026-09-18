@@ -705,7 +705,7 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await expandSidebar(page)
     await page
-      .getByTestId('workspace-tree')
+      .getByTestId('workspace-tree-panel')
       .getByRole('button', { name: /^main main/ })
       .click({ button: 'right' })
     await expect(
