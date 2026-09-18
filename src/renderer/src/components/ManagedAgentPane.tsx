@@ -33,9 +33,7 @@ import type { ManagedSessionAgentConfig } from '../../../shared/conversation-rou
 import {
   extractExplicitRecipientAliases,
   getNextRecipientSuggestionIndex,
-  getRecipientMentionQuery,
   getRecipientSuggestions,
-  removeRecipientMention,
 } from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
 import type {
@@ -1655,15 +1653,12 @@ export default function ManagedAgentPane({
 
   const selectRecipient = useCallback(
     (agent: ManagedSessionAgentConfig) => {
-      const mention = removeRecipientMention(draftInput)
-      const mentionQuery = getRecipientMentionQuery(draftInput)
-
-      if (!mention && mentionQuery === null) {
-        return
-      }
+      const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
+      if (!mention) return
 
       const alias = agent.alias.toLowerCase()
-      setDraftInput(mention?.draft ?? '')
+      setDraftInput(removeWorkspaceFileMention(draftInput, mention))
+      setComposerCursorIndex(mention.startIndex)
       setSelectedRecipientAliases((aliases) =>
         aliases.includes(alias) ? aliases : [...aliases, alias],
       )
@@ -1677,7 +1672,7 @@ export default function ManagedAgentPane({
       textareaRef.current?.focus()
       setError(null)
     },
-    [draftInput, selectedSkill],
+    [composerCursorIndex, draftInput, selectedSkill],
   )
 
   const selectWorkspaceFileFromMention = useCallback(
@@ -1788,12 +1783,12 @@ export default function ManagedAgentPane({
     ],
   )
 
-  const recipientMentionQuery = getRecipientMentionQuery(draftInput)
   const workspaceFileMention = getWorkspaceFileMention(
     draftInput,
     composerCursorIndex,
   )
   const workspaceFileMentionQuery = workspaceFileMention?.query ?? null
+  const recipientMentionQuery = workspaceFileMentionQuery
   const recipientSuggestions = useMemo(
     () =>
       getRecipientSuggestions(recipientMentionQuery, configuredAgents).filter(
@@ -1891,6 +1886,7 @@ export default function ManagedAgentPane({
       return
     }
 
+    setWorkspaceFileSuggestions([])
     setIsWorkspaceFileSearchLoading(true)
     void workspaceFileSearchRef.current.run(
       () => api.searchManagedSessionFiles(workspace.id, query),

@@ -262,6 +262,31 @@ test.describe('shared model chat', () => {
     await expect(prompt).toBeFocused()
   })
 
+  test('keeps copy actions below the response and copies only reply text', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    await startSharedChat(page, app)
+    const reply = page.getByTestId('managed-content-assistant-text').last()
+    const actions = page.getByTestId('response-actions').last()
+    await reply.hover()
+    await expect(actions).toBeVisible()
+    const replyBounds = await reply.boundingBox()
+    const actionBounds = await actions.boundingBox()
+    expect(actionBounds?.y).toBeGreaterThanOrEqual(
+      (replyBounds?.y ?? 0) + (replyBounds?.height ?? 0),
+    )
+    await actions.getByRole('button', { name: 'Copy response' }).click()
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      'Handled: initialize shared chat',
+    )
+    await page.screenshot({
+      path: test.info().outputPath('response-actions.png'),
+    })
+  })
+
   test('chats in an ordinary folder without Git and restores the project after restart', async () => {
     repository = mkdtempSync(path.join(tmpdir(), 'aide-folder-chat-'))
     writeFileSync(path.join(repository, 'README.md'), '# Ordinary folder\n')
@@ -337,6 +362,7 @@ test.describe('shared model chat', () => {
     ).toBeHidden()
     const jevSettingsButton = page.getByRole('button', {
       name: 'Jev settings',
+      exact: true,
     })
     await jevSettingsButton.click()
     await expect(page.getByText('Jev · Ready')).toBeVisible()
@@ -491,6 +517,13 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
       '@Claude · /claude-test-skill',
     )
+    await prompt.fill('Please ask @cod')
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('Please ask ')
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeVisible()
+    await expect(page.getByTestId('managed-provider-skill-chip')).toHaveCount(0)
   })
 
   test('keeps the composer responsive during a sustained Codex stream', async () => {
@@ -523,7 +556,7 @@ test.describe('shared model chat', () => {
       .first()
       .click()
     await expect(
-      page.getByRole('button', { name: 'Auto-accept edits', exact: true }),
+      page.getByRole('button', { name: /^Auto-accept edits\b/ }),
     ).toBeVisible()
     await prompt.click()
 
@@ -673,18 +706,10 @@ test.describe('shared model chat', () => {
       page.getByRole('button', { name: 'Remove @codex' }),
     ).toBeHidden()
 
-    await app.evaluate(
-      ({ dialog }, filePath) => {
-        Object.defineProperty(dialog, 'showOpenDialog', {
-          value: async () => ({ canceled: false, filePaths: [filePath] }),
-        })
-      },
-      path.join(repository, 'README.md'),
-    )
     await prompt.fill('@cod')
     await page.getByRole('option', { name: /@codex/i }).click()
-    await prompt.fill('@')
-    await page.getByRole('option', { name: /^Files/ }).click()
+    await prompt.fill('@README')
+    await page.getByRole('option', { name: /README\.md/ }).click()
     await expect(page.getByTestId('composer-attachments')).toContainText(
       'README.md',
     )

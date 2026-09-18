@@ -1102,7 +1102,10 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshotCount).toBeLessThan(20)
   })
 
-  it('coalesces contiguous assistant deltas without crossing tool boundaries', async () => {
+  it.each([
+    'claude',
+    'codex',
+  ] as const)('coalesces %s assistant deltas without crossing tool boundaries', async (provider) => {
     const manager = new ManagedSessionManager({
       createBackend: (_config, emit) => ({
         close: async () => undefined,
@@ -1112,7 +1115,7 @@ createInterface({ input: process.stdin }).on('line', line => {
         sendInput: async () => {
           emit({
             createdAt: '2026-04-11T10:00:00.000Z',
-            provider: 'claude',
+            provider,
             turnId: 'turn-1',
             type: 'turn.started',
           })
@@ -1124,7 +1127,7 @@ createInterface({ input: process.stdin }).on('line', line => {
               createdAt: '2026-04-11T10:00:00.000Z',
               itemId,
               kind: 'assistant-text',
-              provider: 'claude',
+              provider,
               text,
               type: 'content.delta',
             })
@@ -1133,7 +1136,7 @@ createInterface({ input: process.stdin }).on('line', line => {
             createdAt: '2026-04-11T10:00:00.000Z',
             itemId: 'tool-1',
             kind: 'command-output',
-            provider: 'claude',
+            provider,
             text: 'tool output',
             type: 'content.delta',
           })
@@ -1145,21 +1148,21 @@ createInterface({ input: process.stdin }).on('line', line => {
               createdAt: '2026-04-11T10:00:00.000Z',
               itemId,
               kind: 'assistant-text',
-              provider: 'claude',
+              provider,
               text,
               type: 'content.delta',
             })
           }
           emit({
             createdAt: '2026-04-11T10:00:00.000Z',
-            provider: 'claude',
+            provider,
             state: 'completed',
             turnId: 'turn-1',
             type: 'turn.completed',
           })
           emit({
             createdAt: '2026-04-11T10:00:01.000Z',
-            provider: 'claude',
+            provider,
             turnId: 'turn-2',
             type: 'turn.started',
           })
@@ -1167,13 +1170,13 @@ createInterface({ input: process.stdin }).on('line', line => {
             createdAt: '2026-04-11T10:00:01.000Z',
             itemId: 'next-turn',
             kind: 'assistant-text',
-            provider: 'claude',
+            provider,
             text: 'Separate turn.',
             type: 'content.delta',
           })
           emit({
             createdAt: '2026-04-11T10:00:01.000Z',
-            provider: 'claude',
+            provider,
             state: 'completed',
             turnId: 'turn-2',
             type: 'turn.completed',
@@ -1182,7 +1185,7 @@ createInterface({ input: process.stdin }).on('line', line => {
         start: async () =>
           emit({
             createdAt: '2026-04-11T10:00:00.000Z',
-            provider: 'claude',
+            provider,
             state: 'ready',
             type: 'session.state.changed',
           }),
@@ -1190,7 +1193,7 @@ createInterface({ input: process.stdin }).on('line', line => {
       onRuntimeEvent: () => undefined,
       onUpdate: () => undefined,
     })
-    const config = createConfig('claude')
+    const config = createConfig(provider)
 
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'identify yourself')
@@ -1200,13 +1203,16 @@ createInterface({ input: process.stdin }).on('line', line => {
       expect.objectContaining({
         id: 'delta-1',
         kind: 'assistant-text',
-        text: "I'm Claude, made by Anthropic.",
+        text:
+          provider === 'codex'
+            ? "I'm Claude, \n\nmade by Anthropic."
+            : "I'm Claude, made by Anthropic.",
       }),
       expect.objectContaining({ kind: 'command-output', text: 'tool output' }),
       expect.objectContaining({
         id: 'delta-3',
         kind: 'assistant-text',
-        text: 'After the tool.',
+        text: provider === 'codex' ? 'After \n\nthe tool.' : 'After the tool.',
       }),
       expect.objectContaining({
         id: 'next-turn',

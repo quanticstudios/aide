@@ -17,7 +17,7 @@ export function getWorkspaceFileMention(
   cursorIndex: number,
 ): WorkspaceFileMention | null {
   const safeCursorIndex = Math.max(0, Math.min(cursorIndex, draft.length))
-  const match = /(?:^|\s)@([A-Za-z0-9_.-]*)$/.exec(
+  const match = /(?:^|\s)@([A-Za-z0-9_./-]*)$/.exec(
     draft.slice(0, safeCursorIndex),
   )
   if (!match) return null

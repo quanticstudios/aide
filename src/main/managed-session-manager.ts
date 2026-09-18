@@ -332,7 +332,7 @@ function coalesceContiguousAssistantContent(
     ) {
       coalesced[coalesced.length - 1] = {
         ...previous,
-        text: `${previous.text}${item.text}`,
+        text: `${previous.text}${item.provider === 'codex' ? '\n\n' : ''}${item.text}`,
         updatedAt: item.updatedAt,
       }
     } else {

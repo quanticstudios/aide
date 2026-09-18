@@ -106,8 +106,11 @@ async function createWorkspace(
       .click()
   }
   await page
-    .getByRole('button', { name: /new workspace/i })
+    .getByRole('button', { name: /^Add to / })
     .last()
+    .click()
+  await page
+    .getByRole('menuitem', { name: 'New workspace', exact: true })
     .click()
   await page.getByLabel('Workspace name').fill(name)
   await page.getByLabel('Branch name').fill(branchName)

@@ -176,8 +176,11 @@ async function createWorkspace(
 ): Promise<void> {
   await expandSidebar(page)
   await page
-    .getByRole('button', { name: /new workspace/i })
+    .getByRole('button', { name: /^Add to / })
     .last()
+    .click()
+  await page
+    .getByRole('menuitem', { name: 'New workspace', exact: true })
     .click()
   await page.getByLabel('Workspace name').fill(input.name)
   await page.getByLabel('Branch name').fill(input.branchName)
@@ -702,6 +705,23 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await expandSidebar(page)
     await page
+      .getByTestId('workspace-tree')
+      .getByRole('button', { name: /^main main/ })
+      .click({ button: 'right' })
+    await expect(
+      page.getByRole('button', { name: 'Copy folder path' }),
+    ).toBeVisible()
+    const menu = page.locator('[data-slot="popover-content"]')
+    const menuBounds = await menu.boundingBox()
+    expect(menuBounds?.width).toBeLessThanOrEqual(190)
+    await page.screenshot({
+      path: test.info().outputPath('workspace-context-menu.png'),
+    })
+    await page.getByRole('button', { name: 'Copy folder path' }).click()
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+      chosenProjectRoot,
+    )
+    await page
       .getByRole('button', { name: 'More options for workspace main' })
       .click()
     await page.getByRole('button', { name: 'Rename workspace' }).click()
@@ -1049,7 +1069,12 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await expandSidebar(page)
 
-    await page.getByRole('button', { name: /more options for/i }).click()
+    await page
+      .getByRole('button', {
+        exact: true,
+        name: `More options for ${path.basename(chosenProjectRoot)}`,
+      })
+      .click()
     await page.getByRole('button', { name: 'Configure project setup' }).click()
     await expect(
       page.getByRole('heading', { name: 'Worktree setup' }),
@@ -1143,7 +1168,8 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-workspace-name')).toHaveText(
       path.basename(chosenProjectRoot),
     )
-    await expect(page.getByText('Folder project')).toBeVisible()
+    await expandSidebar(page)
+    await expect(page.getByText('Folder', { exact: true })).toBeVisible()
     expect(existsSync(path.join(chosenProjectRoot, '.git'))).toBe(false)
 
     const snapshot = await page.evaluate(() => window.aide.getStorageSnapshot())
