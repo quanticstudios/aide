@@ -795,30 +795,33 @@ export default function SidebarTree({
                               </span>
 
                               <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                                {visibleActivities.length > 0 ? (
-                                  visibleActivities.map((entry) => (
-                                    <ActivityPill
-                                      activity={entry}
-                                      key={entry.sessionId}
-                                    />
-                                  ))
-                                ) : stats &&
-                                  (stats.additions > 0 ||
-                                    stats.deletions > 0) ? (
-                                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-elevated px-1.5 py-px text-[10px] font-semibold tabular-nums">
-                                    <span className="text-accent-green">
-                                      +{stats.additions}
-                                    </span>
-                                    <span className="text-accent-red">
-                                      -{stats.deletions}
-                                    </span>
-                                  </span>
-                                ) : null}
+                                {visibleActivities.length > 0
+                                  ? visibleActivities.map((entry) => (
+                                      <ActivityPill
+                                        activity={entry}
+                                        key={entry.sessionId}
+                                      />
+                                    ))
+                                  : null}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
-                              <span className="truncate font-mono">
+                            <div className="flex w-full min-w-0 items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
+                              {stats &&
+                              (stats.additions > 0 || stats.deletions > 0) ? (
+                                <span
+                                  className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold tabular-nums"
+                                  data-testid="workspace-change-counts"
+                                >
+                                  <span className="text-accent-green">
+                                    +{stats.additions}
+                                  </span>
+                                  <span className="text-accent-red">
+                                    -{stats.deletions}
+                                  </span>
+                                </span>
+                              ) : null}
+                              <span className="min-w-0 truncate font-mono">
                                 {project.kind === 'folder'
                                   ? 'Folder'
                                   : (summary?.branchName ??

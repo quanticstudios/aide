@@ -336,7 +336,7 @@ export default function TopBar({
           </Button>
         </IconTooltip>
         <div className="flex shrink-0 items-center rounded-md border border-border bg-surface px-2 py-1">
-          <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
+          <p className="display whitespace-nowrap text-[13px] text-foreground">
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
           </p>
         </div>
