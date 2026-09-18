@@ -1,6 +1,7 @@
 import { Button } from '@heroui/react/button'
-import { File } from 'lucide-react'
+import { File, WandSparkles } from 'lucide-react'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
+import type { ProviderSkill } from '../../../shared/provider-skills'
 import { materialIconUrlForFile } from '../lib/material-file-icon'
 
 interface RecipientMentionMenuProps {
@@ -11,6 +12,8 @@ interface RecipientMentionMenuProps {
   readonly onActiveIndexChange: (index: number) => void
   readonly onSelectAgent: (agent: ManagedSessionAgentConfig) => void
   readonly onSelectFile: (filePath: string) => void
+  readonly onSelectSkill: (skill: ProviderSkill) => void
+  readonly skills: readonly ProviderSkill[]
 }
 
 function selectionLabel(agent: ManagedSessionAgentConfig): string {
@@ -38,6 +41,8 @@ export default function RecipientMentionMenu({
   onActiveIndexChange,
   onSelectAgent,
   onSelectFile,
+  onSelectSkill,
+  skills,
 }: RecipientMentionMenuProps) {
   return (
     <div
@@ -79,12 +84,54 @@ export default function RecipientMentionMenu({
           </div>
         </>
       ) : null}
+      {skills.length > 0 ? (
+        <>
+          <div className="border-t border-border/60 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground first:border-t-0">
+            Skills
+          </div>
+          <div className="p-1 pt-0">
+            {skills.map((skill, skillIndex) => {
+              const index = agents.length + skillIndex
+              return (
+                <div
+                  aria-selected={index === activeIndex}
+                  key={`${skill.provider}:${skill.id}`}
+                  role="option"
+                  tabIndex={-1}
+                >
+                  <Button
+                    className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left transition-colors ${
+                      index === activeIndex
+                        ? 'bg-surface-tertiary text-foreground'
+                        : 'text-foreground/80 hover:bg-surface-secondary'
+                    }`}
+                    onMouseEnter={() => onActiveIndexChange(index)}
+                    onPress={() => onSelectSkill(skill)}
+                    variant="ghost"
+                  >
+                    <WandSparkles
+                      aria-hidden
+                      className="size-4 shrink-0 text-muted-foreground"
+                    />
+                    <span className="min-w-0 truncate font-medium">
+                      /{skill.name}
+                    </span>
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {skill.owner} · {skill.description}
+                    </span>
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      ) : null}
       <div className="border-t border-border/60 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground first:border-t-0">
         Files
       </div>
       <div className="p-1 pt-0">
         {filePaths.map((filePath, fileIndex) => {
-          const index = agents.length + fileIndex
+          const index = agents.length + skills.length + fileIndex
           const { fileName, parentPath } = fileParts(filePath)
           const iconUrl = materialIconUrlForFile(filePath)
           return (

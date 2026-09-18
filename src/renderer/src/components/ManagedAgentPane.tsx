@@ -1775,6 +1775,7 @@ export default function ManagedAgentPane({
     draftInput,
     composerCursorIndex,
   )
+  const workspaceFileMentionQuery = workspaceFileMention?.query ?? null
   const recipientSuggestions = useMemo(
     () =>
       getRecipientSuggestions(recipientMentionQuery, configuredAgents).filter(
@@ -1788,10 +1789,38 @@ export default function ManagedAgentPane({
   const slashQuery = extractSlashQuery(draftInput)
 
   useEffect(() => {
-    if (slashQuery !== null && !providerSkills && !isProviderSkillsLoading) {
+    if (
+      (slashQuery !== null || workspaceFileMentionQuery !== null) &&
+      !providerSkills &&
+      !isProviderSkillsLoading
+    ) {
       void loadProviderSkills()
     }
-  }, [isProviderSkillsLoading, loadProviderSkills, providerSkills, slashQuery])
+  }, [
+    isProviderSkillsLoading,
+    loadProviderSkills,
+    providerSkills,
+    slashQuery,
+    workspaceFileMentionQuery,
+  ])
+
+  const recipientSkillSuggestions = useMemo(
+    () =>
+      workspaceFileMentionQuery !== null
+        ? filterProviderSkills(
+            (providerSkills?.skills ?? []).filter(
+              (skill) => isUnifiedPane || skill.provider === selectedProvider,
+            ),
+            workspaceFileMentionQuery,
+          ).slice(0, 6)
+        : [],
+    [
+      isUnifiedPane,
+      providerSkills?.skills,
+      selectedProvider,
+      workspaceFileMentionQuery,
+    ],
+  )
 
   const filteredSlashCommands = useMemo<SlashCommand[]>(
     () =>
@@ -1830,10 +1859,12 @@ export default function ManagedAgentPane({
     !slashMenuOpen &&
     (recipientMentionQuery !== null || workspaceFileMention !== null)
   const recipientMenuItemCount =
-    recipientSuggestions.length + workspaceFileSuggestions.length
+    recipientSuggestions.length +
+    recipientSkillSuggestions.length +
+    workspaceFileSuggestions.length
 
   useEffect(() => {
-    const query = workspaceFileMention?.query.trim() ?? ''
+    const query = workspaceFileMentionQuery?.trim() ?? ''
     const api = getAideApi()
     if (!recipientMenuOpen || !api || !query) {
       workspaceFileSearchRef.current.cancel()
@@ -1855,7 +1886,7 @@ export default function ManagedAgentPane({
       },
     )
     return () => workspaceFileSearchRef.current.cancel()
-  }, [recipientMenuOpen, workspace.id, workspaceFileMention?.query])
+  }, [recipientMenuOpen, workspace.id, workspaceFileMentionQuery])
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
@@ -1891,7 +1922,7 @@ export default function ManagedAgentPane({
   )
 
   const selectProviderSkill = useCallback(
-    async (skill: ProviderSkill) => {
+    async (skill: ProviderSkill, nextDraft = '') => {
       if (!canChangeProviderSelection) {
         setError('Finish the active turn before selecting a provider skill.')
         return
@@ -1908,7 +1939,7 @@ export default function ManagedAgentPane({
       const clearedRecipients = selectedRecipientAliases.length > 0
       setSelectedRecipientAliases([])
       setSelectedSkill(skill)
-      setDraftInput('')
+      setDraftInput(nextDraft)
       setIsRecipientMenuDismissed(true)
       setSelectionNotice(
         `/${skill.name} runs with ${skill.owner}.${clearedRecipients ? ' Opinion recipients were cleared.' : ''}`,
@@ -1921,6 +1952,17 @@ export default function ManagedAgentPane({
       selectedRecipientAliases.length,
       workspace.id,
     ],
+  )
+
+  const selectSkillFromMention = useCallback(
+    (skill: ProviderSkill) => {
+      const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
+      if (!mention) return
+      const nextDraft = removeWorkspaceFileMention(draftInput, mention)
+      setComposerCursorIndex(mention.startIndex)
+      void selectProviderSkill(skill, nextDraft)
+    },
+    [composerCursorIndex, draftInput, selectProviderSkill],
   )
 
   const handleCheckpointRestored = useCallback(
@@ -2144,6 +2186,8 @@ export default function ManagedAgentPane({
               onActiveIndexChange={setRecipientActiveIndex}
               onSelectAgent={selectRecipient}
               onSelectFile={selectWorkspaceFileFromMention}
+              onSelectSkill={selectSkillFromMention}
+              skills={recipientSkillSuggestions}
             />
           ) : null}
 
@@ -2464,6 +2508,7 @@ export default function ManagedAgentPane({
                   const selection = resolveMentionMenuSelection(
                     recipientActiveIndex,
                     recipientSuggestions.length,
+                    recipientSkillSuggestions.length,
                     workspaceFileSuggestions,
                   )
                   if (selection?.kind === 'agent') {
@@ -2471,6 +2516,10 @@ export default function ManagedAgentPane({
                     if (agent) selectRecipient(agent)
                   } else if (selection?.kind === 'file') {
                     selectWorkspaceFileFromMention(selection.filePath)
+                  } else if (selection?.kind === 'skill') {
+                    const skill =
+                      recipientSkillSuggestions[selection.skillIndex]
+                    if (skill) selectSkillFromMention(skill)
                   }
                   return
                 }
