@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "mcp__heroui-pro__list_components",
+      "Read(//tmp/t3code-ref/**)",
+      "mcp__heroui-pro__get_component_docs",
+      "mcp__heroui-pro__get_docs",
+      "Bash(xargs -I {} basename {})"
+    ]
+  }
+}
