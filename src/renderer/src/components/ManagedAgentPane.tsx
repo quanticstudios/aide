@@ -1628,6 +1628,16 @@ export default function ManagedAgentPane({
     [draftInput, selectedSkill],
   )
 
+  const selectWorkspaceFilesFromMention = useCallback(() => {
+    const mention = removeRecipientMention(draftInput)
+    const mentionQuery = getRecipientMentionQuery(draftInput)
+    if (!mention && mentionQuery === null) return
+
+    setDraftInput(mention?.draft ?? '')
+    setIsRecipientMenuDismissed(true)
+    void handlePickWorkspaceFiles().finally(() => textareaRef.current?.focus())
+  }, [draftInput, handlePickWorkspaceFiles])
+
   const loadProviderSkills = useCallback(
     async (forceReload = false) => {
       const api = getAideApi()
@@ -1759,7 +1769,8 @@ export default function ManagedAgentPane({
   const recipientMenuOpen =
     !isRecipientMenuDismissed &&
     !slashMenuOpen &&
-    recipientSuggestions.length > 0
+    recipientMentionQuery !== null
+  const recipientMenuItemCount = recipientSuggestions.length + 1
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
@@ -2042,7 +2053,9 @@ export default function ManagedAgentPane({
             <RecipientMentionMenu
               activeIndex={recipientActiveIndex}
               agents={recipientSuggestions}
+              onActiveIndexChange={setRecipientActiveIndex}
               onSelect={selectRecipient}
+              onSelectFiles={selectWorkspaceFilesFromMention}
             />
           ) : null}
 
@@ -2242,21 +2255,25 @@ export default function ManagedAgentPane({
           ) : null}
 
           {selectedRecipientAliases.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+            <div
+              className="flex flex-wrap gap-1.5 px-4 pt-3"
+              data-testid="managed-recipient-chips"
+            >
               {selectedRecipientAliases.map((alias) => (
-                <button
+                <Button
                   aria-label={`Remove @${alias}`}
-                  className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary hover:bg-primary/20"
+                  className="h-6 rounded-full border border-primary/40 bg-primary/10 px-2 text-xs font-semibold text-primary hover:bg-primary/20"
                   key={alias}
-                  onClick={() =>
+                  onPress={() =>
                     setSelectedRecipientAliases((aliases) =>
                       aliases.filter((value) => value !== alias),
                     )
                   }
-                  type="button"
+                  size="sm"
+                  variant="ghost"
                 >
                   @{alias} ×
-                </button>
+                </Button>
               ))}
             </div>
           ) : null}
@@ -2296,6 +2313,20 @@ export default function ManagedAgentPane({
             }}
             onKeyDown={(event) => {
               if (
+                !activeQuestion &&
+                event.key === 'Backspace' &&
+                draftInput.length === 0 &&
+                selectedRecipientAliases.length > 0 &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey
+              ) {
+                event.preventDefault()
+                setSelectedRecipientAliases((aliases) => aliases.slice(0, -1))
+                return
+              }
+
+              if (
                 activeQuestion &&
                 /^[1-9]$/.test(event.key) &&
                 !event.metaKey &&
@@ -2325,7 +2356,7 @@ export default function ManagedAgentPane({
                   event.preventDefault()
                   const nextIndex = getNextRecipientSuggestionIndex(
                     recipientActiveIndex,
-                    recipientSuggestions.length,
+                    recipientMenuItemCount,
                     event.key,
                   )
                   if (nextIndex !== null) {
@@ -2343,6 +2374,10 @@ export default function ManagedAgentPane({
                   const agent = recipientSuggestions[recipientActiveIndex]
                   if (agent) {
                     selectRecipient(agent)
+                  } else if (
+                    recipientActiveIndex === recipientSuggestions.length
+                  ) {
+                    selectWorkspaceFilesFromMention()
                   }
                   return
                 }

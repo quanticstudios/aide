@@ -49,17 +49,18 @@ export default function JevSetup({
   return (
     <details
       className="shrink-0 border-b border-border px-4 py-2 text-sm"
-      onToggle={(event) => {
-        if (event.currentTarget.open !== isOpen) {
-          onOpenChange(event.currentTarget.open)
-        }
-      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') closeSetup()
       }}
       open={isOpen}
     >
-      <summary className="cursor-pointer">
+      <summary
+        className="cursor-pointer"
+        onClick={(event) => {
+          event.preventDefault()
+          onOpenChange(!isOpen)
+        }}
+      >
         Jev ·{' '}
         {error
           ? 'Setup error'

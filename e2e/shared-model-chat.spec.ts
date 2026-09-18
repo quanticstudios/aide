@@ -406,14 +406,21 @@ test.describe('shared model chat', () => {
     await startSharedChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await app.evaluate(
+      ({ dialog }, filePath) => {
+        Object.defineProperty(dialog, 'showOpenDialog', {
+          value: async () => ({ canceled: false, filePaths: [filePath] }),
+        })
+      },
+      path.join(repository, 'README.md'),
+    )
 
     await prompt.fill('@')
-    await expect(page.getByRole('option', { name: /@Claude/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    await expect(
+      page.getByRole('option', { name: /@claude/i }),
+    ).toHaveAttribute('aria-selected', 'true')
     await prompt.press('ArrowDown')
-    await expect(page.getByRole('option', { name: /@Codex/ })).toHaveAttribute(
+    await expect(page.getByRole('option', { name: /@codex/i })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -424,6 +431,20 @@ test.describe('shared model chat', () => {
     ).toBeVisible()
     await expect(prompt).toHaveValue('')
     await expect(page.getByTestId('managed-recipient-menu')).toHaveCount(0)
+
+    await prompt.press('Backspace')
+    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
+    await prompt.fill('@')
+    await prompt.press('ArrowUp')
+    await expect(page.getByRole('option', { name: /^Files/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await prompt.press('Enter')
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await expect(prompt).toHaveValue('')
   })
 
   test('ranks skill names first and removes stale suggestions while typing', async () => {
