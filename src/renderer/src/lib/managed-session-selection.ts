@@ -20,7 +20,6 @@ export function isProviderSelectionHydrated(
 
 export interface ResolvedManagedSessionProviderSelection
   extends ManagedSessionProviderSelection {
-  readonly effort: string
   readonly model: string
 }
 
@@ -36,14 +35,14 @@ export function planManagedSessionSelectionChange(
   mode: ManagedSessionMode,
   resolution: ProviderSelectionResolution,
 ): ManagedSessionSelectionChange {
-  if (!resolution.modelId || !resolution.effort) {
+  if (!resolution.modelId) {
     return { kind: 'unavailable' }
   }
 
   return {
     kind: hasStartedSession ? 'switch' : 'local',
     selection: {
-      effort: resolution.effort,
+      ...(resolution.effort ? { effort: resolution.effort } : {}),
       mode,
       model: resolution.modelId,
       ...(resolution.serviceTier

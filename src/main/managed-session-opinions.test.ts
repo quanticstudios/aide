@@ -247,9 +247,11 @@ describe('managed session opinions', () => {
     const buildConfig = createConfig('build', 'build')
     await manager.createSession(buildConfig)
     manager.configureSessionAgents(buildConfig.sessionId, agents)
-    await expect(
-      manager.sendInput(buildConfig.sessionId, 'compare', ['good', 'bad']),
-    ).rejects.toThrow()
+    await manager.sendInput(buildConfig.sessionId, 'compare', ['good', 'bad'])
+    expect(startedChildren).toBe(4)
+    expect(manager.getSnapshots()[buildConfig.sessionId].interactionMode).toBe(
+      'build',
+    )
   })
 
   it('interrupts opinions, ignores late child events, and blocks a second writer', async () => {

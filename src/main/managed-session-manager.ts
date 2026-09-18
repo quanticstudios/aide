@@ -2515,14 +2515,6 @@ export class ManagedSessionManager {
     ) {
       throw new Error('Choose at most two distinct agents.')
     }
-    if (
-      recipients.length > 1 &&
-      (state.config.interactionMode ?? 'build') === 'build'
-    ) {
-      throw new Error(
-        'Choose one agent in Build mode or switch to Plan to compare.',
-      )
-    }
     return recipients.map((alias) => {
       const agent = state.config.agents?.find(
         (candidate) => candidate.alias.toLowerCase() === alias.toLowerCase(),

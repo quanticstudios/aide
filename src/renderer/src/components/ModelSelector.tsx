@@ -14,6 +14,7 @@ import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 type SvgIcon = ComponentType<SVGProps<SVGSVGElement>>
 
 export interface ModelOption {
+  readonly description: string
   readonly id: string
   readonly label: string
   readonly provider: ManagedSessionMode
@@ -42,7 +43,12 @@ function toModelOption(
   provider: ManagedSessionMode,
   model: ProviderModelCapability,
 ): ModelOption {
-  return { id: model.id, label: model.label, provider }
+  return {
+    description: model.description,
+    id: model.id,
+    label: model.label,
+    provider,
+  }
 }
 
 function getProviderGroups(
@@ -191,6 +197,7 @@ export default function ModelSelector({
     return pool.filter(
       (candidate) =>
         candidate.label.toLowerCase().includes(query) ||
+        candidate.description.toLowerCase().includes(query) ||
         candidate.id.toLowerCase().includes(query),
     )
   }, [activeTab, allModels, favorites, providerGroups, search])
@@ -263,16 +270,18 @@ export default function ModelSelector({
   }, [handleSelect, isOpen, visibleModels])
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative min-w-0">
       <button
-        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+        className="flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         disabled={isDisabled || !capabilities || Boolean(providerError)}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
         <ActiveProviderIcon className="size-3.5" />
-        {activeModel?.label ??
-          (providerError ? 'Models unavailable' : 'Loading models…')}
+        <span className="truncate">
+          {activeModel?.label ??
+            (providerError ? 'Models unavailable' : 'Loading models…')}
+        </span>
         <ChevronDown className="size-3 opacity-50" />
       </button>
 
@@ -370,7 +379,8 @@ export default function ModelSelector({
                         </span>
                         <span className="flex items-center gap-1 truncate text-[11px] text-muted-foreground">
                           <ProviderIcon className="size-3" />
-                          {getProviderLabel(option.provider)}
+                          {option.description ||
+                            getProviderLabel(option.provider)}
                         </span>
                       </button>
                       {keycapLabel ? (

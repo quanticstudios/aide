@@ -112,7 +112,10 @@ function getAideApi(): AideApi | null {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message
+    return error.message.replace(
+      /^Error invoking remote method '[^']+': Error: /,
+      '',
+    )
   }
 
   return 'Managed session failed.'
@@ -195,7 +198,7 @@ function getDefaultConfiguredAgents(
       {},
     )
 
-    if (!resolution.effort || !resolution.modelId) {
+    if (!resolution.modelId) {
       return []
     }
 
@@ -203,7 +206,7 @@ function getDefaultConfiguredAgents(
       {
         alias: mode === 'claude' ? 'Claude' : 'Codex',
         selection: {
-          effort: resolution.effort,
+          ...(resolution.effort ? { effort: resolution.effort } : {}),
           mode,
           model: resolution.modelId,
           ...(resolution.serviceTier
@@ -670,8 +673,7 @@ export default function ManagedAgentPane({
   )
   const [thinkingBudget, setThinkingBudget] =
     useState<ManagedSessionThinkingBudget>('default')
-  const [contextWindow, setContextWindow] =
-    useState<ManagedSessionContextWindow>('200k')
+  const [contextWindow] = useState<ManagedSessionContextWindow>('200k')
   const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
@@ -728,18 +730,18 @@ export default function ManagedAgentPane({
     )
     const resolution = resolveProviderSelection(providerCapabilities, persisted)
 
-    if (!resolution.modelId || !resolution.effort) {
+    if (!resolution.modelId) {
       setError(resolution.explanation)
       setSelectionNotice(resolution.explanation)
       return
     }
 
     setSelectedModel(resolution.modelId)
-    setEffort(resolution.effort)
+    setEffort(resolution.effort ?? undefined)
     setServiceTier(resolution.serviceTier)
     setSelectionNotice(resolution.explanation)
     persistProviderSelection(workspace.id, selectedProvider, {
-      effort: resolution.effort,
+      effort: resolution.effort ?? undefined,
       modelId: resolution.modelId,
       serviceTier: resolution.serviceTier,
     })
@@ -1093,11 +1095,6 @@ export default function ManagedAgentPane({
       new Set([...submittedRecipientAliases, ...parsed.aliases]),
     )
 
-    if (agentMode === 'build' && recipients.length > 1) {
-      setError('Build mode accepts one recipient. Use Plan for a comparison.')
-      return
-    }
-
     if (await sendPromptText(parsed.text, recipients, submittedAttachments)) {
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
@@ -1110,7 +1107,6 @@ export default function ManagedAgentPane({
       )
     }
   }, [
-    agentMode,
     attachments,
     configuredAgents,
     draftInput,
@@ -2110,7 +2106,7 @@ export default function ManagedAgentPane({
             value={activeQuestion ? primaryAnswer : draftInput}
           />
 
-          <div className="flex items-center gap-1.5 border-t border-border/40 px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/40 px-3 py-2">
             <ManagedComposerAttachmentButton
               isDisabled={isSubmitting || Boolean(activeQuestion)}
               onPickFiles={() => void handlePickWorkspaceFiles()}
@@ -2138,11 +2134,9 @@ export default function ManagedAgentPane({
             />
             <ReasoningExtrasDropdown
               capabilities={capabilities}
-              contextWindow={contextWindow}
               effort={effort}
               isDisabled={!canChangeProviderSelection}
               model={selectedModel}
-              onContextWindowChange={setContextWindow}
               onEffortChange={(nextEffort) =>
                 void handleEffortChange(nextEffort)
               }
@@ -2171,7 +2165,7 @@ export default function ManagedAgentPane({
               onPermissionModeChange={setPermissionMode}
               permissionMode={permissionMode}
             />
-            <span className="flex-1" />
+            <span className="min-w-0 flex-1" />
             {snapshot?.usage || snapshot?.usageSummary ? (
               <ContextWindowMeter
                 usage={snapshot.usage}
@@ -2180,7 +2174,7 @@ export default function ManagedAgentPane({
             ) : null}
             {activeQuestion ? (
               <button
-                className="flex items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
                 disabled={isSubmitting || !allQuestionsAnswered}
                 onClick={() => void handleResolveUserInput(activeQuestion.id)}
                 type="button"
@@ -2193,7 +2187,7 @@ export default function ManagedAgentPane({
             ) : (
               <button
                 aria-label="Send prompt"
-                className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
+                className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
                 disabled={
                   isSubmitting ||
                   !isDraftHydrated ||
