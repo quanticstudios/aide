@@ -348,6 +348,52 @@ test.describe('electron spatial navigation', () => {
     await expectRestingViewportClean(page)
   })
 
+  test('starts a new chat in the current workspace without creating a worktree', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    await importProject(page)
+    const initialCounts = await page.evaluate(async () => {
+      const snapshot = await window.aide.getStorageSnapshot()
+      const workspace = snapshot.workspaces[0]
+      return {
+        surfaces: workspace
+          ? (snapshot.workspaceSurfaces?.[workspace.id]?.length ?? 0)
+          : 0,
+        workspaces: snapshot.workspaces.length,
+      }
+    })
+
+    await expandSidebar(page)
+    await page.getByRole('button', { name: /^Add to / }).click()
+    await page.getByRole('menuitem', { name: 'New chat' }).click()
+
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
+    await expect
+      .poll(async () =>
+        page.evaluate(async () => {
+          const snapshot = await window.aide.getStorageSnapshot()
+          const workspace = snapshot.workspaces[0]
+          return {
+            surfaces: workspace
+              ? (snapshot.workspaceSurfaces?.[workspace.id]?.length ?? 0)
+              : 0,
+            workspaces: snapshot.workspaces.length,
+          }
+        }),
+      )
+      .toEqual({
+        surfaces: initialCounts.surfaces + 1,
+        workspaces: initialCounts.workspaces,
+      })
+  })
+
   test('closes an inactive split surface without changing selection', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({

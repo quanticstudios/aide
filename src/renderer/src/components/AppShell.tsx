@@ -42,6 +42,7 @@ interface AppShellProps {
   readonly surfaces: readonly WorkspaceSurfaceRecord[]
   readonly surfaceManagedSessionIds: Record<string, string | null>
   readonly showProjectHints: boolean
+  readonly onCreateChat: (projectId: string) => void
   readonly onSelectHome: () => void
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
@@ -51,7 +52,7 @@ interface AppShellProps {
     name: string,
   ) => Promise<string | null>
   readonly onCreateProject: () => void
-  readonly onCreateWorkspace: () => void
+  readonly onCreateWorkspace: (projectId?: string) => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenDiagnostics: () => void
   readonly onOpenSettings: (trigger: HTMLElement) => void
@@ -77,6 +78,7 @@ export default function AppShell({
   surfaces,
   surfaceManagedSessionIds,
   showProjectHints,
+  onCreateChat,
   onSelectHome,
   onSelectPane,
   onSelectProject,
@@ -203,6 +205,7 @@ export default function AppShell({
           activeWorkspaceId={activeWorkspace?.id ?? null}
           isExpanded={isSidebarExpanded}
           isPinnedOpen={isSidebarPinnedOpen}
+          onCreateChat={onCreateChat}
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
           onConfigureProjectSetup={onConfigureProjectSetup}
