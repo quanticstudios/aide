@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import {
   mkdirSync,
   mkdtempSync,
@@ -44,6 +45,25 @@ describe('managed runtime policy', () => {
     } finally {
       rmSync(resources, { force: true, recursive: true })
     }
+  })
+
+  it('bundles a Claude Code runtime that supports Claude Fable 5.1', () => {
+    const executable = join(
+      process.cwd(),
+      'node_modules/@anthropic-ai',
+      `claude-agent-sdk-${process.platform}-${process.arch}`,
+      process.platform === 'win32' ? 'claude.exe' : 'claude',
+    )
+    const versionOutput = execFileSync(executable, ['--version'], {
+      encoding: 'utf8',
+    })
+    const match = /^(\d+)\.(\d+)\.(\d+)/.exec(versionOutput)
+
+    expect(match).not.toBeNull()
+    const [, major = '0', minor = '0', patch = '0'] = match ?? []
+    const versionNumber =
+      Number(major) * 1_000_000 + Number(minor) * 1_000 + Number(patch)
+    expect(versionNumber).toBeGreaterThanOrEqual(2_001_251)
   })
 
   afterEach(() => {
