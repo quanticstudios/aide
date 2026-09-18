@@ -87,6 +87,26 @@ function humanizeIdentifier(value: string): string {
 
 const CLAUDE_MODEL_ID =
   /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?(\[1m\])?$/i
+const LEGACY_FABLE_MODEL_ID = /^claude-fable-5(\[1m\])?$/
+
+function normalizeLegacyFableModel(entry: {
+  readonly description: string
+  readonly id: string
+  readonly resolvedModel: string | null
+}) {
+  const idMatch = LEGACY_FABLE_MODEL_ID.exec(entry.id)
+
+  if (!idMatch || entry.resolvedModel !== 'claude-fable-5') {
+    return { ...entry, aliases: [] as string[] }
+  }
+
+  return {
+    aliases: [entry.id, entry.resolvedModel],
+    description: entry.description.replace(/^Fable 5(?=\s*·)/, 'Fable 5.1'),
+    id: idMatch[1] ? 'claude-fable-5-1[1m]' : 'claude-fable-5-1',
+    resolvedModel: 'claude-fable-5-1',
+  }
+}
 
 export function formatClaudeModelLabel(entry: {
   readonly displayName: string
@@ -157,11 +177,15 @@ export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
       return []
     }
 
-    const resolvedModel = readNonEmptyString(entry, 'resolvedModel')
+    const discoveredModel = normalizeLegacyFableModel({
+      description,
+      id,
+      resolvedModel: readNonEmptyString(entry, 'resolvedModel'),
+    })
     const label = formatClaudeModelLabel({
       displayName,
-      resolvedModel,
-      value: id,
+      resolvedModel: discoveredModel.resolvedModel,
+      value: discoveredModel.id,
     })
 
     const reasoningEfforts =
@@ -182,11 +206,12 @@ export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
 
     return [
       {
-        description,
-        id,
+        aliases: discoveredModel.aliases,
+        description: discoveredModel.description,
+        id: discoveredModel.id,
         label,
         reasoningEfforts,
-        resolvedModel,
+        resolvedModel: discoveredModel.resolvedModel,
       },
     ]
   })
@@ -198,24 +223,22 @@ export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
   const defaultIndex = advertisedDefaultIndex < 0 ? 0 : advertisedDefaultIndex
   const models = advertisedModels.map(
     (model, index): ProviderModelCapability => {
-      const alias =
-        model.resolvedModel && !claimedAliases.has(model.resolvedModel)
-          ? model.resolvedModel
-          : null
+      const aliases = [model.resolvedModel, ...model.aliases].flatMap(
+        (alias) => {
+          if (!alias || claimedAliases.has(alias)) {
+            return []
+          }
 
-      if (alias) {
-        claimedAliases.add(alias)
-      }
+          claimedAliases.add(alias)
+          return [alias]
+        },
+      )
 
       return {
-        aliases: alias
-          ? [
-              {
-                explanation: `The saved model “${alias}” is available as ${model.label}.`,
-                id: alias,
-              },
-            ]
-          : [],
+        aliases: aliases.map((alias) => ({
+          explanation: `The saved model “${alias}” is available as ${model.label}.`,
+          id: alias,
+        })),
         defaultReasoningEffort:
           model.reasoningEfforts.find((effort) => effort.id === 'high')?.id ??
           model.reasoningEfforts[0]?.id ??
