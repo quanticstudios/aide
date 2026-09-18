@@ -103,6 +103,7 @@ import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 import RecipientMentionMenu from './RecipientMentionMenu'
 
 interface ManagedAgentPaneProps {
+  readonly isActive: boolean
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -624,6 +625,7 @@ function TurnGroupBlock({
 type DraftAnswersState = Record<string, Record<string, string>>
 
 export default function ManagedAgentPane({
+  isActive,
   paneId,
   workspace,
 }: ManagedAgentPaneProps) {
@@ -697,8 +699,11 @@ export default function ManagedAgentPane({
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
+  const paneRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const shouldFocusComposerRef = useRef(false)
+  const wasActiveRef = useRef(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const gitInfo = useWorkspaceGitStatus(workspace.id)
 
@@ -791,6 +796,34 @@ export default function ManagedAgentPane({
       textareaRef.current.style.height = 'auto'
     }
   }, [draftInput])
+
+  useLayoutEffect(() => {
+    if (!isActive) {
+      shouldFocusComposerRef.current = false
+      wasActiveRef.current = false
+      return
+    }
+
+    if (!wasActiveRef.current) {
+      shouldFocusComposerRef.current = true
+    }
+    wasActiveRef.current = true
+
+    if (!isDraftHydrated || !shouldFocusComposerRef.current) {
+      return
+    }
+
+    shouldFocusComposerRef.current = false
+    const activeElement = document.activeElement
+    if (
+      activeElement instanceof HTMLElement &&
+      paneRef.current?.contains(activeElement)
+    ) {
+      return
+    }
+
+    textareaRef.current?.focus({ preventScroll: true })
+  }, [isActive, isDraftHydrated])
 
   const hydrateManagedDraft = useCallback(async () => {
     const generation = draftLoadGenerationRef.current + 1
@@ -1822,6 +1855,7 @@ export default function ManagedAgentPane({
     <section
       className="managed-agent-pane flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface"
       data-testid="managed-agent-pane"
+      ref={paneRef}
     >
       <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
         <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">

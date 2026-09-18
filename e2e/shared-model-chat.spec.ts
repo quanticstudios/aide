@@ -229,6 +229,32 @@ test.describe('shared model chat', () => {
     repository = null
   })
 
+  test('focuses the composer when entering and returning to an agent pane', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await expect(prompt).toBeFocused()
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^git\b/i }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
+    await expect(prompt).toBeFocused()
+  })
+
   test('chats in an ordinary folder without Git and restores the project after restart', async () => {
     repository = mkdtempSync(path.join(tmpdir(), 'aide-folder-chat-'))
     writeFileSync(path.join(repository, 'README.md'), '# Ordinary folder\n')
