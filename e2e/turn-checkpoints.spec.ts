@@ -46,7 +46,7 @@ test.describe('turn checkpoints', () => {
     if (repository) rmSync(repository, { force: true, recursive: true })
   })
 
-  test('previews and restores code, then retries opening without repeating restoration', async () => {
+  test('keeps checkpoints available through the API without conversation buttons', async () => {
     repository = createRepository()
     dataDirectory = mkdtempSync(
       path.join(tmpdir(), 'aide-checkpoint-e2e-data-'),
@@ -121,56 +121,34 @@ test.describe('turn checkpoints', () => {
     )
     writeFileSync(path.join(repository, 'README.md'), 'after\n')
 
-    await page.getByRole('button', { name: 'Restore checkpoint' }).click()
     await expect(
-      page.getByRole('heading', { name: 'Restore checkpoint' }),
-    ).toBeVisible()
-    await expect(page.getByLabel('Previewed file changes')).toContainText(
-      'README.md',
-    )
-    await page.getByLabel('Code and conversation').check()
-    await page.screenshot({
-      path: test.info().outputPath('checkpoint-preview.png'),
+      page.getByRole('button', { name: 'Restore checkpoint' }),
+    ).toHaveCount(0)
+    const result = await page.evaluate(async () => {
+      const session = Object.values(
+        await window.aide.getManagedSessionSnapshots(),
+      )[0]
+      const checkpointId = session?.turns.find(
+        (turn) => turn.checkpointId,
+      )?.checkpointId
+      if (!session || !checkpointId) throw new Error('Checkpoint unavailable.')
+      const preview = await window.aide.previewTurnCheckpointRestore(
+        session.sessionId,
+        checkpointId,
+      )
+      if (!preview.changes.some((change) => change.path === 'README.md'))
+        throw new Error('README missing from restore preview.')
+      return await window.aide.restoreTurnCheckpoint(
+        preview.previewId,
+        'code-and-conversation',
+      )
     })
-    await page.evaluate(() => {
-      const openDatabase = indexedDB.open.bind(indexedDB)
-      indexedDB.open = () => {
-        indexedDB.open = openDatabase
-        throw new Error('Synthetic draft storage failure')
-      }
-    })
-    await page
-      .getByRole('button', { name: 'Restore to new conversation' })
-      .click()
-
-    await expect(page.getByRole('alert')).toContainText(
-      'Synthetic draft storage failure',
-    )
+    expect(result.editedPrompt).toBe('change the readme')
     expect(readFileSync(path.join(repository, 'README.md'), 'utf8')).toBe(
       'before\n',
-    )
-    writeFileSync(
-      path.join(repository, 'README.md'),
-      'user edit after restore\n',
-    )
-    await page
-      .getByRole('button', { name: 'Retry opening conversation' })
-      .click()
-
-    const restoredPane = page.locator(
-      '.workspace-slide[data-active-workspace="true"] [data-active-surface="true"]',
-    )
-    await expect(
-      restoredPane.getByRole('textbox', { name: /claude prompt/i }),
-    ).toHaveValue('change the readme')
-    expect(readFileSync(path.join(repository, 'README.md'), 'utf8')).toBe(
-      'user edit after restore\n',
     )
     expect(
       (await page.evaluate(() => window.aide.getTaskLibrary())).tasks,
     ).toHaveLength(2)
-    await expect(
-      restoredPane.getByTestId('managed-session-content'),
-    ).not.toContainText('Handled: change the readme')
   })
 })

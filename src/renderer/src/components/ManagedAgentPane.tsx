@@ -28,7 +28,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { TurnCheckpointRestoreResult } from '../../../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -95,7 +94,6 @@ import {
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import JevSetup from './JevSetup'
-import ManagedCheckpointControls from './ManagedCheckpointControls'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
 } from './ManagedComposerAttachments'
@@ -509,33 +507,23 @@ function ContentItemBlock({
 }
 
 function TurnGroupBlock({
-  checkpointId,
   group,
-  isCheckpointRestoreDisabled,
   isFailed,
   isRunning,
-  onCheckpointRestored,
   onInterrupt,
   onRetry,
   providerLabel,
   recipientAlias,
   requestText,
-  sessionId,
 }: {
-  readonly checkpointId: string | null
   readonly group: TurnGroup
-  readonly isCheckpointRestoreDisabled: boolean
   readonly isFailed: boolean
   readonly isRunning: boolean
-  readonly onCheckpointRestored: (
-    result: TurnCheckpointRestoreResult,
-  ) => Promise<void>
   readonly onInterrupt: (recipientAlias: string) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
   readonly recipientAlias: string | null
   readonly requestText: string | null
-  readonly sessionId: string
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
@@ -589,16 +577,6 @@ function TurnGroupBlock({
               Interrupt @{recipientAlias}
             </button>
           ) : null}
-        </div>
-      ) : null}
-      {checkpointId && !isRunning ? (
-        <div className="flex justify-end px-1">
-          <ManagedCheckpointControls
-            checkpointId={checkpointId}
-            isDisabled={isCheckpointRestoreDisabled}
-            onRestored={onCheckpointRestored}
-            sessionId={sessionId}
-          />
         </div>
       ) : null}
       {!isRunning &&
@@ -1979,22 +1957,6 @@ export default function ManagedAgentPane({
     [composerCursorIndex, draftInput, selectProviderSkill],
   )
 
-  const handleCheckpointRestored = useCallback(
-    async (result: TurnCheckpointRestoreResult) => {
-      const api = getAideApi()
-      if (!api) {
-        throw new Error('Managed provider bridge did not load.')
-      }
-      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
-        attachments: [],
-        recipients: [],
-        text: result.editedPrompt,
-      })
-      await api.openTask(result.sessionId)
-    },
-    [],
-  )
-
   const runningTurnId = useMemo(
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
@@ -2095,17 +2057,10 @@ export default function ManagedAgentPane({
 
               return (
                 <TurnGroupBlock
-                  checkpointId={turn?.checkpointId ?? null}
                   group={group}
-                  isCheckpointRestoreDisabled={
-                    isSubmitting ||
-                    !canChangeProviderSelection ||
-                    Boolean(snapshot?.queuedInputs?.length)
-                  }
                   isFailed={turn?.state === 'failed'}
                   isRunning={turn?.state === 'running'}
                   key={group.turnId ?? `system-${group.items[0]?.id}`}
-                  onCheckpointRestored={handleCheckpointRestored}
                   onInterrupt={handleInterruptRecipient}
                   onRetry={(text, recipientAlias) =>
                     void handleRetryTurn(text, recipientAlias)
@@ -2119,7 +2074,6 @@ export default function ManagedAgentPane({
                   }
                   recipientAlias={turn?.recipientAlias ?? null}
                   requestText={turn?.requestText ?? null}
-                  sessionId={sessionId}
                 />
               )
             })}
