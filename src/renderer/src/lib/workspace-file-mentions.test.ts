@@ -33,13 +33,22 @@ describe('workspace file mentions', () => {
         query: 'flee',
         startIndex: 15,
       }),
-    ).toBe('Please inspect  next')
+    ).toBe('Please inspect next')
   })
 
   it('resolves Enter or Tab selection to the highlighted file after agents', () => {
-    expect(resolveMentionMenuSelection(2, 2, ['src/shared/fleet.ts'])).toEqual({
+    expect(
+      resolveMentionMenuSelection(3, 2, 1, ['src/shared/fleet.ts']),
+    ).toEqual({
       filePath: 'src/shared/fleet.ts',
       kind: 'file',
+    })
+  })
+
+  it('resolves an installed skill between agents and files', () => {
+    expect(resolveMentionMenuSelection(2, 2, 1, [])).toEqual({
+      kind: 'skill',
+      skillIndex: 0,
     })
   })
 

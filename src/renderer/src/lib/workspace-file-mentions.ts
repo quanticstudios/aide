@@ -4,6 +4,7 @@ import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session
 export type MentionMenuSelection =
   | { readonly agentIndex: number; readonly kind: 'agent' }
   | { readonly filePath: string; readonly kind: 'file' }
+  | { readonly kind: 'skill'; readonly skillIndex: number }
 
 export interface WorkspaceFileMention {
   readonly endIndex: number
@@ -32,18 +33,26 @@ export function removeWorkspaceFileMention(
   draft: string,
   mention: WorkspaceFileMention,
 ): string {
-  return `${draft.slice(0, mention.startIndex)}${draft.slice(mention.endIndex)}`
+  const beforeMention = draft.slice(0, mention.startIndex)
+  const afterMention = draft.slice(mention.endIndex)
+  return beforeMention.endsWith(' ') && afterMention.startsWith(' ')
+    ? `${beforeMention}${afterMention.slice(1)}`
+    : `${beforeMention}${afterMention}`
 }
 
 export function resolveMentionMenuSelection(
   activeIndex: number,
   agentCount: number,
+  skillCount: number,
   filePaths: readonly string[],
 ): MentionMenuSelection | null {
   if (activeIndex < agentCount) {
     return activeIndex >= 0 ? { agentIndex: activeIndex, kind: 'agent' } : null
   }
-  const filePath = filePaths[activeIndex - agentCount]
+  if (activeIndex < agentCount + skillCount) {
+    return { kind: 'skill', skillIndex: activeIndex - agentCount }
+  }
+  const filePath = filePaths[activeIndex - agentCount - skillCount]
   return filePath ? { filePath, kind: 'file' } : null
 }
 

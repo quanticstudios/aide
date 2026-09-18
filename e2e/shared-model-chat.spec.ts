@@ -432,21 +432,16 @@ test.describe('shared model chat', () => {
 
   test('selects the highlighted agent mention with the keyboard', async () => {
     repository = createGitRepository()
+    writeFileSync(
+      path.join(repository, 'fleet.ts'),
+      'export const fleet = true\n',
+    )
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
     await startSharedChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await app.evaluate(
-      ({ dialog }, filePath) => {
-        Object.defineProperty(dialog, 'showOpenDialog', {
-          value: async () => ({ canceled: false, filePaths: [filePath] }),
-        })
-      },
-      path.join(repository, 'README.md'),
-    )
-
     await prompt.fill('@')
     await expect(
       page.getByRole('option', { name: /@claude/i }),
@@ -473,17 +468,23 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Remove @claude' }).click()
     await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
     await expect(prompt).toBeFocused()
-    await prompt.fill('@')
-    await prompt.press('ArrowUp')
-    await expect(page.getByRole('option', { name: /^Files/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    await prompt.fill('Please inspect @flee')
+    await expect(
+      page.getByRole('option', { name: /fleet\.ts/ }),
+    ).toHaveAttribute('aria-selected', 'true')
     await prompt.press('Enter')
     await expect(page.getByTestId('composer-attachments')).toContainText(
-      'README.md',
+      'fleet.ts',
     )
-    await expect(prompt).toHaveValue('')
+    await expect(prompt).toHaveValue('Please inspect ')
+
+    await prompt.fill('@claude-test')
+    const skill = page.getByRole('option', { name: /\/claude-test-skill/ })
+    await expect(skill).toHaveAttribute('aria-selected', 'true')
+    await prompt.press('Tab')
+    await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
+      '@Claude · /claude-test-skill',
+    )
   })
 
   test('shows provider reasoning options and applies keyboard selections', async () => {
