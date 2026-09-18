@@ -73,6 +73,8 @@ import {
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 import { resolveTerminalWorkingDirectory } from './terminal-shell'
 
+const STREAM_SNAPSHOT_INTERVAL_MS = 50
+
 /**
  * Map a Claude `thinkingBudget` tier to the SDK's `ThinkingConfig`. Returns
  * `null` when no override is needed (the SDK uses the base `effort` tier).
@@ -179,6 +181,8 @@ interface ManagedSessionMutableState {
   queuedInputCommittedId: string | null
   queuedInputs: ManagedSessionQueuedInput[]
   persistenceTimer: ReturnType<typeof setTimeout> | null
+  streamSnapshotTimer: ReturnType<typeof setTimeout> | null
+  pendingStreamUpdatedAt: string | null
   preparationAbortController: AbortController | null
   projector: ManagedTerminalProviderProjector
   revision: number
@@ -2235,6 +2239,8 @@ export class ManagedSessionManager {
         recipients: [...input.recipients],
       })),
       persistenceTimer: null,
+      streamSnapshotTimer: null,
+      pendingStreamUpdatedAt: null,
       preparationAbortController: null,
       projector: new ManagedTerminalProviderProjector(sessionConfig.mode),
       revision: persisted?.snapshot.revision ?? 0,
@@ -2351,6 +2357,9 @@ export class ManagedSessionManager {
     await state.backend.close()
     if (state.closed || this.sessions.get(sessionId) !== state) {
       return
+    }
+    if (state.streamSnapshotTimer || state.pendingStreamUpdatedAt) {
+      this.flushStreamSnapshot(state, this.getNow())
     }
     this.persistSession(state)
     state.closed = true
@@ -4228,7 +4237,11 @@ export class ManagedSessionManager {
       state.usage = nextUsage
     }
 
-    this.publishSnapshot(state, event.createdAt)
+    if (event.type === 'content.delta') {
+      this.scheduleStreamSnapshot(state, event.createdAt)
+    } else {
+      this.flushStreamSnapshot(state, event.createdAt)
+    }
     if (
       event.type === 'turn.completed' ||
       event.type === 'runtime.error' ||
@@ -4401,6 +4414,38 @@ export class ManagedSessionManager {
       snapshot: state.snapshot,
       type: 'snapshot',
     })
+  }
+
+  private scheduleStreamSnapshot(
+    state: ManagedSessionMutableState,
+    updatedAt: string,
+  ): void {
+    state.pendingStreamUpdatedAt = updatedAt
+    if (state.streamSnapshotTimer) return
+    state.streamSnapshotTimer = setTimeout(() => {
+      state.streamSnapshotTimer = null
+      const pendingUpdatedAt = state.pendingStreamUpdatedAt
+      state.pendingStreamUpdatedAt = null
+      if (
+        pendingUpdatedAt &&
+        !state.closed &&
+        this.sessions.get(state.config.sessionId) === state
+      ) {
+        this.publishSnapshot(state, pendingUpdatedAt)
+      }
+    }, STREAM_SNAPSHOT_INTERVAL_MS)
+  }
+
+  private flushStreamSnapshot(
+    state: ManagedSessionMutableState,
+    updatedAt: string,
+  ): void {
+    if (state.streamSnapshotTimer) {
+      clearTimeout(state.streamSnapshotTimer)
+      state.streamSnapshotTimer = null
+    }
+    state.pendingStreamUpdatedAt = null
+    this.publishSnapshot(state, updatedAt)
   }
 
   private persistSession(

@@ -1043,6 +1043,65 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshot.sessionState).toBe('ready')
   })
 
+  it('limits snapshot broadcasts during a rapid Codex text stream', async () => {
+    let snapshotCount = 0
+    const manager = new ManagedSessionManager({
+      createBackend: (_config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'codex',
+            turnId: 'rapid-turn',
+            type: 'turn.started',
+          })
+          for (let index = 0; index < 1_000; index += 1) {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              itemId: 'rapid-answer',
+              kind: 'assistant-text',
+              provider: 'codex',
+              text: 'x',
+              type: 'content.delta',
+            })
+          }
+          emit({
+            createdAt: '2026-04-11T10:00:01.000Z',
+            provider: 'codex',
+            state: 'completed',
+            turnId: 'rapid-turn',
+            type: 'turn.completed',
+          })
+        },
+        start: async () =>
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'codex',
+            state: 'ready',
+            type: 'session.state.changed',
+          }),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: (event) => {
+        if (event.type === 'snapshot') snapshotCount += 1
+      },
+    })
+    const config = createConfig('codex')
+
+    await manager.createSession(config)
+    snapshotCount = 0
+    await manager.sendInput(config.sessionId, 'stream quickly')
+
+    const answer = manager
+      .getSnapshots()
+      [config.sessionId].content.find((item) => item.kind === 'assistant-text')
+    expect(answer?.text).toHaveLength(1_000)
+    expect(snapshotCount).toBeLessThan(20)
+  })
+
   it('coalesces contiguous assistant deltas without crossing tool boundaries', async () => {
     const manager = new ManagedSessionManager({
       createBackend: (_config, emit) => ({
