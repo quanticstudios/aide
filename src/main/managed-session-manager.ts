@@ -1116,6 +1116,11 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
   >()
   private readonly pendingUserInputs = new Map<string, CodexPendingUserInput>()
   private readonly activeContentItemIds = new Map<string, string>()
+  private readonly assistantPhases = new Map<
+    string,
+    'commentary' | 'final_answer'
+  >()
+  private readonly streamedAssistantItems = new Set<string>()
   private output: readline.Interface | null = null
   private providerThreadId: string | null = null
   private providerModel: string | null = null
@@ -1432,6 +1437,8 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       )
       this.activeTurnId = null
       this.activeContentItemIds.clear()
+      this.assistantPhases.clear()
+      this.streamedAssistantItems.clear()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         provider: 'codex',
@@ -1440,6 +1447,39 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
         type: 'turn.completed',
         ...(status === 'failed' && errorMessage ? { errorMessage } : {}),
       })
+      return
+    }
+
+    if (
+      notification.method === 'item/started' ||
+      notification.method === 'item/completed'
+    ) {
+      const item = this.readObject(params, 'item')
+      const itemId = this.readString(item, 'id')
+      if (this.readString(item, 'type') !== 'agentMessage' || !itemId) return
+      const phase = this.readString(item, 'phase')
+      if (phase === 'commentary' || phase === 'final_answer') {
+        this.assistantPhases.set(itemId, phase)
+      }
+      if (notification.method === 'item/started') {
+        this.activeContentItemIds.set('assistant-text', itemId)
+      } else {
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId,
+          kind: 'assistant-text',
+          model: this.providerModel ?? undefined,
+          phase: this.assistantPhases.get(itemId),
+          provider: 'codex',
+          text: this.streamedAssistantItems.has(itemId)
+            ? ''
+            : (this.readString(item, 'text') ?? ''),
+          type: 'content.delta',
+        })
+        if (this.activeContentItemIds.get('assistant-text') === itemId) {
+          this.activeContentItemIds.delete('assistant-text')
+        }
+      }
       return
     }
 
@@ -1461,11 +1501,14 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
         randomUUID()
 
       this.activeContentItemIds.set(contentKind, stableItemId)
+      if (contentKind === 'assistant-text')
+        this.streamedAssistantItems.add(stableItemId)
 
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         itemId: stableItemId,
         kind: contentKind,
+        phase: this.assistantPhases.get(stableItemId),
         model: this.providerModel ?? undefined,
         provider: 'codex',
         text: delta,
@@ -4249,12 +4292,14 @@ export class ManagedSessionManager {
       }
 
       if (existing) {
+        if (event.phase) existing.phase = event.phase
         existing.text = `${existing.text}${event.text}`
         existing.updatedAt = event.createdAt
       } else {
         state.contentByKey.set(key, {
           id: event.itemId,
           kind: event.kind,
+          phase: event.phase,
           model: event.model ?? state.config.model,
           provider: state.config.mode,
           text: event.text,

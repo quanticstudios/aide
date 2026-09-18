@@ -91,6 +91,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       kind: ManagedProviderRuntimeContentKind
+      phase?: 'commentary' | 'final_answer'
       model?: string
       itemId: string
       text: string

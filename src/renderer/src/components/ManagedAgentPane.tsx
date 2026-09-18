@@ -5,6 +5,7 @@ import {
   Brain,
   Check,
   ChevronDown,
+  ChevronRight,
   CirclePause,
   Clipboard,
   ClipboardCheck,
@@ -514,10 +515,25 @@ function ContentItemBlock({
           ) : null}
         </p>
       ) : null}
-      <MarkdownContent
-        text={item.text}
-        formatSessionLabels={item.kind === 'assistant-text'}
-      />
+      {item.phase === 'commentary' ? (
+        <details
+          className="group/activity text-muted-foreground"
+          data-testid="assistant-activity"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-xs font-medium">
+            <ChevronRight className="size-3.5 transition-transform group-open/activity:rotate-90" />
+            Activity
+          </summary>
+          <div className="mt-2 border-l border-border pl-4 text-[13px]">
+            <MarkdownContent text={item.text} formatSessionLabels />
+          </div>
+        </details>
+      ) : (
+        <MarkdownContent
+          text={item.text}
+          formatSessionLabels={item.kind === 'assistant-text'}
+        />
+      )}
     </div>
   )
 }
@@ -549,7 +565,9 @@ function TurnGroupBlock({
   const copyTimerRef = useRef<number | null>(null)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   const responseItem = group.items
-    .filter((item) => item.kind === 'assistant-text')
+    .filter(
+      (item) => item.kind === 'assistant-text' && item.phase !== 'commentary',
+    )
     .at(-1)
   const responseContentItemId = responseItem?.id
 
@@ -563,7 +581,9 @@ function TurnGroupBlock({
 
   const handleCopy = useCallback(async () => {
     const text = group.items
-      .filter((item) => item.kind === 'assistant-text')
+      .filter(
+        (item) => item.kind === 'assistant-text' && item.phase !== 'commentary',
+      )
       .map((item) => item.text)
       .join('\n\n')
 
@@ -614,9 +634,7 @@ function TurnGroupBlock({
           ) : null}
         </div>
       ) : null}
-      {!isRunning &&
-      (canRetry ||
-        group.items.some((item) => item.kind === 'assistant-text')) ? (
+      {!isRunning && (canRetry || responseItem) ? (
         <div
           className="response-actions flex items-center gap-1 px-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="response-actions"

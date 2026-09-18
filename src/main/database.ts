@@ -538,6 +538,7 @@ const persistedManagedSessionSchema = z
             'user-prompt',
           ]),
           model: z.string().max(200).nullable().optional(),
+          phase: z.enum(['commentary', 'final_answer']).optional(),
           provider: persistedProvider.nullable(),
           text: persistedText,
           turnId: persistedIdentifier.nullable(),

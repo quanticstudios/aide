@@ -151,6 +151,7 @@ export interface ManagedSessionContentItem {
   attachments?: ManagedSessionAttachment[]
   id: string
   kind: ManagedSessionContentKind
+  phase?: 'commentary' | 'final_answer'
   model?: string | null
   provider: ManagedSessionProvider | null
   text: string

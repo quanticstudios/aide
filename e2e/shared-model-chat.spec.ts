@@ -262,7 +262,7 @@ test.describe('shared model chat', () => {
     await expect(prompt).toBeFocused()
   })
 
-  test('renders Codex messages with standalone labels and one provider heading', async () => {
+  test('distinguishes Codex activity from the final response', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
@@ -281,6 +281,7 @@ test.describe('shared model chat', () => {
         ...response,
         provider: 'codex',
         model: 'gpt-6-astra',
+        phase: 'commentary',
         text: '`[aide · geography]` Checking the answer.',
       },
       {
@@ -288,6 +289,7 @@ test.describe('shared model chat', () => {
         id: 'final-answer',
         provider: 'codex',
         model: 'gpt-6-astra',
+        phase: 'final_answer',
         text: '`[aide · geography]` The capital of Japan is Tokyo.',
       },
     ]
@@ -303,7 +305,19 @@ test.describe('shared model chat', () => {
     }, snapshot)
     const messages = page.getByTestId('managed-content-assistant-text')
     await expect(messages).toHaveCount(2)
-    await expect(messages.first()).toContainText('Checking the answer.')
+    const activity = page.getByTestId('assistant-activity')
+    await expect(
+      activity.getByText('Checking the answer.', { exact: true }),
+    ).toBeHidden()
+    await activity.locator('summary').click()
+    await expect(
+      activity.getByText('Checking the answer.', { exact: true }),
+    ).toBeVisible()
+    await activity.locator('summary').focus()
+    await page.keyboard.press('Enter')
+    await expect(
+      activity.getByText('Checking the answer.', { exact: true }),
+    ).toBeHidden()
     await expect(messages.last()).toContainText(
       'The capital of Japan is Tokyo.',
     )
@@ -320,6 +334,13 @@ test.describe('shared model chat', () => {
       (labelBounds?.y ?? 0) + (labelBounds?.height ?? 0),
     )
     await expect(messages.getByText('Codex', { exact: true })).toHaveCount(1)
+    await messages.last().hover()
+    await page
+      .getByRole('button', { name: 'Copy response', exact: true })
+      .click()
+    await expect
+      .poll(() => app?.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe('`[aide · geography]` The capital of Japan is Tokyo.')
     const first = await messages.first().boundingBox()
     const last = await messages.last().boundingBox()
     expect(last?.y).toBeGreaterThan((first?.y ?? 0) + (first?.height ?? 0))
