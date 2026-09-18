@@ -40,6 +40,7 @@ import type {
   WorkspaceSetupSnapshot,
 } from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
+import PaneCloseDialog from './components/PaneCloseDialog'
 import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
@@ -48,6 +49,15 @@ import PreviewBrowserHost, {
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceSetupStatus from './components/WorkspaceSetupStatus'
 import { buildCommandList } from './lib/command-registry'
+import {
+  clearTerminalPaneRunning,
+  decidePaneClose,
+  getPaneCloseWarnings,
+  resolvePaneCloseConfirmation,
+  type PaneCloseDecision,
+  type PaneCloseRequest,
+  type PaneCloseWarning,
+} from './lib/pane-close-warning'
 import {
   getPaneCatalogEntryForTemplate,
   getPaneTemplateId,
@@ -258,6 +268,13 @@ function WorkspaceApp() {
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isUpdateOpen, setIsUpdateOpen] = useState(false)
+  const [pendingPaneClose, setPendingPaneClose] =
+    useState<PaneCloseDecision | null>(null)
+  const [pendingSurfaceClose, setPendingSurfaceClose] = useState<{
+    readonly surfaceId: string
+    readonly warning: PaneCloseWarning
+    readonly workspaceId: string
+  } | null>(null)
   const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(
     null,
   )
@@ -304,6 +321,14 @@ function WorkspaceApp() {
   const storageSnapshotRef = useRef<PersistenceSnapshot | null>(null)
   const resolvedNavigationStateRef = useRef<SpatialNavigationState | null>(null)
   const [workspaceMutationQueue] = useState(() => new WorkspaceMutationQueue())
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) return
+
+    return api.onTerminalEvent((event) => {
+      if (event.type === 'exit') clearTerminalPaneRunning(event.sessionId)
+    })
+  }, [])
   const closeSettings = useCallback(() => {
     setIsSettingsOpen(false)
     const returnFocus = settingsReturnFocusRef.current
@@ -1546,12 +1571,9 @@ function WorkspaceApp() {
     ],
   )
 
-  const handleCloseSurface = useCallback(
-    (surfaceId: string) => {
+  const closeSurfaceImmediately = useCallback(
+    (surfaceId: string, workspaceId: string) => {
       const currentSelection = resolvedNavigationStateRef.current
-      const workspaceId = currentSelection?.activeWorkspaceId
-      if (!workspaceId) return
-
       void workspaceMutationQueue.enqueue(workspaceId, () =>
         applyWorkspaceLayoutChange(
           workspaceId,
@@ -1562,20 +1584,44 @@ function WorkspaceApp() {
             layout: { ...layout, nodes: [], rootNodeId: '' },
             nextActivePaneId: null,
           }),
-          currentSelection.activeSurfaceId === surfaceId,
+          currentSelection?.activeSurfaceId === surfaceId,
         ),
       )
     },
     [applyWorkspaceLayoutChange, workspaceMutationQueue],
   )
 
-  const handleClosePane = useCallback(
-    (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
+  const handleCloseSurface = useCallback(
+    (surfaceId: string) => {
+      const workspaceId = resolvedNavigationStateRef.current?.activeWorkspaceId
+      if (!workspaceId) return
+
       const snapshot = storageSnapshotRef.current ?? navigationSnapshot
-      const targetWorkspaceId =
-        workspaceId ?? resolvedNavigationStateRef.current?.activeWorkspaceId
+      const layout = resolveSurfaceLayout(snapshot, workspaceId, surfaceId)
+      if (!layout) return
+
+      const warnings = getPaneCloseWarnings(
+        workspaceId,
+        layout.nodes.flatMap((node) =>
+          node.type === 'pane' ? node.viewIds : [],
+        ),
+      )
+      const warning = warnings[0]
+      if (warning) {
+        setPendingSurfaceClose({ surfaceId, warning, workspaceId })
+        return
+      }
+
+      closeSurfaceImmediately(surfaceId, workspaceId)
+    },
+    [closeSurfaceImmediately, navigationSnapshot],
+  )
+
+  const closePaneImmediately = useCallback(
+    (request: PaneCloseRequest) => {
+      const snapshot = storageSnapshotRef.current ?? navigationSnapshot
       const paneLocation = snapshot.workspaces
-        .filter((workspace) => workspace.id === targetWorkspaceId)
+        .filter((workspace) => workspace.id === request.workspaceId)
         .flatMap((workspace) =>
           resolveWorkspaceSurfaces(snapshot, workspace.id).map((surface) => ({
             layout: resolveSurfaceLayout(snapshot, workspace.id, surface.id),
@@ -1587,7 +1633,8 @@ function WorkspaceApp() {
           layout?.nodes.some(
             (node) =>
               node.type === 'pane' &&
-              (node.paneId === paneId || node.viewIds.includes(paneId)),
+              (node.paneId === request.paneId ||
+                node.viewIds.includes(request.paneId)),
           ),
         )
 
@@ -1601,7 +1648,8 @@ function WorkspaceApp() {
             (node) =>
               node.type === 'pane' &&
               node.paneId === currentSelection?.activePaneId &&
-              (node.paneId === paneId || node.viewIds.includes(paneId)),
+              (node.paneId === request.paneId ||
+                node.viewIds.includes(request.paneId)),
           ),
       )
 
@@ -1613,18 +1661,19 @@ function WorkspaceApp() {
             const paneNode = layout.nodes.find(
               (node) =>
                 node.type === 'pane' &&
-                (node.paneId === paneId || node.viewIds.includes(paneId)),
+                (node.paneId === request.paneId ||
+                  node.viewIds.includes(request.paneId)),
             )
 
             if (paneNode?.type !== 'pane') {
-              return closeWorkspacePane(layout, paneId)
+              return closeWorkspacePane(layout, request.paneId)
             }
 
-            if (shouldCloseViewOnly && paneNode.viewIds.length > 1) {
+            if (request.shouldCloseViewOnly && paneNode.viewIds.length > 1) {
               return removePaneView(
                 layout,
                 paneNode.paneId,
-                paneNode.viewIds.indexOf(paneId),
+                paneNode.viewIds.indexOf(request.paneId),
               )
             }
 
@@ -1635,6 +1684,54 @@ function WorkspaceApp() {
       )
     },
     [applyWorkspaceLayoutChange, navigationSnapshot, workspaceMutationQueue],
+  )
+
+  const handleClosePane = useCallback(
+    (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
+      const snapshot = storageSnapshotRef.current ?? navigationSnapshot
+      const targetWorkspaceId =
+        workspaceId ?? resolvedNavigationStateRef.current?.activeWorkspaceId
+      if (!targetWorkspaceId) return
+
+      const paneLocation = resolveWorkspaceSurfaces(snapshot, targetWorkspaceId)
+        .map((surface) =>
+          resolveSurfaceLayout(snapshot, targetWorkspaceId, surface.id),
+        )
+        .find((layout) =>
+          layout?.nodes.some(
+            (node) =>
+              node.type === 'pane' &&
+              (node.paneId === paneId || node.viewIds.includes(paneId)),
+          ),
+        )
+      const paneNode = paneLocation?.nodes.find(
+        (node) =>
+          node.type === 'pane' &&
+          (node.paneId === paneId || node.viewIds.includes(paneId)),
+      )
+      if (paneNode?.type !== 'pane') return
+
+      const removedViewIds =
+        shouldCloseViewOnly && paneNode.viewIds.length > 1
+          ? [paneId]
+          : paneNode.viewIds
+      const decision = decidePaneClose(
+        {
+          paneId,
+          shouldCloseViewOnly,
+          workspaceId: targetWorkspaceId,
+        },
+        removedViewIds,
+      )
+
+      if (decision.kind === 'confirm') {
+        setPendingPaneClose(decision)
+        return
+      }
+
+      closePaneImmediately(decision.request)
+    },
+    [closePaneImmediately, navigationSnapshot],
   )
 
   const handleResizePane = useCallback(
@@ -1679,20 +1776,43 @@ function WorkspaceApp() {
     (paneId: string, viewIndex: number) => {
       const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
       if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
-        applyWorkspaceLayoutChange(
-          activeWorkspaceId,
-          activeSurfaceId,
-          (layout) => removePaneView(layout, paneId, viewIndex),
-        ),
-      )
+      const snapshot = storageSnapshotRef.current ?? navigationSnapshot
+      const paneNode = resolveSurfaceLayout(
+        snapshot,
+        activeWorkspaceId,
+        activeSurfaceId,
+      )?.nodes.find((node) => node.type === 'pane' && node.paneId === paneId)
+      if (paneNode?.type !== 'pane') return
+
+      const viewId = paneNode.viewIds[viewIndex]
+      if (!viewId) return
+
+      handleClosePane(viewId, true, activeWorkspaceId)
     },
-    [
-      applyWorkspaceLayoutChange,
-      resolvedNavigationState,
-      workspaceMutationQueue,
-    ],
+    [handleClosePane, navigationSnapshot, resolvedNavigationState],
   )
+
+  const confirmPendingClose = useCallback(() => {
+    if (pendingSurfaceClose) {
+      closeSurfaceImmediately(
+        pendingSurfaceClose.surfaceId,
+        pendingSurfaceClose.workspaceId,
+      )
+      setPendingSurfaceClose(null)
+      return
+    }
+
+    if (pendingPaneClose) {
+      const request = resolvePaneCloseConfirmation(pendingPaneClose, true)
+      setPendingPaneClose(null)
+      if (request) closePaneImmediately(request)
+    }
+  }, [
+    closePaneImmediately,
+    closeSurfaceImmediately,
+    pendingPaneClose,
+    pendingSurfaceClose,
+  ])
 
   const handleSwitchView = useCallback(
     (paneId: string, viewIndex: number) => {
@@ -2721,6 +2841,22 @@ function WorkspaceApp() {
           onCancel={cancelActiveWorkspaceSetup}
           onRun={runActiveWorkspaceSetup}
           setup={activeWorkspaceSetup}
+        />
+        <PaneCloseDialog
+          isOpen={Boolean(
+            pendingSurfaceClose || pendingPaneClose?.kind === 'confirm',
+          )}
+          onCancel={() => {
+            setPendingPaneClose(null)
+            setPendingSurfaceClose(null)
+          }}
+          onConfirm={confirmPendingClose}
+          warning={
+            pendingSurfaceClose?.warning ??
+            (pendingPaneClose?.kind === 'confirm'
+              ? (pendingPaneClose.warnings[0] ?? null)
+              : null)
+          }
         />
         <WorkspaceCanvas
           activeProject={activeProject}

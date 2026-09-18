@@ -1525,12 +1525,49 @@ test.describe('electron spatial navigation', () => {
     )
 
     await runPaletteCommand(page, 'Close pane')
+    await expect(
+      page.getByRole('dialog', { name: 'Close running terminal?' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.getByText('Empty workspace')).toBeVisible()
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
 
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
+  })
+
+  test('confirms before a surface tab closes a running terminal', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+
+    const closeTerminal = page.getByRole('button', {
+      name: 'Close Workspace terminal',
+    })
+    await closeTerminal.click()
+    await expect(
+      page.getByRole('dialog', { name: 'Close running terminal?' }),
+    ).toBeVisible()
+
+    await page.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
+
+    await closeTerminal.click()
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(page.getByText('Empty workspace')).toBeVisible()
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
   })

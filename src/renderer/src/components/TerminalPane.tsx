@@ -9,6 +9,10 @@ import type { WorkspaceRecord } from '../../../shared/persistence'
 import { shouldBlockTerminalShortcutInput } from '../../../shared/shortcuts'
 import type { TerminalEvent } from '../../../shared/terminal'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import {
+  clearTerminalPaneRunning,
+  setTerminalPaneRunning,
+} from '../lib/pane-close-warning'
 
 interface TerminalPaneProps {
   readonly onShellExit: () => void
@@ -152,6 +156,8 @@ export default function TerminalPane({
       workspaceId: workspace.id,
     })
 
+    setTerminalPaneRunning(sessionId, workspace.id, paneId, snapshot.running)
+
     if (snapshot.buffer) {
       terminal.write(snapshot.buffer)
     }
@@ -252,6 +258,7 @@ export default function TerminalPane({
       }
 
       if (event.type === 'exit') {
+        clearTerminalPaneRunning(sessionId)
         if (typeof event.exitCode === 'number') {
           if (!hasRequestedCloseRef.current) {
             hasRequestedCloseRef.current = true
