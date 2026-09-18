@@ -384,6 +384,17 @@ test.describe('electron spatial navigation', () => {
     await expect(
       page.getByRole('button', { name: 'Violet project color' }),
     ).toHaveAttribute('aria-pressed', 'true')
+    await page.screenshot({
+      path: test.info().outputPath('project-appearance.png'),
+    })
+    await page.keyboard.press('Escape')
+    await page.locator('[data-testid^="project-rail-button-"]').hover()
+    await expect(
+      page.getByText(chosenProjectRoot, { exact: true }),
+    ).toBeVisible()
+    await page.screenshot({
+      path: test.info().outputPath('project-details.png'),
+    })
     expect(consoleErrors).toEqual([])
   })
 
@@ -803,16 +814,18 @@ test.describe('electron spatial navigation', () => {
     await expect(
       page.getByRole('button', { name: 'Copy folder path' }),
     ).toBeVisible()
-    const menu = page.locator('[data-slot="popover-content"]')
+    const menu = page.getByRole('dialog', {
+      name: 'More options for workspace main',
+    })
     const menuBounds = await menu.boundingBox()
     expect(menuBounds?.width).toBeLessThanOrEqual(190)
     await page.screenshot({
       path: test.info().outputPath('workspace-context-menu.png'),
     })
     await page.getByRole('button', { name: 'Copy folder path' }).click()
-    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(
-      chosenProjectRoot,
-    )
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(chosenProjectRoot)
     await page
       .getByRole('button', { name: 'More options for workspace main' })
       .click()
