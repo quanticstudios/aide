@@ -302,35 +302,38 @@ test.describe('shared model chat', () => {
       .click()
 
     await expect
-      .poll(async () => {
-        const snapshots = await page.evaluate(() =>
-          window.aide.getManagedSessionSnapshots(),
-        )
-        return Object.keys(snapshots).length
-      })
-      .toBe(2)
-
-    const branched = await page.evaluate(async (sourceSessionId) => {
-      const snapshots = await window.aide.getManagedSessionSnapshots()
-      const sourceSnapshot = snapshots[sourceSessionId]
-      const branchSnapshot = Object.values(snapshots).find(
-        (snapshot) => snapshot.sessionId !== sourceSessionId,
+      .poll(() =>
+        page.evaluate(
+          async (sourceSessionId) =>
+            (await window.aide.getTaskLibrary()).tasks.find(
+              (task) => task.sessionId !== sourceSessionId,
+            ) ?? null,
+          source.sessionId,
+        ),
       )
-      const discussion = (snapshot: typeof sourceSnapshot | undefined) =>
-        snapshot?.content.filter(
-          (item) =>
-            item.kind === 'assistant-text' || item.kind === 'user-prompt',
-        ) ?? []
+      .not.toBeNull()
+    const branched = await page.evaluate(
+      async (sourceSessionId) =>
+        (await window.aide.getTaskLibrary()).tasks.find(
+          (task) => task.sessionId !== sourceSessionId,
+        ) ?? null,
+      source.sessionId,
+    )
+    if (!branched) throw new Error('Branched conversation was not saved.')
 
-      return {
-        discussionMatches:
-          JSON.stringify(discussion(sourceSnapshot)) ===
-          JSON.stringify(discussion(branchSnapshot)),
-        sessionId: branchSnapshot?.sessionId ?? null,
-        workspaceId: branchSnapshot?.workspaceId ?? null,
-      }
-    }, source.sessionId)
-    expect(branched.discussionMatches).toBe(true)
+    const branchSnapshot = await page.evaluate(
+      (sessionId) => window.aide.getTaskTranscript(sessionId),
+      branched.sessionId,
+    )
+    const sourceSnapshot = await page.evaluate(
+      (sessionId) => window.aide.getTaskTranscript(sessionId),
+      source.sessionId,
+    )
+    const discussion = (snapshot: typeof sourceSnapshot) =>
+      snapshot?.content.filter(
+        (item) => item.kind === 'assistant-text' || item.kind === 'user-prompt',
+      ) ?? []
+    expect(discussion(branchSnapshot)).toEqual(discussion(sourceSnapshot))
     expect(branched.sessionId).not.toBe(source.sessionId)
     expect(branched.workspaceId).toBe(source.workspaceId)
 
@@ -559,10 +562,13 @@ test.describe('shared model chat', () => {
     )
     await expect
       .poll(() =>
-        page.evaluate(async (sessionId) =>
-          (await window.aide.getTaskLibrary()).tasks.find(
-            (task) => task.sessionId === sessionId,
-          ), restoredSession.sessionId),
+        page.evaluate(
+          async (sessionId) =>
+            (await window.aide.getTaskLibrary()).tasks.find(
+              (task) => task.sessionId === sessionId,
+            ),
+          restoredSession.sessionId,
+        ),
       )
       .toMatchObject({
         paneId: restoredSession.paneId,
@@ -572,11 +578,14 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Open sidebar' }).click()
     await page.getByRole('button', { name: /^Add to / }).click()
     await page.getByRole('menuitem', { name: 'New chat' }).click()
-    await expect(prompt).toHaveValue('')
-    await expect(page.getByTestId('composer-attachments')).toBeHidden()
-    await expect(page.getByTestId('managed-session-content')).not.toContainText(
-      'Handled: initialize shared chat',
-    )
+    const activePane = page.locator('[data-active-pane="true"]')
+    await expect(
+      activePane.getByRole('textbox', { name: /claude prompt/i }),
+    ).toHaveValue('')
+    await expect(activePane.getByTestId('composer-attachments')).toBeHidden()
+    await expect(
+      activePane.getByTestId('managed-session-content'),
+    ).not.toContainText('Handled: initialize shared chat')
 
     await page.getByRole('button', { name: /^Add to / }).click()
     await page.getByRole('menuitem', { name: 'New workspace' }).click()
@@ -591,11 +600,13 @@ test.describe('shared model chat', () => {
     )
     await page.getByRole('button', { name: /add pane/i }).click()
     await page.getByRole('button', { name: /^agent\b/i }).click()
-    await expect(prompt).toHaveValue('')
-    await expect(page.getByTestId('composer-attachments')).toBeHidden()
-    await expect(page.getByTestId('managed-session-content')).not.toContainText(
-      'Handled: initialize shared chat',
-    )
+    await expect(
+      activePane.getByRole('textbox', { name: /claude prompt/i }),
+    ).toHaveValue('')
+    await expect(activePane.getByTestId('composer-attachments')).toBeHidden()
+    await expect(
+      activePane.getByTestId('managed-session-content'),
+    ).not.toContainText('Handled: initialize shared chat')
   })
 
   test('waits for model discovery before selecting a skill or sending with Enter', async () => {
