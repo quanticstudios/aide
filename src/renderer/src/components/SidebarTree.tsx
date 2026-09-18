@@ -1,4 +1,11 @@
-import { Button, Kbd, ScrollShadow, Tooltip } from '@heroui/react'
+import {
+  Button,
+  Input,
+  Kbd,
+  Popover,
+  ScrollShadow,
+  Tooltip,
+} from '@heroui/react'
 import {
   Archive,
   ChevronRight,
@@ -67,6 +74,10 @@ interface SidebarTreeProps {
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
+  readonly onRenameWorkspace: (
+    workspaceId: string,
+    name: string,
+  ) => Promise<string | null>
   readonly onTogglePinnedOpen: () => void
   readonly projects: readonly ProjectRecord[]
   readonly showProjectHints: boolean
@@ -305,6 +316,119 @@ function ProjectOverflowMenu({
   )
 }
 
+function WorkspaceOverflowMenu({
+  onRename,
+  workspace,
+}: {
+  readonly onRename: (name: string) => Promise<string | null>
+  readonly workspace: WorkspaceRecord
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [name, setName] = useState(workspace.name)
+  const [error, setError] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const closeMenu = useCallback(() => {
+    setIsOpen(false)
+    setIsRenaming(false)
+    setName(workspace.name)
+    setError(null)
+  }, [workspace.name])
+
+  return (
+    <Popover
+      isOpen={isOpen}
+      onOpenChange={(nextIsOpen) => {
+        setIsOpen(nextIsOpen)
+        if (!nextIsOpen) {
+          setIsRenaming(false)
+          setName(workspace.name)
+          setError(null)
+        }
+      }}
+    >
+      <Popover.Trigger>
+        <Button
+          aria-label={`More options for workspace ${workspace.name}`}
+          className="size-6 rounded text-muted-foreground opacity-0 group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 focus-visible:opacity-100"
+          isIconOnly
+          size="sm"
+          variant="ghost"
+        >
+          <MoreHorizontal className="size-3.5" />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Content
+        className="w-56 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        placement="bottom end"
+      >
+        <Popover.Dialog className="outline-none">
+          {isRenaming ? (
+            <form
+              className="space-y-2 p-2"
+              onSubmit={async (event) => {
+                event.preventDefault()
+                setIsSaving(true)
+                const nextError = await onRename(name)
+                setIsSaving(false)
+                if (nextError) {
+                  setError(nextError)
+                  return
+                }
+                closeMenu()
+              }}
+            >
+              <Input
+                aria-label="Workspace name"
+                autoFocus
+                maxLength={80}
+                onChange={(event) => setName(event.target.value)}
+                value={name}
+              />
+              {error ? (
+                <p className="text-xs text-destructive" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-1">
+                <Button
+                  isDisabled={isSaving}
+                  onPress={closeMenu}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  isDisabled={isSaving || name.trim().length === 0}
+                  size="sm"
+                  type="submit"
+                  variant="primary"
+                >
+                  {isSaving ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <Button
+              className="w-full justify-start px-2 text-xs"
+              onPress={() => {
+                setIsRenaming(true)
+                setName(workspace.name)
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              Rename workspace
+            </Button>
+          )}
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
+  )
+}
+
 export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
@@ -318,6 +442,7 @@ export default function SidebarTree({
   onSelectPane,
   onSelectProject,
   onSelectWorkspace,
+  onRenameWorkspace,
   onTogglePinnedOpen,
   projects,
   showProjectHints,
@@ -757,95 +882,107 @@ export default function SidebarTree({
                       ) : null
 
                       const rowElement = (
-                        <button
-                          className={cn(
-                            'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-3 text-left transition-colors',
-                            bgClass,
-                            isActiveWorkspace &&
-                              'bg-primary/10 ring-1 ring-inset ring-primary/40',
-                            !activity &&
-                              !isActiveWorkspace &&
-                              'hover:bg-surface-secondary',
-                          )}
-                          onClick={() => {
-                            onSelectWorkspace(workspace.id)
-                            if (activity) {
-                              onSelectPane(activity.paneId)
-                            }
-                          }}
-                          type="button"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            {renderWorkspaceStateIcon({
-                              activity,
-                              isCurrent: isActiveWorkspace,
-                              projectKind: project.kind,
-                            })}
-                            <span
-                              className={cn(
-                                'truncate text-[13px] font-semibold',
-                                attentionTier === 'attention' ||
-                                  isActiveWorkspace
-                                  ? 'text-foreground'
-                                  : 'text-foreground/95',
-                              )}
-                            >
-                              {summary?.workspaceName ?? workspace.name}
-                            </span>
-
-                            <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                              {visibleActivities.length > 0 ? (
-                                visibleActivities.map((entry) => (
-                                  <ActivityPill
-                                    activity={entry}
-                                    key={entry.sessionId}
-                                  />
-                                ))
-                              ) : stats &&
-                                (stats.additions > 0 || stats.deletions > 0) ? (
-                                <span className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-elevated px-1.5 py-px text-[10px] font-semibold tabular-nums">
-                                  <span className="text-accent-green">
-                                    +{stats.additions}
-                                  </span>
-                                  <span className="text-accent-red">
-                                    -{stats.deletions}
-                                  </span>
-                                </span>
-                              ) : null}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
-                            <span className="truncate font-mono">
-                              {project.kind === 'folder'
-                                ? 'Folder'
-                                : (summary?.branchName ?? workspace.branchName)}
-                            </span>
-                            {mergeLabel && mergeLabel !== 'Up to date' ? (
-                              <>
-                                <span className="text-muted-foreground/50">
-                                  ·
-                                </span>
-                                <span
-                                  className={cn(
-                                    'truncate',
-                                    stats
-                                      ? getMergeStatusClassName(
-                                          stats.mergeStatus,
-                                        )
-                                      : '',
-                                  )}
-                                >
-                                  {mergeLabel}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="ml-1 shrink-0 tabular-nums">
-                                {formatRelativeTime(workspace.updatedAt)}
-                              </span>
+                        <div className="group/workspace relative">
+                          <button
+                            className={cn(
+                              'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-10 text-left transition-colors',
+                              bgClass,
+                              isActiveWorkspace &&
+                                'bg-primary/10 ring-1 ring-inset ring-primary/40',
+                              !activity &&
+                                !isActiveWorkspace &&
+                                'hover:bg-surface-secondary',
                             )}
+                            onClick={() => {
+                              onSelectWorkspace(workspace.id)
+                              if (activity) {
+                                onSelectPane(activity.paneId)
+                              }
+                            }}
+                            type="button"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {renderWorkspaceStateIcon({
+                                activity,
+                                isCurrent: isActiveWorkspace,
+                                projectKind: project.kind,
+                              })}
+                              <span
+                                className={cn(
+                                  'truncate text-[13px] font-semibold',
+                                  attentionTier === 'attention' ||
+                                    isActiveWorkspace
+                                    ? 'text-foreground'
+                                    : 'text-foreground/95',
+                                )}
+                              >
+                                {summary?.workspaceName ?? workspace.name}
+                              </span>
+
+                              <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                {visibleActivities.length > 0 ? (
+                                  visibleActivities.map((entry) => (
+                                    <ActivityPill
+                                      activity={entry}
+                                      key={entry.sessionId}
+                                    />
+                                  ))
+                                ) : stats &&
+                                  (stats.additions > 0 ||
+                                    stats.deletions > 0) ? (
+                                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded border border-border bg-surface-elevated px-1.5 py-px text-[10px] font-semibold tabular-nums">
+                                    <span className="text-accent-green">
+                                      +{stats.additions}
+                                    </span>
+                                    <span className="text-accent-red">
+                                      -{stats.deletions}
+                                    </span>
+                                  </span>
+                                ) : null}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
+                              <span className="truncate font-mono">
+                                {project.kind === 'folder'
+                                  ? 'Folder'
+                                  : (summary?.branchName ??
+                                    workspace.branchName)}
+                              </span>
+                              {mergeLabel && mergeLabel !== 'Up to date' ? (
+                                <>
+                                  <span className="text-muted-foreground/50">
+                                    ·
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'truncate',
+                                      stats
+                                        ? getMergeStatusClassName(
+                                            stats.mergeStatus,
+                                          )
+                                        : '',
+                                    )}
+                                  >
+                                    {mergeLabel}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="ml-1 shrink-0 tabular-nums">
+                                  {formatRelativeTime(workspace.updatedAt)}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                          <div className="absolute right-1 top-1.5">
+                            <WorkspaceOverflowMenu
+                              onRename={(name) =>
+                                onRenameWorkspace(workspace.id, name)
+                              }
+                              workspace={workspace}
+                            />
                           </div>
-                        </button>
+                        </div>
                       )
 
                       if (!tooltipContent) {

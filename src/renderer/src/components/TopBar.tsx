@@ -2,8 +2,6 @@ import { Button, Toolbar } from '@heroui/react'
 import {
   Columns2,
   Expand,
-  Folder,
-  GitBranch,
   LifeBuoy,
   type LucideIcon,
   PanelBottom,
@@ -337,24 +335,10 @@ export default function TopBar({
             )}
           </Button>
         </IconTooltip>
-        <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface px-2 py-1">
+        <div className="flex shrink-0 items-center rounded-md border border-border bg-surface px-2 py-1">
           <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
           </p>
-          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            {activeProject?.kind === 'folder' ? (
-              <Folder className="size-3.5" />
-            ) : (
-              <GitBranch className="size-3.5" />
-            )}
-            <span>
-              {activeProject?.kind === 'folder'
-                ? 'Folder project'
-                : (activeWorkspace?.branchName ??
-                  activeProject?.defaultBranch ??
-                  'Waiting')}
-            </span>
-          </div>
         </div>
 
         <div className="min-w-0 flex-1 overflow-x-auto">

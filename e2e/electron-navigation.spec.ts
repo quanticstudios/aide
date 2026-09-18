@@ -629,6 +629,54 @@ test.describe('electron spatial navigation', () => {
     await expect(openSidebar).toBeVisible()
   })
 
+  test('renames a workspace without changing its branch and persists reload', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+    const { page } = launched
+
+    await importProject(page)
+    await expandSidebar(page)
+    await page
+      .getByRole('button', { name: 'More options for workspace main' })
+      .click()
+    await page.getByRole('button', { name: 'Rename workspace' }).click()
+    let nameInput = page.getByRole('textbox', { name: 'Workspace name' })
+    await nameInput.fill('Discarded name')
+    await nameInput.press('Escape')
+    await expect(nameInput).toBeHidden()
+
+    await page
+      .getByRole('button', { name: 'More options for workspace main' })
+      .click()
+    await page.getByRole('button', { name: 'Rename workspace' }).click()
+    nameInput = page.getByRole('textbox', { name: 'Workspace name' })
+    await nameInput.fill('Launch review')
+    await nameInput.press('Enter')
+
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Launch review',
+    )
+    const reimported = await page.evaluate(
+      (repoRoot) => window.aide.importProject(repoRoot),
+      chosenProjectRoot,
+    )
+    expect(reimported.snapshot.workspaces[0]).toMatchObject({
+      branchName: 'main',
+      name: 'Launch review',
+      nameSource: 'manual',
+      worktreePath: chosenProjectRoot,
+    })
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expandSidebar(page)
+    await expect(page.getByText('Launch review', { exact: true })).toBeVisible()
+  })
+
   test('persists explicit Jev workspace consent without exposing credentials', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({

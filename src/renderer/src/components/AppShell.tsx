@@ -46,6 +46,10 @@ interface AppShellProps {
   readonly onSelectPane: (paneId: string) => void
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
+  readonly onRenameWorkspace: (
+    workspaceId: string,
+    name: string,
+  ) => Promise<string | null>
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
@@ -77,6 +81,7 @@ export default function AppShell({
   onSelectPane,
   onSelectProject,
   onSelectWorkspace,
+  onRenameWorkspace,
   onCreateProject,
   onCreateWorkspace,
   onConfigureProjectSetup,
@@ -206,6 +211,7 @@ export default function AppShell({
           onSelectProject={onSelectProject}
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
+          onRenameWorkspace={onRenameWorkspace}
           onTogglePinnedOpen={() => {
             setIsSidebarPinnedOpen((current) => !current)
             window.requestAnimationFrame(() =>
