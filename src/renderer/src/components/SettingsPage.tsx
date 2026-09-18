@@ -55,7 +55,7 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
     label: 'Chat',
     shortcuts: [
       { keys: ['/'], label: 'Open commands and provider skills' },
-      { keys: ['@'], label: 'Mention a model for an opinion' },
+      { keys: ['@'], label: 'Add agents, files, or skills' },
       { keys: ['Enter'], label: 'Send message or submit answers' },
       { keys: ['Shift', 'Enter'], label: 'Add a new line' },
       {
