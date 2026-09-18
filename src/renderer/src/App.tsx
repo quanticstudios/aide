@@ -40,6 +40,7 @@ import type {
   WorkspaceSetupSnapshot,
 } from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
+import OverlayLoadBoundary from './components/OverlayLoadBoundary'
 import PaneCloseDialog from './components/PaneCloseDialog'
 import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
 import PreviewBrowserHost, {
@@ -2710,7 +2711,12 @@ function WorkspaceApp() {
     >
       <>
         {isSettingsOpen ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
+          <OverlayLoadBoundary
+            fallback={<OverlayLoadFallback />}
+            name="Settings"
+            onClose={closeSettings}
+            onRetry={() => window.location.reload()}
+          >
             <LazySettingsPage
               onClose={closeSettings}
               onOpenUpdate={() => {
@@ -2723,7 +2729,7 @@ function WorkspaceApp() {
               updatePreferences={updatePreferences}
               updatePreferencesError={updatePreferencesHydrationError}
             />
-          </Suspense>
+          </OverlayLoadBoundary>
         ) : null}
         {isDiagnosticsOpen ? (
           <Suspense fallback={<OverlayLoadFallback />}>

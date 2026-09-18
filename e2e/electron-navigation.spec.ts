@@ -261,6 +261,42 @@ test.describe('electron spatial navigation', () => {
     tempDirectory = null
   })
 
+  test('keeps the app usable when settings fails to render', async () => {
+    const launched = await launchAideApp()
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+    const { page } = launched
+    const rendererErrors: string[] = []
+    page.on('pageerror', (error) => rendererErrors.push(error.message))
+    page.on('console', (message) => {
+      if (message.type() === 'error') rendererErrors.push(message.text())
+    })
+    await page.evaluate(() => {
+      const getItem = Storage.prototype.getItem
+      Storage.prototype.getItem = function getSettingsStorageItem(key) {
+        if (key === 'aide.animations') {
+          throw new Error('Synthetic settings render failure')
+        }
+        return getItem.call(this, key)
+      }
+    })
+
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await page
+      .getByRole('button', { name: 'Open settings', exact: true })
+      .click()
+
+    await expect(page.getByText('Settings could not open')).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Back to app' }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Back to app' }).click()
+    await expect(page.getByText('No project selected')).toBeVisible()
+    expect(rendererErrors.some((error) => error.includes('Synthetic'))).toBe(
+      true,
+    )
+  })
+
   test('can open a git project from the empty state', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
