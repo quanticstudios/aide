@@ -32,7 +32,8 @@ afterEach(() => {
 
 it('keeps credentials out of status and persists permission for the exact workspace root', () => {
   const { settings, filename, storage } = createSettings()
-  expect(() => settings.requireApiKey('/workspace')).toThrow('Allow TypeSafe')
+  expect(settings.getStatus('/workspace').allowProcessing).toBe(true)
+  expect(() => settings.requireApiKey('/workspace')).toThrow('TypeSafe API key')
   settings.update('/workspace', {
     apiKey: 'secret-token',
     allowProcessing: true,
@@ -44,11 +45,13 @@ it('keeps credentials out of status and persists permission for the exact worksp
   expect(readFileSync(filename, 'utf8')).not.toContain('secret-token')
   const reopened = new JevSettings(filename, storage, () => undefined)
   expect(reopened.requireApiKey('/workspace')).toBe('secret-token')
-  expect(() => reopened.requireApiKey('/another-workspace')).toThrow(
-    'Allow TypeSafe',
-  )
+  expect(reopened.requireApiKey('/another-workspace')).toBe('secret-token')
   reopened.update('/workspace', { allowProcessing: false })
   expect(() => reopened.requireApiKey('/workspace')).toThrow('Allow TypeSafe')
+  expect(
+    new JevSettings(filename, storage, () => undefined).getStatus('/workspace')
+      .allowProcessing,
+  ).toBe(false)
 })
 
 it('rejects unencrypted storage, missing credentials, malformed input and corrupt settings', () => {
@@ -100,4 +103,15 @@ it('uses an environment credential without saving it and supports explicit crede
     new JevSettings(filename, storage, () => undefined).getStatus('/workspace')
       .hasCredential,
   ).toBe(false)
+})
+
+it('enables processing for existing settings while retaining explicit opt-outs', () => {
+  const { filename, storage } = createSettings()
+  writeFileSync(filename, JSON.stringify({ credential: null, roots: ['/old'] }))
+  const settings = new JevSettings(filename, storage, () => 'environment-token')
+  expect(settings.requireApiKey('/new')).toBe('environment-token')
+  settings.update('/new', { allowProcessing: false })
+  expect(() => settings.requireApiKey('/new')).toThrow('Allow TypeSafe')
+  settings.update('/new', { allowProcessing: true })
+  expect(settings.requireApiKey('/new')).toBe('environment-token')
 })

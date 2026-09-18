@@ -118,17 +118,16 @@ async function prepareSyntheticJev(
       )
     }
   })
-  if (!allowProcessing) return
-  await page.evaluate(async () => {
+  await page.evaluate(async (allowProcessing) => {
     const storage = await window.aide.getStorageSnapshot()
     await Promise.all(
       storage.workspaces.map(async (workspace) => {
         await window.aide.updateJevSettings(workspace.id, {
-          allowProcessing: true,
+          allowProcessing,
         })
       }),
     )
-  })
+  }, allowProcessing)
 }
 
 async function getOnlySnapshot(page: Page) {
@@ -291,6 +290,7 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: /^agent\b/i }).click()
     await page.setViewportSize({ width: 1100, height: 720 })
     await prepareSyntheticJev(app, page, false)
+    await page.reload()
     await page.getByText('Jev · Workspace permission required').click()
     await page.getByRole('button', { name: 'Close Jev setup' }).click()
     await expect(
@@ -298,7 +298,7 @@ test.describe('shared model chat', () => {
     ).toBeHidden()
     await page.getByText('Jev · Workspace permission required').click()
     await page
-      .getByRole('checkbox', {
+      .getByRole('switch', {
         name: 'Allow TypeSafe processing for this workspace',
       })
       .focus()
@@ -324,12 +324,14 @@ test.describe('shared model chat', () => {
     ).toBeVisible()
     await expect(prompt).toHaveValue('help with this ordinary folder')
     await page
-      .getByRole('checkbox', {
+      .getByRole('switch', {
         name: 'Allow TypeSafe processing for this workspace',
       })
       .check()
     await page.getByRole('button', { name: 'Save Jev settings' }).click()
-    await expect(page.getByText('Jev · Ready')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Jev · Ready' })).toHaveCount(
+      0,
+    )
     await expect(
       page.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeHidden()
@@ -346,6 +348,10 @@ test.describe('shared model chat', () => {
       page.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeHidden()
     await expect(jevSettingsButton).toBeFocused()
+    await jevSettingsButton.click()
+    await expect(jevSettingsButton).toHaveAttribute('aria-expanded', 'true')
+    await jevSettingsButton.click()
+    await expect(jevSettingsButton).toHaveAttribute('aria-expanded', 'false')
     await prompt.press('Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: help with this ordinary folder',

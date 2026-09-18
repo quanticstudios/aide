@@ -1961,7 +1961,8 @@ export default function ManagedAgentPane({
               aria-label="Jev settings"
               className="size-8 rounded-md"
               isIconOnly
-              onPress={() => setIsJevSetupOpen(true)}
+              aria-expanded={isJevSetupOpen}
+              onPress={() => setIsJevSetupOpen((open) => !open)}
               ref={jevSettingsButtonRef}
               size="sm"
               variant="ghost"

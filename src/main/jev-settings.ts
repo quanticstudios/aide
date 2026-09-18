@@ -25,6 +25,7 @@ const settingsSchema = z
   .object({
     credential: z.string().max(16384).nullable(),
     roots: z.array(z.string().max(4096)).max(1000),
+    disabledRoots: z.array(z.string().max(4096)).max(1000).default([]),
   })
   .strict()
 const inputSchema = z
@@ -34,7 +35,7 @@ const inputSchema = z
   })
   .strict()
 
-/** Jev settings keep encrypted credentials and explicit workspace processing permissions in the main process. */
+/** Jev settings keep encrypted credentials and workspace processing preferences in the main process. */
 export class JevSettings {
   public constructor(
     private readonly filename: string,
@@ -52,7 +53,9 @@ export class JevSettings {
   public getStatus(workspaceRoot: string): JevSettingsStatus {
     const settings = this.read()
     return {
-      allowProcessing: settings.roots.includes(path.resolve(workspaceRoot)),
+      allowProcessing: !settings.disabledRoots.includes(
+        path.resolve(workspaceRoot),
+      ),
       canStoreCredential: this.canStoreCredential(),
       hasCredential: Boolean(this.readCredential(settings.credential)),
     }
@@ -65,6 +68,10 @@ export class JevSettings {
     const root = path.resolve(workspaceRoot)
     const roots = settings.roots.filter((entry) => entry !== root)
     if (parsed.data.allowProcessing) roots.push(root)
+    const disabledRoots = settings.disabledRoots.filter(
+      (entry) => entry !== root,
+    )
+    if (!parsed.data.allowProcessing) disabledRoots.push(root)
     let credential = settings.credential
     if (parsed.data.apiKey === '') credential = null
     else if (parsed.data.apiKey !== undefined) {
@@ -82,7 +89,7 @@ export class JevSettings {
       }
     }
     const serialized = JSON.stringify(
-      settingsSchema.parse({ credential, roots }),
+      settingsSchema.parse({ credential, roots, disabledRoots }),
     )
     mkdirSync(path.dirname(this.filename), { recursive: true, mode: 0o700 })
     const temporaryPath = `${this.filename}.${randomUUID()}`
@@ -105,7 +112,7 @@ export class JevSettings {
 
   public requireApiKey(workspaceRoot: string): string {
     const settings = this.read()
-    if (!settings.roots.includes(path.resolve(workspaceRoot))) {
+    if (settings.disabledRoots.includes(path.resolve(workspaceRoot))) {
       throw new Error(
         'Allow TypeSafe processing for this workspace in Jev setup before sending a message.',
       )
@@ -144,7 +151,8 @@ export class JevSettings {
 
   private read(): z.infer<typeof settingsSchema> {
     try {
-      if (!existsSync(this.filename)) return { credential: null, roots: [] }
+      if (!existsSync(this.filename))
+        return { credential: null, roots: [], disabledRoots: [] }
       if (statSync(this.filename).size > 4_200_000)
         throw new Error('Oversized settings')
       return settingsSchema.parse(
