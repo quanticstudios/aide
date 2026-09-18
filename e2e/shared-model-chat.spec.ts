@@ -762,7 +762,7 @@ test.describe('shared model chat', () => {
     )
   })
 
-  test('keeps the orchestrator while configured plan opinions retain model attribution', async () => {
+  test('keeps the orchestrator while tagged opinions retain model attribution in Build and Plan', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
@@ -779,9 +779,18 @@ test.describe('shared model chat', () => {
       selection: configured.orchestratorSelection,
     }
 
-    await selectPlanMode(page)
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await prompt.fill('@Claude @Codex compare the implementation')
+    await prompt.fill('@cla')
+    await page.getByRole('option', { name: /@claude/i }).click()
+    await expect(
+      page.getByRole('button', { name: /Remove @claude/i }),
+    ).toBeVisible()
+    await prompt.fill('@cod')
+    await prompt.press('Enter')
+    await expect(
+      page.getByRole('button', { name: /Remove @codex/i }),
+    ).toBeVisible()
+    await prompt.fill('compare the implementation')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: compare the implementation',
@@ -800,6 +809,7 @@ test.describe('shared model chat', () => {
         orchestratorSelection: orchestrator.selection,
       })
 
+    await selectPlanMode(page)
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('managed-session-content')).toContainText(

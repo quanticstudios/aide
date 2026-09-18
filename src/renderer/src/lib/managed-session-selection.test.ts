@@ -50,6 +50,23 @@ describe('managed session selection', () => {
     })
   })
 
+  it('keeps models that do not support reasoning effort available', () => {
+    expect(
+      planManagedSessionSelectionChange(false, 'claude', {
+        effort: null,
+        explanation: null,
+        modelId: 'haiku',
+        serviceTier: null,
+      }),
+    ).toEqual({
+      kind: 'local',
+      selection: {
+        mode: 'claude',
+        model: 'haiku',
+      },
+    })
+  })
+
   it('does not allow selection mutation while a session has active work', () => {
     expect(canChangeManagedSessionSelection(null)).toBe(true)
     expect(

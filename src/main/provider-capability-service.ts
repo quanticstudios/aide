@@ -1,13 +1,13 @@
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import readline from 'node:readline'
-import { promisify } from 'node:util'
+import { query } from '@anthropic-ai/claude-agent-sdk'
 
 import type {
   ManagedSessionConfig,
   ManagedSessionProviderSelection,
 } from '../shared/managed-session'
 import {
-  buildClaudeProviderCapabilities,
+  normalizeClaudeModelList,
   normalizeCodexModelList,
   type ProviderCapabilitiesSnapshot,
   type ProviderSelectionInput,
@@ -16,14 +16,14 @@ import {
   unavailableProviderCapabilities,
 } from '../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../shared/terminal'
+import { sanitizeProviderEnvironment } from './managed-runtime-policy'
 
-const execFileAsync = promisify(execFile)
 const DISCOVERY_TIMEOUT_MS = 15_000
 const MAX_IPC_STRING_LENGTH = 4_096
 
 interface ProviderCapabilityServiceOptions {
+  readonly listClaudeModels?: () => Promise<unknown>
   readonly listCodexModels?: () => Promise<unknown>
-  readonly probeClaudeVersion?: () => Promise<string>
 }
 
 function buildCodexInitializeParams() {
@@ -45,11 +45,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readJsonRpcId(value: unknown): number | string | null {
   return typeof value === 'number' || typeof value === 'string' ? value : null
-}
-
-function readCliVersionOutput(value: string): string | null {
-  const match = value.match(/\d+\.\d+(?:\.\d+)?/)
-  return match?.[0] ?? null
 }
 
 function validateString(
@@ -158,19 +153,43 @@ function validateManagedSessionConfig(input: unknown): ManagedSessionConfig {
   }
 }
 
-async function probeClaudeVersionFromCli(): Promise<string> {
-  const command = process.env.AIDE_CLAUDE_COMMAND?.trim() || 'claude'
-  const { stdout } = await execFileAsync(command, ['--version'], {
-    timeout: DISCOVERY_TIMEOUT_MS,
-    windowsHide: true,
+async function* emptyClaudePrompt(): AsyncGenerator<never, void, unknown> {}
+
+async function listClaudeModelsFromSdk(): Promise<unknown> {
+  const abortController = new AbortController()
+  const cliPath = process.env.AIDE_CLAUDE_COMMAND?.trim() || undefined
+  const runtime = query({
+    options: {
+      abortController,
+      cwd: process.cwd(),
+      env: sanitizeProviderEnvironment(process.env),
+      mcpServers: {},
+      pathToClaudeCodeExecutable: cliPath,
+      permissionMode: 'dontAsk',
+      settingSources: [],
+      strictMcpConfig: true,
+      tools: [],
+    },
+    prompt: emptyClaudePrompt(),
   })
-  const version = readCliVersionOutput(stdout)
+  let didTimeOut = false
+  const timeout = setTimeout(() => {
+    didTimeOut = true
+    abortController.abort()
+    runtime.close()
+  }, DISCOVERY_TIMEOUT_MS)
 
-  if (!version) {
-    throw new Error('Claude Code did not return a semantic version.')
+  try {
+    return await runtime.supportedModels()
+  } catch (error) {
+    if (didTimeOut) {
+      throw new Error('Timed out while discovering Claude models.')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    runtime.close()
   }
-
-  return version
 }
 
 /**
@@ -341,23 +360,37 @@ function createFakeCodexModelList() {
   }
 }
 
+function createFakeClaudeModelList() {
+  return [
+    {
+      description: 'Fake Claude model for end-to-end tests.',
+      displayName: 'Claude Sonnet 5',
+      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+      supportsEffort: true,
+      value: 'claude-sonnet-5',
+    },
+  ]
+}
+
 export class ProviderCapabilityService {
+  private readonly listClaudeModels: () => Promise<unknown>
   private readonly listCodexModels: () => Promise<unknown>
-  private readonly probeClaudeVersion: () => Promise<string>
   private snapshotPromise: Promise<ProviderCapabilitiesSnapshot> | null = null
 
   public constructor(options: ProviderCapabilityServiceOptions = {}) {
     const useFakeProviders =
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
+    this.listClaudeModels =
+      options.listClaudeModels ??
+      (useFakeProviders
+        ? async () => createFakeClaudeModelList()
+        : listClaudeModelsFromSdk)
     this.listCodexModels =
       options.listCodexModels ??
       (useFakeProviders
         ? async () => createFakeCodexModelList()
         : listCodexModelsFromAppServer)
-    this.probeClaudeVersion =
-      options.probeClaudeVersion ??
-      (useFakeProviders ? async () => '2.1.0' : probeClaudeVersionFromCli)
   }
 
   public async getSnapshot(): Promise<ProviderCapabilitiesSnapshot> {
@@ -369,22 +402,26 @@ export class ProviderCapabilityService {
     input: unknown,
   ): Promise<ManagedSessionConfig> {
     const config = validateManagedSessionConfig(input)
-    const { serviceTier: _serviceTier, ...configWithoutServiceTier } = config
+    const {
+      effort: _effort,
+      serviceTier: _serviceTier,
+      ...resolvedConfig
+    } = config
     const resolution = await this.resolveSelection(config.mode, {
       effort: config.effort,
       modelId: config.model,
       serviceTier: config.serviceTier,
     })
 
-    if (!resolution.modelId || !resolution.effort) {
+    if (!resolution.modelId) {
       throw new Error(
         resolution.explanation ?? 'No compatible provider model is available.',
       )
     }
 
     return {
-      ...configWithoutServiceTier,
-      effort: resolution.effort,
+      ...resolvedConfig,
+      ...(resolution.effort ? { effort: resolution.effort } : {}),
       model: resolution.modelId,
       selectionNotice: resolution.explanation,
       ...(resolution.serviceTier
@@ -405,14 +442,14 @@ export class ProviderCapabilityService {
       serviceTier: selection.serviceTier,
     })
 
-    if (!resolution.modelId || !resolution.effort) {
+    if (!resolution.modelId) {
       throw new Error(
         resolution.explanation ?? 'No compatible provider model is available.',
       )
     }
 
     return {
-      effort: resolution.effort,
+      ...(resolution.effort ? { effort: resolution.effort } : {}),
       mode: selection.mode,
       model: resolution.modelId,
       selectionNotice: resolution.explanation,
@@ -424,13 +461,13 @@ export class ProviderCapabilityService {
 
   private async discover(): Promise<ProviderCapabilitiesSnapshot> {
     const [claudeResult, codexResult] = await Promise.allSettled([
-      this.probeClaudeVersion(),
+      this.listClaudeModels(),
       this.listCodexModels(),
     ])
 
     const claude =
       claudeResult.status === 'fulfilled'
-        ? buildClaudeProviderCapabilities(claudeResult.value)
+        ? normalizeClaudeModelList(claudeResult.value)
         : unavailableProviderCapabilities(
             'claude',
             `Unable to discover Claude capabilities: ${getErrorMessage(claudeResult.reason)}`,

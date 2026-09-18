@@ -2,7 +2,6 @@ import { Check, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type {
-  ManagedSessionContextWindow,
   ManagedSessionEffort,
   ManagedSessionThinkingBudget,
 } from '../../../shared/managed-session'
@@ -15,11 +14,9 @@ import type { ManagedSessionMode } from '../../../shared/terminal'
 
 interface ReasoningExtrasDropdownProps {
   readonly capabilities: ProviderCapabilitiesSnapshot | null
-  readonly contextWindow: ManagedSessionContextWindow
   readonly effort: ManagedSessionEffort | undefined
   readonly isDisabled?: boolean
   readonly model: string | undefined
-  readonly onContextWindowChange: (value: ManagedSessionContextWindow) => void
   readonly onEffortChange: (value: ManagedSessionEffort) => void
   readonly onServiceTierChange: (value: string | null) => void
   readonly onThinkingBudgetChange: (value: ManagedSessionThinkingBudget) => void
@@ -67,11 +64,9 @@ function getThinkingLabel(
 
 export default function ReasoningExtrasDropdown({
   capabilities,
-  contextWindow,
   effort,
   isDisabled,
   model,
-  onContextWindowChange,
   onEffortChange,
   onServiceTierChange,
   onThinkingBudgetChange,
@@ -89,16 +84,17 @@ export default function ReasoningExtrasDropdown({
     (candidate) => candidate.id === serviceTier,
   )
   const effortLabel =
-    provider === 'claude'
-      ? getThinkingLabel(effort, thinkingBudget)
-      : (effortOption?.label ?? effort)
+    modelCapability?.reasoningEfforts.length === 0
+      ? 'Provider default'
+      : provider === 'claude'
+        ? getThinkingLabel(effort, thinkingBudget)
+        : (effortOption?.label ?? effort)
   const extraLabel =
-    serviceTierOption?.label ??
-    (provider === 'claude'
-      ? contextWindow === '1m'
-        ? '1M'
-        : '200k'
-      : 'Default')
+    serviceTierOption?.label ?? (provider === 'claude' ? null : 'Default')
+  const hasReasoningOptions = modelCapability
+    ? modelCapability.reasoningEfforts.length > 0 ||
+      modelCapability.serviceTiers.length > 0
+    : false
 
   useEffect(() => {
     if (!isOpen) {
@@ -133,11 +129,11 @@ export default function ReasoningExtrasDropdown({
     <div ref={containerRef} className="relative">
       <button
         className="composer-pill flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold disabled:pointer-events-none disabled:opacity-30"
-        disabled={isDisabled || !modelCapability}
+        disabled={isDisabled || !modelCapability || !hasReasoningOptions}
         onClick={() => setIsOpen(!isOpen)}
         type="button"
       >
-        {effortLabel} · {extraLabel}
+        {extraLabel ? `${effortLabel} · ${extraLabel}` : effortLabel}
         <ChevronDown className="size-3 opacity-50" />
       </button>
 
@@ -212,7 +208,8 @@ export default function ReasoningExtrasDropdown({
             </>
           ) : null}
 
-          {provider === 'claude' ? (
+          {provider === 'claude' &&
+          modelCapability.reasoningEfforts.length > 0 ? (
             <>
               <div className="my-2 border-t border-border" />
               <p className="eyebrow px-4 pb-1.5">Thinking Budget</p>
@@ -234,39 +231,6 @@ export default function ReasoningExtrasDropdown({
                     key={option.id}
                     onClick={() => {
                       onThinkingBudgetChange(option.id)
-                      setIsOpen(false)
-                    }}
-                    type="button"
-                  >
-                    {isSelected ? (
-                      <Check className="size-3.5" />
-                    ) : (
-                      <span className="size-3.5" />
-                    )}
-                    {option.label}
-                  </button>
-                )
-              })}
-
-              <div className="my-2 border-t border-border" />
-              <p className="eyebrow px-4 pb-1.5">Context Window</p>
-              {(
-                [
-                  { id: '200k', label: '200k (default)' },
-                  { id: '1m', label: '1M' },
-                ] as const
-              ).map((option) => {
-                const isSelected = option.id === contextWindow
-
-                return (
-                  <button
-                    className={cn(
-                      'flex w-full items-center gap-2 px-4 py-1.5 text-sm transition-colors hover:bg-[var(--surface-2)]',
-                      isSelected ? 'text-foreground' : 'text-foreground/80',
-                    )}
-                    key={option.id}
-                    onClick={() => {
-                      onContextWindowChange(option.id)
                       setIsOpen(false)
                     }}
                     type="button"

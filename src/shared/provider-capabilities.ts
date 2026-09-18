@@ -19,7 +19,7 @@ export interface ProviderServiceTier {
 
 export interface ProviderModelCapability {
   readonly aliases: readonly ProviderModelAlias[]
-  readonly defaultReasoningEffort: string
+  readonly defaultReasoningEffort: string | null
   readonly defaultServiceTier: string | null
   readonly description: string
   readonly id: string
@@ -54,66 +54,6 @@ export interface ProviderSelectionResolution {
   readonly serviceTier: string | null
 }
 
-interface ClaudeModelDefinition {
-  readonly aliases?: readonly ProviderModelAlias[]
-  readonly id: string
-  readonly label: string
-  readonly maxVersionExclusive?: string
-  readonly minVersion: string
-}
-
-const CLAUDE_REASONING_EFFORTS: readonly ProviderReasoningEffort[] = [
-  { description: 'Fastest response', id: 'low', label: 'Low' },
-  { description: 'Balanced response', id: 'medium', label: 'Medium' },
-  { description: 'More thorough response', id: 'high', label: 'High' },
-  { description: 'Most thorough response', id: 'max', label: 'Max' },
-]
-
-const CLAUDE_MODELS: readonly ClaudeModelDefinition[] = [
-  {
-    aliases: [
-      {
-        explanation: 'Claude Sonnet 4.6 was renamed to Claude Sonnet 5.',
-        id: 'claude-sonnet-4-6',
-      },
-      {
-        explanation: 'Claude Sonnet latest now uses Claude Sonnet 5.',
-        id: 'claude-sonnet-latest',
-      },
-    ],
-    id: 'claude-sonnet-5',
-    label: 'Claude Sonnet 5',
-    minVersion: '2.1.0',
-  },
-  {
-    id: 'claude-fable-5',
-    label: 'Claude Fable 5',
-    minVersion: '2.1.0',
-  },
-  {
-    id: 'claude-opus-4-8',
-    label: 'Claude Opus 4.8',
-    minVersion: '2.1.0',
-  },
-  {
-    aliases: [
-      {
-        explanation: 'Claude Opus 4.6 was replaced by Claude Opus 4.7.',
-        id: 'claude-opus-4-6',
-      },
-    ],
-    id: 'claude-opus-4-7',
-    label: 'Claude Opus 4.7',
-    minVersion: '2.0.0',
-  },
-  {
-    id: 'claude-sonnet-4-6',
-    label: 'Claude Sonnet 4.6',
-    maxVersionExclusive: '2.1.0',
-    minVersion: '0.0.0',
-  },
-]
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
 }
@@ -145,42 +85,6 @@ function humanizeIdentifier(value: string): string {
     .join(' ')
 }
 
-function parseVersion(
-  version: string,
-): readonly [number, number, number] | null {
-  const match = version.match(/(\d+)\.(\d+)(?:\.(\d+))?/)
-
-  if (!match) {
-    return null
-  }
-
-  return [
-    Number.parseInt(match[1] ?? '', 10),
-    Number.parseInt(match[2] ?? '', 10),
-    Number.parseInt(match[3] ?? '0', 10),
-  ]
-}
-
-function isVersionAtLeast(version: string, minimum: string): boolean {
-  const parsedVersion = parseVersion(version)
-  const parsedMinimum = parseVersion(minimum)
-
-  if (!parsedVersion || !parsedMinimum) {
-    return false
-  }
-
-  for (let index = 0; index < parsedVersion.length; index += 1) {
-    const current = parsedVersion[index] ?? 0
-    const required = parsedMinimum[index] ?? 0
-
-    if (current !== required) {
-      return current > required
-    }
-  }
-
-  return true
-}
-
 function createUnavailableCapabilities(
   provider: ManagedSessionMode,
   error: string,
@@ -194,47 +98,120 @@ function createUnavailableCapabilities(
   }
 }
 
-export function buildClaudeProviderCapabilities(
-  version: string,
-): ProviderCapabilities {
-  const models = CLAUDE_MODELS.filter(
-    (model) =>
-      isVersionAtLeast(version, model.minVersion) &&
-      (!model.maxVersionExclusive ||
-        !isVersionAtLeast(version, model.maxVersionExclusive)),
-  )
-    .sort((left, right) => {
-      if (left.id === 'claude-sonnet-4-6') {
-        return -1
-      }
-      if (right.id === 'claude-sonnet-4-6') {
-        return 1
-      }
-      return 0
-    })
-    .map(
-      (model, index): ProviderModelCapability => ({
-        aliases: model.aliases ?? [],
-        defaultReasoningEffort: 'max',
-        defaultServiceTier: null,
-        description: '',
-        id: model.id,
-        isDefault: index === 0,
-        label: model.label,
-        reasoningEfforts: CLAUDE_REASONING_EFFORTS,
-        serviceTiers: [],
-      }),
+function describeClaudeEffort(id: string): string {
+  switch (id) {
+    case 'low':
+      return 'Minimal thinking, fastest response'
+    case 'medium':
+      return 'Moderate thinking'
+    case 'high':
+      return 'Deep reasoning'
+    case 'xhigh':
+      return 'Deeper reasoning'
+    case 'max':
+      return 'Maximum effort'
+    default:
+      return humanizeIdentifier(id)
+  }
+}
+
+export function normalizeClaudeModelList(value: unknown): ProviderCapabilities {
+  if (!Array.isArray(value)) {
+    return createUnavailableCapabilities(
+      'claude',
+      'Claude returned an invalid model capability response.',
     )
+  }
+
+  const advertisedModels = value.flatMap((entry) => {
+    if (!isRecord(entry)) {
+      return []
+    }
+
+    const id = readNonEmptyString(entry, 'value')
+    const label = readNonEmptyString(entry, 'displayName')
+    const description = readString(entry, 'description')
+
+    if (!id || !label || description === null) {
+      return []
+    }
+
+    const reasoningEfforts =
+      entry.supportsEffort === true &&
+      Array.isArray(entry.supportedEffortLevels)
+        ? entry.supportedEffortLevels.flatMap((effort) =>
+            typeof effort === 'string' && effort.trim().length > 0
+              ? [
+                  {
+                    description: describeClaudeEffort(effort),
+                    id: effort,
+                    label: humanizeIdentifier(effort),
+                  },
+                ]
+              : [],
+          )
+        : []
+
+    return [
+      {
+        description,
+        id,
+        label,
+        reasoningEfforts,
+        resolvedModel: readNonEmptyString(entry, 'resolvedModel'),
+      },
+    ]
+  })
+  const directModelIds = new Set(advertisedModels.map((model) => model.id))
+  const claimedAliases = new Set(directModelIds)
+  const advertisedDefaultIndex = advertisedModels.findIndex(
+    (model) => model.id === 'default',
+  )
+  const defaultIndex = advertisedDefaultIndex < 0 ? 0 : advertisedDefaultIndex
+  const models = advertisedModels.map(
+    (model, index): ProviderModelCapability => {
+      const alias =
+        model.resolvedModel && !claimedAliases.has(model.resolvedModel)
+          ? model.resolvedModel
+          : null
+
+      if (alias) {
+        claimedAliases.add(alias)
+      }
+
+      return {
+        aliases: alias
+          ? [
+              {
+                explanation: `The saved model “${alias}” is available as ${model.label}.`,
+                id: alias,
+              },
+            ]
+          : [],
+        defaultReasoningEffort:
+          model.reasoningEfforts.find((effort) => effort.id === 'high')?.id ??
+          model.reasoningEfforts[0]?.id ??
+          null,
+        defaultServiceTier: null,
+        description: model.description,
+        id: model.id,
+        isDefault: index === defaultIndex,
+        label: model.label,
+        reasoningEfforts: model.reasoningEfforts,
+        serviceTiers: [],
+      }
+    },
+  )
 
   return {
-    defaultModelId: models.find((model) => model.isDefault)?.id ?? null,
+    defaultModelId: models[defaultIndex]?.id ?? null,
     error:
       models.length === 0
-        ? `Claude Code ${version} is too old to provide a supported model.`
+        ? 'Claude did not advertise any selectable models.'
         : null,
     models,
     provider: 'claude',
-    version,
+    version: null,
   }
 }
 
@@ -445,7 +422,9 @@ export function resolveProviderSelection(
       : selected.defaultReasoningEffort
 
   if (requestedEffort && requestedEffort !== effort && !explanation) {
-    explanation = `The saved reasoning level “${requestedEffort}” is not supported by ${selected.label}. Using ${humanizeIdentifier(effort)} instead.`
+    explanation = effort
+      ? `The saved reasoning level “${requestedEffort}” is not supported by ${selected.label}. Using ${humanizeIdentifier(effort)} instead.`
+      : `${selected.label} does not support reasoning levels. Using the provider default instead.`
   }
 
   const requestedServiceTier = selection.serviceTier?.trim() || null

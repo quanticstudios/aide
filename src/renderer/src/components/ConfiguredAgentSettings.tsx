@@ -1,5 +1,5 @@
 import { Settings2, X } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
@@ -23,6 +23,7 @@ export default function ConfiguredAgentSettings({
   onChange,
 }: ConfiguredAgentSettingsProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const enabledLabel = useMemo(
     () => agents.map((agent) => `@${agent.alias}`).join(', '),
     [agents],
@@ -43,7 +44,7 @@ export default function ConfiguredAgentSettings({
       const effort = resolution.effort
       const modelId = resolution.modelId
 
-      if (!effort || !modelId) {
+      if (!modelId) {
         return
       }
 
@@ -53,7 +54,7 @@ export default function ConfiguredAgentSettings({
             ? {
                 alias: agent.alias,
                 selection: {
-                  effort,
+                  ...(effort ? { effort } : {}),
                   mode: provider,
                   model: modelId,
                   ...(resolution.serviceTier
@@ -68,9 +69,29 @@ export default function ConfiguredAgentSettings({
     [agents, capabilities, onChange],
   )
 
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      event.preventDefault()
+      setIsOpen(false)
+      triggerRef.current?.focus()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen])
+
   return (
     <div className="relative">
       <button
+        ref={triggerRef}
         aria-expanded={isOpen}
         className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
         disabled={isDisabled || !capabilities}
