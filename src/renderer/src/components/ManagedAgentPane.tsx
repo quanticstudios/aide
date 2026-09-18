@@ -685,9 +685,14 @@ export default function ManagedAgentPane({
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [draftInput, setDraftInput] = useState('')
+  const draftInputRef = useRef('')
   const [attachments, setAttachments] = useState<
     readonly ManagedSessionAttachment[]
   >([])
+
+  useEffect(() => {
+    draftInputRef.current = draftInput
+  }, [draftInput])
   const [configuredAgents, setConfiguredAgents] = useState<
     readonly ManagedSessionAgentConfig[]
   >([])
@@ -1161,6 +1166,7 @@ export default function ManagedAgentPane({
     const submittedRecipientAliases = selectedRecipientAliases
     const submittedAttachments = attachments
     const submittedSkill = selectedSkill
+    let clearedSubmission = false
     const parsed = extractExplicitRecipientAliases(
       submittedDraft,
       configuredAgents.map((agent) => agent.alias),
@@ -1189,14 +1195,9 @@ export default function ManagedAgentPane({
       return
     }
 
-    if (
-      await sendPromptText(
-        parsed.text,
-        recipients,
-        submittedAttachments,
-        submittedSkill ?? undefined,
-      )
-    ) {
+    if (draftInputRef.current === submittedDraft) {
+      clearedSubmission = true
+      draftInputRef.current = ''
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
       )
@@ -1209,6 +1210,29 @@ export default function ManagedAgentPane({
       setSelectedSkill((currentSkill) =>
         currentSkill === submittedSkill ? null : currentSkill,
       )
+    }
+
+    const sent = await sendPromptText(
+      parsed.text,
+      recipients,
+      submittedAttachments,
+      submittedSkill ?? undefined,
+    )
+
+    if (!sent && clearedSubmission && draftInputRef.current === '') {
+      draftInputRef.current = submittedDraft
+      setDraftInput(submittedDraft)
+      setSelectedRecipientAliases((currentAliases) =>
+        currentAliases.length === 0
+          ? submittedRecipientAliases
+          : currentAliases,
+      )
+      setAttachments((currentAttachments) =>
+        currentAttachments.length === 0
+          ? submittedAttachments
+          : currentAttachments,
+      )
+      setSelectedSkill((currentSkill) => currentSkill ?? submittedSkill)
     }
   }, [
     attachments,

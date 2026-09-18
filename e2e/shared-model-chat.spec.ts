@@ -565,6 +565,98 @@ test.describe('shared model chat', () => {
     await expect(trigger).toBeFocused()
   })
 
+  test('clears accepted drafts and restores only an untouched failed submission', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+
+    await app.evaluate(({ ipcMain }) => {
+      const rejectors: Array<(reason: Error) => void> = []
+      ipcMain.removeHandler('managed-session:send-input')
+      ipcMain.handle(
+        'managed-session:send-input',
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectors.push(reject)
+          }),
+      )
+      Reflect.set(
+        globalThis,
+        'pendingManagedInputCount',
+        () => rejectors.length,
+      )
+      Reflect.set(globalThis, 'rejectManagedInput', () => {
+        const reject = rejectors.shift()
+        if (!reject) throw new Error('No managed input is waiting.')
+        reject(new Error('Synthetic rejected input.'))
+      })
+    })
+
+    await prompt.fill('@cod')
+    await page.getByRole('option', { name: /@codex/i }).click()
+    await prompt.fill('first submitted draft')
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('')
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeHidden()
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          Reflect.get(globalThis, 'pendingManagedInputCount')(),
+        ),
+      )
+      .toBe(1)
+
+    await prompt.fill('new draft survives the failed send')
+    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
+    await expect(prompt).toHaveValue('new draft survives the failed send')
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeHidden()
+
+    await app.evaluate(
+      ({ dialog }, filePath) => {
+        Object.defineProperty(dialog, 'showOpenDialog', {
+          value: async () => ({ canceled: false, filePaths: [filePath] }),
+        })
+      },
+      path.join(repository, 'README.md'),
+    )
+    await prompt.fill('@cod')
+    await page.getByRole('option', { name: /@codex/i }).click()
+    await prompt.fill('@')
+    await page.getByRole('option', { name: /^Files/ }).click()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await prompt.fill('restore this failed submission')
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
+    await expect(page.getByTestId('composer-attachments')).toHaveCount(0)
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          Reflect.get(globalThis, 'pendingManagedInputCount')(),
+        ),
+      )
+      .toBe(1)
+
+    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
+    await expect(prompt).toHaveValue('restore this failed submission')
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeVisible()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+  })
+
   test('ranks skill names first and removes stale suggestions while typing', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
