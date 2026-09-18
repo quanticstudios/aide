@@ -1,5 +1,6 @@
 import {
   Button,
+  Dropdown,
   Input,
   Kbd,
   Popover,
@@ -52,8 +53,9 @@ interface SidebarTreeProps {
   readonly activeProjectId: string | null
   readonly activeWorkspaceId: string | null
   readonly isExpanded: boolean
+  readonly onCreateChat: (projectId: string) => void
   readonly onCreateProject: () => void
-  readonly onCreateWorkspace: () => void
+  readonly onCreateWorkspace: (projectId?: string) => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenSettings: (trigger: HTMLElement) => void
   readonly onSelectPane: (paneId: string) => void
@@ -406,6 +408,7 @@ export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
   isExpanded,
+  onCreateChat,
   onCreateProject,
   onCreateWorkspace,
   onConfigureProjectSetup,
@@ -647,20 +650,41 @@ export default function SidebarTree({
 
                 {isProjectExpanded ? (
                   <div className="mx-3 pb-1">
-                    {project.kind === 'git' ? (
-                      <button
-                        aria-label={`New workspace in ${project.name}`}
+                    <Dropdown>
+                      <Dropdown.Trigger
+                        aria-label={`Add to ${project.name}`}
                         className="row-hover flex w-full items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
-                        onClick={() => {
-                          onSelectProject(project.id)
-                          onCreateWorkspace()
-                        }}
-                        type="button"
                       >
                         <Plus className="size-3.5" />
-                        <span>New workspace</span>
-                      </button>
-                    ) : null}
+                        <span>Add</span>
+                      </Dropdown.Trigger>
+                      <Dropdown.Popover
+                        className="min-w-44 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+                        placement="bottom start"
+                      >
+                        <Dropdown.Menu aria-label={`Add to ${project.name}`}>
+                          <Dropdown.Item
+                            id="new-chat"
+                            onAction={() => onCreateChat(project.id)}
+                            textValue="New chat"
+                          >
+                            New chat
+                          </Dropdown.Item>
+                          {project.kind === 'git' ? (
+                            <Dropdown.Item
+                              id="new-workspace"
+                              onAction={() => {
+                                onSelectProject(project.id)
+                                onCreateWorkspace(project.id)
+                              }}
+                              textValue="New workspace"
+                            >
+                              New workspace
+                            </Dropdown.Item>
+                          ) : null}
+                        </Dropdown.Menu>
+                      </Dropdown.Popover>
+                    </Dropdown>
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId

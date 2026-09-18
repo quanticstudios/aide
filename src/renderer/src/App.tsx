@@ -542,16 +542,19 @@ function WorkspaceApp() {
     setSelection,
   ])
 
-  const createWorkspace = useCallback(() => {
-    const project = navigationSnapshot.projects.find(
-      (candidate) => candidate.id === activeProjectId,
-    )
-    if (!project || project.kind === 'folder') {
-      return
-    }
+  const createWorkspace = useCallback(
+    (requestedProjectId?: string) => {
+      const project = navigationSnapshot.projects.find(
+        (candidate) => candidate.id === (requestedProjectId ?? activeProjectId),
+      )
+      if (!project || project.kind === 'folder') {
+        return
+      }
 
-    setIsWorkspaceCreationOpen(true)
-  }, [activeProjectId, navigationSnapshot.projects])
+      setIsWorkspaceCreationOpen(true)
+    },
+    [activeProjectId, navigationSnapshot.projects],
+  )
 
   const renameWorkspace = useCallback(
     async (workspaceId: string, name: string): Promise<string | null> => {
@@ -1380,8 +1383,11 @@ function WorkspaceApp() {
   )
 
   const handleCreatePane = useCallback(
-    async (templatePaneId: string) => {
-      const workspaceId = resolvedNavigationState.activeWorkspaceId
+    async (templatePaneId: string, requestedWorkspaceId?: string) => {
+      const workspaceId =
+        requestedWorkspaceId ??
+        resolvedNavigationStateRef.current?.activeWorkspaceId ??
+        resolvedNavigationState.activeWorkspaceId
 
       if (!workspaceId) {
         return
@@ -1442,6 +1448,28 @@ function WorkspaceApp() {
       resolvedNavigationState.activeWorkspaceId,
       workspaceMutationQueue,
     ],
+  )
+
+  const handleCreateChat = useCallback(
+    (projectId: string) => {
+      const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
+      const currentSelection =
+        resolvedNavigationStateRef.current ?? resolvedNavigationState
+      const workspaceId =
+        (currentSelection.activeProjectId === projectId
+          ? currentSelection.activeWorkspaceId
+          : null) ??
+        currentSelection.rememberedWorkspaceIdsByProject[projectId] ??
+        currentSnapshot.workspaces.find(
+          (workspace) => workspace.projectId === projectId,
+        )?.id ??
+        null
+
+      if (workspaceId) {
+        void handleCreatePane('agent', workspaceId)
+      }
+    },
+    [handleCreatePane, navigationSnapshot, resolvedNavigationState],
   )
 
   const handleSplitPane = useCallback(
@@ -2495,6 +2523,7 @@ function WorkspaceApp() {
       }}
       onCreateProject={openProject}
       onCreatePane={createPane}
+      onCreateChat={handleCreateChat}
       onCreateWorkspace={createWorkspace}
       onRenameWorkspace={renameWorkspace}
       onConfigureProjectSetup={setProjectSetupProjectId}
