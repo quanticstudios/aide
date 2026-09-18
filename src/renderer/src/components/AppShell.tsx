@@ -1,4 +1,8 @@
-import type { FocusEvent, ReactNode } from 'react'
+import type {
+  FocusEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { UpdatePresentation } from '@/lib/update-presentation'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
@@ -16,6 +20,13 @@ import TopBar from './TopBar'
 
 const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
 const SIDEBAR_COLLAPSE_DELAY_MS = 140
+
+function isCollapsedSidebarAction(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('[data-sidebar-action]') !== null
+  )
+}
 
 interface AppShellProps {
   readonly activePaneId: string | null
@@ -187,6 +198,12 @@ export default function AppShell({
         return
       }
 
+      if (isCollapsedSidebarAction(event.target)) {
+        clearPendingCollapse()
+        setIsSidebarHovered(false)
+        return
+      }
+
       const bounds = sidebarShell.getBoundingClientRect()
       const isInsideBounds =
         event.clientX >= bounds.left &&
@@ -227,8 +244,14 @@ export default function AppShell({
     sidebarContainsActiveElement,
   ])
 
-  function handleSidebarFocus(): void {
+  function handleSidebarFocus(event: FocusEvent<HTMLDivElement>): void {
     clearPendingCollapse()
+
+    if (isCollapsedSidebarAction(event.target)) {
+      setIsSidebarFocusWithin(false)
+      return
+    }
+
     setIsSidebarFocusWithin(true)
   }
 
@@ -249,8 +272,16 @@ export default function AppShell({
     }
   }
 
-  function handleSidebarMouseEnter(): void {
+  function handleSidebarMouseEnter(
+    event: ReactMouseEvent<HTMLDivElement>,
+  ): void {
     clearPendingCollapse()
+
+    if (isCollapsedSidebarAction(event.target)) {
+      setIsSidebarHovered(false)
+      return
+    }
+
     setIsSidebarHovered(true)
   }
 
