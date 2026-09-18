@@ -246,13 +246,15 @@ function formatMessageTime(iso: string): string {
   })
 }
 
-const PERMISSION_OPTIONS: ReadonlyArray<{
+type PermissionOption = {
   description: string
   icon: typeof Lock
   label: string
   tone: string
   value: ManagedSessionPermissionMode
-}> = [
+}
+
+const PERMISSION_OPTIONS: readonly [PermissionOption, ...PermissionOption[]] = [
   {
     description: 'Ask before commands and file changes.',
     icon: Lock,
@@ -278,7 +280,7 @@ const PERMISSION_OPTIONS: ReadonlyArray<{
 
 function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
   return (
-    PERMISSION_OPTIONS.find((o) => o.value === mode) ?? PERMISSION_OPTIONS[0]!
+    PERMISSION_OPTIONS.find((o) => o.value === mode) ?? PERMISSION_OPTIONS[0]
   )
 }
 
@@ -691,6 +693,20 @@ export default function ManagedAgentPane({
     readonly string[]
   >([])
   const [selectedSkill, setSelectedSkill] = useState<ProviderSkill | null>(null)
+  const composerMetadataRef = useRef({
+    attachments: [] as readonly ManagedSessionAttachment[],
+    recipients: [] as readonly string[],
+    skill: null as ProviderSkill | null,
+  })
+
+  useEffect(() => {
+    composerMetadataRef.current = {
+      attachments,
+      recipients: selectedRecipientAliases,
+      skill: selectedSkill,
+    }
+  }, [attachments, selectedRecipientAliases, selectedSkill])
+
   const [providerSkills, setProviderSkills] =
     useState<ProviderSkillsSnapshot | null>(null)
   const [isProviderSkillsLoading, setIsProviderSkillsLoading] = useState(false)
@@ -1189,6 +1205,11 @@ export default function ManagedAgentPane({
     if (draftInputRef.current === submittedDraft) {
       clearedSubmission = true
       draftInputRef.current = ''
+      composerMetadataRef.current = {
+        attachments: [],
+        recipients: [],
+        skill: null,
+      }
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
       )
@@ -1210,20 +1231,25 @@ export default function ManagedAgentPane({
       submittedSkill ?? undefined,
     )
 
-    if (!sent && clearedSubmission && draftInputRef.current === '') {
+    const currentMetadata = composerMetadataRef.current
+    if (
+      !sent &&
+      clearedSubmission &&
+      draftInputRef.current === '' &&
+      currentMetadata.attachments.length === 0 &&
+      currentMetadata.recipients.length === 0 &&
+      currentMetadata.skill === null
+    ) {
       draftInputRef.current = submittedDraft
+      composerMetadataRef.current = {
+        attachments: submittedAttachments,
+        recipients: submittedRecipientAliases,
+        skill: submittedSkill,
+      }
       setDraftInput(submittedDraft)
-      setSelectedRecipientAliases((currentAliases) =>
-        currentAliases.length === 0
-          ? submittedRecipientAliases
-          : currentAliases,
-      )
-      setAttachments((currentAttachments) =>
-        currentAttachments.length === 0
-          ? submittedAttachments
-          : currentAttachments,
-      )
-      setSelectedSkill((currentSkill) => currentSkill ?? submittedSkill)
+      setSelectedRecipientAliases(submittedRecipientAliases)
+      setAttachments(submittedAttachments)
+      setSelectedSkill(submittedSkill)
     }
   }, [
     attachments,
@@ -2612,7 +2638,7 @@ export default function ManagedAgentPane({
             placeholder={
               activeQuestion
                 ? 'Type your own answer, or leave this blank to use the selected option'
-                : 'Ask anything · @ for opinions · / for skills'
+                : 'Ask anything · @ for context · / for skills'
             }
             rows={3}
             value={activeQuestion ? primaryAnswer : draftInput}

@@ -933,6 +933,41 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('composer-attachments')).toContainText(
       'README.md',
     )
+
+    await prompt.press('Enter')
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
+    await expect(page.getByTestId('composer-attachments')).toHaveCount(0)
+    await expect
+      .poll(() =>
+        app.evaluate(() =>
+          Reflect.get(globalThis, 'pendingManagedInputCount')(),
+        ),
+      )
+      .toBe(1)
+
+    await prompt.fill('@cla')
+    await page.getByRole('option', { name: /@claude/i }).click()
+    await prompt.fill('@README')
+    await page.getByRole('option', { name: /README\.md/ }).click()
+    await expect(
+      page.getByRole('button', { name: 'Remove @claude' }),
+    ).toBeVisible()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+
+    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
+    await expect(prompt).toHaveValue('')
+    await expect(
+      page.getByRole('button', { name: 'Remove @claude' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Remove @codex' }),
+    ).toBeHidden()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
   })
 
   test('ranks skill names first and removes stale suggestions while typing', async () => {
