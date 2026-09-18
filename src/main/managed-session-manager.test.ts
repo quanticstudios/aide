@@ -1043,6 +1043,120 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshot.sessionState).toBe('ready')
   })
 
+  it('coalesces contiguous assistant deltas without crossing tool boundaries', async () => {
+    const manager = new ManagedSessionManager({
+      createBackend: (_config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'claude',
+            turnId: 'turn-1',
+            type: 'turn.started',
+          })
+          for (const [itemId, text] of [
+            ['delta-1', "I'm Claude, "],
+            ['delta-2', 'made by Anthropic.'],
+          ] as const) {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              itemId,
+              kind: 'assistant-text',
+              provider: 'claude',
+              text,
+              type: 'content.delta',
+            })
+          }
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            itemId: 'tool-1',
+            kind: 'command-output',
+            provider: 'claude',
+            text: 'tool output',
+            type: 'content.delta',
+          })
+          for (const [itemId, text] of [
+            ['delta-3', 'After '],
+            ['delta-4', 'the tool.'],
+          ] as const) {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              itemId,
+              kind: 'assistant-text',
+              provider: 'claude',
+              text,
+              type: 'content.delta',
+            })
+          }
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'claude',
+            state: 'completed',
+            turnId: 'turn-1',
+            type: 'turn.completed',
+          })
+          emit({
+            createdAt: '2026-04-11T10:00:01.000Z',
+            provider: 'claude',
+            turnId: 'turn-2',
+            type: 'turn.started',
+          })
+          emit({
+            createdAt: '2026-04-11T10:00:01.000Z',
+            itemId: 'next-turn',
+            kind: 'assistant-text',
+            provider: 'claude',
+            text: 'Separate turn.',
+            type: 'content.delta',
+          })
+          emit({
+            createdAt: '2026-04-11T10:00:01.000Z',
+            provider: 'claude',
+            state: 'completed',
+            turnId: 'turn-2',
+            type: 'turn.completed',
+          })
+        },
+        start: async () =>
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'claude',
+            state: 'ready',
+            type: 'session.state.changed',
+          }),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'identify yourself')
+
+    expect(manager.getSnapshots()[config.sessionId].content).toEqual([
+      expect.objectContaining({ kind: 'user-prompt' }),
+      expect.objectContaining({
+        id: 'delta-1',
+        kind: 'assistant-text',
+        text: "I'm Claude, made by Anthropic.",
+      }),
+      expect.objectContaining({ kind: 'command-output', text: 'tool output' }),
+      expect.objectContaining({
+        id: 'delta-3',
+        kind: 'assistant-text',
+        text: 'After the tool.',
+      }),
+      expect.objectContaining({
+        id: 'next-turn',
+        kind: 'assistant-text',
+        text: 'Separate turn.',
+      }),
+    ])
+  })
+
   it('tracks turn summaries through the snapshot', async () => {
     const manager = new ManagedSessionManager({
       getNow: () => '2026-04-11T10:00:00.000Z',
