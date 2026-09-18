@@ -324,11 +324,11 @@ function WorkspaceApp() {
   const activeSurfaceId = useWorkspaceSelectionStore(
     (state) => state.activeSurfaceId,
   )
-  const activePaneIdsBySurface = useWorkspaceSelectionStore(
-    (state) => state.activePaneIdsBySurface,
+  const rememberedPaneIdsBySurface = useWorkspaceSelectionStore(
+    (state) => state.rememberedPaneIdsBySurface,
   )
-  const activeSurfaceIdsByWorkspace = useWorkspaceSelectionStore(
-    (state) => state.activeSurfaceIdsByWorkspace,
+  const rememberedSurfaceIdsByWorkspace = useWorkspaceSelectionStore(
+    (state) => state.rememberedSurfaceIdsByWorkspace,
   )
   const rememberedWorkspaceIdsByProject = useWorkspaceSelectionStore(
     (state) => state.rememberedWorkspaceIdsByProject,
@@ -420,16 +420,16 @@ function WorkspaceApp() {
       activeSurfaceId,
       activeProjectId,
       activeWorkspaceId,
-      rememberedPaneIdsBySurface: activePaneIdsBySurface,
-      rememberedSurfaceIdsByWorkspace: activeSurfaceIdsByWorkspace,
+      rememberedPaneIdsBySurface,
+      rememberedSurfaceIdsByWorkspace,
       rememberedWorkspaceIdsByProject,
     }),
     [
       activePaneId,
-      activePaneIdsBySurface,
+      rememberedPaneIdsBySurface,
       activeProjectId,
       activeSurfaceId,
-      activeSurfaceIdsByWorkspace,
+      rememberedSurfaceIdsByWorkspace,
       activeWorkspaceId,
       rememberedWorkspaceIdsByProject,
     ],
@@ -887,11 +887,11 @@ function WorkspaceApp() {
       activeProjectId === resolvedNavigationState.activeProjectId &&
       activeWorkspaceId === resolvedNavigationState.activeWorkspaceId &&
       recordsEqual(
-        activePaneIdsBySurface,
+        rememberedPaneIdsBySurface,
         resolvedNavigationState.rememberedPaneIdsBySurface,
       ) &&
       recordsEqual(
-        activeSurfaceIdsByWorkspace,
+        rememberedSurfaceIdsByWorkspace,
         resolvedNavigationState.rememberedSurfaceIdsByWorkspace,
       ) &&
       recordsEqual(
@@ -912,9 +912,9 @@ function WorkspaceApp() {
   }, [
     activePaneId,
     activeSurfaceId,
-    activePaneIdsBySurface,
+    rememberedPaneIdsBySurface,
     activeProjectId,
-    activeSurfaceIdsByWorkspace,
+    rememberedSurfaceIdsByWorkspace,
     activeWorkspaceId,
     rememberedWorkspaceIdsByProject,
     resolvedNavigationState,
