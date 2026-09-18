@@ -28,23 +28,25 @@ export function buildWorkspaceSummaryMap(
   )
 
   return Object.fromEntries(
-    workspaces.map((workspace) => [
-      workspace.id,
-      {
-        activities: resolveWorkspaceActivityList(
-          activitiesByWorkspace[workspace.id] ?? [],
-        ),
-        activity: resolveAggregateWorkspaceActivity(
-          activitiesByWorkspace[workspace.id] ?? [],
-        ),
-        branchName: workspace.branchName,
-        projectId: workspace.projectId,
-        projectName:
-          projectNameById.get(workspace.projectId) ?? 'Unknown project',
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-      },
-    ]),
+    workspaces.map((workspace) => {
+      const agentActivities = (
+        activitiesByWorkspace[workspace.id] ?? []
+      ).filter((activity) => activity.provider !== 'terminal')
+
+      return [
+        workspace.id,
+        {
+          activities: resolveWorkspaceActivityList(agentActivities),
+          activity: resolveAggregateWorkspaceActivity(agentActivities),
+          branchName: workspace.branchName,
+          projectId: workspace.projectId,
+          projectName:
+            projectNameById.get(workspace.projectId) ?? 'Unknown project',
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+        },
+      ]
+    }),
   )
 }
 
