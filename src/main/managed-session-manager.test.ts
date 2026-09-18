@@ -1026,6 +1026,30 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshot.turns[0]?.id).toBeTruthy()
   })
 
+  it('does not block a prompt when background naming throws', async () => {
+    const onUserPrompt = vi.fn(() => {
+      throw new Error('Naming is unavailable.')
+    })
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      onUserPrompt,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'build preview')
+
+    expect(onUserPrompt).toHaveBeenCalledWith({
+      text: 'build preview',
+      workspaceId: config.workspaceId,
+    })
+    expect(manager.getSnapshots()[config.sessionId]?.content[1]).toMatchObject({
+      kind: 'assistant-text',
+      text: 'Handled: build preview',
+    })
+  })
+
   it('delivers an attributed visible answer to a provider after a switch', async () => {
     const receivedByCodex: string[] = []
     const manager = new ManagedSessionManager({
