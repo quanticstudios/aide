@@ -5,6 +5,7 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  Folder,
   FolderKanban,
   GitBranch,
   Home,
@@ -77,10 +78,22 @@ function getProjectGlyph(projectName: string): string {
 function renderWorkspaceStateIcon(input: {
   activity: WorkspaceSummary['activity'] | null | undefined
   isCurrent: boolean
+  projectKind: ProjectRecord['kind']
 }) {
-  const { activity, isCurrent } = input
+  const { activity, isCurrent, projectKind } = input
 
   if (!activity) {
+    if (projectKind === 'folder') {
+      return (
+        <Folder
+          className={cn(
+            'size-3 shrink-0',
+            isCurrent ? 'text-primary' : 'text-muted-foreground',
+          )}
+        />
+      )
+    }
+
     return (
       <GitBranch
         className={cn(
@@ -257,7 +270,7 @@ function ProjectOverflowMenu({
             type="button"
           >
             <Settings className="size-3.5" />
-            Configure worktree setup
+            Configure project setup
           </button>
           {(
             [
@@ -352,6 +365,12 @@ export default function SidebarTree({
 
     const visibleWorkspaceIds = workspaces
       .filter((workspace) => {
+        if (
+          projects.find((project) => project.id === workspace.projectId)
+            ?.kind === 'folder'
+        ) {
+          return false
+        }
         const isProjectExpanded =
           expandedProjectIds[workspace.projectId] ??
           workspace.projectId === activeProjectId
@@ -381,7 +400,7 @@ export default function SidebarTree({
     }
 
     setBranchStats((current) => ({ ...current, ...newStats }))
-  }, [isExpanded, workspaces, expandedProjectIds, activeProjectId])
+  }, [isExpanded, workspaces, projects, expandedProjectIds, activeProjectId])
 
   useEffect(() => {
     void fetchBranchStatsForVisibleWorkspaces()
@@ -620,18 +639,20 @@ export default function SidebarTree({
 
                 {isProjectExpanded ? (
                   <div className="mx-3 pb-1">
-                    <button
-                      aria-label={`New workspace in ${project.name}`}
-                      className="row-hover flex w-full items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        onSelectProject(project.id)
-                        onCreateWorkspace()
-                      }}
-                      type="button"
-                    >
-                      <Plus className="size-3.5" />
-                      <span>New workspace</span>
-                    </button>
+                    {project.kind === 'git' ? (
+                      <button
+                        aria-label={`New workspace in ${project.name}`}
+                        className="row-hover flex w-full items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          onSelectProject(project.id)
+                          onCreateWorkspace()
+                        }}
+                        type="button"
+                      >
+                        <Plus className="size-3.5" />
+                        <span>New workspace</span>
+                      </button>
+                    ) : null}
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
@@ -699,6 +720,7 @@ export default function SidebarTree({
                             {renderWorkspaceStateIcon({
                               activity,
                               isCurrent: isActiveWorkspace,
+                              projectKind: project.kind,
                             })}
                             <span
                               className={cn(
@@ -736,7 +758,9 @@ export default function SidebarTree({
 
                           <div className="flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
                             <span className="truncate font-mono">
-                              {summary?.branchName ?? workspace.branchName}
+                              {project.kind === 'folder'
+                                ? 'Folder'
+                                : (summary?.branchName ?? workspace.branchName)}
                             </span>
                             {mergeLabel && mergeLabel !== 'Up to date' ? (
                               <>
@@ -798,7 +822,7 @@ export default function SidebarTree({
           variant="ghost"
         >
           <FolderKanban className="size-3.5" />
-          Add repository
+          Add project folder
         </Button>
         <button
           aria-label="Archive view (coming soon)"

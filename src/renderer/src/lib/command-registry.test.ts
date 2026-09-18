@@ -31,6 +31,16 @@ describe('buildCommandList', () => {
     expect(ids).toContain('open-software-update')
   })
 
+  it('omits Git workspace creation for folder projects', () => {
+    const commands = buildCommandList(
+      createContext({ canCreateWorkspace: false }),
+    )
+
+    expect(commands.map((command) => command.id)).not.toContain(
+      'create-workspace',
+    )
+  })
+
   it('includes only the update action relevant to the current state', () => {
     const onSelect = vi.fn()
     const commands = buildCommandList(
@@ -85,6 +95,7 @@ describe('buildCommandList', () => {
         projects: [
           {
             id: 'p-1',
+            kind: 'git',
             name: 'aide',
             repoRoot: '/repo/aide',
             remoteUrl: null,

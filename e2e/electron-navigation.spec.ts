@@ -444,7 +444,7 @@ test.describe('electron spatial navigation', () => {
     })
 
     await expandSidebar(page)
-    await page.getByRole('button', { name: /add repository/i }).click()
+    await page.getByRole('button', { name: /add project folder/i }).click()
     await expect(
       page.locator('[data-testid^="project-rail-button-"]'),
     ).toHaveCount(2)
@@ -889,7 +889,7 @@ test.describe('electron spatial navigation', () => {
     await expandSidebar(page)
 
     await page.getByRole('button', { name: /more options for/i }).click()
-    await page.getByRole('button', { name: 'Configure worktree setup' }).click()
+    await page.getByRole('button', { name: 'Configure project setup' }).click()
     await expect(
       page.getByRole('heading', { name: 'Worktree setup' }),
     ).toBeVisible()
@@ -962,8 +962,9 @@ test.describe('electron spatial navigation', () => {
     ).toEqual([worktreePath])
   })
 
-  test('shows an inline error when the chosen folder is not a git repo', async () => {
+  test('opens a folder project without Git-only controls', async () => {
     const chosenProjectRoot = mkdtempSync(path.join(tmpdir(), 'aide-non-git-'))
+    writeFileSync(path.join(chosenProjectRoot, 'notes.txt'), 'plain folder\n')
     const launched = await launchAideApp({
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
     })
@@ -978,9 +979,41 @@ test.describe('electron spatial navigation', () => {
       .last()
       .click()
 
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      path.basename(chosenProjectRoot),
+    )
+    await expect(page.getByText('Folder project')).toBeVisible()
+    expect(existsSync(path.join(chosenProjectRoot, '.git'))).toBe(false)
+
+    const snapshot = await page.evaluate(() => window.aide.getStorageSnapshot())
+    expect(snapshot.projects[0]?.kind).toBe('folder')
+    const gitStatus = await page.evaluate(
+      (workspaceId) => window.aide.getWorkspaceGitStatus(workspaceId),
+      snapshot.workspaces[0]?.id ?? '',
+    )
+    expect(gitStatus).toEqual({
+      code: 'not-a-git-worktree',
+      error: 'Git actions are unavailable for folder projects.',
+      ok: false,
+    })
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await expect(page.getByRole('button', { name: /^git/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /agent/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /terminal/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /editor/i })).toBeVisible()
+    await page.getByRole('button', { name: /^terminal/i }).click()
+    await expect(page.getByTestId('active-pane-name')).toHaveText(
+      'Workspace terminal',
+    )
     await expect(
-      page.getByText('Selected folder is not inside a Git repository.'),
-    ).toBeVisible()
+      page.locator('.terminal-pane .xterm-helper-textarea').first(),
+    ).toBeFocused()
+    const file = await page.evaluate(
+      (workspaceId) => window.aide.readProjectFile(workspaceId, 'notes.txt'),
+      snapshot.workspaces[0]?.id ?? '',
+    )
+    expect(file.content).toBe('plain folder\n')
   })
 
   test('refocuses the terminal when returning to its pane', async () => {

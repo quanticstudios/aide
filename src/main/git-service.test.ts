@@ -95,6 +95,7 @@ describe('GitWorkspaceService', () => {
     expect(snapshot.projects).toHaveLength(1)
     expect(snapshot.projects[0]).toMatchObject({
       defaultBranch: 'main',
+      kind: 'git',
       name: path.basename(repoRoot),
       remoteUrl: 'https://github.com/example/aide.git',
       repoRoot,
@@ -359,17 +360,61 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
-  it('rejects non-git folders during import', async () => {
-    const repoRoot = createTempDirectory('aide-non-git-')
+  it('imports a folder project without creating a Git repository', async () => {
+    const folderRoot = createTempDirectory('aide-non-git-')
+    writeFileSync(path.join(folderRoot, 'notes.txt'), 'plain folder\n')
     const database = createAideDatabase(':memory:')
     const service = new GitWorkspaceService(database)
 
-    await expect(service.importProject(repoRoot)).rejects.toThrow(
-      'Selected folder is not inside a Git repository.',
-    )
+    const result = await service.importProject(folderRoot)
 
+    expect(result.snapshot.projects).toHaveLength(1)
+    expect(result.snapshot.projects[0]).toMatchObject({
+      defaultBranch: '',
+      kind: 'folder',
+      name: path.basename(folderRoot),
+      remoteUrl: null,
+      repoRoot: folderRoot,
+    })
+    expect(result.snapshot.workspaces).toHaveLength(1)
+    expect(result.snapshot.workspaces[0]).toMatchObject({
+      branchName: '',
+      name: path.basename(folderRoot),
+      projectId: result.projectId,
+      worktreePath: folderRoot,
+    })
+    expect(existsSync(path.join(folderRoot, '.git'))).toBe(false)
+
+    await expect(service.listProjectRefs(result.projectId)).rejects.toThrow(
+      'Git workspaces are unavailable for folder projects.',
+    )
+    await expect(
+      service.createWorkspace({
+        baseBranch: 'main',
+        branchName: 'feature/plain-folder',
+        name: 'feature/plain-folder',
+        projectId: result.projectId,
+        windowId: null,
+        worktreePath: path.join(folderRoot, '.worktrees', 'feature'),
+      }),
+    ).rejects.toThrow('Git workspaces are unavailable for folder projects.')
+    expect(await service.getWorkspaceStatus(result.workspaceId)).toEqual({
+      code: 'not-a-git-worktree',
+      error: 'Git actions are unavailable for folder projects.',
+      ok: false,
+    })
+
+    database.close()
+  })
+
+  it('does not downgrade a corrupt Git repository to a folder project', async () => {
+    const repoRoot = createGitRepository()
+    writeFileSync(path.join(repoRoot, '.git', 'HEAD'), 'broken-head\n')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+
+    await expect(service.importProject(repoRoot)).rejects.toThrow()
     expect(database.getSnapshot().projects).toEqual([])
-    expect(database.getSnapshot().workspaces).toEqual([])
 
     database.close()
   })

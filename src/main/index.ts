@@ -347,7 +347,7 @@ function initializeServices(): void {
   managedSessionManager = new ManagedSessionManager({
     store: database,
     afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
-    beforeInput: ({ config, snapshot, text }) => {
+    beforeInput: async ({ config, snapshot, text }) => {
       const workspace = database.getWorkspace(config.workspaceId)
       if (!workspace || workspace.worktreePath !== config.cwd)
         throw new Error(
@@ -357,6 +357,9 @@ function initializeServices(): void {
         throw new Error(
           'Wait for checkpoint restoration before sending a message.',
         )
+      if (database.getProject(workspace.projectId)?.kind === 'folder') {
+        return undefined
+      }
       return turnCheckpoints.captureTurn({
         config,
         snapshot,

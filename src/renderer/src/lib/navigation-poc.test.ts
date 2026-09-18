@@ -68,6 +68,7 @@ describe('resolveNavigationSnapshot', () => {
       projects: [
         {
           id: 'project-1',
+          kind: 'git',
           name: 'real',
           repoRoot: '/repo/real',
           remoteUrl: null,

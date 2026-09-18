@@ -26,6 +26,7 @@ export interface PaletteCommand {
 }
 
 export interface CommandContext {
+  readonly canCreateWorkspace?: boolean
   readonly onCreatePane: () => void
   readonly onCreateWorkspace: () => void
   readonly onOpenOverview: () => void
@@ -99,13 +100,15 @@ export function buildCommandList(context: CommandContext): PaletteCommand[] {
     onSelect: context.onOpenSoftwareUpdate,
   })
 
-  commands.push({
-    group: 'create',
-    icon: SquareTerminal,
-    id: 'create-workspace',
-    label: 'New workspace...',
-    onSelect: context.onCreateWorkspace,
-  })
+  if (context.canCreateWorkspace !== false) {
+    commands.push({
+      group: 'create',
+      icon: SquareTerminal,
+      id: 'create-workspace',
+      label: 'New workspace...',
+      onSelect: context.onCreateWorkspace,
+    })
+  }
 
   commands.push({
     group: 'create',

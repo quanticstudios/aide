@@ -520,12 +520,15 @@ function WorkspaceApp() {
   ])
 
   const createWorkspace = useCallback(() => {
-    if (!activeProjectId) {
+    const project = navigationSnapshot.projects.find(
+      (candidate) => candidate.id === activeProjectId,
+    )
+    if (!project || project.kind === 'folder') {
       return
     }
 
     setIsWorkspaceCreationOpen(true)
-  }, [activeProjectId])
+  }, [activeProjectId, navigationSnapshot.projects])
 
   const createPane = useCallback(() => {
     if (!resolvedNavigationState.activeWorkspaceId) {
@@ -2198,6 +2201,7 @@ function WorkspaceApp() {
   const paletteCommands = useMemo(
     () =>
       buildCommandList({
+        canCreateWorkspace: activeProject?.kind === 'git',
         onCreatePane: createPane,
         onCreateWorkspace: createWorkspace,
         onOpenOverview: () => setIsOverviewVisible(true),
@@ -2210,6 +2214,7 @@ function WorkspaceApp() {
         workspaces: projectWorkspaces,
       }),
     [
+      activeProject?.kind,
       createPane,
       createWorkspace,
       handleProjectSelection,
@@ -2376,10 +2381,11 @@ function WorkspaceApp() {
               isOpen
               onCreatePane={(paneId) => void handleCreatePane(paneId)}
               onOpenChange={setIsPaneCreationOpen}
+              projectKind={activeProject?.kind ?? 'git'}
             />
           </Suspense>
         ) : null}
-        {isWorkspaceCreationOpen ? (
+        {isWorkspaceCreationOpen && activeProject?.kind === 'git' ? (
           <Suspense fallback={<OverlayLoadFallback />}>
             <LazyWorkspaceCreationModal
               existingRootWorkspaceName={

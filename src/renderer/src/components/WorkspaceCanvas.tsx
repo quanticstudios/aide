@@ -487,7 +487,7 @@ export default function WorkspaceCanvas({
     return (
       <EmptyState
         actionLabel="Open project"
-        description="Open a Git repository to track it here and create a root workspace for its main worktree."
+        description="Open a folder to start working."
         error={actionError}
         onAction={onCreateProject}
         title="No project selected"

@@ -17,6 +17,7 @@ import {
 function createProject(id: string, name: string): ProjectRecord {
   return {
     id,
+    kind: 'git',
     name,
     repoRoot: `/repo/${name}`,
     remoteUrl: null,

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -212,6 +212,64 @@ test.describe('shared model chat', () => {
     app = null
     dataDirectory = null
     repository = null
+  })
+
+  test('chats in an ordinary folder without Git and restores the project after restart', async () => {
+    repository = mkdtempSync(path.join(tmpdir(), 'aide-folder-chat-'))
+    writeFileSync(path.join(repository, 'README.md'), '# Ordinary folder\n')
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    await page
+      .getByRole('button', { name: /open project/i })
+      .last()
+      .click()
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.aide.getStorageSnapshot())).projects
+            .length,
+      )
+      .toBe(1)
+    const imported = await page.evaluate(() => window.aide.getStorageSnapshot())
+    expect(imported.projects[0]).toMatchObject({
+      kind: 'folder',
+      repoRoot: repository,
+    })
+    expect(imported.workspaces[0]?.worktreePath).toBe(repository)
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+    await prepareSyntheticJev(app, page)
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('help with this ordinary folder')
+    await prompt.press('Enter')
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: help with this ordinary folder',
+    )
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ sessionState: 'ready' })
+    const session = await getOnlySnapshot(page)
+    expect(
+      await page.evaluate(
+        (id) => window.aide.listTurnCheckpoints(id),
+        session.sessionId,
+      ),
+    ).toEqual([])
+    expect(existsSync(path.join(repository, '.git'))).toBe(false)
+    await app.close()
+    const restarted = await launchAideApp(repository, dataDirectory)
+    app = restarted.app
+    await expect(
+      restarted.page.getByTestId('managed-session-content'),
+    ).toContainText('Handled: help with this ordinary folder')
+    const restored = await restarted.page.evaluate(() =>
+      window.aide.getStorageSnapshot(),
+    )
+    expect(restored.projects[0]?.id).toBe(imported.projects[0]?.id)
+    expect(restored.workspaces[0]?.worktreePath).toBe(repository)
+    expect(existsSync(path.join(repository, '.git'))).toBe(false)
   })
 
   test('opens fleet Plan first, accepts reported work, and shows actual routing after restart', async () => {

@@ -21,12 +21,35 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 10,
+      schemaVersion: 11,
       workspaceLayouts: {},
       workspaces: [],
     })
 
     database.close()
+  })
+
+  it('persists project capabilities across reopen', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-project-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: '',
+        kind: 'folder',
+        name: 'notes',
+        remoteUrl: null,
+        repoRoot: '/workspace/notes',
+      })
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getProject(project.id)?.kind).toBe('folder')
+      reopened.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
   })
 
   it('reopens managed conversations from disk', () => {

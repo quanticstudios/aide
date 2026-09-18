@@ -1,0 +1,30 @@
+{
+  "model": "jev-1.13.0",
+  "elapsedSeconds": 0.797,
+  "usage": {
+    "input_tokens": 948,
+    "output_tokens": 149
+  },
+  "cases": {
+    "ordinary_folder": {
+      "answer": "folder",
+      "expected": "folder"
+    },
+    "permission": {
+      "answer": "error",
+      "expected": "error"
+    },
+    "untrusted_owner": {
+      "answer": "error",
+      "expected": "error"
+    },
+    "missing_git": {
+      "answer": "error",
+      "expected": "error"
+    },
+    "broken_repository": {
+      "answer": "error",
+      "expected": "error"
+    }
+  }
+}

@@ -15,6 +15,7 @@ function createProject(id: string, name: string): ProjectRecord {
     createdAt: '2026-03-24T00:00:00Z',
     defaultBranch: 'main',
     id,
+    kind: 'git',
     name,
     remoteUrl: null,
     repoRoot: `/repo/${name}`,

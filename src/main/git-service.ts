@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { lstat, open, readlink, realpath, rm } from 'node:fs/promises'
+import { lstat, open, readlink, realpath, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -47,10 +47,13 @@ const MAX_PULL_REQUEST_TITLE_LENGTH = 256
 interface RepositoryMetadata {
   currentBranchLabel: string
   defaultBranch: string
+  kind: ProjectRecord['kind']
   projectName: string
   remoteUrl: string | null
   repoRoot: string
 }
+
+class NotGitRepositoryError extends Error {}
 
 export interface CreatedWorkspaceResult {
   readonly snapshot: PersistenceSnapshot
@@ -487,6 +490,15 @@ export class GitWorkspaceService {
       }
     }
 
+    const project = this.store.getProject(workspace.projectId)
+    if (project?.kind === 'folder') {
+      return {
+        code: 'not-a-git-worktree',
+        error: 'Git actions are unavailable for folder projects.',
+        ok: false,
+      }
+    }
+
     try {
       const output = await this.runGit(
         ['status', '--porcelain=v2', '--branch'],
@@ -593,6 +605,14 @@ export class GitWorkspaceService {
       return {
         code: 'workspace-not-found',
         error: 'Parent project does not exist.',
+        ok: false,
+      }
+    }
+
+    if (project.kind === 'folder') {
+      return {
+        code: 'not-a-git-worktree',
+        error: 'Git actions are unavailable for folder projects.',
         ok: false,
       }
     }
@@ -881,12 +901,32 @@ export class GitWorkspaceService {
   }
 
   public async importProject(repoPath: string): Promise<ImportProjectResult> {
-    const metadata = await this.inspectRepository(repoPath)
+    const projectDirectory = await this.resolveProjectDirectory(repoPath)
+    let metadata: RepositoryMetadata
+
+    try {
+      metadata = await this.inspectRepository(projectDirectory)
+    } catch (error) {
+      if (!(error instanceof NotGitRepositoryError)) throw error
+      if (existsSync(path.join(projectDirectory, '.git'))) {
+        throw new Error('The selected Git repository is invalid.')
+      }
+
+      metadata = {
+        currentBranchLabel: '',
+        defaultBranch: '',
+        kind: 'folder',
+        projectName: resolveProjectName(projectDirectory),
+        remoteUrl: null,
+        repoRoot: projectDirectory,
+      }
+    }
     const existingProject = this.store.findProjectByRepoRoot(metadata.repoRoot)
     const project = existingProject
       ? this.syncProjectMetadata(existingProject, metadata)
       : this.store.createProject({
           defaultBranch: metadata.defaultBranch,
+          kind: metadata.kind,
           name: metadata.projectName,
           remoteUrl: metadata.remoteUrl,
           repoRoot: metadata.repoRoot,
@@ -915,6 +955,10 @@ export class GitWorkspaceService {
 
     if (!project) {
       throw new Error('Project does not exist.')
+    }
+
+    if (project.kind === 'folder') {
+      throw new Error('Git workspaces are unavailable for folder projects.')
     }
 
     const output = await this.runGit(
@@ -974,6 +1018,10 @@ export class GitWorkspaceService {
 
     if (!project) {
       throw new Error('Project does not exist.')
+    }
+
+    if (project.kind === 'folder') {
+      throw new Error('Git workspaces are unavailable for folder projects.')
     }
 
     const branchName = input.branchName.trim()
@@ -1051,6 +1099,10 @@ export class GitWorkspaceService {
       throw new Error('Project does not exist.')
     }
 
+    if (project.kind === 'folder') {
+      throw new Error('Git workspaces are unavailable for folder projects.')
+    }
+
     const name = input.name.trim()
     const worktreePath = path.resolve(input.worktreePath.trim())
 
@@ -1126,6 +1178,13 @@ export class GitWorkspaceService {
       return {
         code: 'workspace-not-owned',
         error: 'Workspace does not belong to a configured project.',
+        ok: false,
+      }
+    }
+    if (project.kind === 'folder') {
+      return {
+        code: 'not-a-git-worktree',
+        error: 'Git actions are unavailable for folder projects.',
         ok: false,
       }
     }
@@ -1323,7 +1382,7 @@ export class GitWorkspaceService {
     if (!existingWorkspace) {
       return this.store.createWorkspace({
         branchName: metadata.currentBranchLabel,
-        name: metadata.currentBranchLabel,
+        name: metadata.currentBranchLabel || metadata.projectName,
         projectId: project.id,
         windowId: null,
         worktreePath: metadata.repoRoot,
@@ -1333,7 +1392,7 @@ export class GitWorkspaceService {
     return (
       this.store.updateWorkspace(existingWorkspace.id, {
         branchName: metadata.currentBranchLabel,
-        name: metadata.currentBranchLabel,
+        name: metadata.currentBranchLabel || metadata.projectName,
         worktreePath: metadata.repoRoot,
       }) ?? existingWorkspace
     )
@@ -1346,6 +1405,7 @@ export class GitWorkspaceService {
     return (
       this.store.updateProject(project.id, {
         defaultBranch: metadata.defaultBranch,
+        kind: metadata.kind,
         name: metadata.projectName,
         remoteUrl: metadata.remoteUrl,
         repoRoot: metadata.repoRoot,
@@ -1370,6 +1430,7 @@ export class GitWorkspaceService {
     return {
       currentBranchLabel: currentBranch,
       defaultBranch,
+      kind: 'git',
       projectName: resolveProjectName(repoRoot),
       remoteUrl,
       repoRoot,
@@ -1594,6 +1655,27 @@ export class GitWorkspaceService {
     return path.resolve(candidatePath, commonDir)
   }
 
+  private async resolveProjectDirectory(projectPath: string): Promise<string> {
+    const candidatePath = path.resolve(projectPath.trim())
+
+    if (!projectPath.trim()) {
+      throw new Error('Project path is required.')
+    }
+
+    const projectStatus = await stat(candidatePath).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Folder "${candidatePath}" does not exist.`)
+      }
+      throw error
+    })
+
+    if (!projectStatus.isDirectory()) {
+      throw new Error(`Path "${candidatePath}" is not a folder.`)
+    }
+
+    return realpath(candidatePath)
+  }
+
   private async resolveRepoRoot(repoPath: string): Promise<string> {
     const candidatePath = path.resolve(repoPath.trim())
 
@@ -1611,11 +1693,15 @@ export class GitWorkspaceService {
     } catch (error) {
       const message = formatGitError(error, '').message
 
-      if (message.includes('Configured executable "git"')) {
-        throw new Error(message)
+      if (
+        /not a git repository|not a git directory|not a git work tree/i.test(
+          message,
+        )
+      ) {
+        throw new NotGitRepositoryError(message)
       }
 
-      throw new Error('Selected folder is not inside a Git repository.')
+      throw formatGitError(error, 'Unable to inspect the selected folder.')
     }
   }
 

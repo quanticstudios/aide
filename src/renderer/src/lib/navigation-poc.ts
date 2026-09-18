@@ -33,6 +33,7 @@ function createProject(
 ): ProjectRecord {
   return {
     id,
+    kind: 'git',
     name,
     repoRoot,
     remoteUrl: null,

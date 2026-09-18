@@ -9,6 +9,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import type { PaneType } from '../../../shared/domain'
+import type { ProjectKind } from '../../../shared/persistence'
 import type { TerminalLaunchMode } from '../../../shared/terminal'
 
 type PaneAccent = 'amber' | 'blue' | 'emerald' | 'rose' | 'violet'
@@ -173,8 +174,12 @@ export function listAllPaneCatalogEntries(): readonly PaneCatalogEntry[] {
   return paneCatalogEntries
 }
 
-export function listCreatablePaneCatalogEntries(): readonly PaneCatalogEntry[] {
-  return paneCatalogEntries.filter((entry) => !entry.hidden)
+export function listCreatablePaneCatalogEntries(
+  projectKind: ProjectKind = 'git',
+): readonly PaneCatalogEntry[] {
+  return paneCatalogEntries.filter(
+    (entry) => !entry.hidden && (projectKind === 'git' || entry.type !== 'git'),
+  )
 }
 
 export function getPaneCatalogEntry(paneType: PaneType): PaneCatalogEntry {

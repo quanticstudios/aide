@@ -2,6 +2,7 @@ import { Button, Toolbar } from '@heroui/react'
 import {
   Columns2,
   Expand,
+  Folder,
   GitBranch,
   LifeBuoy,
   type LucideIcon,
@@ -101,6 +102,7 @@ function PaneActionBar({
   onClosePane,
   onResizePane,
   onSplitPane,
+  projectKind,
 }: {
   readonly activePaneId: string | null
   readonly onClosePane: (paneId: string) => void
@@ -110,6 +112,7 @@ function PaneActionBar({
     splitType: PersistedSplitLayoutNode['type'],
     targetPaneType?: string,
   ) => void
+  readonly projectKind: ProjectRecord['kind']
 }) {
   const [pickerMode, setPickerMode] = useState<
     'split-horizontal' | 'split-vertical' | null
@@ -137,7 +140,7 @@ function PaneActionBar({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [pickerMode])
 
-  const viewOptions = listCreatablePaneCatalogEntries()
+  const viewOptions = listCreatablePaneCatalogEntries(projectKind)
 
   const isDisabled = !activePaneId
 
@@ -282,11 +285,17 @@ export default function TopBar({
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
           </p>
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <GitBranch className="size-3.5" />
+            {activeProject?.kind === 'folder' ? (
+              <Folder className="size-3.5" />
+            ) : (
+              <GitBranch className="size-3.5" />
+            )}
             <span>
-              {activeWorkspace?.branchName ??
-                activeProject?.defaultBranch ??
-                'Waiting'}
+              {activeProject?.kind === 'folder'
+                ? 'Folder project'
+                : (activeWorkspace?.branchName ??
+                  activeProject?.defaultBranch ??
+                  'Waiting')}
             </span>
           </div>
         </div>
@@ -328,6 +337,7 @@ export default function TopBar({
           onClosePane={onClosePane}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
+          projectKind={activeProject?.kind ?? 'git'}
         />
         <TaskLibraryControl onOpenTask={onOpenTask} />
         <Button

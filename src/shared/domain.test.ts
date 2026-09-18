@@ -17,6 +17,7 @@ describe('domain model draft helpers', () => {
         remoteUrl: null,
         defaultBranch: 'main',
         setupCommand: null,
+        kind: 'git',
         createdAt: '2026-03-22T00:00:00Z',
         updatedAt: '2026-03-22T00:00:00Z',
         worktreeSetupRevision: 0,

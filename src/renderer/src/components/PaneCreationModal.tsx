@@ -2,6 +2,7 @@ import { Button, Modal, Surface } from '@heroui/react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
+import type { ProjectKind } from '../../../shared/persistence'
 
 const COLUMNS = 2
 
@@ -9,14 +10,16 @@ interface PaneCreationModalProps {
   readonly isOpen: boolean
   readonly onCreatePane: (paneId: string) => void
   readonly onOpenChange: (isOpen: boolean) => void
+  readonly projectKind: ProjectKind
 }
 
 export default function PaneCreationModal({
   isOpen,
   onCreatePane,
   onOpenChange,
+  projectKind,
 }: PaneCreationModalProps) {
-  const paneOptions = listCreatablePaneCatalogEntries()
+  const paneOptions = listCreatablePaneCatalogEntries(projectKind)
   const [focusedIndex, setFocusedIndex] = useState(0)
   const [previousIsOpen, setPreviousIsOpen] = useState(isOpen)
 

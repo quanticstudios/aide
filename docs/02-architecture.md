@@ -71,11 +71,15 @@ Supporting entities:
 
 Project is metadata and grouping.
 
+A project opens a folder. Git repositories expose Git panes and worktrees;
+ordinary folders use one root workspace with the other pane types.
+
 Fields:
 
 - `id`
 - `name`
 - `repoRoot`
+- `kind: git | folder`
 - `remoteUrl`
 - `defaultBranch`
 - `workspaceIds[]`

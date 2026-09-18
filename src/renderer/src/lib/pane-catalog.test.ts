@@ -35,6 +35,12 @@ describe('pane catalog', () => {
     ])
   })
 
+  it('omits Git panes for folder projects', () => {
+    expect(
+      listCreatablePaneCatalogEntries('folder').map((entry) => entry.id),
+    ).toEqual(['chat', 'terminal', 'agent', 'editor', 'preview'])
+  })
+
   it('creates central default metadata for registered pane types', () => {
     expect(createDefaultPaneMetadata('terminal')).toEqual({
       accent: 'emerald',

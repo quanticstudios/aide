@@ -1,5 +1,8 @@
+export type ProjectKind = 'folder' | 'git'
+
 export interface ProjectRecord {
   id: string
+  kind: ProjectKind
   name: string
   repoRoot: string
   remoteUrl: string | null
@@ -105,6 +108,7 @@ export interface SetActiveSelectionInput {
 
 export interface CreateProjectInput {
   defaultBranch: string
+  kind?: ProjectKind
   name: string
   remoteUrl: string | null
   repoRoot: string
@@ -112,6 +116,7 @@ export interface CreateProjectInput {
 
 export interface UpdateProjectInput {
   defaultBranch?: string
+  kind?: ProjectKind
   name?: string
   remoteUrl?: string | null
   repoRoot?: string
