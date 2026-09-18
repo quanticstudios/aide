@@ -53,7 +53,7 @@ interface SidebarTreeProps {
   readonly activeProjectId: string | null
   readonly activeWorkspaceId: string | null
   readonly isExpanded: boolean
-  readonly onCreateChat: (projectId: string) => void
+  readonly onCreateChat: (projectId: string, workspaceId?: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: (projectId?: string) => void
   readonly onConfigureProjectSetup: (projectId: string) => void
@@ -138,10 +138,6 @@ function renderWorkspaceStateIcon(input: {
 function getMergeStatusLabel(
   mergeStatus: WorktreeBranchStats['mergeStatus'],
 ): string {
-  if (mergeStatus === 'clean') {
-    return 'Ready to merge'
-  }
-
   if (mergeStatus === 'conflicts') {
     return 'Merge conflicts'
   }
@@ -156,10 +152,6 @@ function getMergeStatusLabel(
 function getMergeStatusClassName(
   mergeStatus: WorktreeBranchStats['mergeStatus'],
 ): string {
-  if (mergeStatus === 'clean') {
-    return 'text-accent-green'
-  }
-
   if (mergeStatus === 'conflicts') {
     return 'text-accent-red'
   }
@@ -292,9 +284,11 @@ function ProjectOverflowMenu({
 }
 
 function WorkspaceOverflowMenu({
+  onCreateChat,
   onRename,
   workspace,
 }: {
+  readonly onCreateChat: () => void
   readonly onRename: (name: string) => Promise<string | null>
   readonly workspace: WorkspaceRecord
 }) {
@@ -325,15 +319,19 @@ function WorkspaceOverflowMenu({
     >
       <Popover.Trigger
         aria-label={`More options for workspace ${workspace.name}`}
-        className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-surface-secondary group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 focus-visible:opacity-100"
+        className="flex size-6 min-h-6 min-w-6 flex-none shrink-0 cursor-pointer items-center justify-center rounded bg-transparent text-muted-foreground opacity-0 outline-none hover:bg-surface-secondary data-[pressed]:bg-transparent group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-primary/60"
+        data-workspace-actions-trigger="true"
       >
-        <MoreHorizontal className="size-3.5" />
+        <MoreHorizontal className="size-4 shrink-0" />
       </Popover.Trigger>
       <Popover.Content
-        className="w-56 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        className={cn(
+          'rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]',
+          isRenaming ? 'w-56' : 'w-[11.25rem]',
+        )}
         placement="bottom end"
       >
-        <Popover.Dialog className="outline-none">
+        <Popover.Dialog className="p-0 outline-none">
           {isRenaming ? (
             <form
               className="space-y-2 p-2"
@@ -381,17 +379,41 @@ function WorkspaceOverflowMenu({
               </div>
             </form>
           ) : (
-            <Button
-              className="w-full justify-start px-2 text-xs"
-              onPress={() => {
-                setIsRenaming(true)
-                setName(workspace.name)
-              }}
-              size="sm"
-              variant="ghost"
-            >
-              Rename workspace
-            </Button>
+            <div className="p-1">
+              <Button
+                className="h-8 w-full justify-start px-2 text-xs"
+                onPress={() => {
+                  onCreateChat()
+                  closeMenu()
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                New chat
+              </Button>
+              <Button
+                className="h-8 w-full justify-start px-2 text-xs"
+                onPress={() => {
+                  void navigator.clipboard.writeText(workspace.worktreePath)
+                  closeMenu()
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                Copy folder path
+              </Button>
+              <Button
+                className="h-8 w-full justify-start px-2 text-xs"
+                onPress={() => {
+                  setIsRenaming(true)
+                  setName(workspace.name)
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                Rename workspace
+              </Button>
+            </div>
           )}
         </Popover.Dialog>
       </Popover.Content>
@@ -725,7 +747,17 @@ export default function SidebarTree({
                       ) : null
 
                       const rowElement = (
-                        <div className="group/workspace relative">
+                        <div
+                          className="group/workspace relative"
+                          onContextMenu={(event) => {
+                            event.preventDefault()
+                            event.currentTarget
+                              .querySelector<HTMLElement>(
+                                '[data-workspace-actions-trigger="true"]',
+                              )
+                              ?.click()
+                          }}
+                        >
                           <button
                             className={cn(
                               'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-10 text-left transition-colors',
@@ -819,6 +851,9 @@ export default function SidebarTree({
                           </button>
                           <div className="absolute right-1 top-1.5">
                             <WorkspaceOverflowMenu
+                              onCreateChat={() =>
+                                onCreateChat(project.id, workspace.id)
+                              }
                               onRename={(name) =>
                                 onRenameWorkspace(workspace.id, name)
                               }

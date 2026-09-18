@@ -1451,11 +1451,17 @@ function WorkspaceApp() {
   )
 
   const handleCreateChat = useCallback(
-    (projectId: string) => {
+    (projectId: string, requestedWorkspaceId?: string) => {
       const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
       const currentSelection =
         resolvedNavigationStateRef.current ?? resolvedNavigationState
+      const requestedWorkspace = currentSnapshot.workspaces.find(
+        (workspace) =>
+          workspace.id === requestedWorkspaceId &&
+          workspace.projectId === projectId,
+      )
       const workspaceId =
+        requestedWorkspace?.id ??
         (currentSelection.activeProjectId === projectId
           ? currentSelection.activeWorkspaceId
           : null) ??
