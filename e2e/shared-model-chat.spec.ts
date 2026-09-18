@@ -352,6 +352,114 @@ test.describe('shared model chat', () => {
     expect(existsSync(path.join(repository, '.git'))).toBe(false)
   })
 
+  test('reopens a closed Agent conversation while New chat and other workspaces stay fresh', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const restoredSession = await startSharedChat(launched.page, app)
+    const { page } = launched
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await app.evaluate(
+      ({ dialog }, filePath) => {
+        Object.defineProperty(dialog, 'showOpenDialog', {
+          value: async () => ({ canceled: false, filePaths: [filePath] }),
+        })
+      },
+      path.join(repository, 'README.md'),
+    )
+    await prompt.fill('Keep this draft after closing the pane')
+    await page.getByRole('button', { name: 'Attach workspace files' }).click()
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await expect
+      .poll(() =>
+        page.evaluate(async (sessionId) => {
+          const request = indexedDB.open('aide-renderer', 1)
+          const database = await new Promise<IDBDatabase>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          })
+          try {
+            const read = database
+              .transaction('managed-drafts')
+              .objectStore('managed-drafts')
+              .get(`aide:managed-composer:${sessionId}`)
+            return await new Promise<{
+              attachments: number
+              text: string
+            }>((resolve, reject) => {
+              read.onsuccess = () =>
+                resolve({
+                  attachments: read.result?.attachments?.length ?? 0,
+                  text: read.result?.text ?? '',
+                })
+              read.onerror = () => reject(read.error)
+            })
+          } finally {
+            database.close()
+          }
+        }, restoredSession.sessionId),
+      )
+      .toEqual({
+        attachments: 1,
+        text: 'Keep this draft after closing the pane',
+      })
+
+    const agentTab = page
+      .locator('.workspace-strip')
+      .getByRole('button', { name: 'Agent', exact: true })
+    await agentTab.hover()
+    await page.getByRole('button', { name: 'Close Agent', exact: true }).click()
+    await expect(prompt).toBeHidden()
+
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Handled: initialize shared chat',
+    )
+    await expect(prompt).toHaveValue('Keep this draft after closing the pane')
+    await expect(page.getByTestId('composer-attachments')).toContainText(
+      'README.md',
+    )
+    await expect
+      .poll(async () =>
+        Object.keys(
+          await page.evaluate(() => window.aide.getManagedSessionSnapshots()),
+        ),
+      )
+      .toEqual([restoredSession.sessionId])
+
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await page.getByRole('button', { name: /^Add to / }).click()
+    await page.getByRole('menuitem', { name: 'New chat' }).click()
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('composer-attachments')).toBeHidden()
+    await expect(page.getByTestId('managed-session-content')).not.toContainText(
+      'Handled: initialize shared chat',
+    )
+
+    await page.getByRole('button', { name: /^Add to / }).click()
+    await page.getByRole('menuitem', { name: 'New workspace' }).click()
+    await page.getByLabel('Workspace name').fill('Isolated workspace')
+    await page.getByLabel('Branch name').fill('codex/isolated-workspace')
+    await page
+      .getByRole('button', { name: /create workspace/i })
+      .last()
+      .click()
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Isolated workspace',
+    )
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent\b/i }).click()
+    await expect(prompt).toHaveValue('')
+    await expect(page.getByTestId('composer-attachments')).toBeHidden()
+    await expect(page.getByTestId('managed-session-content')).not.toContainText(
+      'Handled: initialize shared chat',
+    )
+  })
+
   test('waits for model discovery before selecting a skill or sending with Enter', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
