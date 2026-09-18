@@ -1,6 +1,6 @@
 {
   "name": "aide",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "description": "Workspace-first AI-native coding shell prototype",
   "author": "Quantic Studios",
@@ -39,7 +39,7 @@
     "package:mac:arm64": "bun run package:mac -- --arm64"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.239",
+    "@anthropic-ai/claude-agent-sdk": "0.3.268",
     "@anthropic-ai/sdk": "0.110.0",
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/geist-mono": "5.3.0",
