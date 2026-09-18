@@ -1105,6 +1105,7 @@ function WorkspaceApp() {
       layouts: Record<string, SurfaceLayoutRecord>,
       nextActiveSurfaceId: string | null,
       nextActivePaneId: string | null,
+      shouldUpdateSelection = true,
     ) => {
       const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
       const currentSurfaceIds = resolveWorkspaceSurfaces(
@@ -1154,6 +1155,11 @@ function WorkspaceApp() {
 
       storageSnapshotRef.current = snapshot
       setStorageSnapshot(snapshot)
+      if (!shouldUpdateSelection) {
+        setShellError(null)
+        return
+      }
+
       const nextSelection = resolveSelectionForSnapshot(
         snapshot,
         workspaceId,
@@ -1174,6 +1180,7 @@ function WorkspaceApp() {
       mutateLayout: (
         layout: WorkspaceLayoutRecord,
       ) => ReturnType<typeof splitWorkspacePane>,
+      shouldUpdateSelection = true,
     ) => {
       const currentSnapshot = storageSnapshotRef.current ?? navigationSnapshot
 
@@ -1220,12 +1227,16 @@ function WorkspaceApp() {
           return
         }
 
+        const collectSessionPaneIds = (layout: WorkspaceLayoutRecord) =>
+          layout.nodes.flatMap((node) =>
+            node.type === 'pane' ? node.viewIds : [],
+          )
         const nextPaneIds = new Set(
-          nextLayout ? collectWorkspaceLayoutPaneIds(nextLayout) : [],
+          nextLayout ? collectSessionPaneIds(nextLayout) : [],
         )
-        const removedPaneIds = collectWorkspaceLayoutPaneIds(
-          currentLayout,
-        ).filter((paneId) => !nextPaneIds.has(paneId))
+        const removedPaneIds = collectSessionPaneIds(currentLayout).filter(
+          (paneId) => !nextPaneIds.has(paneId),
+        )
 
         await Promise.all(
           removedPaneIds.map(async (paneId) => {
@@ -1273,6 +1284,7 @@ function WorkspaceApp() {
                   )[0] ?? null)
                 : null
               : null,
+            shouldUpdateSelection,
           )
           await closeRemovedSessions(null)
           return
@@ -1293,6 +1305,7 @@ function WorkspaceApp() {
           nextLayouts,
           surfaceId,
           result.nextActivePaneId,
+          shouldUpdateSelection,
         )
         await closeRemovedSessions(result.layout)
       } catch (error) {
@@ -1450,22 +1463,69 @@ function WorkspaceApp() {
   )
 
   const handleClosePane = useCallback(
-    (paneId: string) => {
-      const { activeSurfaceId, activeWorkspaceId } = resolvedNavigationState
-      if (!activeWorkspaceId || !activeSurfaceId) return
-      void workspaceMutationQueue.enqueue(activeWorkspaceId, () =>
+    (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
+      const snapshot = storageSnapshotRef.current ?? navigationSnapshot
+      const paneLocation = snapshot.workspaces
+        .filter((workspace) => !workspaceId || workspace.id === workspaceId)
+        .flatMap((workspace) =>
+          resolveWorkspaceSurfaces(snapshot, workspace.id).map((surface) => ({
+            layout: resolveSurfaceLayout(snapshot, workspace.id, surface.id),
+            surfaceId: surface.id,
+            workspaceId: workspace.id,
+          })),
+        )
+        .find(({ layout }) =>
+          layout?.nodes.some(
+            (node) =>
+              node.type === 'pane' &&
+              (node.paneId === paneId || node.viewIds.includes(paneId)),
+          ),
+        )
+
+      if (!paneLocation) return
+
+      const currentSelection = resolvedNavigationStateRef.current
+      const shouldUpdateSelection = Boolean(
+        paneLocation.workspaceId === currentSelection?.activeWorkspaceId &&
+          paneLocation.surfaceId === currentSelection?.activeSurfaceId &&
+          paneLocation.layout?.nodes.some(
+            (node) =>
+              node.type === 'pane' &&
+              node.paneId === currentSelection?.activePaneId &&
+              (node.paneId === paneId || node.viewIds.includes(paneId)),
+          ),
+      )
+
+      void workspaceMutationQueue.enqueue(paneLocation.workspaceId, () =>
         applyWorkspaceLayoutChange(
-          activeWorkspaceId,
-          activeSurfaceId,
-          (layout) => closeWorkspacePane(layout, paneId),
+          paneLocation.workspaceId,
+          paneLocation.surfaceId,
+          (layout) => {
+            const paneNode = layout.nodes.find(
+              (node) =>
+                node.type === 'pane' &&
+                (node.paneId === paneId || node.viewIds.includes(paneId)),
+            )
+
+            if (paneNode?.type !== 'pane') {
+              return closeWorkspacePane(layout, paneId)
+            }
+
+            if (shouldCloseViewOnly && paneNode.viewIds.length > 1) {
+              return removePaneView(
+                layout,
+                paneNode.paneId,
+                paneNode.viewIds.indexOf(paneId),
+              )
+            }
+
+            return closeWorkspacePane(layout, paneNode.paneId)
+          },
+          shouldUpdateSelection,
         ),
       )
     },
-    [
-      applyWorkspaceLayoutChange,
-      resolvedNavigationState,
-      workspaceMutationQueue,
-    ],
+    [applyWorkspaceLayoutChange, navigationSnapshot, workspaceMutationQueue],
   )
 
   const handleResizePane = useCallback(

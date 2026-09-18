@@ -1063,7 +1063,7 @@ test.describe('electron spatial navigation', () => {
     ).toBeFocused()
   })
 
-  test('keeps a terminal pane after shell exit and can restart it', async () => {
+  test('closes terminal panes for zero and nonzero shell exits', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
@@ -1085,19 +1085,18 @@ test.describe('electron spatial navigation', () => {
     await page.keyboard.press('Enter')
 
     await expect(
-      page.getByRole('button', { name: /restart terminal/i }),
-    ).toBeVisible()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Workspace terminal',
-    )
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(1)
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
 
-    await page.getByRole('button', { name: /restart terminal/i }).click()
-    await expect(
-      page.getByRole('button', { name: /restart terminal/i }),
-    ).not.toBeVisible()
-    await expect(page.getByTestId('active-pane-name')).toHaveText(
-      'Workspace terminal',
-    )
+    await addPane(page, /terminal/i)
+    await expect(terminalInput).toBeFocused()
+    await page.keyboard.type('exit 7')
+    await page.keyboard.press('Enter')
+
+    await expect(page.getByText('Empty workspace')).toBeVisible()
+    await expect(page.getByTestId('active-pane-name')).toHaveText('')
   })
 
   test('announces critical updates without opening or stealing focus', async () => {
