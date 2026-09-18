@@ -1099,6 +1099,72 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
   })
 
+  test('keeps the foreground selection when a background terminal exits', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await createWorkspace(page, {
+      branchName: 'background-terminal',
+      name: 'Foreground workspace',
+    })
+    await addPane(page, /git/i)
+
+    await page.keyboard.press('Alt+k')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    const terminalInput = page.locator(
+      '.workspace-slide[data-active-workspace="true"] .terminal-pane .xterm-helper-textarea',
+    )
+    await expect(terminalInput).toBeFocused()
+    await page.keyboard.type('sleep 2; exit')
+    await page.keyboard.press('Enter')
+
+    await page.keyboard.press('Alt+j')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Foreground workspace',
+    )
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    await expect
+      .poll(
+        () =>
+          page.evaluate(async () => {
+            const snapshot = await window.aide.getStorageSnapshot()
+            const backgroundWorkspace = snapshot.workspaces.find(
+              (workspace) => workspace.name === 'main',
+            )
+            if (!backgroundWorkspace) return false
+
+            return Object.values(snapshot.surfaceLayouts)
+              .filter((layout) => layout.workspaceId === backgroundWorkspace.id)
+              .every((layout) =>
+                layout.nodes.every(
+                  (node) =>
+                    node.type !== 'pane' ||
+                    node.viewIds.every(
+                      (viewId) => !viewId.startsWith('terminal'),
+                    ),
+                ),
+              )
+          }),
+        { timeout: 7_000 },
+      )
+      .toBe(true)
+
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Foreground workspace',
+    )
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+  })
+
   test('announces critical updates without opening or stealing focus', async () => {
     const launched = await launchAideApp({
       AIDE_FAKE_UPDATE_INITIAL_AVAILABLE: '1',
