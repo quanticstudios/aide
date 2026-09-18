@@ -217,7 +217,7 @@ function PaneActionBar({
 
   return (
     <div className="relative shrink-0" ref={containerRef}>
-      <div className="flex flex-row items-center gap-0.5 rounded-md border border-border bg-surface px-1 py-1">
+      <div className="flex flex-row items-center gap-0.5">
         {actions.map((action) => {
           const Icon = action.icon
           const toneClass =
@@ -344,7 +344,7 @@ export default function TopBar({
         <div className="min-w-0 flex-1 overflow-x-auto">
           <Toolbar
             aria-label="Pane selector"
-            className="workspace-strip inline-flex min-w-max rounded-lg border border-border bg-surface p-1"
+            className="workspace-strip inline-flex min-w-max gap-1 bg-transparent"
             isAttached
           >
             {visibleSurfaces.map((surface, index) => (

@@ -534,8 +534,8 @@ export default function WorkspaceCanvas({
               return (
                 <span
                   className={cn(
-                    'size-1.5 rounded-full bg-[var(--border-strong)] transition-transform duration-200 ease-[var(--ease-out-strong)]',
-                    isActive && 'scale-y-[3] bg-primary',
+                    'size-1.5 rounded-full bg-[var(--border-strong)] transition-colors duration-200',
+                    isActive && 'bg-primary',
                   )}
                   data-active={isActive ? 'true' : 'false'}
                   data-testid={`workspace-stack-dot-${workspace.id}`}
