@@ -108,6 +108,7 @@ const LazyWorkspaceSwitcherOverlay = lazy(
 const LazyProjectSetupModal = lazy(
   () => import('./components/ProjectSetupModal'),
 )
+const LazySettingsPage = lazy(() => import('./components/SettingsPage'))
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -250,6 +251,7 @@ function WorkspaceApp() {
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isUpdateOpen, setIsUpdateOpen] = useState(false)
   const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(
     null,
@@ -290,12 +292,26 @@ function WorkspaceApp() {
     type: PreviewBrowserControl
   } | null>(null)
   const previewRevisionsRef = useRef<Record<string, number>>({})
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const updateReturnFocusRef = useRef<HTMLElement | null>(null)
   const workspaceActivityRevisionRef = useRef(-1)
   const workspaceSetupRevisionRef = useRef(-1)
   const storageSnapshotRef = useRef<PersistenceSnapshot | null>(null)
   const resolvedNavigationStateRef = useRef<SpatialNavigationState | null>(null)
   const [workspaceMutationQueue] = useState(() => new WorkspaceMutationQueue())
+  const closeSettings = useCallback(() => {
+    setIsSettingsOpen(false)
+    const returnFocus = settingsReturnFocusRef.current
+    settingsReturnFocusRef.current = null
+    requestAnimationFrame(() => returnFocus?.focus())
+  }, [])
+  const openSettings = useCallback((trigger: HTMLElement) => {
+    settingsReturnFocusRef.current = trigger
+    setIsCommandPaletteOpen(false)
+    setIsOverviewVisible(false)
+    setIsWorkspaceSwitcherVisible(false)
+    setIsSettingsOpen(true)
+  }, [])
   const lastResolvedNavigationRef = useRef('')
   const activeProjectId = useWorkspaceSelectionStore(
     (state) => state.activeProjectId,
@@ -1644,6 +1660,8 @@ function WorkspaceApp() {
 
   useEffect(() => {
     return window.aide.onAppShortcut((event) => {
+      if (isSettingsOpen) return
+
       if (event.type === 'overview-open') {
         setIsCommandPaletteOpen(false)
         setIsWorkspaceSwitcherVisible(false)
@@ -1656,7 +1674,7 @@ function WorkspaceApp() {
         setIsCommandPaletteOpen(true)
       }
     })
-  }, [])
+  }, [isSettingsOpen])
 
   useEffect(() => {
     const api = getAideApi()
@@ -1736,6 +1754,14 @@ function WorkspaceApp() {
         event.key === 'Tab' && (event.ctrlKey || event.metaKey)
 
       if (event.defaultPrevented) {
+        return
+      }
+
+      if (isSettingsOpen) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          closeSettings()
+        }
         return
       }
 
@@ -1852,7 +1878,9 @@ function WorkspaceApp() {
     }
   }, [
     dispatchShortcut,
+    closeSettings,
     isOverviewVisible,
+    isSettingsOpen,
     isWorkspaceSwitcherVisible,
     navigationSnapshot.projects,
   ])
@@ -2326,6 +2354,7 @@ function WorkspaceApp() {
       onCreateWorkspace={createWorkspace}
       onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
+      onOpenSettings={openSettings}
       onOpenTask={handleOpenTask}
       onOpenUpdate={openUpdateModal}
       onSelectProject={handleProjectSelection}
@@ -2336,6 +2365,22 @@ function WorkspaceApp() {
       updatePresentation={updatePresentation}
     >
       <>
+        {isSettingsOpen ? (
+          <Suspense fallback={<OverlayLoadFallback />}>
+            <LazySettingsPage
+              onClose={closeSettings}
+              onOpenUpdate={() => {
+                updateReturnFocusRef.current = settingsReturnFocusRef.current
+                settingsReturnFocusRef.current = null
+                setIsSettingsOpen(false)
+                setIsUpdateOpen(true)
+              }}
+              onUpdatePreferences={updateSoftwarePreferences}
+              updatePreferences={updatePreferences}
+              updatePreferencesError={updatePreferencesHydrationError}
+            />
+          </Suspense>
+        ) : null}
         {isDiagnosticsOpen ? (
           <Suspense fallback={<OverlayLoadFallback />}>
             <LazyDiagnosticsModal isOpen onOpenChange={setIsDiagnosticsOpen} />

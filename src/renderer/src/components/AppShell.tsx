@@ -43,6 +43,7 @@ interface AppShellProps {
   readonly onCreateWorkspace: () => void
   readonly onConfigureProjectSetup: (projectId: string) => void
   readonly onOpenDiagnostics: () => void
+  readonly onOpenSettings: (trigger: HTMLElement) => void
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
   readonly updatePresentation: UpdatePresentation
@@ -72,6 +73,7 @@ export default function AppShell({
   onCreateWorkspace,
   onConfigureProjectSetup,
   onOpenDiagnostics,
+  onOpenSettings,
   onOpenTask,
   onOpenUpdate,
   updatePresentation,
@@ -290,6 +292,7 @@ export default function AppShell({
           onCreateWorkspace={onCreateWorkspace}
           onConfigureProjectSetup={onConfigureProjectSetup}
           onSelectHome={onSelectHome}
+          onOpenSettings={onOpenSettings}
           onSelectProject={onSelectProject}
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
