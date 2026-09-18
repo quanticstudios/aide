@@ -13,14 +13,17 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  Code2,
   Folder,
   FolderKanban,
   GitBranch,
+  Layers3,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   Plus,
   Settings,
+  Sparkles,
   Terminal,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -31,6 +34,9 @@ import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import aideIcon from '../../../../build/icon.png'
 import type { WorktreeBranchStats } from '../../../shared/git'
 import type {
+  ProjectAppearance,
+  ProjectColor,
+  ProjectIcon,
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
@@ -48,6 +54,26 @@ import './SidebarTree.css'
 
 const BRANCH_STATS_POLL_INTERVAL_MS = 30_000
 const TIMESTAMP_TICK_INTERVAL_MS = 10_000
+const PROJECT_ICON_OPTIONS: readonly {
+  id: ProjectIcon
+  label: string
+}[] = [
+  { id: 'folder', label: 'Folder' },
+  { id: 'code', label: 'Code' },
+  { id: 'layers', label: 'Layers' },
+  { id: 'sparkles', label: 'Sparkles' },
+]
+const PROJECT_COLOR_OPTIONS: readonly {
+  className: string
+  id: ProjectColor
+  label: string
+}[] = [
+  { className: 'bg-muted-foreground', id: 'neutral', label: 'Neutral' },
+  { className: 'bg-accent-blue', id: 'blue', label: 'Blue' },
+  { className: 'bg-violet-400', id: 'violet', label: 'Violet' },
+  { className: 'bg-accent-green', id: 'green', label: 'Green' },
+  { className: 'bg-accent-yellow', id: 'amber', label: 'Amber' },
+]
 
 interface SidebarTreeProps {
   readonly activeProjectId: string | null
@@ -65,10 +91,43 @@ interface SidebarTreeProps {
     workspaceId: string,
     name: string,
   ) => Promise<string | null>
+  readonly onUpdateProjectAppearance: (
+    projectId: string,
+    input: ProjectAppearance,
+  ) => Promise<string | null>
   readonly projects: readonly ProjectRecord[]
   readonly showProjectHints: boolean
   readonly summaries: Record<string, WorkspaceSummary>
   readonly workspaces: readonly WorkspaceRecord[]
+}
+
+function getProjectColorClassName(color: ProjectColor): string {
+  switch (color) {
+    case 'blue':
+      return 'text-accent-blue'
+    case 'violet':
+      return 'text-violet-400'
+    case 'green':
+      return 'text-accent-green'
+    case 'amber':
+      return 'text-accent-yellow'
+    default:
+      return 'text-muted-foreground'
+  }
+}
+
+function ProjectIconView({ icon }: { readonly icon: ProjectIcon }) {
+  const className = 'size-3.5 shrink-0'
+  switch (icon) {
+    case 'code':
+      return <Code2 className={className} />
+    case 'layers':
+      return <Layers3 className={className} />
+    case 'sparkles':
+      return <Sparkles className={className} />
+    default:
+      return <Folder className={className} />
+  }
 }
 
 function renderWorkspaceStateIcon(input: {
@@ -204,91 +263,136 @@ function ActivityPill({
 
 function ProjectOverflowMenu({
   onConfigureSetup,
-  projectName,
+  onUpdateAppearance,
+  project,
 }: {
   readonly onConfigureSetup: () => void
-  readonly projectName: string
+  readonly onUpdateAppearance: (
+    input: ProjectAppearance,
+  ) => Promise<string | null>
+  readonly project: ProjectRecord
 }) {
   const [isOpen, setIsOpen] = useState(false)
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    function handleClickOutside(event: MouseEvent): void {
-      if (
-        event.target instanceof Node &&
-        !triggerRef.current?.contains(event.target) &&
-        !popoverRef.current?.contains(event.target)
-      ) {
-        setIsOpen(false)
-      }
-    }
-
-    function handleKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        setIsOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKey)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKey)
-    }
-  }, [isOpen])
+  const saveAppearance = useCallback(
+    async (input: ProjectAppearance) => {
+      setIsSaving(true)
+      setError(null)
+      const nextError = await onUpdateAppearance(input)
+      setIsSaving(false)
+      setError(nextError)
+    },
+    [onUpdateAppearance],
+  )
+  const projectColor = project.color ?? 'neutral'
+  const projectIcon = project.icon ?? 'folder'
 
   return (
-    <div className="relative">
-      <button
-        aria-label={`More options for ${projectName}`}
-        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-surface-secondary hover:text-foreground group-hover/project:opacity-100"
-        onClick={() => setIsOpen((current) => !current)}
-        ref={triggerRef}
-        type="button"
+    <Popover
+      isOpen={isOpen}
+      onOpenChange={(nextIsOpen) => {
+        setIsOpen(nextIsOpen)
+        if (!nextIsOpen) setError(null)
+      }}
+    >
+      <Popover.Trigger
+        aria-label={`More options for ${project.name}`}
+        className="flex size-6 min-h-6 min-w-6 flex-none shrink-0 cursor-pointer items-center justify-center rounded bg-transparent text-muted-foreground opacity-0 outline-none hover:bg-surface-tertiary hover:text-foreground data-[pressed]:bg-transparent group-hover/project:opacity-100 group-focus-within/project:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-primary/60"
       >
-        <MoreHorizontal className="size-3.5" />
-      </button>
-      {isOpen ? (
-        <div
-          className="absolute right-0 top-full z-30 mt-1 w-44 rounded-md border border-border bg-surface py-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
-          ref={popoverRef}
-        >
-          <button
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-foreground hover:bg-surface-secondary"
-            onClick={() => {
-              onConfigureSetup()
-              setIsOpen(false)
-            }}
-            type="button"
-          >
-            <Settings className="size-3.5" />
-            Configure project setup
-          </button>
-          {(
-            [
-              { id: 'rename', label: 'Rename project' },
-              { id: 'archive', label: 'Archive project' },
-              { id: 'delete', label: 'Delete project' },
-            ] as const
-          ).map((option) => (
-            <button
-              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs text-muted-foreground opacity-60"
-              disabled
-              key={option.id}
-              type="button"
+        <MoreHorizontal className="size-4 shrink-0" />
+      </Popover.Trigger>
+      <Popover.Content
+        className="w-56 rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        placement="bottom end"
+      >
+        <Popover.Dialog className="p-0 outline-none">
+          <div className="space-y-3 p-2.5">
+            <div>
+              <span className="px-1 text-[11px] font-medium text-muted-foreground">
+                Icon
+              </span>
+              <div className="mt-1 flex gap-1">
+                {PROJECT_ICON_OPTIONS.map((option) => (
+                  <Button
+                    aria-label={`${option.label} project icon`}
+                    aria-pressed={projectIcon === option.id}
+                    className={cn(
+                      'size-8 min-w-8 px-0',
+                      projectIcon === option.id &&
+                        'bg-primary/15 text-primary ring-1 ring-primary/50',
+                    )}
+                    isDisabled={isSaving}
+                    key={option.id}
+                    onPress={() =>
+                      void saveAppearance({
+                        color: projectColor,
+                        icon: option.id,
+                      })
+                    }
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <ProjectIconView icon={option.id} />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="px-1 text-[11px] font-medium text-muted-foreground">
+                Color
+              </span>
+              <div className="mt-1 flex gap-1">
+                {PROJECT_COLOR_OPTIONS.map((option) => (
+                  <Button
+                    aria-label={`${option.label} project color`}
+                    aria-pressed={projectColor === option.id}
+                    className={cn(
+                      'size-8 min-w-8 px-0',
+                      projectColor === option.id && 'ring-1 ring-primary/60',
+                    )}
+                    isDisabled={isSaving}
+                    key={option.id}
+                    onPress={() =>
+                      void saveAppearance({
+                        color: option.id,
+                        icon: projectIcon,
+                      })
+                    }
+                    size="sm"
+                    variant="ghost"
+                  >
+                    <span
+                      className={cn('size-3 rounded-full', option.className)}
+                    />
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {error ? (
+              <p className="px-1 text-xs text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <div className="border-t border-border p-1">
+            <Button
+              className="h-8 w-full justify-start gap-2 px-2 text-xs"
+              onPress={() => {
+                onConfigureSetup()
+                setIsOpen(false)
+              }}
+              size="sm"
+              variant="ghost"
             >
-              {option.label}
-              <span className="text-[10px] text-muted-foreground/60">Soon</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+              <Settings className="size-3.5" />
+              Configure project setup
+            </Button>
+          </div>
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
   )
 }
 
@@ -443,6 +547,7 @@ export default function SidebarTree({
   onSelectProject,
   onSelectWorkspace,
   onRenameWorkspace,
+  onUpdateProjectAppearance,
   projects,
   showProjectHints,
   summaries,
@@ -627,7 +732,10 @@ export default function SidebarTree({
                 )}
                 key={project.id}
               >
-                <div className="group/project flex items-center gap-1 px-2 py-1">
+                <div
+                  className="group/project flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-surface-secondary focus-within:bg-surface-secondary"
+                  data-testid={`project-header-${project.id}`}
+                >
                   <button
                     aria-expanded={isProjectExpanded}
                     aria-label={`Toggle ${project.name} workspaces`}
@@ -648,7 +756,7 @@ export default function SidebarTree({
                       aria-current={isActiveProject ? 'true' : undefined}
                       aria-expanded={isProjectExpanded}
                       className={cn(
-                        'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+                        'flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
                         isActiveProject
                           ? 'text-foreground'
                           : 'text-foreground/80',
@@ -666,6 +774,13 @@ export default function SidebarTree({
                         toggleProject()
                       }}
                     >
+                      <span
+                        className={getProjectColorClassName(
+                          project.color ?? 'neutral',
+                        )}
+                      >
+                        <ProjectIconView icon={project.icon ?? 'folder'} />
+                      </span>
                       <span className="truncate text-sm font-semibold">
                         {project.name}
                       </span>
@@ -737,7 +852,10 @@ export default function SidebarTree({
                   </Dropdown>
                   <ProjectOverflowMenu
                     onConfigureSetup={() => onConfigureProjectSetup(project.id)}
-                    projectName={project.name}
+                    onUpdateAppearance={(input) =>
+                      onUpdateProjectAppearance(project.id, input)
+                    }
+                    project={project}
                   />
                 </div>
 
@@ -761,10 +879,17 @@ export default function SidebarTree({
                         isActiveWorkspace,
                       )
                       const tooltipContent = (
-                        <div className="flex max-w-sm flex-col gap-1">
+                        <div
+                          className="flex max-w-sm flex-col gap-1"
+                          key={workspace.id}
+                        >
                           <span className="font-medium">{workspace.name}</span>
                           {project.kind === 'git' ? (
-                            <span className="break-all font-mono">
+                            <span className="flex items-start gap-1.5 break-all font-mono">
+                              <GitBranch
+                                className="mt-0.5 size-3 shrink-0"
+                                data-testid="workspace-tooltip-branch-icon"
+                              />
                               {summary?.branchName ?? workspace.branchName}
                             </span>
                           ) : null}
@@ -810,6 +935,7 @@ export default function SidebarTree({
                       const rowElement = (
                         <div
                           className="group/workspace relative"
+                          key={workspace.id}
                           onContextMenu={(event) => {
                             event.preventDefault()
                             event.currentTarget
@@ -819,100 +945,119 @@ export default function SidebarTree({
                               ?.click()
                           }}
                         >
-                          <button
-                            className={cn(
-                              'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-10 text-left transition-colors',
-                              bgClass,
-                              isActiveWorkspace &&
-                                'bg-primary/10 ring-1 ring-inset ring-primary/40',
-                              !activity &&
-                                !isActiveWorkspace &&
-                                'hover:bg-surface-secondary',
-                            )}
-                            onClick={() => {
-                              onSelectWorkspace(workspace.id)
-                              if (activity) {
-                                onSelectPane(activity.paneId)
-                              }
-                            }}
-                            type="button"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {renderWorkspaceStateIcon({
-                                activity,
-                                isCurrent: isActiveWorkspace,
-                                projectKind: project.kind,
-                              })}
-                              <span
-                                className={cn(
-                                  'truncate text-[13px] font-semibold',
-                                  attentionTier === 'attention' ||
-                                    isActiveWorkspace
-                                    ? 'text-foreground'
-                                    : 'text-foreground/95',
-                                )}
-                              >
-                                {summary?.workspaceName ?? workspace.name}
-                              </span>
-
-                              <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                                {visibleActivities.length > 0
-                                  ? visibleActivities.map((entry) => (
-                                      <ActivityPill
-                                        activity={entry}
-                                        key={entry.sessionId}
-                                      />
-                                    ))
-                                  : null}
-                              </span>
-                            </div>
-
-                            <div className="flex w-full min-w-0 items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
-                              {stats &&
-                              (stats.additions > 0 || stats.deletions > 0) ? (
-                                <span
-                                  className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold tabular-nums"
-                                  data-testid="workspace-change-counts"
-                                >
-                                  <span className="text-accent-green">
-                                    +{stats.additions}
-                                  </span>
-                                  <span className="text-accent-red">
-                                    -{stats.deletions}
-                                  </span>
-                                </span>
-                              ) : null}
-                              <span className="min-w-0 truncate font-mono">
-                                {project.kind === 'folder'
-                                  ? 'Folder'
-                                  : (summary?.branchName ??
-                                    workspace.branchName)}
-                              </span>
-                              {mergeLabel && mergeLabel !== 'Up to date' ? (
-                                <>
-                                  <span className="text-muted-foreground/50">
-                                    ·
-                                  </span>
-                                  <span
-                                    className={cn(
-                                      'truncate',
-                                      stats
-                                        ? getMergeStatusClassName(
-                                            stats.mergeStatus,
-                                          )
-                                        : '',
-                                    )}
-                                  >
-                                    {mergeLabel}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="ml-1 shrink-0 tabular-nums">
-                                  {formatRelativeTime(workspace.updatedAt)}
-                                </span>
+                          <Tooltip delay={400}>
+                            <Tooltip.Trigger
+                              className={cn(
+                                'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-10 text-left transition-colors',
+                                bgClass,
+                                isActiveWorkspace &&
+                                  'bg-primary/10 ring-1 ring-inset ring-primary/40',
+                                !activity &&
+                                  !isActiveWorkspace &&
+                                  'hover:bg-surface-secondary',
                               )}
-                            </div>
-                          </button>
+                              data-testid={`workspace-row-${workspace.id}`}
+                              onClick={() => {
+                                onSelectWorkspace(workspace.id)
+                                if (activity) {
+                                  onSelectPane(activity.paneId)
+                                }
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  event.key !== 'Enter' &&
+                                  event.key !== ' '
+                                ) {
+                                  return
+                                }
+                                event.preventDefault()
+                                onSelectWorkspace(workspace.id)
+                                if (activity) onSelectPane(activity.paneId)
+                              }}
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                {renderWorkspaceStateIcon({
+                                  activity,
+                                  isCurrent: isActiveWorkspace,
+                                  projectKind: project.kind,
+                                })}
+                                <span
+                                  className={cn(
+                                    'truncate text-[13px] font-semibold',
+                                    attentionTier === 'attention' ||
+                                      isActiveWorkspace
+                                      ? 'text-foreground'
+                                      : 'text-foreground/95',
+                                  )}
+                                >
+                                  {summary?.workspaceName ?? workspace.name}
+                                </span>
+
+                                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                  {visibleActivities.length > 0
+                                    ? visibleActivities.map((entry) => (
+                                        <ActivityPill
+                                          activity={entry}
+                                          key={entry.sessionId}
+                                        />
+                                      ))
+                                    : null}
+                                </span>
+                              </div>
+
+                              <div className="flex w-full min-w-0 items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
+                                {stats &&
+                                (stats.additions > 0 || stats.deletions > 0) ? (
+                                  <span
+                                    className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold tabular-nums"
+                                    data-testid="workspace-change-counts"
+                                  >
+                                    <span className="text-accent-green">
+                                      +{stats.additions}
+                                    </span>
+                                    <span className="text-accent-red">
+                                      -{stats.deletions}
+                                    </span>
+                                  </span>
+                                ) : null}
+                                <span className="min-w-0 truncate font-mono">
+                                  {project.kind === 'folder'
+                                    ? 'Folder'
+                                    : (summary?.branchName ??
+                                      workspace.branchName)}
+                                </span>
+                                {mergeLabel && mergeLabel !== 'Up to date' ? (
+                                  <>
+                                    <span className="text-muted-foreground/50">
+                                      ·
+                                    </span>
+                                    <span
+                                      className={cn(
+                                        'truncate',
+                                        stats
+                                          ? getMergeStatusClassName(
+                                              stats.mergeStatus,
+                                            )
+                                          : '',
+                                      )}
+                                    >
+                                      {mergeLabel}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="ml-1 shrink-0 tabular-nums">
+                                    {formatRelativeTime(workspace.updatedAt)}
+                                  </span>
+                                )}
+                              </div>
+                            </Tooltip.Trigger>
+                            <Tooltip.Content
+                              className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
+                              placement="right"
+                            >
+                              {tooltipContent}
+                            </Tooltip.Content>
+                          </Tooltip>
                           <div className="absolute right-1 top-1.5">
                             <WorkspaceOverflowMenu
                               onCreateChat={() =>
@@ -927,19 +1072,7 @@ export default function SidebarTree({
                         </div>
                       )
 
-                      return (
-                        <Tooltip delay={400} key={workspace.id}>
-                          <Tooltip.Trigger className="w-full">
-                            {rowElement}
-                          </Tooltip.Trigger>
-                          <Tooltip.Content
-                            className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
-                            placement="right"
-                          >
-                            {tooltipContent}
-                          </Tooltip.Content>
-                        </Tooltip>
-                      )
+                      return rowElement
                     })}
                   </div>
                 ) : null}

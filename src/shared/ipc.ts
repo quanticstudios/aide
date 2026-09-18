@@ -44,6 +44,7 @@ import type {
 } from './managed-session'
 import type {
   PersistenceSnapshot,
+  ProjectAppearance,
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
@@ -155,6 +156,7 @@ export const IPC_CHANNELS = {
   workspacePersistenceEvent: 'storage:persistence-event',
   workspaceSetupEvent: 'workspace-setup:event',
   updateProjectSetupCommand: 'storage:update-project-setup-command',
+  updateProjectAppearance: 'storage:update-project-appearance',
   runWorkspaceSetup: 'workspace-setup:run',
   cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
@@ -351,6 +353,10 @@ export interface AideApi {
   updateProjectSetupCommand: (
     projectId: string,
     command: string | null,
+  ) => Promise<PersistenceSnapshot>
+  updateProjectAppearance: (
+    projectId: string,
+    input: ProjectAppearance,
   ) => Promise<PersistenceSnapshot>
   runWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
   cancelWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>

@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 12,
+      schemaVersion: 13,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -657,14 +657,18 @@ describe('createAideDatabase', () => {
     expect(database.getProject(createdProject.id)).toEqual(createdProject)
 
     const updatedProject = database.updateProject(createdProject.id, {
+      color: 'violet',
       defaultBranch: 'develop',
+      icon: 'sparkles',
       name: 'aide-desktop',
       remoteUrl: null,
     })
 
     expect(updatedProject).toMatchObject({
+      color: 'violet',
       defaultBranch: 'develop',
       id: createdProject.id,
+      icon: 'sparkles',
       name: 'aide-desktop',
       remoteUrl: null,
       repoRoot: '/workspace/aide',

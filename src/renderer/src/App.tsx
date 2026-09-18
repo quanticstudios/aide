@@ -17,6 +17,7 @@ import type { AideApi } from '../../shared/ipc'
 import {
   createEmptyPersistenceSnapshot,
   type PersistenceSnapshot,
+  type ProjectAppearance,
   type SaveWorkspaceSurfaceStateInput,
   type SurfaceLayoutRecord,
   type WorkspaceLayoutRecord,
@@ -51,20 +52,20 @@ import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceSetupStatus from './components/WorkspaceSetupStatus'
 import { buildCommandList } from './lib/command-registry'
 import {
-  clearTerminalPaneRunning,
-  decidePaneClose,
-  getPaneCloseWarnings,
-  resolvePaneCloseConfirmation,
-  type PaneCloseDecision,
-  type PaneCloseRequest,
-  type PaneCloseWarning,
-} from './lib/pane-close-warning'
-import {
   getPaneCatalogEntryForTemplate,
   getPaneTemplateId,
   resolvePaneMetadata,
   resolvePaneType,
 } from './lib/pane-catalog'
+import {
+  clearTerminalPaneRunning,
+  decidePaneClose,
+  getPaneCloseWarnings,
+  type PaneCloseDecision,
+  type PaneCloseRequest,
+  type PaneCloseWarning,
+  resolvePaneCloseConfirmation,
+} from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
 import {
   applyPaneSelection,
@@ -724,6 +725,24 @@ function WorkspaceApp() {
 
       try {
         const snapshot = await api.updateProjectSetupCommand(projectId, command)
+        storageSnapshotRef.current = snapshot
+        setStorageSnapshot(snapshot)
+        setActionError(null)
+        return null
+      } catch (error) {
+        return getErrorMessage(error)
+      }
+    },
+    [],
+  )
+
+  const saveProjectAppearance = useCallback(
+    async (projectId: string, input: ProjectAppearance) => {
+      const api = getAideApi()
+      if (!api) return 'Desktop bridge did not load. Reload the app window.'
+
+      try {
+        const snapshot = await api.updateProjectAppearance(projectId, input)
         storageSnapshotRef.current = snapshot
         setStorageSnapshot(snapshot)
         setActionError(null)
@@ -2697,6 +2716,7 @@ function WorkspaceApp() {
       onCreateChat={handleCreateChat}
       onCreateWorkspace={createWorkspace}
       onRenameWorkspace={renameWorkspace}
+      onUpdateProjectAppearance={saveProjectAppearance}
       onConfigureProjectSetup={setProjectSetupProjectId}
       onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
       onOpenSettings={openSettings}

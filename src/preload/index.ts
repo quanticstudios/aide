@@ -12,7 +12,10 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionProviderSelection,
 } from '../shared/managed-session'
-import type { WorkspacePersistenceEvent } from '../shared/persistence'
+import type {
+  ProjectAppearance,
+  WorkspacePersistenceEvent,
+} from '../shared/persistence'
 import type { PreviewNavigationReport } from '../shared/preview'
 import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type { AppShortcutEvent } from '../shared/shortcuts'
@@ -354,6 +357,8 @@ const aideApi: AideApi = {
       projectId,
       command,
     ),
+  updateProjectAppearance: (projectId: string, input: ProjectAppearance) =>
+    ipcRenderer.invoke(IPC_CHANNELS.updateProjectAppearance, projectId, input),
   runWorkspaceSetup: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.runWorkspaceSetup, workspaceId),
   cancelWorkspaceSetup: (workspaceId: string) =>

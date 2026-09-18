@@ -13,6 +13,7 @@ import type { UpdatePresentation } from '@/lib/update-presentation'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import type {
   PersistedSplitLayoutNode,
+  ProjectAppearance,
   ProjectRecord,
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
@@ -62,6 +63,10 @@ interface AppShellProps {
     workspaceId: string,
     name: string,
   ) => Promise<string | null>
+  readonly onUpdateProjectAppearance: (
+    projectId: string,
+    input: ProjectAppearance,
+  ) => Promise<string | null>
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: (projectId?: string) => void
   readonly onConfigureProjectSetup: (projectId: string) => void
@@ -98,6 +103,7 @@ export default function AppShell({
   onSelectProject,
   onSelectWorkspace,
   onRenameWorkspace,
+  onUpdateProjectAppearance,
   onCreateProject,
   onCreateWorkspace,
   onConfigureProjectSetup,
@@ -228,6 +234,7 @@ export default function AppShell({
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
           onRenameWorkspace={onRenameWorkspace}
+          onUpdateProjectAppearance={onUpdateProjectAppearance}
           projects={projects}
           showProjectHints={showProjectHints}
           summaries={workspaceSummaries}

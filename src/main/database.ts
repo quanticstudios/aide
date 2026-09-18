@@ -9,6 +9,8 @@ import type {
   CreateWorkspaceInput,
   PersistedLayoutNode,
   PersistenceSnapshot,
+  ProjectColor,
+  ProjectIcon,
   ProjectRecord,
   SaveWorkspaceLayoutInput,
   SaveWorkspaceSurfaceStateInput,
@@ -42,9 +44,11 @@ import type {
 } from '../shared/workspace-setup'
 
 interface SqlProjectRow {
+  color: ProjectColor
   created_at: string
   default_branch: string
   id: string
+  icon: ProjectIcon
   kind: ProjectRecord['kind']
   name: string
   remote_url: string | null
@@ -378,6 +382,15 @@ const MIGRATIONS = [
       UPDATE workspaces
       SET name_source = 'manual'
       WHERE branch_name <> '' AND name <> branch_name;
+    `,
+  },
+  {
+    version: 13,
+    sql: `
+      ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder'
+      CHECK (icon IN ('folder', 'code', 'layers', 'sparkles'));
+      ALTER TABLE projects ADD COLUMN color TEXT NOT NULL DEFAULT 'neutral'
+      CHECK (color IN ('neutral', 'blue', 'violet', 'green', 'amber'));
     `,
   },
 ]
@@ -1406,7 +1419,9 @@ export class AideDatabase {
   public createProject(input: CreateProjectInput): ProjectRecord {
     const now = new Date().toISOString()
     const project: ProjectRecord = {
+      color: 'neutral',
       id: randomUUID(),
+      icon: 'folder',
       kind: input.kind ?? 'git',
       name: input.name,
       repoRoot: input.repoRoot,
@@ -1421,14 +1436,16 @@ export class AideDatabase {
     this.database
       .prepare(
         `
-          INSERT INTO projects (id, kind, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO projects (id, kind, name, icon, color, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         project.id,
         project.kind,
         project.name,
+        project.icon ?? 'folder',
+        project.color ?? 'neutral',
         project.repoRoot,
         project.remoteUrl,
         project.defaultBranch,
@@ -1465,7 +1482,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, kind, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
+          SELECT id, kind, name, icon, color, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           WHERE id = ?
         `,
@@ -1479,7 +1496,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, kind, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
+          SELECT id, kind, name, icon, color, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           ORDER BY created_at ASC, id ASC
         `,
@@ -1493,7 +1510,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, kind, name, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
+          SELECT id, kind, name, icon, color, repo_root, remote_url, default_branch, setup_command, worktree_setup_revision, created_at, updated_at
           FROM projects
           WHERE repo_root = ?
           LIMIT 1
@@ -1516,7 +1533,9 @@ export class AideDatabase {
 
     const updatedProject: ProjectRecord = {
       ...existingProject,
+      color: input.color ?? existingProject.color ?? 'neutral',
       defaultBranch: input.defaultBranch ?? existingProject.defaultBranch,
+      icon: input.icon ?? existingProject.icon ?? 'folder',
       kind: input.kind ?? existingProject.kind,
       name: input.name ?? existingProject.name,
       remoteUrl:
@@ -1540,13 +1559,15 @@ export class AideDatabase {
       .prepare(
         `
           UPDATE projects
-          SET kind = ?, name = ?, repo_root = ?, remote_url = ?, default_branch = ?, setup_command = ?, worktree_setup_revision = ?, updated_at = ?
+          SET kind = ?, name = ?, icon = ?, color = ?, repo_root = ?, remote_url = ?, default_branch = ?, setup_command = ?, worktree_setup_revision = ?, updated_at = ?
           WHERE id = ?
         `,
       )
       .run(
         updatedProject.kind,
         updatedProject.name,
+        updatedProject.icon ?? 'folder',
+        updatedProject.color ?? 'neutral',
         updatedProject.repoRoot,
         updatedProject.remoteUrl,
         updatedProject.defaultBranch,
@@ -2122,7 +2143,9 @@ export class AideDatabase {
 
   private mapProjectRow(row: SqlProjectRow): ProjectRecord {
     return {
+      color: row.color,
       id: row.id,
+      icon: row.icon,
       kind: row.kind,
       name: row.name,
       repoRoot: row.repo_root,
