@@ -1,4 +1,5 @@
 import { Button } from '@heroui/react'
+import { ConversationMinimap } from './ConversationMinimap'
 import {
   ArrowDown,
   ArrowUp,
@@ -435,6 +436,7 @@ function ContentItemBlock({
       <div className="flex justify-end">
         <div
           className="group/user-message flex max-w-[85%] flex-col items-end"
+          data-minimap-message="Your message"
           data-testid={`managed-content-${item.kind}`}
         >
           <div
@@ -554,6 +556,9 @@ function ContentItemBlock({
         'px-1',
         item.kind === 'assistant-text' && 'assistant-message',
       )}
+      data-minimap-message={
+        item.kind === 'assistant-text' ? 'Agent response' : undefined
+      }
       data-testid={`managed-content-${item.kind}`}
     >
       {item.kind === 'assistant-text' && item.provider && showProvider ? (
@@ -2193,71 +2198,80 @@ export default function ManagedAgentPane({
         </div>
       ) : null}
 
-      <div
-        className="relative min-h-0 flex-1 overflow-y-auto px-4 py-4"
-        data-testid="managed-session-content"
-        onScroll={handleScroll}
-        ref={scrollRef}
-      >
-        {visibleTurnGroups.length > 0 ? (
-          <div className="mx-auto max-w-3xl space-y-8">
-            {visibleTurnGroups.map((group) => {
-              const turn = snapshot?.turns.find(
-                (candidate) => candidate.id === group.turnId,
-              ) as RecipientTurnSummary | undefined
+      <div className="relative min-h-0 flex-1">
+        <div
+          className="relative h-full overflow-y-auto pl-8 pr-4 py-4"
+          data-testid="managed-session-content"
+          onScroll={handleScroll}
+          ref={scrollRef}
+        >
+          {visibleTurnGroups.length > 0 ? (
+            <div className="mx-auto max-w-3xl space-y-8">
+              {visibleTurnGroups.map((group) => {
+                const turn = snapshot?.turns.find(
+                  (candidate) => candidate.id === group.turnId,
+                ) as RecipientTurnSummary | undefined
 
-              return (
-                <TurnGroupBlock
-                  canBranch={turn?.state === 'completed'}
-                  group={group}
-                  isFailed={turn?.state === 'failed'}
-                  isRunning={turn?.state === 'running'}
-                  key={group.turnId ?? `system-${group.items[0]?.id}`}
-                  onBranch={(responseContentItemId) =>
-                    void handleBranchConversation(responseContentItemId)
-                  }
-                  onInterrupt={handleInterruptRecipient}
-                  onRetry={(text, recipientAlias) =>
-                    void handleRetryTurn(text, recipientAlias)
-                  }
-                  providerLabel={
-                    turn?.provider === 'claude'
-                      ? 'Claude'
-                      : turn?.provider === 'codex'
-                        ? 'Codex'
-                        : workingProviderLabel
-                  }
-                  recipientAlias={turn?.recipientAlias ?? null}
-                  requestText={turn?.requestText ?? null}
-                />
-              )
-            })}
+                return (
+                  <TurnGroupBlock
+                    canBranch={turn?.state === 'completed'}
+                    group={group}
+                    isFailed={turn?.state === 'failed'}
+                    isRunning={turn?.state === 'running'}
+                    key={group.turnId ?? `system-${group.items[0]?.id}`}
+                    onBranch={(responseContentItemId) =>
+                      void handleBranchConversation(responseContentItemId)
+                    }
+                    onInterrupt={handleInterruptRecipient}
+                    onRetry={(text, recipientAlias) =>
+                      void handleRetryTurn(text, recipientAlias)
+                    }
+                    providerLabel={
+                      turn?.provider === 'claude'
+                        ? 'Claude'
+                        : turn?.provider === 'codex'
+                          ? 'Codex'
+                          : workingProviderLabel
+                    }
+                    recipientAlias={turn?.recipientAlias ?? null}
+                    requestText={turn?.requestText ?? null}
+                  />
+                )
+              })}
 
-            {snapshot?.sessionState === 'running' && runningTurnId === null ? (
-              <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
-                {workingProviderLabel} is working...
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-muted-foreground/60">
-              Send a prompt to start.
-            </p>
-          </div>
-        )}
+              {snapshot?.sessionState === 'running' &&
+              runningTurnId === null ? (
+                <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
+                  <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
+                  {workingProviderLabel} is working...
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-muted-foreground/60">
+                Send a prompt to start.
+              </p>
+            </div>
+          )}
 
-        {!isAtBottom ? (
-          <button
-            className="sticky bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/60 bg-surface-secondary px-3 py-1.5 text-xs text-muted-foreground shadow-md transition-colors hover:bg-surface-tertiary hover:text-foreground"
-            onClick={scrollToBottom}
-            type="button"
-          >
-            <ArrowDown className="mr-1 inline size-3" />
-            Jump to latest
-          </button>
-        ) : null}
+          {!isAtBottom ? (
+            <button
+              className="sticky bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/60 bg-surface-secondary px-3 py-1.5 text-xs text-muted-foreground shadow-md transition-colors hover:bg-surface-tertiary hover:text-foreground"
+              onClick={scrollToBottom}
+              type="button"
+            >
+              <ArrowDown className="mr-1 inline size-3" />
+              Jump to latest
+            </button>
+          ) : null}
+        </div>
+
+        <ConversationMinimap
+          key={sessionId}
+          scrollRef={scrollRef}
+          contentLength={contentLength}
+        />
       </div>
 
       <div className="flex flex-col gap-2 px-4 pb-3 pt-2">

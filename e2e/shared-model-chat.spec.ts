@@ -910,6 +910,62 @@ test.describe('shared model chat', () => {
     )
   })
 
+  test('navigates the conversation minimap with scrolling, clicks and keyboard', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    const session = await startSharedChat(page, app)
+    const rail = page.getByRole('navigation', { name: 'Conversation minimap' })
+    await expect(rail).toBeHidden()
+    for (let index = 0; index < 30; index++) {
+      await page.evaluate(
+        async ({ id, index }) => {
+          await window.aide.sendManagedSessionInput(
+            id,
+            `Minimap message ${index}`,
+          )
+        },
+        { id: session.sessionId, index },
+      )
+    }
+    const content = page.getByTestId('managed-session-content')
+    await expect(content).toContainText('Handled: Minimap message 29')
+    await expect(rail).toBeVisible()
+    const ticks = rail.getByRole('button')
+    await expect(ticks).toHaveCount(62)
+    await content.evaluate((element) => {
+      element.scrollTop = element.scrollHeight
+    })
+    await expect(ticks.last()).toHaveAttribute('aria-current', 'location')
+    const track = rail.locator('.conversation-minimap-track')
+    await expect
+      .poll(() =>
+        track.evaluate(
+          (element) => new DOMMatrix(getComputedStyle(element).transform).m42,
+        ),
+      )
+      .toBeLessThan(0)
+    await ticks.last().focus()
+    await page.keyboard.press('Home')
+    await expect(ticks.first()).toBeFocused()
+    await expect(ticks.first()).toHaveAttribute('aria-current', 'location')
+    await expect
+      .poll(() => content.evaluate((element) => element.scrollTop))
+      .toBe(0)
+    await ticks.nth(4).click()
+    await expect(ticks.nth(4)).toHaveAttribute('aria-current', 'location')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect(track).toHaveCSS('transition-duration', '0s')
+    await ticks.nth(2).click()
+    await expect(ticks.nth(2)).toHaveAttribute('aria-current', 'location')
+    await page.keyboard.press('End')
+    await expect(ticks.last()).toBeFocused()
+    await expect(ticks.last()).toHaveAttribute('aria-current', 'location')
+    await page.screenshot({ path: '/tmp/aide-minimap.png' })
+  })
+
   test('keeps model and effort controls available during a reply and applies the next choice after it finishes', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
