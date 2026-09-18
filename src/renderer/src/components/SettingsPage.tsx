@@ -1,6 +1,11 @@
-import { ArrowLeft, Search, Settings, X } from 'lucide-react'
+import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import {
+  type AnimationPreference,
+  getAnimationPreference,
+  setAnimationPreference,
+} from '../lib/animation-preference'
 import type {
   UpdatePreferencesInput,
   UpdatePreferencesSnapshot,
@@ -24,6 +29,11 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
       { keys: ['Ctrl', 'K'], label: 'Open command palette' },
       { keys: ['Ctrl/Cmd', 'Tab'], label: 'Open workspace overview' },
       { keys: ['Alt', 'Space'], label: 'Open workspace switcher' },
+      {
+        keys: ['Hold Alt'],
+        label: 'Peek at workspace switcher',
+        description: 'Release Alt to close',
+      },
       { keys: ['Alt', 'N'], label: 'Create pane' },
       { keys: ['Alt', '←/H'], label: 'Select previous pane' },
       { keys: ['Alt', '→/L'], label: 'Select next pane' },
@@ -43,6 +53,8 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
   {
     label: 'Chat',
     shortcuts: [
+      { keys: ['/'], label: 'Open commands and provider skills' },
+      { keys: ['@'], label: 'Mention a model for an opinion' },
       { keys: ['Enter'], label: 'Send message or submit answers' },
       { keys: ['Shift', 'Enter'], label: 'Add a new line' },
       {
@@ -64,6 +76,14 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
     ],
   },
   {
+    label: 'Command palette',
+    shortcuts: [
+      { keys: ['↑/↓'], label: 'Move through commands' },
+      { keys: ['Enter'], label: 'Run selected command' },
+      { keys: ['Esc'], label: 'Close command palette' },
+    ],
+  },
+  {
     label: 'Models and pane menus',
     shortcuts: [
       {
@@ -81,6 +101,25 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
     ],
   },
 ]
+
+export function filterSettingsShortcutGroups(
+  query: string,
+): readonly SettingsShortcutGroup[] {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return SETTINGS_SHORTCUT_GROUPS
+
+  return SETTINGS_SHORTCUT_GROUPS.map((group) => ({
+    ...group,
+    shortcuts: group.shortcuts.filter((shortcut) =>
+      [
+        group.label,
+        shortcut.label,
+        shortcut.description ?? '',
+        shortcut.keys.join(' '),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery)),
+    ),
+  })).filter((group) => group.shortcuts.length > 0)
+}
 
 interface SettingsPageProps {
   readonly onClose: () => void
@@ -107,8 +146,12 @@ export default function SettingsPage({
     null,
   )
   const [error, setError] = useState<string | null>(null)
+  const [selectedSection, setSelectedSection] = useState('general-settings')
+  const [selectedAnimation, setSelectedAnimation] =
+    useState<AnimationPreference>(getAnimationPreference)
 
   useEffect(() => {
+    searchRef.current?.focus()
     const api = window.aide
     if (!api) return
     let isDisposed = false
@@ -130,7 +173,6 @@ export default function SettingsPage({
 
     const unsubscribe = api.onTaskLibraryChanged(loadNotifications)
     loadNotifications()
-    searchRef.current?.focus()
 
     return () => {
       isDisposed = true
@@ -142,7 +184,7 @@ export default function SettingsPage({
     const keepFocusInsideSettings = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return
       const focusableElements = pageRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
       )
       if (!focusableElements?.length) return
 
@@ -162,22 +204,56 @@ export default function SettingsPage({
       document.removeEventListener('keydown', keepFocusInsideSettings)
   }, [])
 
-  const filteredShortcutGroups = useMemo(() => {
+  const searchResults = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
-    if (!normalizedQuery) return SETTINGS_SHORTCUT_GROUPS
+    const containsQuery = (...values: string[]) =>
+      !normalizedQuery ||
+      values.some((value) => value.toLowerCase().includes(normalizedQuery))
+    const matchesKeyboardSection = containsQuery(
+      'Keyboard shortcuts',
+      'Keys available in the workspace, chat, and menus',
+    )
+    const shortcutGroups = matchesKeyboardSection
+      ? SETTINGS_SHORTCUT_GROUPS
+      : filterSettingsShortcutGroups(query)
 
-    return SETTINGS_SHORTCUT_GROUPS.map((group) => ({
-      ...group,
-      shortcuts: group.shortcuts.filter((shortcut) =>
-        [
-          group.label,
-          shortcut.label,
-          shortcut.description ?? '',
-          shortcut.keys.join(' '),
-        ].some((value) => value.toLowerCase().includes(normalizedQuery)),
+    return {
+      shortcutGroups,
+      showAppearance: containsQuery(
+        'Appearance',
+        'Animations',
+        'System default',
+        'On',
+        'Reduced motion',
+        'Reduce movement while keeping status and feedback visible',
       ),
-    })).filter((group) => group.shortcuts.length > 0)
+      showGeneral: containsQuery(
+        'General',
+        'Background task notifications',
+        'Show a desktop notification when a background task needs attention',
+      ),
+      showKeyboard: shortcutGroups.length > 0,
+      showUpdates: containsQuery(
+        'Software updates',
+        'Download updates automatically',
+        'Download signed updates in the background',
+        'Share update health reports',
+        'version platform timing failure codes privacy',
+        'Update status',
+        'Check download install available update',
+        'Open details',
+        'Software update downloads diagnostics installation',
+      ),
+    }
   }, [query])
+
+  function openSection(sectionId: string) {
+    setQuery('')
+    setSelectedSection(sectionId)
+    requestAnimationFrame(() =>
+      document.getElementById(sectionId)?.scrollIntoView({ block: 'start' }),
+    )
+  }
 
   async function saveUpdatePreference(
     preferenceName: string,
@@ -212,83 +288,256 @@ export default function SettingsPage({
 
   return (
     <section
-      aria-labelledby="settings-title"
+      aria-label="Settings"
       aria-modal="true"
-      className="absolute inset-0 z-40 flex min-h-0 flex-col bg-surface-1 text-foreground"
+      className="fixed inset-0 z-50 flex min-h-0 min-w-0 flex-col bg-surface-1 text-foreground min-[740px]:flex-row"
       ref={pageRef}
       role="dialog"
     >
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-5">
-        <button
-          aria-label="Back to workspace"
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onClose}
-          type="button"
-        >
-          <ArrowLeft aria-hidden="true" className="size-4" />
-        </button>
-        <Settings aria-hidden="true" className="size-4 text-muted-foreground" />
-        <h1 className="text-sm font-semibold" id="settings-title">
-          Settings
-        </h1>
-        <button
-          aria-label="Close settings"
-          className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onClose}
-          type="button"
-        >
-          <X aria-hidden="true" className="size-4" />
-        </button>
-      </header>
+      <aside className="flex w-full shrink-0 flex-col gap-3 border-b border-border bg-surface-2 p-3 min-[740px]:h-full min-[740px]:w-56 min-[740px]:gap-4 min-[740px]:border-b-0 min-[740px]:border-r min-[740px]:p-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-[13px] font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={onClose}
+            type="button"
+          >
+            <ArrowLeft aria-hidden="true" className="size-4 shrink-0" />
+            Back to app
+          </button>
+          <div className="ml-auto flex items-center gap-1.5 min-[740px]:hidden">
+            <Settings
+              aria-hidden="true"
+              className="size-3.5 text-muted-foreground"
+            />
+            <h1 className="text-[13px] font-semibold" id="settings-title">
+              Settings
+            </h1>
+          </div>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-5xl gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-10 lg:py-8">
-          <div className="space-y-8">
-            <section aria-labelledby="general-settings-heading">
+        <div className="hidden items-center gap-2 px-2 min-[740px]:flex">
+          <Settings
+            aria-hidden="true"
+            className="size-4 text-muted-foreground"
+          />
+          <h1 className="text-sm font-semibold" id="settings-title-wide">
+            Settings
+          </h1>
+        </div>
+
+        <label className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-surface-3 px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
+          <Search
+            aria-hidden="true"
+            className="size-3.5 text-muted-foreground"
+          />
+          <span className="sr-only">Search settings</span>
+          <input
+            aria-label="Search settings"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search settings"
+            ref={searchRef}
+            type="search"
+            value={query}
+          />
+        </label>
+
+        <nav
+          aria-label="Settings categories"
+          className="flex min-w-0 gap-1 overflow-x-auto min-[740px]:flex-col min-[740px]:overflow-visible"
+        >
+          {[
+            { id: 'general-settings', label: 'General' },
+            { id: 'appearance-settings', label: 'Appearance' },
+            { id: 'keyboard-shortcuts', label: 'Keyboard shortcuts' },
+            { id: 'update-settings', label: 'Updates' },
+          ].map((section) => (
+            <button
+              aria-current={selectedSection === section.id ? 'page' : undefined}
+              className={`shrink-0 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                selectedSection === section.id
+                  ? 'bg-surface-4 font-medium text-foreground'
+                  : 'text-muted-foreground hover:bg-surface-3 hover:text-foreground'
+              }`}
+              key={section.id}
+              onClick={() => openSection(section.id)}
+              type="button"
+            >
+              {section.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[800px] px-4 py-6 sm:px-6 min-[740px]:px-8 min-[740px]:py-10">
+          {error || updatePreferencesError ? (
+            <p
+              className="mb-6 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[13px] text-danger"
+              role="alert"
+            >
+              {error ?? updatePreferencesError}
+            </p>
+          ) : null}
+
+          {searchResults.showGeneral ? (
+            <section
+              aria-labelledby="general-settings-heading"
+              className="scroll-mt-6"
+              id="general-settings"
+            >
               <h2
-                className="text-sm font-semibold"
+                className="text-lg font-semibold"
                 id="general-settings-heading"
               >
                 General
               </h2>
-              <div className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface-2">
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                App behavior and background activity.
+              </p>
+              <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-2">
                 <PreferenceRow
                   checked={notificationsEnabled ?? false}
                   description="Show a desktop notification when a background task needs attention."
                   disabled={
-                    notificationsEnabled === null ||
-                    pendingPreference === 'notifications'
+                    notificationsEnabled === null || pendingPreference !== null
                   }
                   label="Background task notifications"
                   onChange={(isEnabled) => void saveNotifications(isEnabled)}
                 />
               </div>
             </section>
+          ) : null}
 
-            <section aria-labelledby="update-settings-heading">
-              <div className="flex items-center justify-between gap-3">
-                <h2
-                  className="text-sm font-semibold"
-                  id="update-settings-heading"
-                >
-                  Software updates
-                </h2>
-                <button
-                  className="rounded-md px-2 py-1 text-xs font-medium text-primary-on-dark hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={onOpenUpdate}
-                  type="button"
-                >
-                  Open update details
-                </button>
+          {searchResults.showAppearance ? (
+            <section
+              aria-labelledby="appearance-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="appearance-settings"
+            >
+              <h2
+                className="text-lg font-semibold"
+                id="appearance-settings-heading"
+              >
+                Appearance
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Motion preferences for the app interface.
+              </p>
+              <div className="mt-4 rounded-lg border border-border bg-surface-2">
+                <label className="flex items-center justify-between gap-4 px-4 py-3">
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium leading-5">
+                      Animations
+                    </span>
+                    <span className="block text-[12px] leading-4 text-muted-foreground">
+                      Reduce movement while keeping status and feedback visible.
+                    </span>
+                  </span>
+                  <select
+                    className="min-w-36 shrink-0 rounded-md border border-border bg-surface-3 px-2.5 py-1.5 text-[12px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                    onChange={(event) => {
+                      const preference = event.target
+                        .value as AnimationPreference
+                      setAnimationPreference(preference)
+                      setSelectedAnimation(preference)
+                    }}
+                    value={selectedAnimation}
+                  >
+                    <option value="system">System default</option>
+                    <option value="on">On</option>
+                    <option value="reduced">Reduced motion</option>
+                  </select>
+                </label>
               </div>
-              <div className="mt-3 divide-y divide-border rounded-lg border border-border bg-surface-2">
+            </section>
+          ) : null}
+
+          {searchResults.showKeyboard ? (
+            <section
+              aria-labelledby="keyboard-shortcuts-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="keyboard-shortcuts"
+            >
+              <h2
+                className="text-lg font-semibold"
+                id="keyboard-shortcuts-heading"
+              >
+                Keyboard shortcuts
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Keys available in the workspace, chat, and menus.
+              </p>
+              <div className="mt-5 space-y-6">
+                {searchResults.shortcutGroups.map((group) => (
+                  <div key={group.label}>
+                    <h3 className="mb-2 px-1 text-[12px] font-medium text-muted-foreground">
+                      {group.label}
+                    </h3>
+                    <div className="divide-y divide-border rounded-lg border border-border bg-surface-2">
+                      {group.shortcuts.map((shortcut) => (
+                        <div
+                          className="flex min-w-0 items-start justify-between gap-3 px-4 py-3"
+                          key={`${group.label}-${shortcut.label}`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-medium leading-5">
+                              {shortcut.label}
+                            </p>
+                            {shortcut.description ? (
+                              <p className="text-[12px] leading-4 text-muted-foreground">
+                                {shortcut.description}
+                              </p>
+                            ) : null}
+                          </div>
+                          <span className="flex max-w-[48%] shrink-0 flex-wrap items-center justify-end gap-1">
+                            {shortcut.keys.map((key) =>
+                              key === 'or' ? (
+                                <span
+                                  className="px-0.5 text-[10px] text-muted-foreground"
+                                  key={key}
+                                >
+                                  or
+                                </span>
+                              ) : (
+                                <kbd
+                                  className="min-w-6 rounded border border-border-strong bg-surface-3 px-1.5 py-0.5 text-center font-mono text-[10px] text-foreground shadow-[inset_0_-1px_0_var(--border)]"
+                                  key={key}
+                                >
+                                  {key}
+                                </kbd>
+                              ),
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {searchResults.showUpdates ? (
+            <section
+              aria-labelledby="update-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="update-settings"
+            >
+              <h2
+                className="text-lg font-semibold"
+                id="update-settings-heading"
+              >
+                Updates
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Software update downloads, diagnostics, and installation.
+              </p>
+              <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-2">
                 <PreferenceRow
                   checked={updatePreferences?.automaticDownloads ?? false}
                   description="Download signed updates in the background. Aide still asks before restarting."
-                  disabled={
-                    !updatePreferences ||
-                    pendingPreference === 'automatic-downloads'
-                  }
+                  disabled={!updatePreferences || pendingPreference !== null}
                   label="Download updates automatically"
                   onChange={(isEnabled) =>
                     void saveUpdatePreference('automatic-downloads', {
@@ -303,9 +552,7 @@ export default function SettingsPage({
                     false
                   }
                   description="Share version, platform, timing, and coarse failure codes. Reports exclude projects, paths, prompts, and source code."
-                  disabled={
-                    !updatePreferences || pendingPreference === 'health-reports'
-                  }
+                  disabled={!updatePreferences || pendingPreference !== null}
                   label="Share update health reports"
                   onChange={(isEnabled) =>
                     void saveUpdatePreference('health-reports', {
@@ -314,104 +561,35 @@ export default function SettingsPage({
                     })
                   }
                 />
+                <div className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium">Update status</p>
+                    <p className="mt-0.5 text-[12px] leading-4 text-muted-foreground">
+                      Check, download, or install an available update.
+                    </p>
+                  </div>
+                  <button
+                    className="shrink-0 rounded-md border border-border bg-surface-3 px-2.5 py-1.5 text-[12px] font-medium text-foreground hover:bg-surface-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={onOpenUpdate}
+                    type="button"
+                  >
+                    Open details
+                  </button>
+                </div>
               </div>
             </section>
+          ) : null}
 
-            {error || updatePreferencesError ? (
-              <p
-                className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
-                role="alert"
-              >
-                {error ?? updatePreferencesError}
-              </p>
-            ) : null}
-          </div>
-
-          <section aria-labelledby="keyboard-shortcuts-heading">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2
-                  className="text-sm font-semibold"
-                  id="keyboard-shortcuts-heading"
-                >
-                  Keyboard shortcuts
-                </h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Keys shown here match the shortcuts available in Aide.
-                </p>
-              </div>
-              <label className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border bg-surface-2 px-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring sm:w-56">
-                <Search
-                  aria-hidden="true"
-                  className="size-3.5 text-muted-foreground"
-                />
-                <span className="sr-only">Search keyboard shortcuts</span>
-                <input
-                  className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search shortcuts"
-                  ref={searchRef}
-                  type="search"
-                  value={query}
-                />
-              </label>
-            </div>
-
-            <div className="mt-4 space-y-5">
-              {filteredShortcutGroups.map((group) => (
-                <div key={group.label}>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    {group.label}
-                  </h3>
-                  <div className="divide-y divide-border rounded-lg border border-border bg-surface-2">
-                    {group.shortcuts.map((shortcut) => (
-                      <div
-                        className="flex items-start justify-between gap-4 px-3 py-2.5"
-                        key={`${group.label}-${shortcut.label}`}
-                      >
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-medium leading-5">
-                            {shortcut.label}
-                          </p>
-                          {shortcut.description ? (
-                            <p className="text-[11px] leading-4 text-muted-foreground">
-                              {shortcut.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        <span className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                          {shortcut.keys.map((key) =>
-                            key === 'or' ? (
-                              <span
-                                className="px-0.5 text-[10px] text-muted-foreground"
-                                key={key}
-                              >
-                                or
-                              </span>
-                            ) : (
-                              <kbd
-                                className="min-w-6 rounded border border-border-strong bg-surface-3 px-1.5 py-0.5 text-center font-mono text-[10px] text-foreground shadow-[inset_0_-1px_0_var(--border)]"
-                                key={key}
-                              >
-                                {key}
-                              </kbd>
-                            ),
-                          )}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {filteredShortcutGroups.length === 0 ? (
-                <p className="rounded-lg border border-border px-4 py-8 text-center text-xs text-muted-foreground">
-                  No shortcuts match "{query}".
-                </p>
-              ) : null}
-            </div>
-          </section>
+          {!searchResults.showGeneral &&
+          !searchResults.showAppearance &&
+          !searchResults.showKeyboard &&
+          !searchResults.showUpdates ? (
+            <p className="rounded-lg border border-border bg-surface-2 px-4 py-10 text-center text-[13px] text-muted-foreground">
+              No settings match "{query}".
+            </p>
+          ) : null}
         </div>
-      </div>
+      </main>
     </section>
   )
 }
@@ -430,10 +608,10 @@ function PreferenceRow({
   readonly onChange: (isChecked: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-4 px-3 py-3 has-[:disabled]:cursor-default has-[:disabled]:opacity-50">
+    <label className="flex cursor-pointer items-start justify-between gap-4 px-4 py-3 has-[:disabled]:cursor-default has-[:disabled]:opacity-50">
       <span className="min-w-0">
         <span className="block text-[13px] font-medium leading-5">{label}</span>
-        <span className="block text-[11px] leading-4 text-muted-foreground">
+        <span className="block text-[12px] leading-4 text-muted-foreground">
           {description}
         </span>
       </span>

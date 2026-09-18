@@ -1,7 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
-import SettingsPage, { SETTINGS_SHORTCUT_GROUPS } from './SettingsPage'
+import SettingsPage, {
+  filterSettingsShortcutGroups,
+  SETTINGS_SHORTCUT_GROUPS,
+} from './SettingsPage'
 
 describe('SettingsPage', () => {
   it('lists shortcuts for workspace, chat, and model controls', () => {
@@ -18,6 +21,15 @@ describe('SettingsPage', () => {
         expect.objectContaining({ label: 'Choose a pane type' }),
       ]),
     )
+  })
+
+  it('filters shortcut labels and descriptions from settings search', () => {
+    const groups = filterSettingsShortcutGroups('visible model')
+
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.shortcuts).toEqual([
+      expect.objectContaining({ label: 'Choose a visible model' }),
+    ])
   })
 
   it('renders persisted preferences and searchable shortcut groups', () => {
@@ -38,9 +50,15 @@ describe('SettingsPage', () => {
     )
 
     expect(markup).toContain('Background task notifications')
+    expect(markup).toContain('Animations')
+    expect(markup).toContain('System default')
+    expect(markup).toContain('Reduced motion')
     expect(markup).toContain('Download updates automatically')
     expect(markup).toContain('Share update health reports')
-    expect(markup).toContain('Search keyboard shortcuts')
+    expect(markup).toContain('Search settings')
+    expect(markup).toContain('Settings categories')
+    expect(markup).toContain('Back to app')
+    expect(markup).toContain('Appearance')
     expect(markup).toContain('Open project by sidebar position')
   })
 })
