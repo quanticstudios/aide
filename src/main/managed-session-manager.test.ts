@@ -1255,15 +1255,26 @@ createInterface({ input: process.stdin }).on('line', line => {
         kind: 'assistant-text',
         text:
           provider === 'codex'
-            ? "I'm Claude, \n\nmade by Anthropic."
+            ? "I'm Claude, "
             : "I'm Claude, made by Anthropic.",
       }),
+      ...(provider === 'codex'
+        ? [
+            expect.objectContaining({
+              id: 'delta-2',
+              text: 'made by Anthropic.',
+            }),
+          ]
+        : []),
       expect.objectContaining({ kind: 'command-output', text: 'tool output' }),
       expect.objectContaining({
         id: 'delta-3',
         kind: 'assistant-text',
-        text: provider === 'codex' ? 'After \n\nthe tool.' : 'After the tool.',
+        text: provider === 'codex' ? 'After ' : 'After the tool.',
       }),
+      ...(provider === 'codex'
+        ? [expect.objectContaining({ id: 'delta-4', text: 'the tool.' })]
+        : []),
       expect.objectContaining({
         id: 'next-turn',
         kind: 'assistant-text',

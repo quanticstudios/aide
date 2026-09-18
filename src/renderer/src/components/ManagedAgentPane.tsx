@@ -373,8 +373,10 @@ interface RecipientTurnSummary extends ManagedSessionTurnSummary {
 
 function ContentItemBlock({
   item,
+  showProvider = true,
 }: {
   readonly item: ManagedSessionContentItem
+  readonly showProvider?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -493,7 +495,7 @@ function ContentItemBlock({
       )}
       data-testid={`managed-content-${item.kind}`}
     >
-      {item.kind === 'assistant-text' && item.provider ? (
+      {item.kind === 'assistant-text' && item.provider && showProvider ? (
         <p className="mb-2 flex items-center gap-2">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-2 ring-1 ring-[var(--border-soft)]">
             {item.provider === 'claude' ? (
@@ -512,7 +514,10 @@ function ContentItemBlock({
           ) : null}
         </p>
       ) : null}
-      <MarkdownContent text={item.text} />
+      <MarkdownContent
+        text={item.text}
+        formatSessionLabels={item.kind === 'assistant-text'}
+      />
     </div>
   )
 }
@@ -580,9 +585,20 @@ function TurnGroupBlock({
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
-      {group.items.map((item) => (
-        <ContentItemBlock item={item} key={`${item.kind}:${item.id}`} />
-      ))}
+      {group.items.map((item, index) => {
+        const previous = group.items[index - 1]
+        return (
+          <ContentItemBlock
+            item={item}
+            key={`${item.kind}:${item.id}`}
+            showProvider={
+              previous?.kind !== 'assistant-text' ||
+              previous.provider !== item.provider ||
+              previous.model !== item.model
+            }
+          />
+        )
+      })}
       {isRunning ? (
         <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />

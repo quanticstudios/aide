@@ -1038,3 +1038,15 @@ textarea:focus-visible {
 .chat-turn:has(.assistant-message:hover) .response-actions {
   opacity: 1;
 }
+
+.prose .message-session-label {
+  margin-bottom: 0.35rem;
+}
+
+.prose .message-session-label code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}

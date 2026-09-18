@@ -262,6 +262,72 @@ test.describe('shared model chat', () => {
     await expect(prompt).toBeFocused()
   })
 
+  test('renders Codex messages with standalone labels and one provider heading', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    await startSharedChat(page, app)
+    const snapshot = await getOnlySnapshot(page)
+    const response = snapshot.content.find(
+      (item) => item.kind === 'assistant-text',
+    )
+    if (!response) throw new Error('Missing assistant response')
+    snapshot.revision += 100
+    snapshot.content = [
+      ...snapshot.content.filter((item) => item.kind !== 'assistant-text'),
+      {
+        ...response,
+        provider: 'codex',
+        model: 'gpt-6-astra',
+        text: '`[aide · geography]` Checking the answer.',
+      },
+      {
+        ...response,
+        id: 'final-answer',
+        provider: 'codex',
+        model: 'gpt-6-astra',
+        text: '`[aide · geography]` The capital of Japan is Tokyo.',
+      },
+    ]
+    await app.evaluate(({ BrowserWindow }, snapshot) => {
+      BrowserWindow.getAllWindows()[0].webContents.send(
+        'managed-session:event',
+        {
+          type: 'snapshot',
+          revision: snapshot.revision,
+          snapshot,
+        },
+      )
+    }, snapshot)
+    const messages = page.getByTestId('managed-content-assistant-text')
+    await expect(messages).toHaveCount(2)
+    await expect(messages.first()).toContainText('Checking the answer.')
+    await expect(messages.last()).toContainText(
+      'The capital of Japan is Tokyo.',
+    )
+    await expect(messages.locator('.message-session-label')).toHaveCount(2)
+    const labelBounds = await messages
+      .last()
+      .locator('.message-session-label')
+      .boundingBox()
+    const answerBounds = await messages
+      .last()
+      .getByText('The capital of Japan is Tokyo.', { exact: true })
+      .boundingBox()
+    expect(answerBounds?.y).toBeGreaterThanOrEqual(
+      (labelBounds?.y ?? 0) + (labelBounds?.height ?? 0),
+    )
+    await expect(messages.getByText('Codex', { exact: true })).toHaveCount(1)
+    const first = await messages.first().boundingBox()
+    const last = await messages.last().boundingBox()
+    expect(last?.y).toBeGreaterThan((first?.y ?? 0) + (first?.height ?? 0))
+    await page.screenshot({
+      path: test.info().outputPath('codex-message-formatting.png'),
+    })
+  })
+
   test('keeps copy actions below the response and copies only reply text', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)

@@ -324,6 +324,7 @@ function coalesceContiguousAssistantContent(
     const previous = coalesced.at(-1)
     if (
       item.kind === 'assistant-text' &&
+      item.provider !== 'codex' &&
       item.turnId !== null &&
       previous?.kind === 'assistant-text' &&
       previous.turnId === item.turnId &&
@@ -332,7 +333,7 @@ function coalesceContiguousAssistantContent(
     ) {
       coalesced[coalesced.length - 1] = {
         ...previous,
-        text: `${previous.text}${item.provider === 'codex' ? '\n\n' : ''}${item.text}`,
+        text: `${previous.text}${item.text}`,
         updatedAt: item.updatedAt,
       }
     } else {
