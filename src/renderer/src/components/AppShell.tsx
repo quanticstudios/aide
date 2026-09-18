@@ -9,8 +9,8 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
-import type { SavedTask } from '../../../shared/task-library'
 import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
+import type { SavedTask } from '../../../shared/task-library'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import FleetDrawer from './FleetDrawer'
 import SidebarTree from './SidebarTree'
@@ -31,6 +31,7 @@ interface AppShellProps {
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly onClosePane: (paneId: string) => void
+  readonly onCloseSurface: (surfaceId: string) => void
   readonly onCreatePane: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -65,6 +66,7 @@ export default function AppShell({
   activeProject,
   activeWorkspace,
   onClosePane,
+  onCloseSurface,
   onCreatePane,
   onResizePane,
   onSplitPane,
@@ -231,6 +233,7 @@ export default function AppShell({
           isTerminalOpen={isTerminalOpen}
           sidebarToggleRef={sidebarToggleRef}
           onClosePane={onClosePane}
+          onCloseSurface={onCloseSurface}
           onCreatePane={onCreatePane}
           onOpenDiagnostics={onOpenDiagnostics}
           onOpenTask={onOpenTask}

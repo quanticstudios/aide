@@ -348,6 +348,40 @@ test.describe('electron spatial navigation', () => {
     await expectRestingViewportClean(page)
   })
 
+  test('closes an inactive split surface without changing selection', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /terminal/i)
+    await page.getByLabel(/split vertically/i).click()
+    await page.getByRole('button', { name: /^Chat$/i }).click()
+    await addPane(page, /git/i)
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+
+    const terminalTab = page.getByRole('button', {
+      name: 'Workspace terminal',
+      exact: true,
+    })
+    await terminalTab.hover()
+    await page
+      .getByRole('button', { name: 'Close Workspace terminal', exact: true })
+      .click()
+
+    await expect(terminalTab).toHaveCount(0)
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
+    await expect(
+      page.locator('.workspace-strip .workspace-strip-item'),
+    ).toHaveCount(1)
+  })
+
   test('moves panes horizontally without counting split children', async () => {
     const chosenProjectRoot = createGitRepository()
     const launched = await launchAideApp({

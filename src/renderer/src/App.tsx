@@ -1447,6 +1447,29 @@ function WorkspaceApp() {
     ],
   )
 
+  const handleCloseSurface = useCallback(
+    (surfaceId: string) => {
+      const currentSelection = resolvedNavigationStateRef.current
+      const workspaceId = currentSelection?.activeWorkspaceId
+      if (!workspaceId) return
+
+      void workspaceMutationQueue.enqueue(workspaceId, () =>
+        applyWorkspaceLayoutChange(
+          workspaceId,
+          surfaceId,
+          (layout) => ({
+            blockedReason: null,
+            didChange: true,
+            layout: { ...layout, nodes: [], rootNodeId: '' },
+            nextActivePaneId: null,
+          }),
+          currentSelection.activeSurfaceId === surfaceId,
+        ),
+      )
+    },
+    [applyWorkspaceLayoutChange, workspaceMutationQueue],
+  )
+
   const handleClosePane = useCallback(
     (paneId: string, shouldCloseViewOnly = false, workspaceId?: string) => {
       const snapshot = storageSnapshotRef.current ?? navigationSnapshot
@@ -2377,6 +2400,7 @@ function WorkspaceApp() {
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       onClosePane={handleClosePane}
+      onCloseSurface={handleCloseSurface}
       onResizePane={handleResizePane}
       onSplitPane={handleSplitPane}
       surfaces={activeWorkspaceSurfaces}
