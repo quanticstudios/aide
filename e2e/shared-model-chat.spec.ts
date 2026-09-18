@@ -327,7 +327,7 @@ test.describe('shared model chat', () => {
       .getByRole('switch', {
         name: 'Allow TypeSafe processing for this workspace',
       })
-      .check()
+      .press('Space')
     await page.getByRole('button', { name: 'Save Jev settings' }).click()
     await expect(page.getByRole('button', { name: 'Jev · Ready' })).toHaveCount(
       0,

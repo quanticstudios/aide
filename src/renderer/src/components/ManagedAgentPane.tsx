@@ -553,13 +553,8 @@ function TurnGroupBlock({
 
   const handleCopy = useCallback(async () => {
     const text = group.items
-      .map((item) => {
-        if (item.kind === 'user-prompt') {
-          return `> ${item.text}`
-        }
-
-        return item.text
-      })
+      .filter((item) => item.kind === 'assistant-text')
+      .map((item) => item.text)
       .join('\n\n')
 
     try {
@@ -608,14 +603,12 @@ function TurnGroupBlock({
           />
         </div>
       ) : null}
-      {group.items.length > 0 ? (
+      {!isRunning &&
+      (canRetry ||
+        group.items.some((item) => item.kind === 'assistant-text')) ? (
         <div
-          className={cn(
-            'absolute right-0 top-0 z-10 flex gap-1 transition-opacity duration-150',
-            canRetry
-              ? 'pointer-events-auto opacity-100'
-              : 'pointer-events-none opacity-0 group-hover/turn:pointer-events-auto group-hover/turn:opacity-100 group-focus-within/turn:pointer-events-auto group-focus-within/turn:opacity-100',
-          )}
+          className="flex items-center gap-1 px-1"
+          data-testid="response-actions"
         >
           {canRetry && requestText && recipientAlias ? (
             <button
@@ -628,11 +621,12 @@ function TurnGroupBlock({
               Retry
             </button>
           ) : null}
-          <button
-            aria-label={copied ? 'Copied turn' : 'Copy turn'}
-            className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-            onClick={() => void handleCopy()}
-            type="button"
+          <Button
+            aria-label={copied ? 'Copied response' : 'Copy response'}
+            className="h-7 gap-1 rounded-md px-2 text-xs text-muted-foreground"
+            onPress={() => void handleCopy()}
+            size="sm"
+            variant="ghost"
           >
             {copied ? (
               <ClipboardCheck className="size-3" />
@@ -640,7 +634,7 @@ function TurnGroupBlock({
               <Clipboard className="size-3" />
             )}
             {copied ? 'Copied' : 'Copy'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

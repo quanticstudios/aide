@@ -734,7 +734,9 @@ test.describe('electron spatial navigation', () => {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expandSidebar(page)
-    await expect(page.getByText('Launch review', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Launch review',
+    )
   })
 
   test('persists explicit Jev workspace consent without exposing credentials', async () => {
@@ -750,38 +752,36 @@ test.describe('electron spatial navigation', () => {
     const { page } = launched
     await importProject(page)
     await addPane(page, /^agent\b/i)
-    await page.locator('summary').filter({ hasText: 'Jev' }).click()
-    const consent = page.getByRole('checkbox', {
+    await page.getByRole('button', { name: /^Jev ·/ }).click()
+    const consent = page.getByRole('switch', {
       name: 'Allow TypeSafe processing for this workspace',
     })
-    await expect(consent).not.toBeChecked()
+    await expect(consent).toBeChecked()
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('Keep this draft until Jev is configured')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(
-      page.getByText(
-        /Allow TypeSafe processing for this workspace in Jev setup/,
-      ),
+      page.getByText(/Add a TypeSafe API key in Jev setup/),
     ).toBeVisible()
     await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
     await expect(page.getByTestId('managed-input-queue')).toBeHidden()
     await expect(page.getByTestId('managed-session-content')).not.toContainText(
       'Handled:',
     )
-    await consent.check()
+    await consent.press('Space')
     await page.getByRole('button', { name: 'Save Jev settings' }).click()
     await expect(
       page.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeEnabled()
     await page.reload()
-    await page.locator('summary').filter({ hasText: 'Jev' }).click()
-    await expect(consent).toBeChecked()
+    await page.getByRole('button', { name: /^Jev ·/ }).click()
+    await expect(consent).not.toBeChecked()
     await expect(
       page.getByLabel('TypeSafe API key', { exact: true }),
     ).toHaveValue('')
-    await expect(
-      page.locator('summary').filter({ hasText: 'Jev' }),
-    ).toContainText('API key required')
+    await expect(page.getByRole('button', { name: /^Jev ·/ })).toContainText(
+      'API key required',
+    )
   })
 
   test('renders managed Claude states from structured runtime events', async () => {
