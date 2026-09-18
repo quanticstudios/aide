@@ -23,6 +23,7 @@ import {
   Settings,
   Terminal,
 } from 'lucide-react'
+import { iconNames } from 'lucide-react/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatWorkspaceShortcutLabel } from '@/lib/platform'
 import { formatRelativeTime } from '@/lib/relative-time'
@@ -33,7 +34,6 @@ import type { WorktreeBranchStats } from '../../../shared/git'
 import type {
   ProjectAppearance,
   ProjectColor,
-  ProjectIcon,
   ProjectRecord,
   WorkspaceRecord,
 } from '../../../shared/persistence'
@@ -48,30 +48,42 @@ import {
   shouldPulseWorkspaceActivity,
 } from '../../../shared/workspace-activity'
 import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
+import IconTooltip from './ui/icon-tooltip'
 import './SidebarTree.css'
 
 const BRANCH_STATS_POLL_INTERVAL_MS = 30_000
 const TIMESTAMP_TICK_INTERVAL_MS = 10_000
-const PROJECT_ICON_OPTIONS: readonly {
-  id: ProjectIcon
-  label: string
-}[] = [
-  { id: 'folder', label: 'Folder' },
-  { id: 'code', label: 'Code' },
-  { id: 'layers', label: 'Layers' },
-  { id: 'sparkles', label: 'Sparkles' },
-]
 const PROJECT_COLOR_OPTIONS: readonly {
   className: string
   id: ProjectColor
   label: string
 }[] = [
   { className: 'bg-muted-foreground', id: 'neutral', label: 'Neutral' },
-  { className: 'bg-accent-blue', id: 'blue', label: 'Blue' },
-  { className: 'bg-violet-400', id: 'violet', label: 'Violet' },
-  { className: 'bg-accent-green', id: 'green', label: 'Green' },
+  { className: 'bg-red-500', id: 'red', label: 'Red' },
+  { className: 'bg-orange-500', id: 'orange', label: 'Orange' },
   { className: 'bg-accent-yellow', id: 'amber', label: 'Amber' },
+  { className: 'bg-yellow-400', id: 'yellow', label: 'Yellow' },
+  { className: 'bg-lime-500', id: 'lime', label: 'Lime' },
+  { className: 'bg-accent-green', id: 'green', label: 'Green' },
+  { className: 'bg-emerald-500', id: 'emerald', label: 'Emerald' },
+  { className: 'bg-teal-500', id: 'teal', label: 'Teal' },
+  { className: 'bg-cyan-500', id: 'cyan', label: 'Cyan' },
+  { className: 'bg-sky-500', id: 'sky', label: 'Sky' },
+  { className: 'bg-accent-blue', id: 'blue', label: 'Blue' },
+  { className: 'bg-indigo-500', id: 'indigo', label: 'Indigo' },
+  { className: 'bg-violet-400', id: 'violet', label: 'Violet' },
+  { className: 'bg-purple-500', id: 'purple', label: 'Purple' },
+  { className: 'bg-fuchsia-500', id: 'fuchsia', label: 'Fuchsia' },
+  { className: 'bg-pink-500', id: 'pink', label: 'Pink' },
+  { className: 'bg-rose-500', id: 'rose', label: 'Rose' },
 ]
+
+function iconLabel(name: string): string {
+  return name
+    .split('-')
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ')
+}
 
 interface SidebarTreeProps {
   readonly activeProjectId: string | null
@@ -257,6 +269,12 @@ function ProjectOverflowMenu({
   )
   const projectColor = project.color ?? 'neutral'
   const projectIcon = project.icon ?? 'folder'
+  const [iconSearch, setIconSearch] = useState('')
+  const [visibleIconCount, setVisibleIconCount] = useState(56)
+  const matchingIcons = useMemo(() => {
+    const query = iconSearch.trim().toLowerCase().replace(/\s+/g, '-')
+    return iconNames.filter((name) => name.includes(query))
+  }, [iconSearch])
 
   return (
     <Popover
@@ -273,7 +291,7 @@ function ProjectOverflowMenu({
         <MoreHorizontal className="size-4 shrink-0" />
       </Popover.Trigger>
       <Popover.Content
-        className="w-56 rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        className="w-80 rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
         placement="bottom end"
       >
         <Popover.Dialog className="p-0 outline-none">
@@ -282,44 +300,80 @@ function ProjectOverflowMenu({
               <span className="px-1 text-[11px] font-medium text-muted-foreground">
                 Icon
               </span>
-              <div className="mt-1 flex gap-1">
-                {PROJECT_ICON_OPTIONS.map((option) => (
+              <Input
+                aria-label="Search Lucide icons"
+                className="mt-2 block h-8 w-full text-xs"
+                placeholder="Search all Lucide icons…"
+                value={iconSearch}
+                onChange={(event) => {
+                  setIconSearch(event.target.value)
+                  setVisibleIconCount(56)
+                }}
+              />
+              <ScrollShadow className="mt-2 max-h-56 overflow-y-auto">
+                <div className="grid grid-cols-7 gap-1">
+                  {matchingIcons.slice(0, visibleIconCount).map((name) => (
+                    <IconTooltip label={iconLabel(name)} key={name}>
+                      <Button
+                        aria-label={`${iconLabel(name)} project icon`}
+                        aria-pressed={projectIcon === name}
+                        className={cn(
+                          'size-8 min-w-8 px-0',
+                          projectIcon === name &&
+                            'bg-primary/15 text-primary ring-1 ring-primary/50',
+                        )}
+                        isDisabled={isSaving}
+                        isIconOnly
+                        onPress={() =>
+                          void saveAppearance({
+                            color: projectColor,
+                            icon: name,
+                          })
+                        }
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <ProjectIconView icon={name} />
+                      </Button>
+                    </IconTooltip>
+                  ))}
+                </div>
+                {matchingIcons.length > visibleIconCount ? (
                   <Button
-                    aria-label={`${option.label} project icon`}
-                    aria-pressed={projectIcon === option.id}
-                    className={cn(
-                      'size-8 min-w-8 px-0',
-                      projectIcon === option.id &&
-                        'bg-primary/15 text-primary ring-1 ring-primary/50',
-                    )}
-                    isDisabled={isSaving}
-                    key={option.id}
-                    onPress={() =>
-                      void saveAppearance({
-                        color: projectColor,
-                        icon: option.id,
-                      })
-                    }
+                    className="mt-2 w-full"
                     size="sm"
                     variant="ghost"
+                    onPress={() => setVisibleIconCount((count) => count + 56)}
                   >
-                    <ProjectIconView icon={option.id} />
+                    Show more icons
                   </Button>
-                ))}
-              </div>
+                ) : null}
+                {matchingIcons.length === 0 ? (
+                  <p
+                    className="py-4 text-center text-xs text-muted-foreground"
+                    role="status"
+                  >
+                    No icons match your search.
+                  </p>
+                ) : null}
+              </ScrollShadow>
+              <p className="mt-1 px-1 text-[11px] text-muted-foreground">
+                {matchingIcons.length}{' '}
+                {matchingIcons.length === 1 ? 'icon' : 'icons'}
+              </p>
             </div>
             <div>
               <span className="px-1 text-[11px] font-medium text-muted-foreground">
                 Color
               </span>
-              <div className="mt-1 flex gap-1">
+              <div className="mt-2 flex flex-wrap gap-1">
                 {PROJECT_COLOR_OPTIONS.map((option) => (
                   <Button
                     aria-label={`${option.label} project color`}
                     aria-pressed={projectColor === option.id}
                     className={cn(
-                      'size-8 min-w-8 px-0',
-                      projectColor === option.id && 'ring-1 ring-primary/60',
+                      'size-6 min-w-6 rounded-full p-1',
+                      projectColor === option.id && 'ring-1 ring-foreground/70',
                     )}
                     isDisabled={isSaving}
                     key={option.id}
@@ -333,7 +387,10 @@ function ProjectOverflowMenu({
                     variant="ghost"
                   >
                     <span
-                      className={cn('size-3 rounded-full', option.className)}
+                      className={cn(
+                        'size-4 shrink-0 rounded-full',
+                        option.className,
+                      )}
                     />
                   </Button>
                 ))}

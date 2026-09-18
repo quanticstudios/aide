@@ -393,6 +393,24 @@ const MIGRATIONS = [
       CHECK (color IN ('neutral', 'blue', 'violet', 'green', 'amber'));
     `,
   },
+  {
+    version: 14,
+    sql: `
+      BEGIN IMMEDIATE;
+      ALTER TABLE projects ADD COLUMN lucide_icon TEXT NOT NULL DEFAULT 'folder';
+      ALTER TABLE projects ADD COLUMN palette_color TEXT NOT NULL DEFAULT 'neutral';
+      UPDATE projects SET lucide_icon = CASE icon
+        WHEN 'code' THEN 'code-xml'
+        WHEN 'layers' THEN 'layers-3'
+        ELSE icon END, palette_color = color;
+      ALTER TABLE projects DROP COLUMN icon;
+      ALTER TABLE projects DROP COLUMN color;
+      ALTER TABLE projects RENAME COLUMN lucide_icon TO icon;
+      ALTER TABLE projects RENAME COLUMN palette_color TO color;
+      PRAGMA user_version = 14;
+      COMMIT;
+    `,
+  },
 ]
 
 const UPDATE_HEALTH_QUEUE_LIMIT = 100

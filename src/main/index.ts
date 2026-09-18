@@ -33,7 +33,7 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
-import { PROJECT_COLOR_IDS, PROJECT_ICON_IDS } from '../shared/persistence'
+import { PROJECT_COLOR_IDS } from '../shared/persistence'
 import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import {
@@ -171,7 +171,9 @@ function requireProjectAppearance(input: unknown): {
   if (
     !isRecord(input) ||
     !PROJECT_COLOR_IDS.includes(input.color as ProjectColor) ||
-    !PROJECT_ICON_IDS.includes(input.icon as ProjectIcon)
+    typeof input.icon !== 'string' ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.icon) ||
+    input.icon.length > 80
   ) {
     throw new Error('Invalid project appearance.')
   }

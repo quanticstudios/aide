@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync } from 'node:sqlite'
 
 import { describe, expect, it } from 'vitest'
 
@@ -21,12 +21,55 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 13,
+      schemaVersion: 14,
       workspaceLayouts: {},
       workspaces: [],
     })
 
     database.close()
+  })
+
+  it('migrates saved project appearances and persists any Lucide name and palette color', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-appearance-db-'))
+    const databasePath = path.join(directory, 'aide.sqlite3')
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        name: 'aide',
+        repoRoot: '/workspace/aide',
+        defaultBranch: 'main',
+        remoteUrl: null,
+      })
+      database.updateProject(project.id, { icon: 'code', color: 'violet' })
+      database.close()
+      const legacy = new DatabaseSync(databasePath)
+      legacy.exec(`
+        ALTER TABLE projects DROP COLUMN icon;
+        ALTER TABLE projects DROP COLUMN color;
+        ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT 'folder' CHECK (icon IN ('folder', 'code', 'layers', 'sparkles'));
+        ALTER TABLE projects ADD COLUMN color TEXT NOT NULL DEFAULT 'neutral' CHECK (color IN ('neutral', 'blue', 'violet', 'green', 'amber'));
+        UPDATE projects SET icon = 'code', color = 'violet';
+        PRAGMA user_version = 13;
+      `)
+      legacy.close()
+      const migrated = createAideDatabase(databasePath)
+      expect(migrated.getProject(project.id)).toMatchObject({
+        icon: 'code-xml',
+        color: 'violet',
+        name: 'aide',
+        repoRoot: '/workspace/aide',
+      })
+      migrated.updateProject(project.id, { icon: 'rocket', color: 'orange' })
+      migrated.close()
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getProject(project.id)).toMatchObject({
+        icon: 'rocket',
+        color: 'orange',
+      })
+      reopened.close()
+    } finally {
+      rmSync(directory, { force: true, recursive: true })
+    }
   })
 
   it('persists project capabilities across reopen', () => {

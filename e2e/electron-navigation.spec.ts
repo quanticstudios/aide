@@ -361,9 +361,29 @@ test.describe('electron spatial navigation', () => {
         name: `More options for ${path.basename(chosenProjectRoot)}`,
       })
       .click()
-    await page.getByRole('button', { name: 'Sparkles project icon' }).click()
+    const initialIcons = await page
+      .getByRole('button', { name: / project icon$/ })
+      .count()
+    await page
+      .getByRole('button', { name: 'Show more icons', exact: true })
+      .click()
+    await expect
+      .poll(() => page.getByRole('button', { name: / project icon$/ }).count())
+      .toBeGreaterThan(initialIcons)
+    await page
+      .getByRole('textbox', { name: 'Search Lucide icons' })
+      .fill('zoom out')
     await expect(
-      page.getByRole('button', { name: 'Sparkles project icon' }),
+      page.getByRole('button', { name: 'Zoom Out project icon', exact: true }),
+    ).toBeVisible()
+    await page
+      .getByRole('textbox', { name: 'Search Lucide icons' })
+      .fill('sparkles')
+    await page
+      .getByRole('button', { name: 'Sparkles project icon', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Sparkles project icon', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: 'Violet project color' }).click()
     await expect(
@@ -388,11 +408,48 @@ test.describe('electron spatial navigation', () => {
         name: `More options for ${path.basename(chosenProjectRoot)}`,
       })
       .click()
+    await page
+      .getByRole('textbox', { name: 'Search Lucide icons' })
+      .fill('sparkles')
     await expect(
-      page.getByRole('button', { name: 'Sparkles project icon' }),
+      page.getByRole('button', { name: 'Sparkles project icon', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
     await expect(
       page.getByRole('button', { name: 'Violet project color' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    const iconSearch = page.getByRole('textbox', {
+      name: 'Search Lucide icons',
+    })
+    await iconSearch.fill('no-such-icon-name')
+    await expect(page.getByRole('status')).toHaveText(
+      'No icons match your search.',
+    )
+    await iconSearch.fill('rocket')
+    await page
+      .getByRole('button', { name: 'Rocket project icon', exact: true })
+      .click()
+    await page
+      .getByRole('button', { name: 'Orange project color', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Orange project color' }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(heading.locator('svg.lucide-rocket')).toBeVisible()
+    await expect(heading.locator('.text-orange-500')).toBeVisible()
+    await page.reload()
+    await expect(heading.locator('svg.lucide-rocket')).toBeVisible()
+    await expect(heading.locator('.text-orange-500')).toBeVisible()
+    await page
+      .getByRole('button', {
+        exact: true,
+        name: `More options for ${path.basename(chosenProjectRoot)}`,
+      })
+      .click()
+    await page
+      .getByRole('textbox', { name: 'Search Lucide icons' })
+      .fill('rocket')
+    await expect(
+      page.getByRole('button', { name: 'Rocket project icon', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true')
     await page.screenshot({
       animations: 'disabled',

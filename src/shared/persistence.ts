@@ -1,18 +1,27 @@
+import type { IconName } from 'lucide-react/dynamic'
+
 export type ProjectKind = 'folder' | 'git'
-export const PROJECT_ICON_IDS = [
-  'folder',
-  'code',
-  'layers',
-  'sparkles',
-] as const
 export const PROJECT_COLOR_IDS = [
   'neutral',
   'blue',
   'violet',
   'green',
   'amber',
+  'red',
+  'orange',
+  'yellow',
+  'lime',
+  'emerald',
+  'teal',
+  'cyan',
+  'sky',
+  'indigo',
+  'purple',
+  'fuchsia',
+  'pink',
+  'rose',
 ] as const
-export type ProjectIcon = (typeof PROJECT_ICON_IDS)[number]
+export type ProjectIcon = IconName
 export type ProjectColor = (typeof PROJECT_COLOR_IDS)[number]
 export interface ProjectAppearance {
   color: ProjectColor
