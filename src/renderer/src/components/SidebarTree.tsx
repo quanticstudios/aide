@@ -350,16 +350,11 @@ function WorkspaceOverflowMenu({
         }
       }}
     >
-      <Popover.Trigger>
-        <Button
-          aria-label={`More options for workspace ${workspace.name}`}
-          className="size-6 rounded text-muted-foreground opacity-0 group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 focus-visible:opacity-100"
-          isIconOnly
-          size="sm"
-          variant="ghost"
-        >
-          <MoreHorizontal className="size-3.5" />
-        </Button>
+      <Popover.Trigger
+        aria-label={`More options for workspace ${workspace.name}`}
+        className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-surface-secondary group-hover/workspace:opacity-100 group-focus-within/workspace:opacity-100 focus-visible:opacity-100"
+      >
+        <MoreHorizontal className="size-3.5" />
       </Popover.Trigger>
       <Popover.Content
         className="w-56 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
