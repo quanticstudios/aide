@@ -63,6 +63,7 @@ function fixture(databasePath = ':memory:') {
     turns: [],
     pendingApprovals: [],
     pendingUserInputs: [],
+    permissionMode: 'default',
     planApproval: null,
     revision: 1,
     runtimeGeneration: 1,

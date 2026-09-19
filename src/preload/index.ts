@@ -10,6 +10,7 @@ import type {
   ManagedSessionDecision,
   ManagedSessionEvent,
   ManagedSessionInteractionMode,
+  ManagedSessionPermissionMode,
   ManagedSessionProviderSelection,
 } from '../shared/managed-session'
 import type {
@@ -97,6 +98,15 @@ const aideApi: AideApi = {
       IPC_CHANNELS.managedSessionConfigureMode,
       sessionId,
       interactionMode,
+    ),
+  configureManagedSessionPermissionMode: (
+    sessionId: string,
+    permissionMode: ManagedSessionPermissionMode,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionConfigurePermissionMode,
+      sessionId,
+      permissionMode,
     ),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),

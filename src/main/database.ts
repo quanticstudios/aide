@@ -612,6 +612,9 @@ const persistedManagedSessionSchema = z
           ),
         }),
       ),
+      permissionMode: z
+        .enum(['acceptEdits', 'bypassPermissions', 'default', 'plan'])
+        .default('default'),
       planApproval: z
         .object({
           detail: z.string().max(2_000).nullable(),

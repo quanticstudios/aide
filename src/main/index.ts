@@ -1397,6 +1397,22 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.managedSessionConfigurePermissionMode,
+    (_event, sessionId: unknown, permissionMode: unknown) => {
+      if (
+        permissionMode !== 'acceptEdits' &&
+        permissionMode !== 'bypassPermissions' &&
+        permissionMode !== 'default' &&
+        permissionMode !== 'plan'
+      )
+        throw new Error('Invalid permission mode.')
+      return managedSessionManager.configureSessionPermissionMode(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        permissionMode,
+      )
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.managedSessionConfigureAgents,
     async (_event, sessionId: unknown, agents: unknown) =>
       managedSessionManager.configureSessionAgents(

@@ -228,6 +228,7 @@ describe('createAideDatabase', () => {
           paneId: 'pane-1',
           pendingApprovals: [],
           pendingUserInputs: [],
+          permissionMode: 'default',
           planApproval: null,
           provider: 'claude',
           revision: 1,

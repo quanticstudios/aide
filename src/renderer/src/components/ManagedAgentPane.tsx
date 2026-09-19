@@ -1267,6 +1267,7 @@ export default function ManagedAgentPane({
       if (existing) {
         setSnapshot(existing)
         setAgentMode(existing.interactionMode)
+        setPermissionMode(existing.permissionMode)
         if (existing.agents) {
           setConfiguredAgents(existing.agents)
           configuredAgentsInitializedRef.current = true
@@ -1306,7 +1307,7 @@ export default function ManagedAgentPane({
           serviceTier,
         },
         paneId,
-        permissionMode: agentMode === 'plan' ? 'plan' : permissionMode,
+        permissionMode,
         sessionId,
         serviceTier,
         workspaceId: workspace.id,
@@ -1366,6 +1367,7 @@ export default function ManagedAgentPane({
       }
       setSnapshot(nextSnapshot)
       setAgentMode(nextSnapshot.interactionMode)
+      setPermissionMode(nextSnapshot.permissionMode)
       if (nextSnapshot.agents) {
         setConfiguredAgents(nextSnapshot.agents)
         configuredAgentsInitializedRef.current = true
@@ -1766,6 +1768,35 @@ export default function ManagedAgentPane({
         setError(null)
       } catch (configurationError) {
         setError(getErrorMessage(configurationError))
+      }
+    },
+    [sessionId],
+  )
+
+  const applyPermissionMode = useCallback(
+    async (nextPermissionMode: ManagedSessionPermissionMode) => {
+      setPermissionMode(nextPermissionMode)
+
+      if (!startedSessionRef.current) {
+        return
+      }
+
+      const api = getAideApi()
+
+      if (!api) {
+        setError('Managed provider bridge did not load.')
+        return
+      }
+
+      try {
+        const updated = await api.configureManagedSessionPermissionMode(
+          sessionId,
+          nextPermissionMode,
+        )
+        setSnapshot(updated)
+        setError(null)
+      } catch (permissionError) {
+        setError(getErrorMessage(permissionError))
       }
     },
     [sessionId],
@@ -3057,7 +3088,7 @@ export default function ManagedAgentPane({
               </span>
             ) : null}
             <PermissionDropdown
-              onPermissionModeChange={setPermissionMode}
+              onPermissionModeChange={(mode) => void applyPermissionMode(mode)}
               permissionMode={permissionMode}
             />
             <span className="min-w-0 flex-1" />
