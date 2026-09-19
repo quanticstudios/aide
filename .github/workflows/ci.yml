@@ -47,7 +47,7 @@ jobs:
         run: bun run check:dependencies
 
       - name: Block high and critical dependency advisories
-        run: bun audit --audit-level high
+        run: bun run audit:dependencies
 
       - name: Run locked React Doctor
         run: bun run doctor

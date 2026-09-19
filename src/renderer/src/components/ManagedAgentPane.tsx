@@ -775,11 +775,10 @@ export default function ManagedAgentPane({
   const draftSaveChainRef = useRef<Promise<void> | null>(null)
   const [recipientActiveIndex, setRecipientActiveIndex] = useState(0)
   const [composerCursorIndex, setComposerCursorIndex] = useState(0)
-  const [workspaceFileSuggestions, setWorkspaceFileSuggestions] = useState<
-    readonly string[]
-  >([])
-  const [isWorkspaceFileSearchLoading, setIsWorkspaceFileSearchLoading] =
-    useState(false)
+  const [workspaceFileSearchResult, setWorkspaceFileSearchResult] = useState<{
+    readonly filePaths: readonly string[]
+    readonly query: string
+  } | null>(null)
   const workspaceFileSearchRef = useRef(new WorkspaceFileMentionSearch())
   const [isRecipientMenuDismissed, setIsRecipientMenuDismissed] =
     useState(false)
@@ -1984,36 +1983,40 @@ export default function ManagedAgentPane({
     !isRecipientMenuDismissed &&
     !slashMenuOpen &&
     (recipientMentionQuery !== null || workspaceFileMention !== null)
+  const workspaceFileSearchQuery = recipientMenuOpen
+    ? (workspaceFileMentionQuery?.trim() ?? '')
+    : ''
+  const workspaceFileSuggestions: readonly string[] =
+    workspaceFileSearchResult?.query === workspaceFileSearchQuery
+      ? workspaceFileSearchResult.filePaths
+      : []
+  const isWorkspaceFileSearchLoading =
+    workspaceFileSearchQuery !== '' &&
+    workspaceFileSearchResult?.query !== workspaceFileSearchQuery
   const recipientMenuItemCount =
     recipientSuggestions.length +
     recipientSkillSuggestions.length +
     workspaceFileSuggestions.length
 
   useEffect(() => {
-    const query = workspaceFileMentionQuery?.trim() ?? ''
+    const query = workspaceFileSearchQuery
     const api = getAideApi()
-    if (!recipientMenuOpen || !api || !query) {
+    if (!api || !query) {
       workspaceFileSearchRef.current.cancel()
-      setWorkspaceFileSuggestions([])
-      setIsWorkspaceFileSearchLoading(false)
       return
     }
 
-    setWorkspaceFileSuggestions([])
-    setIsWorkspaceFileSearchLoading(true)
     void workspaceFileSearchRef.current.run(
       () => api.searchManagedSessionFiles(workspace.id, query),
       (filePaths) => {
-        setWorkspaceFileSuggestions(filePaths)
-        setIsWorkspaceFileSearchLoading(false)
+        setWorkspaceFileSearchResult({ filePaths, query })
       },
       () => {
-        setWorkspaceFileSuggestions([])
-        setIsWorkspaceFileSearchLoading(false)
+        setWorkspaceFileSearchResult({ filePaths: [], query })
       },
     )
     return () => workspaceFileSearchRef.current.cancel()
-  }, [recipientMenuOpen, workspace.id, workspaceFileMentionQuery])
+  }, [workspace.id, workspaceFileSearchQuery])
 
   const activeQuestion = snapshot?.pendingUserInputs[0] ?? null
   const primaryQuestionId = activeQuestion?.questions[0]?.id ?? null
