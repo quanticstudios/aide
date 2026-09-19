@@ -19,6 +19,22 @@ export interface TurnCheckpointChange {
     | 'type-changed'
 }
 
+/** One file changed by a turn, with its unified patch and line counts. */
+export interface TurnCheckpointDiffFile {
+  additions: number
+  deletions: number
+  patch: string
+  path: string
+  status: TurnCheckpointChange['status']
+}
+
+/** Every file a single turn changed, plus the totals shown on the turn chip. */
+export interface TurnCheckpointDiff {
+  additions: number
+  deletions: number
+  files: TurnCheckpointDiffFile[]
+}
+
 export interface TurnCheckpointSummary {
   capturedAt: string
   checkpointId: string

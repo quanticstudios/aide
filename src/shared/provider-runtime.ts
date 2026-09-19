@@ -36,6 +36,30 @@ export type ManagedProviderRuntimeContentKind =
   | 'command-output'
   | 'file-change-output'
   | 'system'
+  | 'tool-call'
+
+/** One provider tool invocation and everything known about it so far. */
+export interface ManagedProviderRuntimeToolCall {
+  callId: string
+  command?: string
+  diff?: string
+  exitCode?: number
+  files?: { path: string; status: string }[]
+  input: unknown
+  output?: string
+  status: 'running' | 'completed' | 'failed'
+  toolName: string
+}
+
+/** The structured tool request behind an approval, rendered by the approval card. */
+export interface ManagedProviderRuntimeToolRequest {
+  command?: string
+  cwd?: string
+  diff?: string
+  filePath?: string
+  input?: unknown
+  toolName: string
+}
 
 export interface ManagedProviderRuntimePromptOption {
   description?: string
@@ -81,6 +105,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       detail?: string
+      request?: ManagedProviderRuntimeToolRequest
       requestType?: ManagedProviderRuntimeRequestType
       requestId: string
       type: 'request.opened'
@@ -95,6 +120,8 @@ export type ManagedProviderRuntimeEvent =
       model?: string
       itemId: string
       text: string
+      /** invariant: the backend sends the full merged call, not a delta. */
+      tool?: ManagedProviderRuntimeToolCall
       type: 'content.delta'
     })
   | (ManagedProviderRuntimeEventBase & {

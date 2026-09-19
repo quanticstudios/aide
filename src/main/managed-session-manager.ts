@@ -1,5 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { appendFile } from 'node:fs/promises'
+import path from 'node:path'
 import readline from 'node:readline'
 
 import {
@@ -53,6 +55,8 @@ import type {
   ManagedProviderRuntimeEvent,
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeRequestType,
+  ManagedProviderRuntimeToolCall,
+  ManagedProviderRuntimeToolRequest,
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
 import type { ResolvedProviderSkill } from '../shared/provider-skills'
@@ -362,6 +366,138 @@ function summarizeToolRequest(
   return `${toolName}: ${JSON.stringify(input).slice(0, 240)}`
 }
 
+function readToolResultText(content: unknown): string {
+  if (typeof content === 'string') {
+    return content
+  }
+
+  if (!Array.isArray(content)) {
+    return ''
+  }
+
+  return content
+    .map((block) =>
+      block &&
+      typeof block === 'object' &&
+      'text' in block &&
+      typeof block.text === 'string'
+        ? block.text
+        : '',
+    )
+    .join('')
+}
+
+function splitDiffLines(text: string): string[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  return lines.at(-1) === '' ? lines.slice(0, -1) : lines
+}
+
+function buildUnifiedDiff(
+  filePath: string,
+  oldText: string,
+  newText: string,
+): string {
+  const removed = splitDiffLines(oldText)
+  const added = splitDiffLines(newText)
+
+  return [
+    `--- a/${filePath}`,
+    `+++ b/${filePath}`,
+    `@@ -${removed.length > 0 ? 1 : 0},${removed.length} +${added.length > 0 ? 1 : 0},${added.length} @@`,
+    ...removed.map((line) => `-${line}`),
+    ...added.map((line) => `+${line}`),
+  ].join('\n')
+}
+
+/** Turns a Claude tool call into the structured request the approval card renders. */
+export function buildToolApprovalRequest(
+  toolName: string,
+  input: Record<string, unknown>,
+): ManagedProviderRuntimeToolRequest {
+  const request: ManagedProviderRuntimeToolRequest = { input, toolName }
+  const command =
+    typeof input.command === 'string'
+      ? input.command
+      : typeof input.cmd === 'string'
+        ? input.cmd
+        : null
+
+  if (command) {
+    return {
+      ...request,
+      command,
+      ...(typeof input.cwd === 'string' ? { cwd: input.cwd } : {}),
+    }
+  }
+
+  const filePath =
+    typeof input.file_path === 'string' ? input.file_path : undefined
+
+  if (!filePath) {
+    return request
+  }
+
+  if (typeof input.content === 'string') {
+    return {
+      ...request,
+      diff: buildUnifiedDiff(filePath, '', input.content),
+      filePath,
+    }
+  }
+
+  const edits = (Array.isArray(input.edits) ? input.edits : [input]).flatMap(
+    (edit) => {
+      const record = edit as Record<string, unknown>
+      return typeof record.old_string === 'string' &&
+        typeof record.new_string === 'string'
+        ? [{ newText: record.new_string, oldText: record.old_string }]
+        : []
+    },
+  )
+
+  if (edits.length === 0) {
+    return { ...request, filePath }
+  }
+
+  return {
+    ...request,
+    diff: buildUnifiedDiff(
+      filePath,
+      edits.map((edit) => edit.oldText).join('\n'),
+      edits.map((edit) => edit.newText).join('\n'),
+    ),
+    filePath,
+  }
+}
+
+type ToolCallDetail = Pick<
+  ManagedProviderRuntimeToolCall,
+  'command' | 'diff' | 'files'
+>
+
+/** Pull the command, touched files and diff a Claude tool input implies. */
+function describeClaudeToolInput(
+  toolName: string,
+  input: unknown,
+): ToolCallDetail {
+  const request = buildToolApprovalRequest(
+    toolName,
+    input && typeof input === 'object'
+      ? (input as Record<string, unknown>)
+      : {},
+  )
+  const status =
+    toolName === 'Read' ? 'read' : toolName === 'Write' ? 'added' : 'modified'
+
+  return {
+    ...(request.command ? { command: request.command } : {}),
+    ...(request.diff ? { diff: request.diff } : {}),
+    ...(request.filePath
+      ? { files: [{ path: request.filePath, status }] }
+      : {}),
+  }
+}
+
 function classifyToolRequestType(
   toolName: string,
 ): ManagedProviderRuntimeRequestType {
@@ -519,6 +655,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private readonly promptQueue = new AsyncQueue<SDKUserMessage>()
   private queryRuntime: ReturnType<typeof query> | null = null
   private readonly streamedMessageIds = new Set<string>()
+  private readonly toolCalls = new Map<string, ManagedProviderRuntimeToolCall>()
   private readonly streamMessages = new Map<
     string | null,
     { id: string; model?: string }
@@ -634,6 +771,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         createdAt: this.getNow(),
         detail,
         provider: 'claude',
+        request: buildToolApprovalRequest(toolName, input),
         requestId,
         requestType,
         type: 'request.opened',
@@ -832,6 +970,31 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
   }
 
+  private emitToolCall(call: ManagedProviderRuntimeToolCall): void {
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      itemId: call.callId,
+      kind: 'tool-call',
+      model: this.contextModel,
+      provider: 'claude',
+      text: '',
+      tool: { ...call },
+      type: 'content.delta',
+    })
+  }
+
+  private appendSubagentOutput(parentToolUseId: string, text: string): boolean {
+    const parent = this.toolCalls.get(parentToolUseId)
+
+    if (!parent) {
+      return false
+    }
+
+    parent.output = `${parent.output ?? ''}${text}`
+    this.emitToolCall(parent)
+    return true
+  }
+
   private handleStreamEvent(message: {
     readonly uuid: string
     readonly event: unknown
@@ -877,6 +1040,11 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         }
 
         this.streamedMessageIds.add(itemId)
+
+        if (streamKey && this.appendSubagentOutput(streamKey, text)) {
+          return
+        }
+
         this.emitRuntimeEvent({
           createdAt: this.getNow(),
           itemId,
@@ -951,14 +1119,37 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         usage.output_tokens +
         (usage.cache_read_input_tokens ?? 0) +
         (usage.cache_creation_input_tokens ?? 0)
+      const parentToolUseId = message.parent_tool_use_id ?? null
+      const content = Array.isArray(message.message.content)
+        ? message.message.content
+        : []
+
+      if (!parentToolUseId) {
+        for (const block of content) {
+          if (
+            block &&
+            typeof block === 'object' &&
+            'type' in block &&
+            block.type === 'tool_use' &&
+            typeof block.name === 'string'
+          ) {
+            const call: ManagedProviderRuntimeToolCall = {
+              callId: block.id,
+              input: block.input,
+              status: 'running',
+              toolName: block.name,
+              ...describeClaudeToolInput(block.name, block.input),
+            }
+            this.toolCalls.set(call.callId, call)
+            this.emitToolCall(call)
+          }
+        }
+      }
+
       if (this.streamedMessageIds.has(message.message.id)) {
         this.streamedMessageIds.delete(message.message.id)
         return
       }
-
-      const content = Array.isArray(message.message.content)
-        ? message.message.content
-        : []
 
       for (const block of content) {
         if (
@@ -969,6 +1160,11 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           typeof block.text === 'string' &&
           block.text.length > 0
         ) {
+          if (parentToolUseId) {
+            this.appendSubagentOutput(parentToolUseId, block.text)
+            continue
+          }
+
           this.emitRuntimeEvent({
             createdAt: this.getNow(),
             itemId: message.message.id,
@@ -979,6 +1175,39 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
             type: 'content.delta',
           })
         }
+      }
+
+      return
+    }
+
+    if (message.type === 'user') {
+      const content = Array.isArray(message.message.content)
+        ? message.message.content
+        : []
+
+      for (const block of content) {
+        if (
+          !block ||
+          typeof block !== 'object' ||
+          !('type' in block) ||
+          block.type !== 'tool_result'
+        ) {
+          continue
+        }
+
+        const call = this.toolCalls.get(String(block.tool_use_id))
+
+        if (!call) {
+          continue
+        }
+
+        const output = readToolResultText(block.content)
+        this.toolCalls.delete(call.callId)
+        this.emitToolCall({
+          ...call,
+          ...(output ? { output: `${call.output ?? ''}${output}` } : {}),
+          status: block.is_error === true ? 'failed' : 'completed',
+        })
       }
 
       return
@@ -1011,6 +1240,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     if (message.type === 'result') {
       this.streamMessages.clear()
       this.streamedMessageIds.clear()
+      this.toolCalls.clear()
       const models = Object.entries<ModelUsage>(message.modelUsage ?? {}).map(
         ([model, usage]) => ({
           model,
@@ -1101,6 +1331,40 @@ interface CodexPendingUserInput {
   jsonRpcId: string | number
 }
 
+const CODEX_TOOL_ITEM_NAMES: Record<string, string> = {
+  commandExecution: 'Shell',
+  fileChange: 'Edit',
+  mcpToolCall: 'Tool',
+  webSearch: 'Web search',
+}
+
+function readCodexFileChanges(
+  value: unknown,
+): { path: string; status: string }[] {
+  const entries = Array.isArray(value)
+    ? value.map((change) => {
+        const record =
+          change && typeof change === 'object'
+            ? (change as Record<string, unknown>)
+            : {}
+        return [record.path, record.kind ?? record.status] as const
+      })
+    : value && typeof value === 'object'
+      ? Object.entries(value as Record<string, unknown>)
+      : []
+
+  return entries.flatMap(([path, status]) =>
+    typeof path === 'string' && path.length > 0
+      ? [
+          {
+            path,
+            status: typeof status === 'string' ? status : 'modified',
+          },
+        ]
+      : [],
+  )
+}
+
 export class CodexManagedSessionBackend implements ManagedSessionBackend {
   private stderrTail = ''
   private activeTurnId: string | null = null
@@ -1117,6 +1381,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
   >()
   private readonly pendingUserInputs = new Map<string, CodexPendingUserInput>()
   private readonly activeContentItemIds = new Map<string, string>()
+  private readonly toolCalls = new Map<string, ManagedProviderRuntimeToolCall>()
   private readonly assistantPhases = new Map<
     string,
     'commentary' | 'final_answer'
@@ -1440,6 +1705,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       this.activeContentItemIds.clear()
       this.assistantPhases.clear()
       this.streamedAssistantItems.clear()
+      this.toolCalls.clear()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         provider: 'codex',
@@ -1457,7 +1723,19 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     ) {
       const item = this.readObject(params, 'item')
       const itemId = this.readString(item, 'id')
-      if (this.readString(item, 'type') !== 'agentMessage' || !itemId) return
+      const itemType = this.readString(item, 'type')
+
+      if (item && itemId && itemType && itemType in CODEX_TOOL_ITEM_NAMES) {
+        this.trackToolCallItem(
+          item,
+          itemId,
+          itemType,
+          notification.method === 'item/completed',
+        )
+        return
+      }
+
+      if (itemType !== 'agentMessage' || !itemId) return
       const phase = this.readString(item, 'phase')
       if (phase === 'commentary' || phase === 'final_answer') {
         this.assistantPhases.set(itemId, phase)
@@ -1500,6 +1778,13 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
         this.readString(this.readObject(params, 'item'), 'id') ??
         this.activeContentItemIds.get(contentKind) ??
         randomUUID()
+      const trackedCall = this.toolCalls.get(stableItemId)
+
+      if (trackedCall) {
+        trackedCall.output = `${trackedCall.output ?? ''}${delta}`
+        this.emitToolCall(trackedCall)
+        return
+      }
 
       this.activeContentItemIds.set(contentKind, stableItemId)
       if (contentKind === 'assistant-text')
@@ -1529,6 +1814,70 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
         type: 'runtime.error',
       })
     }
+  }
+
+  private emitToolCall(call: ManagedProviderRuntimeToolCall): void {
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      itemId: call.callId,
+      kind: 'tool-call',
+      model: this.providerModel ?? undefined,
+      provider: 'codex',
+      text: '',
+      tool: { ...call },
+      type: 'content.delta',
+    })
+  }
+
+  private trackToolCallItem(
+    item: Record<string, unknown>,
+    itemId: string,
+    itemType: string,
+    completed: boolean,
+  ): void {
+    const previous = this.toolCalls.get(itemId)
+    const exitCode =
+      typeof item.exitCode === 'number' ? item.exitCode : undefined
+    const status = this.readString(item, 'status')
+    const files = readCodexFileChanges(item.changes)
+    const diff =
+      this.readString(item, 'diff') ?? this.readString(item, 'unifiedDiff')
+    const aggregated =
+      this.readString(item, 'aggregatedOutput') ??
+      this.readString(item, 'output')
+    const mcpName = [
+      this.readString(item, 'server'),
+      this.readString(item, 'tool'),
+    ]
+      .filter(Boolean)
+      .join('.')
+    const call: ManagedProviderRuntimeToolCall = {
+      ...previous,
+      callId: itemId,
+      input: item,
+      status: !completed
+        ? 'running'
+        : status === 'failed' || (exitCode !== undefined && exitCode !== 0)
+          ? 'failed'
+          : 'completed',
+      toolName:
+        itemType === 'mcpToolCall' && mcpName
+          ? mcpName
+          : (CODEX_TOOL_ITEM_NAMES[itemType] ?? itemType),
+      ...(this.readString(item, 'command')
+        ? { command: this.readString(item, 'command') }
+        : {}),
+      ...(this.readString(item, 'query')
+        ? { command: this.readString(item, 'query') }
+        : {}),
+      ...(exitCode === undefined ? {} : { exitCode }),
+      ...(files.length > 0 ? { files } : {}),
+      ...(diff ? { diff } : {}),
+      ...(aggregated && !previous?.output ? { output: aggregated } : {}),
+    }
+
+    this.toolCalls.set(itemId, call)
+    this.emitToolCall(call)
   }
 
   private handleRequest(request: {
@@ -1602,6 +1951,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
           this.readString(params, 'reason') ??
           this.readString(params, 'prompt'),
         provider: 'codex',
+        request: this.buildCodexApprovalRequest(request.method, params),
         requestId,
         requestType,
         type: 'request.opened',
@@ -1843,6 +2193,49 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     )
   }
 
+  private buildCodexApprovalRequest(
+    method: string,
+    params: Record<string, unknown> | undefined,
+  ): ManagedProviderRuntimeToolRequest {
+    const item = this.readObject(params, 'item')
+    const toolName = method.split('/')[1] ?? method
+    const rawCommand = params?.command ?? item?.command
+    const command = Array.isArray(rawCommand)
+      ? rawCommand
+          .filter((part): part is string => typeof part === 'string')
+          .join(' ')
+      : typeof rawCommand === 'string'
+        ? rawCommand
+        : undefined
+
+    if (command) {
+      const cwd = this.readString(params, 'cwd') ?? this.readString(item, 'cwd')
+      return {
+        command,
+        ...(cwd ? { cwd } : {}),
+        input: params,
+        toolName,
+      }
+    }
+
+    const rawChanges = params?.changes ?? item?.changes
+    const change = Array.isArray(rawChanges)
+      ? this.readObject(rawChanges[0])
+      : undefined
+    const filePath = change ? this.readString(change, 'path') : undefined
+    const diff = change
+      ? (this.readString(change, 'diff') ??
+        this.readString(change, 'unifiedDiff'))
+      : undefined
+
+    return {
+      ...(diff ? { diff } : {}),
+      ...(filePath ? { filePath } : {}),
+      input: params,
+      toolName,
+    }
+  }
+
   private readObject(
     value: unknown,
     key?: string,
@@ -1875,6 +2268,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
 
   public constructor(
     private readonly provider: ManagedProviderRuntimeProvider,
+    private readonly cwd: string,
     private readonly emitRuntimeEvent: (
       event: ManagedProviderRuntimeEvent,
     ) => void,
@@ -1971,12 +2365,39 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
 
     if (trimmed === 'approval') {
       this.activeRequestId = randomUUID()
+      const command = 'rm -rf build && bun run build'
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         detail: `${this.provider} needs approval`,
         provider: this.provider,
+        request: { command, input: { command }, toolName: 'Bash' },
         requestId: this.activeRequestId,
         requestType: 'command-execution-approval',
+        type: 'request.opened',
+      })
+      return
+    }
+
+    if (trimmed === 'edit approval') {
+      this.activeRequestId = randomUUID()
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        detail: `${this.provider} needs approval`,
+        provider: this.provider,
+        request: {
+          diff: [
+            '--- a/README.md',
+            '+++ b/README.md',
+            '@@ -1,1 +1,1 @@',
+            '-before',
+            '+after',
+          ].join('\n'),
+          filePath: 'README.md',
+          input: { file_path: 'README.md' },
+          toolName: 'Edit',
+        },
+        requestId: this.activeRequestId,
+        requestType: 'file-change-approval',
         type: 'request.opened',
       })
       return
@@ -2021,6 +2442,76 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (trimmed === 'tools') {
+      const calls: ManagedProviderRuntimeToolCall[] = [
+        {
+          callId: 'fake-bash',
+          command: 'echo hello',
+          exitCode: 0,
+          input: { command: 'echo hello' },
+          output: 'hello',
+          status: 'completed',
+          toolName: 'Bash',
+        },
+        {
+          callId: 'fake-edit',
+          diff: buildUnifiedDiff('README.md', 'before', 'after'),
+          files: [{ path: 'README.md', status: 'modified' }],
+          input: {
+            file_path: 'README.md',
+            new_string: 'after',
+            old_string: 'before',
+          },
+          output: 'Edited README.md',
+          status: 'completed',
+          toolName: 'Edit',
+        },
+        {
+          callId: 'fake-read',
+          files: [{ path: 'README.md', status: 'read' }],
+          input: { file_path: 'README.md' },
+          output: 'before',
+          status: 'completed',
+          toolName: 'Read',
+        },
+      ]
+
+      for (const call of calls) {
+        const started: ManagedProviderRuntimeToolCall = {
+          callId: call.callId,
+          input: call.input,
+          status: 'running',
+          toolName: call.toolName,
+          ...(call.command ? { command: call.command } : {}),
+        }
+
+        for (const tool of [started, call]) {
+          this.emitRuntimeEvent({
+            createdAt: this.getNow(),
+            itemId: call.callId,
+            kind: 'tool-call',
+            provider: this.provider,
+            text: '',
+            tool,
+            type: 'content.delta',
+          })
+          await new Promise((resolve) => setTimeout(resolve, 100))
+          if (this.activeTurnId !== turnId) return
+        }
+      }
+
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: randomUUID(),
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: 'Ran three tools.',
+        type: 'content.delta',
+      })
+      this.finishTurn('completed')
+      return
+    }
+
     if (trimmed === `wait-${this.provider}`) return
     if (trimmed === `fail-${this.provider}`) {
       this.emitRuntimeEvent({
@@ -2032,6 +2523,9 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       })
       this.activeTurnId = null
       return
+    }
+    if (trimmed === 'edit readme') {
+      await appendFile(path.join(this.cwd, 'README.md'), 'edited by the turn\n')
     }
     if (trimmed === 'stream-codex' && this.provider === 'codex') {
       const itemId = randomUUID()
@@ -2178,6 +2672,11 @@ export class ManagedSessionManager {
 
   public getActiveSessionCount(): number {
     return this.sessions.size
+  }
+
+  /** Resolves once the session's in-flight turn checkpoint has recorded its result. */
+  public async waitForCheckpointCompletion(sessionId: string): Promise<void> {
+    await this.sessions.get(sessionId)?.checkpointCompletion
   }
 
   public isSessionBusy(sessionId: string): boolean {
@@ -4107,6 +4606,7 @@ export class ManagedSessionManager {
     ) {
       return new FakeManagedSessionBackend(
         config.mode,
+        config.cwd,
         emitRuntimeEvent,
         this.getNow,
         tools,
@@ -4323,6 +4823,7 @@ export class ManagedSessionManager {
 
       if (existing) {
         if (event.phase) existing.phase = event.phase
+        if (event.tool) existing.tool = event.tool
         existing.text = `${existing.text}${event.text}`
         existing.updatedAt = event.createdAt
       } else {
@@ -4333,6 +4834,7 @@ export class ManagedSessionManager {
           model: event.model ?? state.config.model,
           provider: state.config.mode,
           text: event.text,
+          ...(event.tool ? { tool: event.tool } : {}),
           turnId: state.activeTurnId,
           updatedAt: event.createdAt,
         })
@@ -4344,6 +4846,7 @@ export class ManagedSessionManager {
       state.pendingApprovals.set(event.requestId, {
         detail: event.detail ?? null,
         id: event.requestId,
+        ...(event.request ? { request: event.request } : {}),
         requestType: event.requestType ?? 'unknown',
       })
     }

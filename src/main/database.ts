@@ -485,6 +485,25 @@ const persistedManagedAttachment = z.discriminatedUnion('kind', [
     path: z.string().min(1).max(4_096),
   }),
 ])
+const persistedToolCall = z.object({
+  callId: persistedIdentifier,
+  command: persistedText.optional(),
+  diff: persistedText.optional(),
+  exitCode: z.number().finite().int().optional(),
+  files: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(4_096),
+        status: z.string().max(200),
+      }),
+    )
+    .max(200)
+    .optional(),
+  input: z.unknown(),
+  output: persistedText.optional(),
+  status: z.enum(['running', 'completed', 'failed']),
+  toolName: z.string().min(1).max(200),
+})
 const persistedQueuedInput = z.object({
   attachments: z.array(persistedManagedAttachment).max(8),
   checkpointId: persistedIdentifier.optional(),
@@ -536,12 +555,14 @@ const persistedManagedSessionSchema = z
             'command-output',
             'file-change-output',
             'system',
+            'tool-call',
             'user-prompt',
           ]),
           model: z.string().max(200).nullable().optional(),
           phase: z.enum(['commentary', 'final_answer']).optional(),
           provider: persistedProvider.nullable(),
           text: persistedText,
+          tool: persistedToolCall.optional(),
           turnId: persistedIdentifier.nullable(),
           updatedAt: persistedTimestamp,
         }),

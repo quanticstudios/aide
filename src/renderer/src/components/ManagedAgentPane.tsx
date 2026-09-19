@@ -11,7 +11,9 @@ import {
   Clipboard,
   ClipboardCheck,
   FileCode,
+  FileText,
   GitBranch,
+  History,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -19,9 +21,12 @@ import {
   RefreshCw,
   ShieldCheck,
   Terminal,
+  Wrench,
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -29,6 +34,10 @@ import {
   useRef,
   useState,
 } from 'react'
+import type {
+  TurnCheckpointDiff,
+  TurnCheckpointRestoreResult,
+} from '../../../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -44,6 +53,7 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
+  ManagedSessionToolCall,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session'
@@ -84,6 +94,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
 import {
   appendWorkspaceFileAttachment,
@@ -100,6 +111,7 @@ import ManagedComposerAttachments, {
 } from './ManagedComposerAttachments'
 import ManagedInputQueue from './ManagedInputQueue'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import ManagedRewindDialog from './ManagedRewindDialog'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
@@ -285,25 +297,6 @@ function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
   )
 }
 
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  onClose: () => void,
-  active: boolean,
-) {
-  useEffect(() => {
-    if (!active) return
-
-    const handler = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        onClose()
-      }
-    }
-
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [active, onClose, ref])
-}
-
 function PermissionDropdown({
   onPermissionModeChange,
   permissionMode,
@@ -420,11 +413,145 @@ function MessageCopyButton({
   )
 }
 
+const LazyGitDiffView = lazy(async () => ({
+  default: (await import('./GitDiffView')).GitDiffView,
+}))
+
+function toolCallIcon(tool: ManagedSessionToolCall) {
+  if (tool.command) {
+    return Terminal
+  }
+
+  if (tool.diff) {
+    return FileCode
+  }
+
+  if (tool.files?.some((file) => file.status === 'read')) {
+    return FileText
+  }
+
+  return Wrench
+}
+
+function toolCallSummary(tool: ManagedSessionToolCall): string {
+  return (
+    tool.command ??
+    tool.files?.[0]?.path ??
+    JSON.stringify(tool.input ?? {}).slice(0, 80)
+  )
+}
+
+function toolCallStatusLabel(tool: ManagedSessionToolCall): string {
+  if (tool.status === 'failed') {
+    return 'failed'
+  }
+
+  return tool.exitCode === undefined ? 'done' : `exit ${tool.exitCode}`
+}
+
+function ToolCallBlock({ tool }: { readonly tool: ManagedSessionToolCall }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const [isOutputExpanded, setIsOutputExpanded] = useState(false)
+  const Icon = toolCallIcon(tool)
+  const output = tool.output ?? ''
+  const lines = output.split('\n')
+  const isLongOutput = lines.length > 20
+
+  return (
+    <div
+      className="overflow-hidden rounded-lg border border-[var(--border-soft)] bg-surface-1"
+      data-testid="managed-content-tool-call"
+    >
+      <button
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+        data-testid={`tool-call-${tool.toolName}`}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        type="button"
+      >
+        <Icon className="size-3.5 shrink-0 text-accent-blue" />
+        <span className="shrink-0 text-xs font-semibold text-foreground">
+          {tool.toolName}
+        </span>
+        <span className="truncate font-mono text-[12px] text-muted-foreground">
+          {toolCallSummary(tool)}
+        </span>
+        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          {tool.status === 'running' ? (
+            <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
+          ) : (
+            toolCallStatusLabel(tool)
+          )}
+        </span>
+        <ChevronDown
+          className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+        />
+      </button>
+      {isExpanded ? (
+        <div className="space-y-2 border-t border-[var(--border-soft)] px-3 py-2">
+          {tool.command ? (
+            <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-foreground">
+              {tool.command}
+            </pre>
+          ) : null}
+          {tool.files && tool.files.length > 0 ? (
+            <ul className="space-y-0.5 font-mono text-[12px] text-muted-foreground">
+              {tool.files.map((file) => (
+                <li key={`${file.status}:${file.path}`}>
+                  {file.status} {file.path}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {tool.diff ? (
+            <div
+              className="overflow-auto rounded-md border border-border"
+              data-testid="tool-call-diff"
+            >
+              <Suspense fallback={null}>
+                <LazyGitDiffView
+                  filePath={tool.files?.[0]?.path ?? 'file'}
+                  outputFormat="line-by-line"
+                  patch={tool.diff}
+                />
+              </Suspense>
+            </div>
+          ) : null}
+          {output ? (
+            <pre
+              className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body"
+              data-testid="tool-call-output"
+            >
+              {isLongOutput && !isOutputExpanded
+                ? lines.slice(0, 20).join('\n')
+                : output}
+            </pre>
+          ) : null}
+          {isLongOutput ? (
+            <button
+              className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              onClick={() => setIsOutputExpanded((prev) => !prev)}
+              type="button"
+            >
+              {isOutputExpanded
+                ? 'Show less'
+                : `Show ${lines.length - 20} more lines`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function ContentItemBlock({
+  editFromHereDisabledReason = null,
   item,
+  onEditFromHere,
   showProvider = true,
 }: {
+  readonly editFromHereDisabledReason?: string | null
   readonly item: ManagedSessionContentItem
+  readonly onEditFromHere?: (() => void) | undefined
   readonly showProvider?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -457,10 +584,31 @@ function ContentItemBlock({
               {formatMessageTime(item.updatedAt)}
             </time>
             <MessageCopyButton text={item.text} kind="message" />
+            {onEditFromHere ? (
+              <IconTooltip
+                label={editFromHereDisabledReason ?? 'Rewind to this message'}
+              >
+                <Button
+                  aria-label="Edit from here"
+                  className="h-7 gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground"
+                  isDisabled={Boolean(editFromHereDisabledReason)}
+                  onPress={onEditFromHere}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <History className="size-3.5" />
+                  Edit from here
+                </Button>
+              </IconTooltip>
+            ) : null}
           </div>
         </div>
       </div>
     )
+  }
+
+  if (item.kind === 'tool-call' && item.tool) {
+    return <ToolCallBlock tool={item.tool} />
   }
 
   if (item.kind === 'command-output') {
@@ -604,26 +752,39 @@ function ContentItemBlock({
 function TurnGroupBlock({
   group,
   canBranch,
+  checkpointId,
   isFailed,
   isRunning,
   onBranch,
+  onEditFromHere,
   onInterrupt,
   onRetry,
   providerLabel,
   recipientAlias,
   requestText,
+  rewindDisabledReason,
+  sessionId,
 }: {
   readonly group: TurnGroup
   readonly canBranch: boolean
+  readonly checkpointId: string | null
   readonly isFailed: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
+  readonly onEditFromHere: (
+    checkpointId: string,
+    item: ManagedSessionContentItem,
+  ) => void
   readonly onInterrupt: (recipientAlias: string) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
   readonly recipientAlias: string | null
   readonly requestText: string | null
+  readonly rewindDisabledReason: string | null
+  readonly sessionId: string
 }) {
+  const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
+  const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   const responseItem = group.items
     .filter(
@@ -632,14 +793,36 @@ function TurnGroupBlock({
     .at(-1)
   const responseContentItemId = responseItem?.id
 
+  useEffect(() => {
+    if (!checkpointId || isRunning) return
+    let cancelled = false
+    void getAideApi()
+      ?.getTurnCheckpointDiff(sessionId, checkpointId)
+      .then(
+        (diff) => {
+          if (!cancelled) setTurnDiff(diff)
+        },
+        () => undefined,
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [checkpointId, isRunning, sessionId])
+
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
       {group.items.map((item, index) => {
         const previous = group.items[index - 1]
         return (
           <ContentItemBlock
+            editFromHereDisabledReason={rewindDisabledReason}
             item={item}
             key={`${item.kind}:${item.id}`}
+            onEditFromHere={
+              checkpointId && item.kind === 'user-prompt'
+                ? () => onEditFromHere(checkpointId, item)
+                : undefined
+            }
             showProvider={
               previous?.kind !== 'assistant-text' ||
               previous.provider !== item.provider ||
@@ -678,6 +861,22 @@ function TurnGroupBlock({
               .map((item) => item.text)
               .join('\n\n')}
           />
+          {turnDiff && turnDiff.files.length > 0 ? (
+            <button
+              aria-expanded={isTurnDiffOpen}
+              className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium tabular-nums text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+              data-testid="turn-diff-chip"
+              onClick={() => setIsTurnDiffOpen((open) => !open)}
+              type="button"
+            >
+              <span className="text-accent-green">+{turnDiff.additions}</span>{' '}
+              <span className="text-accent-red">-{turnDiff.deletions}</span>{' '}
+              <span>
+                · {turnDiff.files.length}{' '}
+                {turnDiff.files.length === 1 ? 'file' : 'files'}
+              </span>
+            </button>
+          ) : null}
           {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
@@ -711,6 +910,37 @@ function TurnGroupBlock({
               {formatMessageTime(responseItem.updatedAt)}
             </time>
           ) : null}
+        </div>
+      ) : null}
+      {isTurnDiffOpen && turnDiff ? (
+        <div className="space-y-2" data-testid="turn-diff-files">
+          {turnDiff.files.map((file) => (
+            <details
+              className="group/turn-diff rounded-md border border-border bg-surface"
+              key={file.path}
+              open
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <ChevronRight className="size-3 transition-transform group-open/turn-diff:rotate-90" />
+                {file.path}
+                <span className="ml-auto tabular-nums text-accent-green">
+                  +{file.additions}
+                </span>
+                <span className="tabular-nums text-accent-red">
+                  -{file.deletions}
+                </span>
+              </summary>
+              <div className="max-h-96 overflow-auto border-t border-border">
+                <Suspense fallback={null}>
+                  <LazyGitDiffView
+                    filePath={file.path}
+                    outputFormat="line-by-line"
+                    patch={file.patch}
+                  />
+                </Suspense>
+              </div>
+            </details>
+          ))}
         </div>
       ) : null}
     </div>
@@ -815,6 +1045,10 @@ export default function ManagedAgentPane({
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
   const jevSettingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const [isJevSetupOpen, setIsJevSetupOpen] = useState(false)
+  const [rewindTarget, setRewindTarget] = useState<{
+    readonly attachments: readonly ManagedSessionAttachment[]
+    readonly checkpointId: string
+  } | null>(null)
   const startedSessionRef = useRef(false)
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
@@ -1455,6 +1689,22 @@ export default function ManagedAgentPane({
       await sendPromptText(text, [recipientAlias])
     },
     [sendPromptText],
+  )
+
+  const handleRewindRestored = useCallback(
+    async (result: TurnCheckpointRestoreResult) => {
+      const api = getAideApi()
+      if (!api) {
+        throw new Error('Managed provider bridge did not load.')
+      }
+      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
+        attachments: [...(rewindTarget?.attachments ?? [])],
+        recipients: [],
+        text: result.editedPrompt,
+      })
+      await api.openTask(result.sessionId)
+    },
+    [rewindTarget],
   )
 
   const handleBranchConversation = useCallback(
@@ -2117,6 +2367,10 @@ export default function ManagedAgentPane({
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
   )
+  const rewindDisabledReason =
+    runningTurnId !== null || snapshot?.sessionState === 'running'
+      ? 'Stop the running task before rewinding.'
+      : null
 
   return (
     <section
@@ -2124,7 +2378,7 @@ export default function ManagedAgentPane({
       data-testid="managed-agent-pane"
       ref={paneRef}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
         <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
           {isUnifiedPane ? 'Agent' : providerLabel}
         </h2>
@@ -2161,6 +2415,15 @@ export default function ManagedAgentPane({
           </Button>
         </div>
       </div>
+
+      {rewindTarget ? (
+        <ManagedRewindDialog
+          checkpointId={rewindTarget.checkpointId}
+          onClose={() => setRewindTarget(null)}
+          onRestored={handleRewindRestored}
+          sessionId={sessionId}
+        />
+      ) : null}
 
       <JevSetup
         isOpen={isJevSetupOpen}
@@ -2215,12 +2478,19 @@ export default function ManagedAgentPane({
                 return (
                   <TurnGroupBlock
                     canBranch={turn?.state === 'completed'}
+                    checkpointId={turn?.checkpointId ?? null}
                     group={group}
                     isFailed={turn?.state === 'failed'}
                     isRunning={turn?.state === 'running'}
                     key={group.turnId ?? `system-${group.items[0]?.id}`}
                     onBranch={(responseContentItemId) =>
                       void handleBranchConversation(responseContentItemId)
+                    }
+                    onEditFromHere={(checkpointId, item) =>
+                      setRewindTarget({
+                        attachments: item.attachments ?? [],
+                        checkpointId,
+                      })
                     }
                     onInterrupt={handleInterruptRecipient}
                     onRetry={(text, recipientAlias) =>
@@ -2235,6 +2505,8 @@ export default function ManagedAgentPane({
                     }
                     recipientAlias={turn?.recipientAlias ?? null}
                     requestText={turn?.requestText ?? null}
+                    rewindDisabledReason={rewindDisabledReason}
+                    sessionId={sessionId}
                   />
                 )
               })}

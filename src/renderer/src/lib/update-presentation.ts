@@ -29,9 +29,7 @@ export interface UpdatePresentation {
   readonly canRestart: boolean
   readonly canRetry: boolean
   readonly canSnooze: boolean
-  readonly capabilityExplanation: string | null
   readonly description: string
-  readonly heading: string
   readonly icon: UpdatePresentationIcon
   readonly indicatorLabel: string
   readonly indicatorVisible: boolean
@@ -41,16 +39,20 @@ export interface UpdatePresentation {
   readonly tone: UpdatePresentationTone
 }
 
-const CAPABILITY_EXPLANATIONS: Record<
-  Exclude<UpdateSnapshot['capability'], 'supported'>,
-  string
-> = {
-  development:
-    'Automatic updates are disabled in development builds. Use a packaged release to test the signed update flow.',
+type UnsupportedCapability = Exclude<UpdateSnapshot['capability'], 'supported'>
+
+const CAPABILITY_DESCRIPTIONS: Record<UnsupportedCapability, string> = {
+  development: 'Automatic updates are disabled in development builds.',
   'manual-only':
-    'This installation must be updated manually. Download and install the latest signed Aide release.',
+    'This installation must be updated manually from a signed Aide release.',
   'unsupported-platform':
-    'Automatic updates are not supported on this platform. Install a supported Aide build to receive them.',
+    'Automatic updates are not supported on this platform.',
+}
+
+const CAPABILITY_LABELS: Record<UnsupportedCapability, string> = {
+  development: 'Development build',
+  'manual-only': 'Manual updates only',
+  'unsupported-platform': 'Unsupported platform',
 }
 
 function clampedPercent(snapshot: UpdateSnapshot): number {
@@ -122,11 +124,9 @@ export function resolveUpdatePresentation(
       canRestart: false,
       canRetry: false,
       canSnooze: false,
-      capabilityExplanation: null,
       description: 'Loading the latest update status and preferences.',
-      heading: 'Software update',
       icon: 'idle',
-      indicatorLabel: 'Loading update status',
+      indicatorLabel: 'Loading',
       indicatorVisible: false,
       isCritical: false,
       isSnoozed: false,
@@ -144,10 +144,6 @@ export function resolveUpdatePresentation(
   const target = snapshot.targetVersion
     ? ` Aide ${snapshot.targetVersion}`
     : ' The update'
-  const capabilityExplanation =
-    snapshot.capability === 'supported'
-      ? null
-      : CAPABILITY_EXPLANATIONS[snapshot.capability]
 
   if (snapshot.capability !== 'supported') {
     return {
@@ -156,12 +152,9 @@ export function resolveUpdatePresentation(
       canRestart: false,
       canRetry: false,
       canSnooze: false,
-      capabilityExplanation,
-      description:
-        capabilityExplanation ?? 'Automatic updates are unavailable.',
-      heading: 'Manual update required',
+      description: CAPABILITY_DESCRIPTIONS[snapshot.capability],
       icon: 'idle',
-      indicatorLabel: 'Automatic updates unavailable',
+      indicatorLabel: CAPABILITY_LABELS[snapshot.capability],
       indicatorVisible: false,
       isCritical: false,
       isSnoozed: false,
@@ -178,9 +171,7 @@ export function resolveUpdatePresentation(
         canRestart: false,
         canRetry: false,
         canSnooze: false,
-        capabilityExplanation,
         description: 'Aide is securely checking the signed release channel.',
-        heading: 'Checking for updates',
         icon: 'downloading',
         indicatorLabel: 'Checking for updates',
         indicatorVisible: true,
@@ -196,7 +187,6 @@ export function resolveUpdatePresentation(
         canRestart: false,
         canRetry: false,
         canSnooze: !isCritical && !snoozed,
-        capabilityExplanation,
         description: isCritical
           ? `${target} contains a critical security or reliability fix. Downloading it never forces Aide to restart.`
           : snoozed
@@ -205,7 +195,6 @@ export function resolveUpdatePresentation(
                 now,
               )}. You can still download it now.`
             : `${target} is ready to download in the background.`,
-        heading: isCritical ? 'Critical update available' : 'Update available',
         icon: isCritical ? 'critical' : 'available',
         indicatorLabel: isCritical
           ? 'Critical update available'
@@ -223,11 +212,7 @@ export function resolveUpdatePresentation(
         canRestart: false,
         canRetry: false,
         canSnooze: false,
-        capabilityExplanation,
         description: `${target} is downloading in the background. You can keep working.`,
-        heading: isCritical
-          ? 'Downloading critical update'
-          : 'Downloading update',
         icon: isCritical ? 'critical' : 'downloading',
         indicatorLabel: isCritical
           ? 'Downloading critical update'
@@ -246,9 +231,7 @@ export function resolveUpdatePresentation(
         canRestart: true,
         canRetry: false,
         canSnooze: false,
-        capabilityExplanation,
         description: `${target} is verified and ready. Aide restarts only after you explicitly confirm.`,
-        heading: isCritical ? 'Critical update ready' : 'Restart ready',
         icon: isCritical ? 'critical' : 'ready',
         indicatorLabel: isCritical ? 'Critical update ready' : 'Restart ready',
         indicatorVisible: true,
@@ -264,10 +247,8 @@ export function resolveUpdatePresentation(
         canRestart: false,
         canRetry: true,
         canSnooze: false,
-        capabilityExplanation,
         description:
           'Aide could not complete the update. Your current installation is unchanged and safe to use.',
-        heading: 'Update failed',
         icon: 'failed',
         indicatorLabel: 'Update failed',
         indicatorVisible: true,
@@ -284,13 +265,9 @@ export function resolveUpdatePresentation(
         canRestart: false,
         canRetry: false,
         canSnooze: false,
-        capabilityExplanation,
         description: needsHealthDisclosure
           ? 'Review the privacy-bounded update health disclosure before any reports can be shared.'
           : 'Check the signed release channel for a newer version.',
-        heading: needsHealthDisclosure
-          ? 'Review update privacy'
-          : 'Aide is up to date',
         icon: needsHealthDisclosure ? 'privacy' : 'idle',
         indicatorLabel: needsHealthDisclosure
           ? 'Review update privacy'

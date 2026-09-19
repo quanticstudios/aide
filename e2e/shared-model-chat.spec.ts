@@ -2253,6 +2253,48 @@ test.describe('shared model chat', () => {
         orchestratorSelection: orchestrator.selection,
       })
   })
+  test('closes the configured agents popover on an outside click', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+
+    const trigger = page.getByRole('button', { name: 'Agents', exact: true })
+    const popover = page.getByText('Configured agents', { exact: true })
+
+    await trigger.click()
+    await expect(popover).toBeVisible()
+    await page.getByText('@claude', { exact: true }).click()
+    await expect(popover).toBeVisible()
+
+    await page.getByTestId('managed-session-content').click()
+    await expect(popover).toBeHidden()
+
+    await trigger.click()
+    await expect(popover).toBeVisible()
+    await trigger.click()
+    await expect(popover).toBeHidden()
+  })
+
+  test('closes the configured agents popover on Escape and refocuses the trigger', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    await startSharedChat(launched.page, app)
+    const { page } = launched
+
+    const trigger = page.getByRole('button', { name: 'Agents', exact: true })
+    const popover = page.getByText('Configured agents', { exact: true })
+
+    await trigger.click()
+    await expect(popover).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(popover).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
 
   test('preserves a completed opinion when a peer fails, then interrupts only the pending peer', async () => {
     repository = createGitRepository()

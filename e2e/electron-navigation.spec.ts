@@ -1590,7 +1590,7 @@ test.describe('electron spatial navigation', () => {
     await expect(healthReporting).not.toBeChecked()
     await page
       .getByRole('button', {
-        name: 'Acknowledge and enable health reporting',
+        name: 'Acknowledge health report disclosure',
       })
       .click()
     await expect(healthReporting).toBeEnabled()
@@ -1655,7 +1655,7 @@ test.describe('electron spatial navigation', () => {
     ).not.toBeChecked()
     await expect(
       page.getByRole('button', {
-        name: 'Withdraw approval and disable health reporting',
+        name: 'Withdraw health report approval',
       }),
     ).toBeVisible()
   })
