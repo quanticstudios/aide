@@ -50,6 +50,9 @@ type PendingAction =
   | 'retry'
   | 'snooze'
 
+// why: the theme flattens --accent, so a variant="primary" button needs the Action Blue tokens to read as the filled action.
+const PRIMARY_ACTION_CLASS = 'min-h-10 bg-primary text-primary-foreground'
+
 const STATUS_PILL_CLASSES: Record<UpdatePresentationTone, string> = {
   critical: 'bg-accent-red-soft text-accent-red',
   danger: 'bg-accent-red-soft text-accent-red',
@@ -84,12 +87,12 @@ function SettingSwitch({
       onChange={onChange}
     >
       <Switch.Content className="min-h-10 gap-3">
-        <Switch.Control>
+        <Switch.Control className="ring-1 ring-border ring-inset">
           <Switch.Thumb />
         </Switch.Control>
         <span className="text-sm font-medium text-foreground">{label}</span>
       </Switch.Content>
-      <Description className="pl-11 text-xs leading-5 text-muted-foreground">
+      <Description className="pl-13 text-xs leading-5 text-muted-foreground">
         {description}
       </Description>
     </Switch>
@@ -273,11 +276,7 @@ export default function UpdateModal({
                 <div className="flex items-start justify-between gap-3">
                   <SettingSwitch
                     className="min-w-0 flex-1"
-                    description={
-                      isHealthAcknowledged
-                        ? 'Version, platform, update timing, and failure codes. Never code or prompts.'
-                        : 'Version, platform, update timing, and failure codes. Acknowledge to enable.'
-                    }
+                    description="Version, platform, update timing, and failure codes. Never code or prompts."
                     isDisabled={!isHealthAcknowledged}
                     isPending={pendingAction === 'health-reporting'}
                     isSelected={
@@ -317,7 +316,7 @@ export default function UpdateModal({
                       )
                     }
                     size="sm"
-                    variant={isHealthAcknowledged ? 'ghost' : 'tertiary'}
+                    variant={isHealthAcknowledged ? 'ghost' : 'secondary'}
                   >
                     {isHealthAcknowledged ? 'Withdraw' : 'Acknowledge'}
                   </Button>
@@ -330,7 +329,7 @@ export default function UpdateModal({
                 className="min-h-10"
                 isDisabled={isBusy}
                 onPress={() => onOpenChange(false)}
-                variant="secondary"
+                variant="ghost"
               >
                 Close
               </Button>
@@ -349,7 +348,7 @@ export default function UpdateModal({
 
               {presentation.canCheck ? (
                 <Button
-                  className="min-h-10"
+                  className={PRIMARY_ACTION_CLASS}
                   isDisabled={isBusy}
                   isPending={pendingAction === 'check'}
                   onPress={() => void runAction('check', onCheck)}
@@ -360,7 +359,9 @@ export default function UpdateModal({
 
               {presentation.canDownload ? (
                 <Button
-                  className="min-h-10"
+                  className={
+                    presentation.isCritical ? 'min-h-10' : PRIMARY_ACTION_CLASS
+                  }
                   isDisabled={isBusy}
                   isPending={pendingAction === 'download'}
                   onPress={() => void runAction('download', onDownload)}
@@ -372,7 +373,7 @@ export default function UpdateModal({
 
               {presentation.canRetry ? (
                 <Button
-                  className="min-h-10"
+                  className={PRIMARY_ACTION_CLASS}
                   isDisabled={isBusy}
                   isPending={pendingAction === 'retry'}
                   onPress={() => void runAction('retry', onRetry)}
@@ -385,7 +386,9 @@ export default function UpdateModal({
               !restartStatus?.confirmationRequired &&
               !restartStatus?.restarting ? (
                 <Button
-                  className="min-h-10"
+                  className={
+                    presentation.isCritical ? 'min-h-10' : PRIMARY_ACTION_CLASS
+                  }
                   isDisabled={isBusy}
                   isPending={pendingAction === 'restart'}
                   onPress={() => void runAction('restart', onRequestRestart)}
