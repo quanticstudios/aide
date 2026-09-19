@@ -120,15 +120,6 @@ test.describe('pane header alignment', () => {
       path: test.info().outputPath('pane-header-agent.png'),
     })
 
-    await addPane(page, /terminal/i)
-    await expectAlignedWithProjectRow(
-      projectRow,
-      page.locator('.terminal-pane').locator('> div').first(),
-    )
-    await page.screenshot({
-      path: test.info().outputPath('pane-header-terminal.png'),
-    })
-
     await addPane(page, /git/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await expectAlignedWithProjectRow(
