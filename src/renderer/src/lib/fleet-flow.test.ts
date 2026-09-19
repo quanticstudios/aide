@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FleetEvent, FleetState } from '../../../shared/fleet'
+import { resolveJevGates } from '../../../shared/jev-gates'
 import { deriveLiveFleetFlow, layoutFleetPlan } from './fleet-flow'
 
 function fleetEvent(
@@ -300,5 +301,91 @@ describe('layoutFleetPlan', () => {
     const longEdge = layout.edges.find((edge) => edge.id === 'a:d')
 
     expect(longEdge?.path).toContain(' L ')
+  })
+})
+
+describe('gate nodes in the live flow', () => {
+  const enabled = resolveJevGates({
+    completionCheck: { enabled: true },
+    laneRouting: { enabled: true },
+    toolGate: { enabled: true },
+  })
+
+  function gates(
+    settings: Parameters<typeof deriveLiveFleetFlow>[4],
+    aliases: readonly string[] = ['claude', 'codex'],
+  ) {
+    return deriveLiveFleetFlow(
+      fleetState([]),
+      aliases,
+      new Set(),
+      new Set(),
+      settings,
+    ).gates
+  }
+
+  it('draws nothing while every gate is off', () => {
+    expect(gates(resolveJevGates())).toEqual([])
+    expect(gates(undefined)).toEqual([])
+  })
+
+  it('routes lane routing between Jev and the agent decision', () => {
+    const lane = gates(enabled).find((gate) => gate.section === 'laneRouting')
+
+    expect(lane).toMatchObject({
+      id: 'gate-laneRouting',
+      sourceIds: ['jev'],
+      subtitle: 'high ≥ 0.60, critical ≥ 0.85',
+      targetId: 'decision',
+      title: 'Lane routing',
+    })
+  })
+
+  it('hangs one tool call gate off each agent', () => {
+    const toolGates = gates(enabled).filter(
+      (gate) => gate.section === 'toolGate',
+    )
+
+    expect(toolGates.map((gate) => gate.sourceIds)).toEqual([
+      ['agent-claude'],
+      ['agent-codex'],
+    ])
+    expect(toolGates.every((gate) => gate.targetId === null)).toBe(true)
+    expect(toolGates[0]?.id).toBe('gate-toolGate-agent-claude')
+    expect(toolGates[0]?.subtitle).toBe('allow < 0.10, deny ≥ 0.90')
+  })
+
+  it('checks completion on every agent return before the outcome', () => {
+    const completion = gates(enabled).find(
+      (gate) => gate.section === 'completionCheck',
+    )
+
+    expect(completion).toMatchObject({
+      id: 'gate-completionCheck',
+      sourceIds: ['agent-claude', 'agent-codex'],
+      targetId: 'outcome',
+      title: 'Completion check',
+    })
+  })
+
+  it('feeds the completion check from the decision when no agent is configured', () => {
+    const [completion] = gates(
+      resolveJevGates({ completionCheck: { enabled: true } }),
+      [],
+    )
+
+    expect(completion?.sourceIds).toEqual(['decision'])
+    expect(completion?.targetId).toBe('outcome')
+  })
+
+  it('disables one gate without dropping the others', () => {
+    const sections = gates(
+      resolveJevGates({
+        completionCheck: { enabled: true },
+        laneRouting: { enabled: true },
+      }),
+    ).map((gate) => gate.section)
+
+    expect(sections).toEqual(['laneRouting', 'completionCheck'])
   })
 })

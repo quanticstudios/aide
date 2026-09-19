@@ -3,6 +3,12 @@ import type {
   FleetPlanNode,
   FleetState,
 } from '../../../shared/fleet'
+import {
+  formatJevGateThresholds,
+  JEV_GATE_ROWS,
+  type JevGateSection,
+  type JevGateSettings,
+} from '../../../shared/jev-gates'
 
 export type FleetFlowStatus =
   | 'idle'
@@ -41,10 +47,23 @@ export interface LiveFleetAgentState {
   readonly status: FleetFlowStatus
 }
 
+export interface LiveFleetGateNode {
+  readonly id: string
+  readonly section: JevGateSection
+  /** Nodes whose outgoing edge the gate intercepts. */
+  readonly sourceIds: readonly string[]
+  /** Effective thresholds, shown as the node label. */
+  readonly subtitle: string
+  /** Node the gate hands off to, or null when it hangs off its source. */
+  readonly targetId: string | null
+  readonly title: string
+}
+
 export interface LiveFleetFlowState {
   readonly agents: readonly LiveFleetAgentState[]
   readonly decisionEvent: FleetEvent | null
   readonly decisionStatus: FleetFlowStatus
+  readonly gates: readonly LiveFleetGateNode[]
   readonly headline: string
   readonly jevEvent: FleetEvent | null
   readonly jevStatus: FleetFlowStatus
@@ -133,6 +152,42 @@ function latestEvent(
   return index < 0 ? null : (events[index] ?? null)
 }
 
+function gateNodes(
+  gates: JevGateSettings | undefined,
+  agentNodeIds: readonly string[],
+): readonly LiveFleetGateNode[] {
+  if (!gates) return []
+  return JEV_GATE_ROWS.filter((row) => gates[row.section].enabled).flatMap(
+    (row): readonly LiveFleetGateNode[] => {
+      const shared = {
+        section: row.section,
+        subtitle: formatJevGateThresholds(gates, row.section),
+        title: row.label,
+      }
+      if (row.section === 'toolGate')
+        return agentNodeIds.map((agentNodeId) => ({
+          ...shared,
+          id: `gate-toolGate-${agentNodeId}`,
+          sourceIds: [agentNodeId],
+          targetId: null,
+        }))
+      return [
+        {
+          ...shared,
+          id: `gate-${row.section}`,
+          sourceIds:
+            row.section === 'laneRouting'
+              ? ['jev']
+              : agentNodeIds.length > 0
+                ? agentNodeIds
+                : ['decision'],
+          targetId: row.section === 'laneRouting' ? 'decision' : 'outcome',
+        },
+      ]
+    },
+  )
+}
+
 function activeHeadline(state: Omit<LiveFleetFlowState, 'headline'>): string {
   const activeAgent = state.agents.find((agent) => agent.status === 'running')
   if (activeAgent) return `@${activeAgent.alias} is working`
@@ -151,6 +206,7 @@ export function deriveLiveFleetFlow(
   aliases: readonly string[],
   activeActivityIds: ReadonlySet<string>,
   activeTurnIds: ReadonlySet<string>,
+  gates?: JevGateSettings,
 ): LiveFleetFlowState {
   const focusedEvents = selectFocusedEvents(
     fleet.events,
@@ -203,6 +259,10 @@ export function deriveLiveFleetFlow(
       decisionEvent,
       activeActivityIds,
       activeTurnIds,
+    ),
+    gates: gateNodes(
+      gates,
+      aliases.map((alias) => `agent-${alias}`),
     ),
     jevEvent,
     jevStatus: statusFromEvent(jevEvent, activeActivityIds, activeTurnIds),
