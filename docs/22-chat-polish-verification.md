@@ -13,9 +13,9 @@ The native Claude catalog comes from the installed SDK. Codex models come from
 the installed app-server. Model and skill selection waits for model discovery.
 The Send button and Enter use the same readiness condition.
 
-Jev setup has a Close button and Escape dismissal. Saving a ready configuration
-collapses the panel. Missing credentials and missing workspace permission have
-separate labels. A blocked send keeps the draft in the composer.
+Settings holds the Jev key entry and the workspace processing permission.
+Missing credentials and missing workspace permission have separate labels. A
+blocked send keeps the draft in the composer and offers Open Settings.
 
 ## Provider skills
 
@@ -69,7 +69,9 @@ calls, fixed the startup race, and checked the rendered layouts with pro-design.
 
 ![Skills menu in a narrow Agent pane](verification/provider-skills-2026-09-18.png)
 
-![Jev setup and composer](verification/chat-polish-2026-09-18.png)
+![Agent pane header and composer](verification/chat-polish-2026-09-18.png)
+
+![Jev section in Settings](verification/settings-jev-2026-09-19.png)
 
 ## Scope
 

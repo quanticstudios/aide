@@ -526,24 +526,8 @@ test.describe('shared model chat', () => {
     await page.setViewportSize({ width: 1100, height: 720 })
     await prepareSyntheticJev(app, page, false)
     await page.reload()
-    await page.getByText('Jev · Workspace permission required').click()
-    await page.getByRole('button', { name: 'Close Jev setup' }).click()
     await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
-    ).toBeHidden()
-    await page.getByText('Jev · Workspace permission required').click()
-    await page
-      .getByRole('switch', {
-        name: 'Allow TypeSafe processing for this workspace',
-      })
-      .focus()
-    await page.keyboard.press('Escape')
-    await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
-    ).toBeHidden()
-    await page.getByText('Jev · Workspace permission required').click()
-    await expect(
-      page.getByText(/Enable your operating system keyring/),
+      page.getByRole('button', { name: 'Jev settings', exact: true }),
     ).toHaveCount(0)
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await expect(prompt).toBeInViewport({ ratio: 1 })
@@ -554,40 +538,36 @@ test.describe('shared model chat', () => {
     await prompt.press('Enter')
     await expect(
       page.getByText(
-        'Allow TypeSafe processing for this workspace in Jev setup before sending a message.',
+        'Allow TypeSafe processing for this workspace in Settings before sending a message.',
       ),
     ).toBeVisible()
     await expect(prompt).toHaveValue('help with this ordinary folder')
-    await page
+    const openSettings = page.getByRole('button', {
+      name: 'Open Settings',
+      exact: true,
+    })
+    await openSettings.click()
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await expect(
+      settings.getByRole('heading', { name: 'Jev', exact: true }),
+    ).toBeVisible()
+    await expect(
+      settings.getByText(/Enable your operating system keyring/),
+    ).toHaveCount(0)
+    await page.screenshot({
+      path: 'docs/verification/settings-jev-2026-09-19.png',
+    })
+    await settings
       .getByRole('switch', {
         name: 'Allow TypeSafe processing for this workspace',
       })
       .press('Space')
-    await page.getByRole('button', { name: 'Save Jev settings' }).click()
-    await expect(page.getByRole('button', { name: 'Jev · Ready' })).toHaveCount(
-      0,
-    )
-    await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
-    ).toBeHidden()
-    const jevSettingsButton = page.getByRole('button', {
-      name: 'Jev settings',
-      exact: true,
-    })
-    await jevSettingsButton.click()
-    await expect(page.getByText('Jev · Ready')).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
-    ).toBeVisible()
-    await page.getByRole('button', { name: 'Close Jev setup' }).click()
-    await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
-    ).toBeHidden()
-    await expect(jevSettingsButton).toBeFocused()
-    await jevSettingsButton.click()
-    await expect(jevSettingsButton).toHaveAttribute('aria-expanded', 'true')
-    await jevSettingsButton.click()
-    await expect(jevSettingsButton).toHaveAttribute('aria-expanded', 'false')
+    await settings.getByRole('button', { name: 'Save Jev settings' }).click()
+    await expect(settings.getByRole('status')).toHaveText('Ready')
+    await page.keyboard.press('Escape')
+    await expect(settings).toBeHidden()
+    await expect(openSettings).toBeFocused()
+    await expect(prompt).toHaveValue('help with this ordinary folder')
     await prompt.press('Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: help with this ordinary folder',
