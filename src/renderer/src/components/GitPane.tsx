@@ -18,8 +18,10 @@ import {
 
 import type {
   WorkspaceGitDiffSnapshot,
+  WorkspaceGitMessageKind,
   WorkspaceGitMutationResult,
   WorkspaceGitPullRequest,
+  WorkspaceGitStatusFailure,
   WorkspaceGitStatusSnapshot,
 } from '../../../shared/git'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
@@ -28,11 +30,14 @@ import {
   buildGitFileTree,
   dominantGitChangeKind,
   formatGitChangeKind,
+  formatPullRequestState,
   type GitTreeNode,
   gitChangeKindColorClass,
+  hasUnmergedGitFiles,
   iconForGitFile,
   letterForGitChangeKind,
   resolveSelectedGitFilePath,
+  summarizePullRequestChecks,
 } from '../lib/git-pane-state'
 import { materialIconUrlForFile } from '../lib/material-file-icon'
 import {
@@ -49,7 +54,18 @@ interface DiffLoadError {
   readonly workspaceId: string
 }
 
+type GitSyncAction = 'commit' | 'commit-all-and-push' | 'push'
+
 const DIFF_LAYOUT_STORAGE_KEY = 'aide.gitPane.diffLayout'
+const PULL_REQUEST_POLL_MS = 60_000
+
+function formatPulledCommits(count: number): string {
+  if (count === 0) {
+    return 'Already up to date.'
+  }
+
+  return `Pulled ${count} commit${count === 1 ? '' : 's'}.`
+}
 
 function readStoredDiffLayout(): DiffLayout {
   if (typeof window === 'undefined') {
@@ -202,6 +218,12 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [diff, setDiff] = useState<WorkspaceGitDiffSnapshot | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionErrorCode, setActionErrorCode] = useState<
+    WorkspaceGitStatusFailure['code'] | null
+  >(null)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
+  const [pendingSyncAction, setPendingSyncAction] =
+    useState<GitSyncAction | null>(null)
   const [isMutating, setIsMutating] = useState(false)
   const [isRevertConfirmationOpen, setIsRevertConfirmationOpen] =
     useState(false)
@@ -230,6 +252,9 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     setError(null)
     setDiffError(null)
     setActionError(null)
+    setActionErrorCode(null)
+    setActionNotice(null)
+    setPendingSyncAction(null)
     setStatus(null)
     setDiff(null)
     setSelectedPath(null)
@@ -460,9 +485,11 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     (result: WorkspaceGitMutationResult): boolean => {
       if (!result.ok) {
         setActionError(result.error)
+        setActionErrorCode(result.code)
         return false
       }
       setActionError(null)
+      setActionErrorCode(null)
       setStatus(result.status)
       setSelectedPath((current) =>
         resolveSelectedGitFilePath(result.status.files, current),
@@ -481,6 +508,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
         return applyMutationResult(await operation())
       } catch (mutationError) {
         setActionError(getErrorMessage(mutationError))
+        setActionErrorCode(null)
         return false
       } finally {
         setIsMutating(false)
@@ -539,27 +567,61 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     workspace.id,
   ])
 
-  const refreshPullRequest = useCallback(async () => {
-    const api = getAideApi()
-    if (!api) {
-      setActionError('Desktop bridge did not load. Reload the app window.')
-      return
-    }
-    setIsMutating(true)
-    try {
-      const result = await api.getWorkspaceGitPullRequest(workspace.id)
-      if (!result.ok) {
-        setActionError(result.error)
+  const refreshPullRequest = useCallback(
+    async (isSilent = false) => {
+      const api = getAideApi()
+      if (!api) {
+        if (!isSilent) {
+          setActionError('Desktop bridge did not load. Reload the app window.')
+        }
         return
       }
-      setActionError(null)
-      setPullRequest(result.pullRequest)
-    } catch (pullRequestError) {
-      setActionError(getErrorMessage(pullRequestError))
-    } finally {
-      setIsMutating(false)
+      if (!isSilent) setIsMutating(true)
+      try {
+        const result = await api.getWorkspaceGitPullRequest(workspace.id)
+        if (!result.ok) {
+          if (!isSilent) {
+            setActionError(result.error)
+            setActionErrorCode(result.code)
+          }
+          return
+        }
+        if (!isSilent) {
+          setActionError(null)
+          setActionErrorCode(null)
+        }
+        setPullRequest(result.pullRequest)
+      } catch (pullRequestError) {
+        if (!isSilent) {
+          setActionError(getErrorMessage(pullRequestError))
+          setActionErrorCode(null)
+        }
+      } finally {
+        if (!isSilent) setIsMutating(false)
+      }
+    },
+    [workspace.id],
+  )
+
+  useEffect(() => {
+    if (!isActive) {
+      return
     }
-  }, [workspace.id])
+
+    void refreshPullRequest(true)
+  }, [isActive, refreshPullRequest])
+
+  useEffect(() => {
+    if (!isActive || pullRequest?.state?.toUpperCase() !== 'OPEN') {
+      return
+    }
+
+    const timer = setInterval(() => {
+      void refreshPullRequest(true)
+    }, PULL_REQUEST_POLL_MS)
+
+    return () => clearInterval(timer)
+  }, [isActive, pullRequest, refreshPullRequest])
 
   if (error) {
     return (
@@ -598,9 +660,231 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
     )
   }
 
+  const isOnDefaultBranch =
+    status.defaultBranch !== '' && status.branchName === status.defaultBranch
+  const hasConflicts = hasUnmergedGitFiles(status.files)
+
+  const reportMissingBridge = (): void => {
+    setActionError('Desktop bridge did not load. Reload the app window.')
+    setActionErrorCode(null)
+  }
+
+  const generateMessage = async (
+    kind: WorkspaceGitMessageKind,
+  ): Promise<string | null> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return null
+    }
+
+    setIsMutating(true)
+    try {
+      const result = await api.generateWorkspaceGitMessage({
+        kind,
+        workspaceId: workspace.id,
+      })
+      if (!result.ok) {
+        setActionError(result.error)
+        setActionErrorCode(result.code)
+        return null
+      }
+      setActionError(null)
+      setActionErrorCode(null)
+      return result.message
+    } catch (generateError) {
+      setActionError(getErrorMessage(generateError))
+      setActionErrorCode(null)
+      return null
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  const fillCommitMessage = async (): Promise<string | null> => {
+    const existing = commitMessage.trim()
+    if (existing) return existing
+
+    const generated = await generateMessage('commit')
+    if (generated) setCommitMessage(generated)
+    return generated
+  }
+
+  const pullBranch = async (): Promise<boolean> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return false
+    }
+
+    setIsMutating(true)
+    setActionNotice('Pulling…')
+    try {
+      const result = await api.pullWorkspaceGitBranch(workspace.id)
+      if (!result.ok) {
+        setActionError(result.error)
+        setActionErrorCode(result.code)
+        setActionNotice(null)
+        if (result.code === 'pull-conflict') void refreshStatus()
+        return false
+      }
+      applyMutationResult({ ok: true, status: result.status })
+      setActionNotice(formatPulledCommits(result.pull.pulledCount))
+      return true
+    } catch (pullError) {
+      setActionError(getErrorMessage(pullError))
+      setActionErrorCode(null)
+      setActionNotice(null)
+      return false
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
+  const pushBranch = async (): Promise<boolean> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return false
+    }
+
+    setActionNotice('Pushing…')
+    const pushed = await runMutation(() =>
+      api.pushWorkspaceGitBranch(workspace.id),
+    )
+    setActionNotice(pushed ? 'Pushed the branch.' : null)
+    return pushed
+  }
+
+  const abortPull = async (): Promise<void> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return
+    }
+
+    const aborted = await runMutation(() =>
+      api.abortWorkspaceGitPull(workspace.id),
+    )
+    setActionNotice(aborted ? 'Aborted the pull.' : null)
+  }
+
+  const runSyncAction = async (
+    action: GitSyncAction,
+    message: string,
+  ): Promise<void> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return
+    }
+
+    if (action === 'push') {
+      await pushBranch()
+      return
+    }
+
+    if (action === 'commit') {
+      const committed = await runMutation(() =>
+        api.commitWorkspaceGitIndex({ message, workspaceId: workspace.id }),
+      )
+      if (committed) {
+        setCommitMessage('')
+        setActionNotice('Committed the staged changes.')
+      }
+      return
+    }
+
+    setActionNotice('Committing and pushing…')
+    const finished = await runMutation(() =>
+      api.commitAllAndPushWorkspaceGit({ message, workspaceId: workspace.id }),
+    )
+    setActionNotice(
+      finished ? 'Committed every change and pushed the branch.' : null,
+    )
+    if (finished) setCommitMessage('')
+  }
+
+  const startSyncAction = async (action: GitSyncAction): Promise<void> => {
+    const message =
+      action === 'commit-all-and-push'
+        ? await fillCommitMessage()
+        : commitMessage.trim()
+    if (action === 'commit-all-and-push' && !message) return
+
+    if (isOnDefaultBranch) {
+      setPendingSyncAction(action)
+      return
+    }
+
+    await runSyncAction(action, message ?? '')
+  }
+
+  const continueOnFeatureBranch = async (
+    action: GitSyncAction,
+  ): Promise<void> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return
+    }
+
+    const started = await runMutation(() =>
+      api.startWorkspaceGitFeatureBranch({
+        message: commitMessage,
+        workspaceId: workspace.id,
+      }),
+    )
+    if (started) await runSyncAction(action, commitMessage.trim())
+  }
+
+  const createPullRequest = async (): Promise<void> => {
+    const api = getAideApi()
+    if (!api) {
+      reportMissingBridge()
+      return
+    }
+
+    const title =
+      pullRequestTitle.trim() || (await generateMessage('pull-request-title'))
+    if (!title) return
+    setPullRequestTitle(title)
+
+    const body =
+      pullRequestBody.trim() ||
+      (await generateMessage('pull-request-body')) ||
+      ''
+    setPullRequestBody(body)
+
+    if (!(await pushBranch())) return
+
+    setIsMutating(true)
+    try {
+      const result = await api.createWorkspaceGitPullRequest({
+        body,
+        title,
+        workspaceId: workspace.id,
+      })
+      if (!result.ok) {
+        setActionError(result.error)
+        setActionErrorCode(result.code)
+        return
+      }
+      setActionError(null)
+      setActionErrorCode(null)
+      setPullRequest(result.pullRequest)
+      setActionNotice('Opened the pull request.')
+    } catch (pullRequestError) {
+      setActionError(getErrorMessage(pullRequestError))
+      setActionErrorCode(null)
+    } finally {
+      setIsMutating(false)
+    }
+  }
+
   return (
     <section
-      className="git-pane flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
+      className="git-pane relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       data-testid="git-pane"
     >
       <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
@@ -638,8 +922,34 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
       </p>
 
       {actionError ? (
-        <div className="border-b border-accent-red bg-accent-red-soft px-5 py-2 text-sm text-accent-red">
-          {actionError}
+        <div
+          className="flex flex-wrap items-center gap-3 border-b border-accent-red bg-accent-red-soft px-5 py-2 text-sm text-accent-red"
+          data-testid="git-pane-banner"
+        >
+          <span>{actionError}</span>
+          {actionErrorCode === 'push-rejected' ? (
+            <Button
+              isDisabled={isMutating}
+              onPress={() => {
+                void pullBranch().then((pulled) => {
+                  if (pulled) void pushBranch()
+                })
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              Pull, then push
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {actionNotice && !actionError ? (
+        <div
+          className="border-b border-border px-5 py-2 text-sm text-muted-foreground"
+          data-testid="git-pane-notice"
+        >
+          {actionNotice}
         </div>
       ) : null}
 
@@ -651,12 +961,26 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           <p className="text-sm font-medium text-foreground">
             Commit staged changes
           </p>
-          <label
-            className="block text-xs text-muted-foreground"
-            htmlFor="git-commit-message"
-          >
-            Commit message
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label
+              className="block text-xs text-muted-foreground"
+              htmlFor="git-commit-message"
+            >
+              Commit message
+            </label>
+            <Button
+              isDisabled={isMutating}
+              onPress={() => {
+                void generateMessage('commit').then((generated) => {
+                  if (generated) setCommitMessage(generated)
+                })
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              Generate
+            </Button>
+          </div>
           <textarea
             className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
             id="git-commit-message"
@@ -664,32 +988,28 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
             placeholder="Describe the staged change"
             value={commitMessage}
           />
-          <Button
-            isDisabled={
-              isMutating || !status.hasStagedChanges || !commitMessage.trim()
-            }
-            onPress={() => {
-              const api = getAideApi()
-              if (!api) {
-                setActionError(
-                  'Desktop bridge did not load. Reload the app window.',
-                )
-                return
+          <p className="text-xs text-muted-foreground">
+            Leave the message empty to describe the change from the diff.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              isDisabled={
+                isMutating || !status.hasStagedChanges || !commitMessage.trim()
               }
-              void runMutation(() =>
-                api.commitWorkspaceGitIndex({
-                  message: commitMessage,
-                  workspaceId: workspace.id,
-                }),
-              ).then((committed) => {
-                if (committed) setCommitMessage('')
-              })
-            }}
-            size="sm"
-            variant="secondary"
-          >
-            Commit index
-          </Button>
+              onPress={() => void startSyncAction('commit')}
+              size="sm"
+              variant="secondary"
+            >
+              Commit index
+            </Button>
+            <Button
+              isDisabled={isMutating || hasConflicts}
+              onPress={() => void startSyncAction('commit-all-and-push')}
+              size="sm"
+            >
+              Commit all and push
+            </Button>
+          </div>
         </Surface>
 
         <Surface
@@ -697,112 +1017,143 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           variant="secondary"
         >
           <p className="text-sm font-medium text-foreground">Pull request</p>
-          <label
-            className="block text-xs text-muted-foreground"
-            htmlFor="git-pr-title"
-          >
-            Title
-          </label>
-          <input
-            className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-            id="git-pr-title"
-            onChange={(event) => setPullRequestTitle(event.target.value)}
-            value={pullRequestTitle}
-          />
-          <label
-            className="block text-xs text-muted-foreground"
-            htmlFor="git-pr-body"
-          >
-            Description
-          </label>
-          <textarea
-            className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-            id="git-pr-body"
-            onChange={(event) => setPullRequestBody(event.target.value)}
-            value={pullRequestBody}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              isDisabled={isMutating}
-              onPress={() => {
-                const api = getAideApi()
-                if (!api) {
-                  setActionError(
-                    'Desktop bridge did not load. Reload the app window.',
-                  )
-                  return
-                }
-                void runMutation(() => api.pushWorkspaceGitBranch(workspace.id))
-              }}
-              size="sm"
-              variant="secondary"
-            >
-              Push branch
-            </Button>
-            <Button
-              isDisabled={isMutating || !pullRequestTitle.trim()}
-              onPress={() => {
-                const api = getAideApi()
-                if (!api) {
-                  setActionError(
-                    'Desktop bridge did not load. Reload the app window.',
-                  )
-                  return
-                }
-                setIsMutating(true)
-                void api
-                  .createWorkspaceGitPullRequest({
-                    body: pullRequestBody,
-                    title: pullRequestTitle,
-                    workspaceId: workspace.id,
-                  })
-                  .then((result) => {
-                    if (!result.ok) {
-                      setActionError(result.error)
-                      return
-                    }
-                    setActionError(null)
-                    setPullRequest(result.pullRequest)
-                  })
-                  .catch((pullRequestError) =>
-                    setActionError(getErrorMessage(pullRequestError)),
-                  )
-                  .finally(() => setIsMutating(false))
-              }}
-              size="sm"
-            >
-              Create pull request
-            </Button>
-            <Button
-              isDisabled={isMutating}
-              onPress={() => void refreshPullRequest()}
-              size="sm"
-              variant="ghost"
-            >
-              Inspect checks
-            </Button>
-          </div>
           {pullRequest ? (
-            <div className="space-y-1 text-xs text-muted-foreground">
+            <div className="space-y-2" data-testid="git-pane-pull-request">
               <a
-                className="text-foreground underline"
+                className="block text-sm text-foreground underline"
                 href={pullRequest.url}
                 rel="noreferrer"
                 target="_blank"
               >
                 #{pullRequest.number} {pullRequest.title}
               </a>
-              <p>
-                {pullRequest.state} · {pullRequest.headRefName} →{' '}
-                {pullRequest.baseRefName}
-              </p>
-              {pullRequest.checks.map((check) => (
-                <p key={check.name}>
-                  {check.name}: {check.conclusion ?? check.status ?? 'pending'}
-                </p>
-              ))}
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip size="sm" variant="secondary">
+                  {formatPullRequestState(pullRequest)}
+                </Chip>
+                <span className="text-xs text-muted-foreground">
+                  {pullRequest.headRefName} → {pullRequest.baseRefName}
+                </span>
+              </div>
+              {(() => {
+                const checks = summarizePullRequestChecks(pullRequest.checks)
+                return (
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-testid="git-pane-check-summary"
+                  >
+                    {checks.passing} passing · {checks.failing} failing ·{' '}
+                    {checks.pending} pending
+                  </p>
+                )
+              })()}
             </div>
-          ) : null}
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  className="block text-xs text-muted-foreground"
+                  htmlFor="git-pr-title"
+                >
+                  Title
+                </label>
+                <Button
+                  isDisabled={isMutating}
+                  onPress={() => {
+                    void generateMessage('pull-request-title').then(
+                      (generated) => {
+                        if (generated) setPullRequestTitle(generated)
+                      },
+                    )
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Generate title
+                </Button>
+              </div>
+              <input
+                className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                id="git-pr-title"
+                onChange={(event) => setPullRequestTitle(event.target.value)}
+                value={pullRequestTitle}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  className="block text-xs text-muted-foreground"
+                  htmlFor="git-pr-body"
+                >
+                  Description
+                </label>
+                <Button
+                  isDisabled={isMutating}
+                  onPress={() => {
+                    void generateMessage('pull-request-body').then(
+                      (generated) => {
+                        if (generated) setPullRequestBody(generated)
+                      },
+                    )
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Generate description
+                </Button>
+              </div>
+              <textarea
+                className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                id="git-pr-body"
+                onChange={(event) => setPullRequestBody(event.target.value)}
+                value={pullRequestBody}
+              />
+            </>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              isDisabled={isMutating}
+              onPress={() => void startSyncAction('push')}
+              size="sm"
+              variant="secondary"
+            >
+              Push branch
+            </Button>
+            <Button
+              isDisabled={isMutating}
+              onPress={() => void pullBranch()}
+              size="sm"
+              variant="secondary"
+            >
+              Pull
+            </Button>
+            {hasConflicts ? (
+              <Button
+                isDisabled={isMutating}
+                onPress={() => void abortPull()}
+                size="sm"
+                variant="danger"
+              >
+                Abort pull
+              </Button>
+            ) : null}
+            {pullRequest ? (
+              <Button
+                isDisabled={isMutating}
+                onPress={() => void refreshPullRequest()}
+                size="sm"
+                variant="ghost"
+              >
+                Refresh pull request
+              </Button>
+            ) : (
+              <Button
+                isDisabled={isMutating}
+                onPress={() => void createPullRequest()}
+                size="sm"
+              >
+                Create pull request
+              </Button>
+            )}
+          </div>
         </Surface>
       </div>
 
@@ -1152,6 +1503,63 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           </Surface>
         </div>
       )}
+
+      {pendingSyncAction ? (
+        <div
+          aria-labelledby="git-default-branch-heading"
+          aria-modal="true"
+          className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 p-6"
+          data-testid="git-pane-default-branch-modal"
+          role="dialog"
+        >
+          <Surface className="max-w-md space-y-3 rounded-lg border border-border p-5">
+            <h3
+              className="text-lg font-semibold text-foreground"
+              id="git-default-branch-heading"
+            >
+              Commit &amp; push to default ref?
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              This action will commit and push changes on "{status.branchName}".
+              You can continue on this ref or create a feature ref and run the
+              same action there.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                isDisabled={isMutating}
+                onPress={() => {
+                  const action = pendingSyncAction
+                  setPendingSyncAction(null)
+                  void continueOnFeatureBranch(action)
+                }}
+                size="sm"
+              >
+                Checkout feature branch &amp; continue
+              </Button>
+              <Button
+                isDisabled={isMutating}
+                onPress={() => {
+                  const action = pendingSyncAction
+                  setPendingSyncAction(null)
+                  void runSyncAction(action, commitMessage.trim())
+                }}
+                size="sm"
+                variant="secondary"
+              >
+                Commit &amp; push to {status.branchName}
+              </Button>
+              <Button
+                isDisabled={isMutating}
+                onPress={() => setPendingSyncAction(null)}
+                size="sm"
+                variant="ghost"
+              >
+                Abort
+              </Button>
+            </div>
+          </Surface>
+        </div>
+      ) : null}
     </section>
   )
 }

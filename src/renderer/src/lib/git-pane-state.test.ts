@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import type { WorkspaceGitFileStatus } from '../../../shared/git'
+import type {
+  WorkspaceGitFileStatus,
+  WorkspaceGitPullRequest,
+} from '../../../shared/git'
 import {
   buildGitFileTree,
   collectDirPaths,
   formatGitChangeKind,
+  formatPullRequestState,
   getGitFileChangeBadges,
+  hasUnmergedGitFiles,
   resolveSelectedGitFilePath,
+  summarizePullRequestChecks,
 } from './git-pane-state'
 
 function fileAt(path: string): WorkspaceGitFileStatus {
@@ -146,5 +152,74 @@ describe('collectDirPaths', () => {
       'src/main/sub',
       'src/renderer',
     ])
+  })
+})
+
+describe('summarizePullRequestChecks', () => {
+  it('counts passing, failing, and still running checks', () => {
+    expect(
+      summarizePullRequestChecks([
+        { conclusion: 'SUCCESS', detailsUrl: null, name: 'lint', status: null },
+        { conclusion: 'FAILURE', detailsUrl: null, name: 'test', status: null },
+        {
+          conclusion: 'TIMED_OUT',
+          detailsUrl: null,
+          name: 'e2e',
+          status: null,
+        },
+        {
+          conclusion: null,
+          detailsUrl: null,
+          name: 'build',
+          status: 'IN_PROGRESS',
+        },
+      ]),
+    ).toEqual({ failing: 2, passing: 1, pending: 1 })
+    expect(summarizePullRequestChecks([])).toEqual({
+      failing: 0,
+      passing: 0,
+      pending: 0,
+    })
+  })
+})
+
+describe('formatPullRequestState', () => {
+  const pullRequest: WorkspaceGitPullRequest = {
+    baseRefName: 'main',
+    checks: [],
+    headRefName: 'feature/review',
+    isDraft: false,
+    number: 7,
+    state: 'OPEN',
+    title: 'Review flow',
+    url: 'https://github.com/example/aide/pull/7',
+  }
+
+  it('labels drafts apart from open, merged, and closed pull requests', () => {
+    expect(formatPullRequestState(pullRequest)).toBe('Open')
+    expect(formatPullRequestState({ ...pullRequest, isDraft: true })).toBe(
+      'Draft',
+    )
+    expect(
+      formatPullRequestState({
+        ...pullRequest,
+        isDraft: true,
+        state: 'MERGED',
+      }),
+    ).toBe('Merged')
+    expect(formatPullRequestState({ ...pullRequest, state: 'CLOSED' })).toBe(
+      'Closed',
+    )
+  })
+})
+
+describe('hasUnmergedGitFiles', () => {
+  it('detects a conflicted file left by a stopped pull', () => {
+    expect(hasUnmergedGitFiles([fileAt('src/a.ts')])).toBe(false)
+    expect(
+      hasUnmergedGitFiles([
+        { ...fileAt('src/a.ts'), staged: 'unmerged', unstaged: 'unmerged' },
+      ]),
+    ).toBe(true)
   })
 })

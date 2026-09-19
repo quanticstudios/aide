@@ -27,7 +27,10 @@ import type {
   WorkspaceGitCommitInput,
   WorkspaceGitDiffResult,
   WorkspaceGitFileMutationInput,
+  WorkspaceGitMessageInput,
+  WorkspaceGitMessageResult,
   WorkspaceGitMutationResult,
+  WorkspaceGitPullResult,
   WorkspaceGitPullRequestInput,
   WorkspaceGitPullRequestResult,
   WorkspaceGitRevertInput,
@@ -141,7 +144,12 @@ export const IPC_CHANNELS = {
   unstageWorkspaceGitFile: 'app:unstage-workspace-git-file',
   revertWorkspaceGitFile: 'app:revert-workspace-git-file',
   commitWorkspaceGitIndex: 'app:commit-workspace-git-index',
+  commitAllAndPushWorkspaceGit: 'app:commit-all-and-push-workspace-git',
   pushWorkspaceGitBranch: 'app:push-workspace-git-branch',
+  pullWorkspaceGitBranch: 'app:pull-workspace-git-branch',
+  abortWorkspaceGitPull: 'app:abort-workspace-git-pull',
+  startWorkspaceGitFeatureBranch: 'app:start-workspace-git-feature-branch',
+  generateWorkspaceGitMessage: 'app:generate-workspace-git-message',
   createWorkspaceGitPullRequest: 'app:create-workspace-git-pull-request',
   getWorkspaceGitPullRequest: 'app:get-workspace-git-pull-request',
   getWorktreeBranchStats: 'app:get-worktree-branch-stats',
@@ -275,9 +283,24 @@ export interface AideApi {
   commitWorkspaceGitIndex: (
     input: WorkspaceGitCommitInput,
   ) => Promise<WorkspaceGitMutationResult>
+  commitAllAndPushWorkspaceGit: (
+    input: WorkspaceGitCommitInput,
+  ) => Promise<WorkspaceGitMutationResult>
   pushWorkspaceGitBranch: (
     workspaceId: string,
   ) => Promise<WorkspaceGitMutationResult>
+  pullWorkspaceGitBranch: (
+    workspaceId: string,
+  ) => Promise<WorkspaceGitPullResult>
+  abortWorkspaceGitPull: (
+    workspaceId: string,
+  ) => Promise<WorkspaceGitMutationResult>
+  startWorkspaceGitFeatureBranch: (
+    input: WorkspaceGitCommitInput,
+  ) => Promise<WorkspaceGitMutationResult>
+  generateWorkspaceGitMessage: (
+    input: WorkspaceGitMessageInput,
+  ) => Promise<WorkspaceGitMessageResult>
   createWorkspaceGitPullRequest: (
     input: WorkspaceGitPullRequestInput,
   ) => Promise<WorkspaceGitPullRequestResult>
