@@ -24,6 +24,8 @@ import type {
   ManagedTurnCheckpointRecorder,
   TurnCheckpointCaptureInput,
   TurnCheckpointChange,
+  TurnCheckpointDiff,
+  TurnCheckpointDiffFile,
   TurnCheckpointPreview,
   TurnCheckpointRestoreSeed,
   TurnCheckpointSummary,
@@ -146,6 +148,58 @@ function parseNameStatus(output: string): TurnCheckpointChange[] {
   return changes
 }
 
+function readPatchPath(section: string): string | null {
+  const newPath = /^\+\+\+ (.+)$/m.exec(section)?.[1]
+  const oldPath = /^--- (.+)$/m.exec(section)?.[1]
+  const chosen =
+    newPath && newPath !== '/dev/null'
+      ? newPath
+      : oldPath && oldPath !== '/dev/null'
+        ? oldPath
+        : null
+  return chosen ? chosen.replace(/^[ab]\//, '') : null
+}
+
+function readPatchStatus(section: string): TurnCheckpointChange['status'] {
+  if (/^new file mode /m.test(section)) return 'added'
+  if (/^deleted file mode /m.test(section)) return 'deleted'
+  return 'modified'
+}
+
+/** Splits a multi-file turn patch into per-file entries with their line counts. */
+export function parseTurnDiffPatch(patch: string): TurnCheckpointDiffFile[] {
+  const files: TurnCheckpointDiffFile[] = []
+
+  for (const section of patch.split(/^(?=diff --git )/m)) {
+    if (!section.startsWith('diff --git ')) continue
+    const filePath = readPatchPath(section)
+    if (!filePath) continue
+
+    let additions = 0
+    let deletions = 0
+    let insideHunk = false
+    for (const line of section.split('\n')) {
+      if (line.startsWith('@@')) {
+        insideHunk = true
+        continue
+      }
+      if (!insideHunk) continue
+      if (line.startsWith('+')) additions += 1
+      else if (line.startsWith('-')) deletions += 1
+    }
+
+    files.push({
+      additions,
+      deletions,
+      patch: section.replace(/\n+$/, ''),
+      path: filePath,
+      status: readPatchStatus(section),
+    })
+  }
+
+  return files
+}
+
 function isStoredCheckpoint(value: unknown): value is StoredTurnCheckpoint {
   if (!value || typeof value !== 'object') return false
   const record = value as Record<string, unknown>
@@ -224,6 +278,32 @@ export class TurnCheckpointService implements ManagedTurnCheckpointRecorder {
       .filter((checkpoint) => checkpoint.config.sessionId === sessionId)
       .sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))
       .map((checkpoint) => this.toSummary(checkpoint))
+  }
+
+  public async getTurnDiff(
+    sessionId: string,
+    checkpointId: string,
+  ): Promise<TurnCheckpointDiff> {
+    const checkpoint = await this.readCheckpoint(checkpointId)
+    if (checkpoint.config.sessionId !== sessionId) {
+      throw new Error('The checkpoint belongs to another managed session.')
+    }
+    if (!checkpoint.afterTreeHash) {
+      return { additions: 0, deletions: 0, files: [] }
+    }
+
+    const files = parseTurnDiffPatch(
+      await this.getTreePatch(
+        checkpoint.repositoryRoot,
+        checkpoint.treeHash,
+        checkpoint.afterTreeHash,
+      ),
+    )
+    return {
+      additions: files.reduce((total, file) => total + file.additions, 0),
+      deletions: files.reduce((total, file) => total + file.deletions, 0),
+      files,
+    }
   }
 
   public async previewRestore(

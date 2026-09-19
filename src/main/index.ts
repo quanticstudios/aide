@@ -666,6 +666,17 @@ function registerIpcHandlers(): void {
     event.sender.send(IPC_CHANNELS.taskOpen, id)
   })
   ipcMain.handle(
+    IPC_CHANNELS.turnCheckpointDiff,
+    async (_event, sessionId: unknown, checkpointId: unknown) => {
+      const id = requireRuntimeId(sessionId, 'conversation id')
+      await managedSessionManager.waitForCheckpointCompletion(id)
+      return turnCheckpoints.getTurnDiff(
+        id,
+        requireRuntimeId(checkpointId, 'checkpoint id'),
+      )
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.turnCheckpointList,
     (_event, sessionId: unknown) =>
       turnCheckpoints.listCheckpoints(
