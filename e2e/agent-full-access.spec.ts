@@ -95,6 +95,7 @@ test.describe('agent full access', () => {
         HYPRLAND_INSTANCE_SIGNATURE: '',
         OZONE_PLATFORM: 'x11',
         SWAYSOCK: '',
+        TYPESAFE_API_KEY: 'synthetic-e2e-key',
         WAYLAND_DISPLAY: '',
         XDG_SESSION_TYPE: 'x11',
       },
@@ -107,6 +108,38 @@ test.describe('agent full access', () => {
       .click()
     await page.getByRole('button', { name: /add pane/i }).click()
     await page.getByRole('button', { name: /^agent\b/i }).click()
+
+    await app.evaluate(() => {
+      globalThis.fetch = async (url, options) => {
+        if (url !== 'https://api.typesafe.ai/v1/systemone') {
+          throw new Error(`Unexpected request: ${url}`)
+        }
+        const request = JSON.parse(String(options?.body)) as {
+          questions: Record<string, unknown>
+        }
+        return new Response(
+          JSON.stringify({
+            answers: Object.fromEntries(
+              Object.keys(request.questions).map((key) => [
+                key,
+                { noul: 0.8, type: 'noul' },
+              ]),
+            ),
+            model: 'jev-1.13.0',
+            usage: { input_tokens: 10, output_tokens: 1 },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        )
+      }
+    })
+    await page.evaluate(async () => {
+      const storage = await window.aide.getStorageSnapshot()
+      const workspace = storage.workspaces[0]
+      if (!workspace) throw new Error('Workspace unavailable.')
+      await window.aide.updateJevSettings(workspace.id, {
+        allowProcessing: true,
+      })
+    })
 
     await selectPermissionMode(page, 'Supervised', 'Full access')
     await sendPrompt(page, 'approval')
