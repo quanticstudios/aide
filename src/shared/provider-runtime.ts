@@ -37,6 +37,16 @@ export type ManagedProviderRuntimeContentKind =
   | 'file-change-output'
   | 'system'
 
+/** The structured tool request behind an approval, rendered by the approval card. */
+export interface ManagedProviderRuntimeToolRequest {
+  command?: string
+  cwd?: string
+  diff?: string
+  filePath?: string
+  input?: unknown
+  toolName: string
+}
+
 export interface ManagedProviderRuntimePromptOption {
   description?: string
   id: string
@@ -81,6 +91,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       detail?: string
+      request?: ManagedProviderRuntimeToolRequest
       requestType?: ManagedProviderRuntimeRequestType
       requestId: string
       type: 'request.opened'
