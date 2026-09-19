@@ -132,8 +132,10 @@ interface ModelSelectorProps {
   readonly availableProviders?: readonly ManagedSessionMode[]
   readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly isDisabled?: boolean
+  readonly isOpen?: boolean
   readonly model: string | undefined
   readonly onChange: (provider: ManagedSessionMode, modelId: string) => void
+  readonly onOpenChange?: (isOpen: boolean) => void
   readonly provider: ManagedSessionMode
 }
 
@@ -141,11 +143,21 @@ export default function ModelSelector({
   availableProviders,
   capabilities,
   isDisabled,
+  isOpen: controlledIsOpen,
   model,
   onChange,
+  onOpenChange,
   provider,
 }: ModelSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [uncontrolledIsOpen, setUncontrolledIsOpen] = useState(false)
+  const isOpen = controlledIsOpen ?? uncontrolledIsOpen
+  const setIsOpen = useCallback(
+    (next: boolean) => {
+      setUncontrolledIsOpen(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange],
+  )
   const [search, setSearch] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>(provider)
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites())
@@ -208,7 +220,7 @@ export default function ModelSelector({
       setIsOpen(false)
       setSearch('')
     },
-    [onChange],
+    [onChange, setIsOpen],
   )
 
   useEffect(() => {
@@ -228,7 +240,7 @@ export default function ModelSelector({
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen])
+  }, [isOpen, setIsOpen])
 
   useEffect(() => {
     if (isOpen && searchRef.current) {
@@ -267,7 +279,7 @@ export default function ModelSelector({
 
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
-  }, [handleSelect, isOpen, visibleModels])
+  }, [handleSelect, isOpen, setIsOpen, visibleModels])
 
   return (
     <div ref={containerRef} className="relative min-w-0">
