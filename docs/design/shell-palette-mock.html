@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>aIDE shell palette mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ────────────────────────────────────────────────────────────────────────
+   TOKENS. This is the block that replaces the three stacked palettes in
+   src/renderer/src/styles.css. One world: a cool near-black shell with a
+   surface ladder that is visible without hairlines, one interactive blue
+   tuned for dark, and four state hues that mean something.
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  /* Canvas + surface ladder. Each step is ~1.25x the previous luminance so
+     depth reads without borders. Cool tint (hue ~230) instead of neutral. */
+  --canvas:    #08090c;   /* chrome: rail, sidebar, top bar */
+  --surface-1: #14161b;   /* pane body (content lifts off chrome), tab strip */
+  --surface-2: #1c1f26;   /* cards, composer, popovers */
+  --surface-3: #252932;   /* hover, chips, inputs on surface-2 */
+  --surface-4: #2f343e;   /* active/pressed, keycaps */
+
+  /* Hairlines. Alpha so they read the same on every ladder step. */
+  --border:        rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Text ladder. Four steps, no more. */
+  --fg:        #f2f3f5;   /* headings, active labels        18:1 */
+  --body:      #c4c8ce;   /* message body                   11:1 */
+  --muted:     #8e939c;   /* secondary, placeholders        6:1  */
+  --faint:     #5a606a;   /* decoration only (line numbers), never copy */
+
+  /* Interactive blue. Apple's dark-mode blue as the text/ring color,
+     the saturated fill only under white labels. */
+  --primary:        #2997ff;   /* text, icons, rings          7.4:1 on canvas */
+  --primary-fill:   #0a6fe0;   /* filled buttons              white on it 5.2:1 */
+  --primary-soft:   rgba(41, 151, 255, 0.12);
+  --primary-ring:   rgba(41, 151, 255, 0.55);
+
+  /* Session state. Exactly four. */
+  --running: #57c1ff;   --running-soft: rgba(87, 193, 255, 0.14);
+  --ready:   #59d499;   --ready-soft:   rgba(89, 212, 153, 0.14);
+  --waiting: #ffc533;   --waiting-soft: rgba(255, 197, 51, 0.14);
+  --error:   #ff6b6b;   --error-soft:   rgba(255, 107, 107, 0.14);
+
+  /* The one brand mark that keeps its color. */
+  --brand-claude: #d97757;
+
+  /* Depth. Offset + blur, never a halo. */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border);
+  --shadow-2: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 24px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-strong);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --t-fast: 140ms var(--ease-out);
+  --t-base: 220ms var(--ease-out);
+
+  --font: "Geist", "Geist Variable", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", "Geist Mono Variable", ui-monospace, monospace;
+}
+
+/* ── Browser surfaces themed from the palette ─────────────────────────── */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--canvas);
+  color: var(--body);
+  font: 400 13px/1.5 var(--font); /* 13px on purpose: desktop tool shell, matches the shipped app */
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--primary);
+}
+::selection { background: var(--primary-soft); color: var(--fg); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border: 3px solid transparent; background-clip: padding-box; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--faint); }
+:focus-visible { outline: 2px solid var(--primary-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+svg { display: block; flex: none; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ── Shell grid ───────────────────────────────────────────────────────── */
+.shell {
+  display: grid;
+  grid-template-columns: 48px 248px 1fr;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  min-width: 960px;
+}
+
+/* Rail: canvas, no border. Icons in muted, active in fg on surface-3. */
+.rail {
+  grid-row: 1 / -1;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0; gap: 8px;
+}
+.rail-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  display: grid; place-items: center; color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.rail-btn:hover { background: var(--surface-2); color: var(--fg); }
+.rail-btn[aria-current="true"] { background: var(--surface-3); color: var(--fg); }
+.rail .spacer { flex: 1; }
+.logo {
+  width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
+  background: var(--surface-2); color: var(--fg); font-weight: 600; font-size: 12px; letter-spacing: 0.02em;
+  box-shadow: var(--shadow-1); margin-bottom: 8px;
+}
+
+/* Sidebar: canvas like the rail and top bar, so chrome frames the lifted pane. */
+.sidebar {
+  grid-row: 1 / -1;
+  background: var(--canvas);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.sidebar-head {
+  height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-head h1 { font-size: 13px; font-weight: 600; color: var(--fg); margin: 0; flex: 1; letter-spacing: -0.01em; }
+.tree { padding: 8px; overflow: auto; flex: 1; }
+.tree-group { color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; padding: 12px 8px 6px; }
+.tree-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: 30px; padding: 0 8px; border-radius: var(--radius-sm);
+  color: var(--body); text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tree-item:hover { background: var(--surface-1); color: var(--fg); }
+.tree-item[aria-current="true"] { background: var(--primary-soft); color: var(--fg); }
+.tree-item[aria-current="true"] .tree-label { color: var(--primary); font-weight: 500; }
+.tree-item .tree-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-item .tree-meta { color: var(--muted); font-size: 12px; }
+.tree-item.child { padding-left: 28px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; }
+.dot.running { background: var(--running); box-shadow: 0 0 0 3px var(--running-soft); animation: pulse 1.6s var(--ease-out) infinite; }
+.dot.ready   { background: var(--ready); }
+.dot.waiting { background: var(--waiting); box-shadow: 0 0 0 3px var(--waiting-soft); }
+.dot.error   { background: var(--error); }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 3px var(--running-soft); } 50% { box-shadow: 0 0 0 5px transparent; } }
+@media (prefers-reduced-motion: reduce) { .dot.running { animation: none; } * { transition-duration: 0.01ms !important; } }
+.sidebar-foot {
+  border-top: 1px solid var(--border); padding: 10px 12px;
+  display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px;
+}
+
+/* Top bar: canvas-colored, tabs sit on surface-1 pills. */
+.topbar {
+  display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface-1); border-radius: var(--radius-md); }
+.tab {
+  height: 30px; padding: 0 12px; border-radius: 7px; display: flex; align-items: center; gap: 8px;
+  color: var(--muted); font-weight: 500;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.tab:hover { color: var(--fg); }
+.tab[aria-selected="true"] { background: var(--surface-3); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.tab .idx { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.tab[aria-selected="true"] .idx { color: var(--body); }
+.tab .dot { margin-left: 2px; }
+.tab.add { padding: 0 8px; }
+.topbar .grow { flex: 1; }
+.icon-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm); display: grid; place-items: center;
+  color: var(--muted); transition: background var(--t-fast), color var(--t-fast);
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--fg); }
+.icon-btn.danger:hover { background: var(--error-soft); color: var(--error); }
+.version { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+
+/* Pane */
+.pane { display: flex; flex-direction: column; min-height: 0; background: var(--surface-1); }
+.pane-head {
+  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pane-head h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg); }
+.pane-head .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.pane-head .grow { flex: 1; }
+.ghost-btn {
+  height: 28px; padding: 0 10px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 6px;
+  color: var(--muted); font-weight: 500; font-size: 12px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.ghost-btn:hover { background: var(--surface-2); color: var(--fg); }
+.ghost-btn.stop:hover { background: var(--error-soft); color: var(--error); }
+
+/* Thread */
+.thread { flex: 1; overflow: auto; padding: 24px 0 8px; }
+.thread-inner { max-width: 760px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; gap: 28px; }
+.msg-user { align-self: flex-end; max-width: 72%; }
+.bubble {
+  background: var(--surface-2); border-radius: var(--radius-lg); padding: 10px 14px;
+  color: var(--fg); box-shadow: var(--shadow-1);
+}
+.bubble .time { display: block; text-align: right; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.msg-agent { display: flex; flex-direction: column; gap: 10px; }
+.agent-head { display: flex; align-items: center; gap: 8px; }
+.agent-head .name { font-weight: 600; color: var(--fg); }
+.agent-head .model { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.agent-body { color: var(--body); max-width: 68ch; }
+.agent-body p { margin: 0 0 10px; }
+.agent-body code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+
+/* Tool timeline: the place a surface ladder earns its keep. */
+.tool {
+  border-radius: var(--radius-md); background: var(--surface-2); box-shadow: var(--shadow-1);
+  overflow: hidden; max-width: 68ch;
+}
+.tool-head { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--fg); font-weight: 500; }
+.tool-head .path { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-head .state { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: var(--radius-pill); }
+.state.running { background: var(--running-soft); color: var(--running); }
+.state.ready   { background: var(--ready-soft);   color: var(--ready); }
+.state.waiting { background: var(--waiting-soft); color: var(--waiting); }
+.state.error   { background: var(--error-soft);   color: var(--error); }
+.tool-body { border-top: 1px solid var(--border); background: var(--surface-1); padding: 10px 12px; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--body); }
+.tool-body .add { color: var(--ready); }
+.tool-body .del { color: var(--error); }
+.tool-body .ln { color: var(--faint); display: inline-block; width: 3ch; user-select: none; }
+
+/* Approval card: the waiting hue, in a tint, once. */
+.approval {
+  border-radius: var(--radius-md); background: var(--surface-2); box-shadow: var(--shadow-2);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; max-width: 68ch;
+}
+.approval-head { display: flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 600; }
+.approval-head .state { margin-left: auto; }
+.approval p { margin: 0; color: var(--body); }
+.approval code { font-family: var(--mono); font-size: 12px; color: var(--fg); }
+.approval-actions { display: flex; gap: 8px; }
+.btn {
+  height: 30px; padding: 0 12px; border-radius: var(--radius-sm); font-weight: 500; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
+}
+.btn.primary { background: var(--primary-fill); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.btn.primary:hover { background: #0862c8; }
+.btn.secondary { background: var(--surface-3); color: var(--fg); }
+.btn.secondary:hover { background: var(--surface-4); }
+.btn.quiet { color: var(--muted); }
+.btn.quiet:hover { color: var(--fg); background: var(--surface-3); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 4px; background: var(--surface-4); color: var(--body); }
+
+/* Composer */
+.composer-wrap { padding: 8px 24px 12px; }
+.composer {
+  max-width: 760px; margin: 0 auto; background: var(--surface-2); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1); transition: box-shadow var(--t-base);
+}
+.composer:focus-within { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--primary-ring), 0 8px 24px -12px rgba(0,0,0,0.8); }
+.composer textarea {
+  width: 100%; min-height: 72px; resize: none; background: transparent; border: 0; outline: 0;
+  padding: 14px 16px 4px; color: var(--fg); font: inherit; line-height: 1.5;
+}
+.composer textarea::placeholder { color: var(--muted); }
+.composer-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px 10px 12px; }
+.chip {
+  height: 26px; padding: 0 8px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 6px;
+  color: var(--body); font-weight: 500; font-size: 12px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.chip:hover { background: var(--surface-3); color: var(--fg); }
+.chip.filled { background: var(--surface-3); }
+.chip.filled:hover { background: var(--surface-4); }
+.composer-bar .grow { flex: 1; }
+.tokens { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+.send {
+  width: 30px; height: 30px; border-radius: 50%; background: var(--primary-fill); color: #fff;
+  display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  transition: background var(--t-fast), transform var(--t-fast);
+}
+.send:hover { background: #0862c8; }
+.send:active { transform: scale(0.94); }
+.pane-foot { display: flex; align-items: center; gap: 8px; padding: 0 24px 10px; color: var(--muted); font-size: 12px; font-family: var(--mono); }
+
+/* ── Ladder legend (documentation only, remove when porting) ─────────── */
+.legend {
+  position: fixed; right: 16px; bottom: 16px; width: 300px;
+  background: var(--surface-2); border-radius: var(--radius-md); box-shadow: var(--shadow-2);
+  padding: 12px 14px; font-size: 12px;
+}
+.legend summary { cursor: pointer; font-weight: 600; color: var(--fg); list-style: none; user-select: none; }
+.legend summary::-webkit-details-marker { display: none; }
+.legend[open] summary { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.legend:not([open]) { width: auto; }
+.legend h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--fg); letter-spacing: 0.02em; }
+.legend .row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; padding: 3px 0; color: var(--body); }
+.legend .sw { width: 22px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.legend .hex, .legend .cr { font-family: var(--mono); color: var(--muted); }
+.legend .cr.ok { color: var(--ready); }
+.legend .cr.warn { color: var(--waiting); }
+.legend hr { border: 0; border-top: 1px solid var(--border); margin: 8px 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <nav class="rail" aria-label="Workspaces">
+    <div class="logo">AI</div>
+    <button class="rail-btn" aria-current="true" title="aide">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+    <button class="rail-btn" title="tin">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+    </button>
+    <div class="spacer"></div>
+    <button class="rail-btn" title="New workspace">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="rail-btn" title="Settings">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </nav>
+
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      <h1>aide</h1>
+      <button class="icon-btn" title="New session" style="width:28px;height:28px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+    <div class="tree">
+      <div class="tree-group">Sessions</div>
+      <button class="tree-item" aria-current="true">
+        <span class="dot running" role="img" aria-label="Running" title="Running"></span><span class="tree-label">jev gates dropdown</span><span class="tree-meta tnum">2m</span>
+      </button>
+      <button class="tree-item child"><span class="tree-label">fix: gate settings persist</span><span class="tree-meta tnum">12m</span></button>
+      <button class="tree-item child"><span class="dot waiting" role="img" aria-label="Waiting for input" title="Waiting for input"></span><span class="tree-label">review: managed session</span><span class="tree-meta tnum">1h</span></button>
+      <button class="tree-item">
+        <span class="dot ready" role="img" aria-label="Ready" title="Ready"></span><span class="tree-label">conversation minimap</span><span class="tree-meta tnum">3h</span>
+      </button>
+      <button class="tree-item">
+        <span class="dot error" role="img" aria-label="Error" title="Error"></span><span class="tree-label">release gate</span><span class="tree-meta tnum">yday</span>
+      </button>
+      <div class="tree-group">Fleet</div>
+      <button class="tree-item"><span class="dot running" role="img" aria-label="Running" title="Running"></span><span class="tree-label">impl:jev-gates@opus-5</span><span class="tree-meta">PR #212</span></button>
+      <button class="tree-item"><span class="dot ready" role="img" aria-label="Ready" title="Ready"></span><span class="tree-label">codex:migrate@gpt-5-6-sol</span><span class="tree-meta">merged</span></button>
+    </div>
+    <div class="sidebar-foot">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>
+      <span class="tnum">main · 14 changed</span>
+    </div>
+  </aside>
+
+  <header class="topbar">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="false"><span class="idx">1</span>Terminal</button>
+      <button class="tab" role="tab" aria-selected="true"><span class="idx">2</span>Agent<span class="dot running" role="img" aria-label="Running" title="Running"></span></button>
+      <button class="tab" role="tab" aria-selected="false"><span class="idx">3</span>Git</button>
+      <button class="tab add" role="tab" aria-selected="false" title="New pane">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+    <div class="grow"></div>
+    <button class="icon-btn" title="Split right"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg></button>
+    <button class="icon-btn" title="Split down"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 12h18"/></svg></button>
+    <button class="icon-btn" title="Maximize"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="icon-btn danger" title="Close pane"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <span style="width:8px"></span>
+    <button class="icon-btn" title="History"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+    <button class="icon-btn" title="Notifications"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21a2 2 0 0 0 4 0"/></svg></button>
+    <button class="icon-btn" title="Toggle sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+    <span class="version">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l2 2"/></svg>
+      aIDE v0.0.2
+    </span>
+  </header>
+
+  <main class="pane">
+    <div class="pane-head">
+      <h2>Agent</h2>
+      <span class="status"><span class="dot running" role="img" aria-label="Running" title="Running"></span>Jev · Running</span>
+      <div class="grow"></div>
+      <button class="ghost-btn stop">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        Interrupt
+      </button>
+    </div>
+
+    <div class="thread">
+      <div class="thread-inner">
+
+        <div class="msg-user">
+          <div class="bubble">
+            move the gate toggles into a dropdown next to the model picker
+            <span class="time tnum">6:12 PM</span>
+          </div>
+        </div>
+
+        <div class="msg-agent">
+          <div class="agent-head">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand-claude)"><path d="M12 2l1.8 6.2L20 6l-4.2 4.8L22 13l-6.4.6L17 20l-5-4.2L7 20l1.4-6.4L2 13l6.2-2.2L4 6l6.2 2.2z"/></svg>
+            <span class="name">Claude</span>
+            <span class="model">claude-opus-5</span>
+          </div>
+          <div class="agent-body">
+            <p>Reading the composer bar first. The toggles live in <code>JevGateControls.tsx</code> and the dropdown pattern already exists in <code>ReasoningExtrasDropdown.tsx</code>, so I'll reuse that.</p>
+          </div>
+
+          <div class="tool">
+            <div class="tool-head">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
+              Edit <span class="path">src/renderer/src/components/JevGatesDropdown.tsx</span>
+              <span class="state ready">Done</span>
+            </div>
+            <div class="tool-body">
+              <div><span class="ln">41</span><span class="del">- &lt;JevGateControls gates={gates} /&gt;</span></div>
+              <div><span class="ln">41</span><span class="add">+ &lt;JevGatesDropdown gates={gates} onChange={setGates} /&gt;</span></div>
+            </div>
+          </div>
+
+          <div class="tool">
+            <div class="tool-head">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted)"><path d="M4 17l6-5-6-5M12 19h8"/></svg>
+              Bash <span class="path">npm test -- jev-gates</span>
+              <span class="state running">Running</span>
+            </div>
+          </div>
+
+          <div class="approval">
+            <div class="approval-head">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:var(--waiting)"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+              Approve command
+              <span class="state waiting">Waiting</span>
+            </div>
+            <p>Jev wants to run <code>git push origin jev-gates-dropdown</code>. This is outside the supervised sandbox.</p>
+            <div class="approval-actions">
+              <button class="btn primary">Allow <span class="kbd" style="background:rgba(255,255,255,0.18);color:#fff">⏎</span></button>
+              <button class="btn secondary">Allow for session</button>
+              <button class="btn quiet">Deny <span class="kbd">Esc</span></button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <textarea placeholder="Ask anything · @ for opinions · / for skills" aria-label="Message"></textarea>
+        <div class="composer-bar">
+          <button class="chip" title="Attach">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.5l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l9.2-9.2a3.5 3.5 0 0 1 5 5l-9.2 9.2a1.5 1.5 0 0 1-2.1-2.1L16 8"/></svg>
+          </button>
+          <button class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--brand-claude)"><path d="M12 2l1.8 6.2L20 6l-4.2 4.8L22 13l-6.4.6L17 20l-5-4.2L7 20l1.4-6.4L2 13l6.2-2.2L4 6l6.2 2.2z"/></svg>
+            Claude Opus 5
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <button class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/></svg>
+            Agents
+          </button>
+          <button class="chip filled">high <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="chip">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            Supervised
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="grow"></div>
+          <span class="tokens tnum">110 / 200k</span>
+          <button class="send" title="Send">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="pane-foot">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      ~/Work/aide · jev-gates-dropdown
+    </div>
+  </main>
+</div>
+
+<details class="legend">
+  <summary>Palette legend</summary>
+  <h3>Surface ladder · contrast vs canvas</h3>
+  <div class="row"><span class="sw" style="background:var(--canvas)"></span>canvas<span class="hex">#08090c</span><span class="cr">1.00</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface-1)"></span>surface-1<span class="hex">#14161b</span><span class="cr">1.10</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface-2)"></span>surface-2<span class="hex">#1c1f26</span><span class="cr">1.21</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface-3)"></span>surface-3<span class="hex">#252932</span><span class="cr">1.37</span></div>
+  <div class="row"><span class="sw" style="background:var(--surface-4)"></span>surface-4<span class="hex">#2f343e</span><span class="cr">1.59</span></div>
+  <hr />
+  <h3>Text on surface-2</h3>
+  <div class="row"><span class="sw" style="background:var(--fg)"></span>fg<span class="hex">#f2f3f5</span><span class="cr ok">14.6</span></div>
+  <div class="row"><span class="sw" style="background:var(--body)"></span>body<span class="hex">#c4c8ce</span><span class="cr ok">9.6</span></div>
+  <div class="row"><span class="sw" style="background:var(--muted)"></span>muted<span class="hex">#8e939c</span><span class="cr ok">5.3</span></div>
+  <div class="row"><span class="sw" style="background:var(--primary)"></span>primary<span class="hex">#2997ff</span><span class="cr ok">5.4</span></div>
+  <div class="row"><span class="sw" style="background:var(--faint)"></span>faint, decoration only<span class="hex">#5a606a</span><span class="cr warn">2.6</span></div>
+</details>
+</body>
+</html>

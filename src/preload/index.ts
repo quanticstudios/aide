@@ -94,6 +94,12 @@ const aideApi: AideApi = {
     ),
   acceptManagedFleetNode: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedFleetAcceptNode, input),
+  configureManagedSessionJevGates: (sessionId: string, overrides) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionConfigureJevGates,
+      sessionId,
+      overrides,
+    ),
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],

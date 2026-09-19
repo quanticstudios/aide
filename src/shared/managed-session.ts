@@ -1,5 +1,6 @@
 import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type { FleetState } from './fleet'
+import type { JevGateOverrides } from './jev-gates'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
@@ -110,6 +111,8 @@ export interface ManagedSessionConfig {
   cwd: string
   effort?: ManagedSessionEffort
   interactionMode?: ManagedSessionInteractionMode
+  /** Chat-level Jev gate overrides layered above workspace and global settings. */
+  jevGates?: JevGateOverrides
   mode: ManagedSessionMode
   model?: string
   orchestratorSelection?: ManagedSessionProviderSelection
@@ -215,6 +218,7 @@ export interface ManagedSessionSnapshot {
   preparingActivityId?: string
   fleet?: FleetState
   agents?: readonly ManagedSessionAgentConfig[]
+  jevGates?: JevGateOverrides
   content: ManagedSessionContentItem[]
   detail: string | null
   effort: ManagedSessionEffort | null

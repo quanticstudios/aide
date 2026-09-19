@@ -1,0 +1,59 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "geist",
+        "createdAt": "2026-09-19T18:16:23.160Z",
+        "reason": "app already imports @fontsource-variable/geist in src/renderer/src/styles.css; root DESIGN.md describes a different (Apple marketing) world"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "geist mono",
+        "createdAt": "2026-09-19T18:16:23.165Z",
+        "reason": "app already imports @fontsource-variable/geist-mono in src/renderer/src/styles.css"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist",
+        "createdAt": "2026-09-19T18:17:40.660Z",
+        "reason": "incumbent face: app imports @fontsource-variable/geist in src/renderer/src/styles.css; refinement preserves it"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist mono",
+        "createdAt": "2026-09-19T18:17:40.666Z",
+        "reason": "incumbent face: app imports @fontsource-variable/geist-mono in src/renderer/src/styles.css"
+      },
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "docs/design/shell-palette-mock.html"
+        ],
+        "createdAt": "2026-09-19T18:17:40.672Z",
+        "reason": "Operate-mode app shell; hierarchy carried by weight and color at 13px like the shipped app, not by size steps"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "*",
+        "files": [
+          "docs/design/shell-palette-mock.html"
+        ],
+        "createdAt": "2026-09-19T18:17:53.285Z",
+        "reason": "mock proposes a replacement token set; root DESIGN.md is the mismatched Apple marketing world the mock exists to replace"
+      },
+      {
+        "rule": "design-system-radius",
+        "value": "*",
+        "files": [
+          "docs/design/shell-palette-mock.html"
+        ],
+        "createdAt": "2026-09-19T18:17:53.291Z",
+        "reason": "mock proposes a replacement token set; root DESIGN.md is the mismatched Apple marketing world the mock exists to replace"
+      }
+    ]
+  }
+}

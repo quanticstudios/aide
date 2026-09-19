@@ -26,7 +26,7 @@ export default function PaneCloseDialog({
         variant="opaque"
       >
         <Modal.Container placement="center" size="sm">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface text-foreground shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <Modal.Dialog className="rounded-xl floating-surface text-foreground">
             <Modal.Header>
               <Modal.Heading>{warning?.title ?? 'Close pane?'}</Modal.Heading>
             </Modal.Header>

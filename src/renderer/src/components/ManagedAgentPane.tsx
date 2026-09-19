@@ -1,5 +1,4 @@
 import { Button } from '@heroui/react'
-import { ConversationMinimap } from './ConversationMinimap'
 import {
   ArrowDown,
   ArrowUp,
@@ -115,6 +114,7 @@ import {
 } from '../lib/workspace-file-mentions'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
+import { ConversationMinimap } from './ConversationMinimap'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
 } from './ManagedComposerAttachments'
@@ -348,7 +348,7 @@ function PermissionDropdown({
       </button>
       {isOpen && (
         <div
-          className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-lg floating-surface py-1.5"
           data-testid="permission-menu"
         >
           {PERMISSION_OPTIONS.map((opt) => {
@@ -657,7 +657,7 @@ function ContentItemBlock({
           data-testid={`managed-content-${item.kind}`}
         >
           <div
-            className="rounded-2xl rounded-br-md bg-surface-3 px-4 py-2.5"
+            className="rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.5),0_0_0_1px_var(--border)]"
             data-testid="user-message-bubble"
           >
             <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
@@ -2747,7 +2747,7 @@ export default function ManagedAgentPane({
         />
 
         <div
-          className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-3 shadow-sm transition-colors focus-within:bg-surface-4"
+          className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-2 shadow-[0_1px_2px_rgba(0,0,0,0.5),0_0_0_1px_var(--border)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--primary),0_8px_24px_-12px_rgba(0,0,0,0.8)]"
           data-testid="managed-composer"
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes('Files'))
@@ -2772,7 +2772,7 @@ export default function ManagedAgentPane({
           {slashMenuOpen ? (
             <div
               aria-label="Commands and provider skills"
-              className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+              className="absolute bottom-full left-0 z-20 mb-2 w-full max-w-sm rounded-lg floating-surface"
               data-testid="managed-slash-menu"
               ref={slashMenuRef}
               role="listbox"

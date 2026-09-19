@@ -93,7 +93,7 @@ export default function ReasoningExtrasDropdown({
 
       {modelCapability ? (
         <Dropdown.Popover
-          className="z-50 mb-1 w-[250px] rounded-md border border-border bg-surface py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          className="z-50 mb-1 w-[250px] rounded-lg floating-surface py-2"
           placement="top start"
         >
           <Dropdown.Menu aria-label="Reasoning settings">

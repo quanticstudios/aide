@@ -35,6 +35,10 @@ describe('JevGateSettings', () => {
       denyAbove: 0.7,
     })
     expect(settings.get('/work/b').effective.toolGate.denyAbove).toBe(0.9)
+    expect(
+      settings.resolve('/work/a', { toolGate: { enabled: false } }).toolGate
+        .enabled,
+    ).toBe(false)
     expect(new JevGateSettings(filename).get('/work/a').workspace).toEqual({
       toolGate: { denyAbove: 0.7 },
     })

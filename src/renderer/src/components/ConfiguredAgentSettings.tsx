@@ -105,7 +105,7 @@ export default function ConfiguredAgentSettings({
         Agents
       </button>
       {isOpen ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-80 rounded-md border border-border bg-surface p-3 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div className="absolute bottom-full left-0 z-50 mb-1 w-80 rounded-xl floating-surface p-3">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-foreground">

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -26,6 +26,7 @@ import type {
   WorkspaceGitRevertInput,
 } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
+import { JevGateOverridesSchema } from '../shared/jev-gates'
 import type { ManagedSessionDecision } from '../shared/managed-session'
 import type {
   ProjectColor,
@@ -63,6 +64,7 @@ import {
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
 import { JevGateSettings } from './jev-gate-settings'
+import { JevGates } from './jev-gates'
 import { JevSettings } from './jev-settings'
 import { validateManagedSessionAttachments } from './managed-session-attachments'
 import { ManagedSessionManager } from './managed-session-manager'
@@ -345,6 +347,22 @@ function initializeServices(): void {
   jevGateSettings = new JevGateSettings(
     path.join(path.dirname(databasePath), 'jev-gates.json'),
   )
+  const jevDecisionLog = path.join(
+    path.dirname(databasePath),
+    'jev-decisions.jsonl',
+  )
+  const jevGates = new JevGates({
+    getApiKey: (workspaceRoot) => jevSettings.getApiKey(workspaceRoot),
+    log: (row) => {
+      try {
+        appendFileSync(jevDecisionLog, `${JSON.stringify(row)}\n`, {
+          mode: 0o600,
+        })
+      } catch {
+        return
+      }
+    },
+  })
   if (
     (process.platform === 'linux' || process.platform === 'darwin') &&
     (process.arch === 'x64' || process.arch === 'arm64') &&
@@ -416,6 +434,9 @@ function initializeServices(): void {
   })
   managedSessionManager = new ManagedSessionManager({
     store: database,
+    jevGates,
+    resolveJevGates: (config) =>
+      jevGateSettings.resolve(config.cwd, config.jevGates),
     afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
     beforeInput: async ({ config, snapshot, text }) => {
       const workspace = database.getWorkspace(config.workspaceId)
@@ -1523,6 +1544,18 @@ function registerIpcHandlers(): void {
       return managedSessionManager.configureSessionPermissionMode(
         requireRuntimeId(sessionId, 'managed-session id'),
         permissionMode,
+      )
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionConfigureJevGates,
+    (event, sessionId: unknown, overrides: unknown) => {
+      requireTrustedRenderer(event)
+      const parsed =
+        overrides === null ? undefined : JevGateOverridesSchema.parse(overrides)
+      return managedSessionManager.configureSessionJevGates(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        parsed,
       )
     },
   )

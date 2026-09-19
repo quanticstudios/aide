@@ -176,3 +176,12 @@ export function withoutJevGateSection(
   delete updated[section]
   return updated as JevGateOverrides
 }
+
+/** True when any gate layer is switched on, so callers can skip the Jev round trip entirely. */
+export function anyJevGateEnabled(settings: JevGateSettings): boolean {
+  return (
+    settings.toolGate.enabled ||
+    settings.laneRouting.enabled ||
+    settings.completionCheck.enabled
+  )
+}

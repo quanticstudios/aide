@@ -47,7 +47,7 @@ export default function RecipientMentionMenu({
   return (
     <div
       aria-label="Mention suggestions"
-      className="absolute bottom-full left-0 z-20 mb-2 w-full rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+      className="absolute bottom-full left-0 z-20 mb-2 w-full rounded-lg floating-surface"
       data-testid="managed-recipient-menu"
       role="listbox"
     >

@@ -185,6 +185,7 @@ export const IPC_CHANNELS = {
   managedFleetAcceptNode: 'managed-session:accept-fleet-node',
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
+  managedSessionConfigureJevGates: 'managed-session:configure-jev-gates',
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
   managedSessionConfigurePermissionMode: 'managed-session:set-permission-mode',
   managedSessionEvent: 'managed-session:event',
@@ -398,6 +399,10 @@ export interface AideApi {
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],
+  ) => Promise<ManagedSessionSnapshot>
+  configureManagedSessionJevGates: (
+    sessionId: string,
+    overrides: JevGateOverrides | null,
   ) => Promise<ManagedSessionSnapshot>
   configureManagedSessionMode: (
     sessionId: string,

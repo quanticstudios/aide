@@ -109,7 +109,7 @@ export default function OpenInEditorButton({ cwd }: OpenInEditorButtonProps) {
         <ExternalLink className="size-3.5" />
       </Button>
       {isOpen ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg floating-surface">
           <div className="px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             Open in…
           </div>

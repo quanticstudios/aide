@@ -18,7 +18,13 @@ import {
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
+import {
+  getThemePreference,
+  setThemePreference,
+  type ThemePreference,
+} from '../lib/theme-preference'
 import JevSetup from './JevSetup'
+import ThemePicker from './ThemePicker'
 
 export interface SettingsShortcut {
   readonly description?: string
@@ -177,6 +183,8 @@ export default function SettingsPage({
   )
   const [selectedAnimation, setSelectedAnimation] =
     useState<AnimationPreference>(getAnimationPreference)
+  const [selectedTheme, setSelectedTheme] =
+    useState<ThemePreference>(getThemePreference)
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -252,6 +260,10 @@ export default function SettingsPage({
       showAppearance: containsQuery(
         'appearance-settings',
         'Appearance',
+        'Theme',
+        'Dark',
+        'High contrast',
+        'Both are dark. They differ in how much the panes lift off the chrome',
         'Animations',
         'System default',
         'On',
@@ -347,7 +359,7 @@ export default function SettingsPage({
       ref={pageRef}
       role="dialog"
     >
-      <aside className="flex w-full shrink-0 flex-col gap-3 border-b border-border bg-surface p-3 min-[740px]:h-full min-[740px]:w-56 min-[740px]:gap-4 min-[740px]:border-b-0 min-[740px]:border-r min-[740px]:p-4">
+      <aside className="flex w-full shrink-0 flex-col gap-3 border-b border-border bg-background p-3 min-[740px]:h-full min-[740px]:w-72 min-[740px]:gap-4 min-[740px]:border-b-0 min-[740px]:border-r min-[740px]:p-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"
@@ -483,9 +495,25 @@ export default function SettingsPage({
                 Appearance
               </h2>
               <p className="mt-1 text-[13px] text-muted-foreground">
-                Motion preferences for the app interface.
+                Theme and motion preferences for the app interface.
               </p>
               <div className="mt-4 rounded-lg border border-border bg-surface-2">
+                <div className="border-b border-border px-4 py-3">
+                  <span className="block text-[13px] font-medium leading-5">
+                    Theme
+                  </span>
+                  <span className="mb-3 block text-[12px] leading-4 text-muted-foreground">
+                    Both are dark. They differ in how much the panes lift off
+                    the chrome.
+                  </span>
+                  <ThemePicker
+                    onChange={(preference) => {
+                      setThemePreference(preference)
+                      setSelectedTheme(preference)
+                    }}
+                    value={selectedTheme}
+                  />
+                </div>
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium leading-5">

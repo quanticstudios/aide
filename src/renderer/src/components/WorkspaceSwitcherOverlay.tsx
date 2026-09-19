@@ -84,7 +84,7 @@ export default function WorkspaceSwitcherOverlay({
 
       <Surface
         className={cn(
-          'relative rounded-xl border border-border bg-surface p-3 shadow-[0_20px_60px_rgba(0,0,0,0.4)]',
+          'relative rounded-xl floating-surface p-3',
           isOverviewMode ? 'w-full max-w-4xl' : '',
         )}
         onClick={

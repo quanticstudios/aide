@@ -89,7 +89,7 @@ export default function ContextWindowMeter({
         </span>
       </Tooltip.Trigger>
       <Tooltip.Content
-        className="rounded-md border border-border bg-surface-elevated px-3 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        className="rounded-lg floating-surface px-3 py-2"
         placement="top"
       >
         <p className="eyebrow">

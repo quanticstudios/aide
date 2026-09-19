@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import type { ComposerDefaults } from '../shared/composer-defaults'
 import { FleetStateSchema } from '../shared/fleet'
+import { JevGateOverridesSchema } from '../shared/jev-gates'
 
 import type { PersistedManagedSession } from '../shared/managed-session'
 import type {
@@ -582,6 +583,7 @@ const persistedManagedSessionSchema = z
       cwd: persistedText,
       effort: z.string().max(200).optional(),
       interactionMode: z.enum(['build', 'plan']).optional(),
+      jevGates: JevGateOverridesSchema.optional(),
       mode: persistedProvider,
       model: z.string().max(200).optional(),
       orchestratorSelection: persistedProviderSelection.optional(),
@@ -622,6 +624,7 @@ const persistedManagedSessionSchema = z
       ),
       detail: z.string().max(2_000).nullable(),
       fleet: FleetStateSchema.optional(),
+      jevGates: JevGateOverridesSchema.optional(),
       effort: z.string().max(200).nullable(),
       interactionMode: z.enum(['build', 'plan']),
       lastCompletedAt: persistedTimestamp.nullable(),

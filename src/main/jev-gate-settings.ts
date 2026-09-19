@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import {
+  type JevGateOverrides,
   JevGateOverridesSchema,
   type JevGateScope,
   type JevGateSnapshot,
@@ -29,6 +30,19 @@ export class JevGateSettings {
       global: file.global,
       workspace,
     }
+  }
+
+  /** Effective gates for one workspace, with an optional per-chat layer on top. */
+  public resolve(
+    workspaceRoot: string,
+    chat?: JevGateOverrides,
+  ): ReturnType<typeof resolveJevGates> {
+    const file = this.read()
+    return resolveJevGates(
+      file.global,
+      file.workspaces[path.resolve(workspaceRoot)],
+      chat,
+    )
   }
 
   public update(

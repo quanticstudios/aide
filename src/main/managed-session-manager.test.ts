@@ -2381,3 +2381,126 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(saveCount).toBe(savesAtShutdown)
   })
 })
+
+describe('Jev gates', () => {
+  beforeEach(() => {
+    process.env.AIDE_FAKE_MANAGED_PROVIDERS = '1'
+  })
+  afterEach(() => {
+    process.env.AIDE_FAKE_MANAGED_PROVIDERS = undefined
+  })
+
+  function gates(decision: 'allow' | 'deny' | 'prompt') {
+    const calls: unknown[] = []
+    return {
+      calls,
+      jevGates: {
+        judgeTool: async (input: unknown) => {
+          calls.push(input)
+          return {
+            decision,
+            probabilities: { destructive: 0.5 },
+            reason: `Jev ${decision}`,
+            usage: {
+              estimatedCostUsd: 0.00001,
+              inputTokens: 10,
+              model: 'jev-1.13.0',
+              outputTokens: 1,
+            },
+          }
+        },
+        judgeRisk: async () => null,
+        judgeCompletion: async () => null,
+        recordOutcome: () => undefined,
+      } as never,
+    }
+  }
+
+  it('auto-resolves an approval when the tool gate allows and records the decision', async () => {
+    const { jevGates, calls } = gates('allow')
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-09-19T10:00:00.000Z',
+      jevGates,
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      resolveJevGates: () => ({
+        toolGate: { enabled: true, allowBelow: 0.1, denyAbove: 0.9 },
+        laneRouting: { enabled: false, highAbove: 0.6, criticalAbove: 0.85 },
+        completionCheck: { enabled: false, minPass: 0.5 },
+      }),
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'approval')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const snapshot = manager.getSnapshots()[config.sessionId]
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toMatchObject({
+      provider: 'codex',
+      requestType: 'command-execution-approval',
+    })
+    expect(snapshot.pendingApprovals).toHaveLength(0)
+    expect(snapshot.sessionState).toBe('ready')
+    expect(
+      snapshot.fleet?.events.some(
+        (event) =>
+          event.type === 'tool' &&
+          event.status === 'completed' &&
+          event.model === 'jev',
+      ),
+    ).toBe(true)
+    expect(snapshot.usageReports?.some((r) => r.provider === 'jev')).toBe(true)
+    await manager.closeAll()
+  })
+
+  it('falls through to the user prompt when Jev is uncertain', async () => {
+    const { jevGates } = gates('prompt')
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-09-19T10:00:00.000Z',
+      jevGates,
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      resolveJevGates: () => ({
+        toolGate: { enabled: true, allowBelow: 0.1, denyAbove: 0.9 },
+        laneRouting: { enabled: false, highAbove: 0.6, criticalAbove: 0.85 },
+        completionCheck: { enabled: false, minPass: 0.5 },
+      }),
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'approval')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const snapshot = manager.getSnapshots()[config.sessionId]
+    expect(snapshot.pendingApprovals).toHaveLength(1)
+    expect(snapshot.sessionState).toBe('waiting')
+    await manager.closeAll()
+  })
+
+  it('leaves approvals alone when the gate is disabled and stores chat overrides', async () => {
+    const { jevGates, calls } = gates('allow')
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-09-19T10:00:00.000Z',
+      jevGates,
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+    const configured = manager.configureSessionJevGates(config.sessionId, {
+      toolGate: { enabled: false },
+    })
+    expect(configured.jevGates).toEqual({ toolGate: { enabled: false } })
+    await manager.sendInput(config.sessionId, 'approval')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calls).toHaveLength(0)
+    expect(
+      manager.getSnapshots()[config.sessionId].pendingApprovals,
+    ).toHaveLength(1)
+    expect(
+      manager.configureSessionJevGates(config.sessionId, undefined).jevGates,
+    ).toBeUndefined()
+    await manager.closeAll()
+  })
+})

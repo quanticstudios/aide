@@ -300,7 +300,7 @@ export default function ModelSelector({
       {isOpen ? (
         <div
           data-model-selector-menu
-          className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          className="absolute bottom-full left-0 z-50 mb-1 flex w-[480px] overflow-hidden rounded-xl floating-surface"
         >
           <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-border bg-[var(--surface-1)] py-2">
             <ProviderRailButton

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  anyJevGateEnabled,
   formatJevGateThresholds,
   JEV_GATE_DEFAULTS,
   JevGateOverridesSchema,
@@ -14,6 +15,7 @@ describe('resolveJevGates', () => {
     const resolved = resolveJevGates()
     expect(resolved).toEqual(JEV_GATE_DEFAULTS)
     expect(resolved).not.toBe(JEV_GATE_DEFAULTS)
+    expect(anyJevGateEnabled(resolved)).toBe(false)
   })
 
   it('lets later layers override earlier ones per field', () => {
@@ -120,5 +122,22 @@ describe('withoutJevGateSection', () => {
       ),
     ).toEqual({ laneRouting: { enabled: true } })
     expect(withoutJevGateSection({}, 'toolGate')).toEqual({})
+  })
+})
+
+describe('anyJevGateEnabled', () => {
+  it('is true as soon as one gate is on', () => {
+    expect(anyJevGateEnabled(resolveJevGates())).toBe(false)
+    expect(
+      anyJevGateEnabled(
+        resolveJevGates({ completionCheck: { enabled: true } }),
+      ),
+    ).toBe(true)
+    expect(
+      anyJevGateEnabled(resolveJevGates({ laneRouting: { enabled: true } })),
+    ).toBe(true)
+    expect(
+      anyJevGateEnabled(resolveJevGates({ toolGate: { enabled: true } })),
+    ).toBe(true)
   })
 })
