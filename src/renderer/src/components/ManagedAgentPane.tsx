@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Circle,
   CirclePause,
   Clipboard,
   ClipboardCheck,
@@ -25,6 +26,7 @@ import {
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
+  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -53,6 +55,7 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
+  ManagedSessionTask,
   ManagedSessionToolCall,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
@@ -434,8 +437,14 @@ function toolCallIcon(tool: ManagedSessionToolCall) {
 }
 
 function toolCallSummary(tool: ManagedSessionToolCall): string {
+  const input =
+    tool.input && typeof tool.input === 'object'
+      ? (tool.input as Record<string, unknown>)
+      : {}
+
   return (
     tool.command ??
+    (typeof input.description === 'string' ? input.description : undefined) ??
     tool.files?.[0]?.path ??
     JSON.stringify(tool.input ?? {}).slice(0, 80)
   )
@@ -475,6 +484,14 @@ function ToolCallBlock({ tool }: { readonly tool: ManagedSessionToolCall }) {
         <span className="truncate font-mono text-[12px] text-muted-foreground">
           {toolCallSummary(tool)}
         </span>
+        {tool.progress && tool.status === 'running' ? (
+          <span
+            className="shrink-0 text-[11px] text-muted-foreground"
+            data-testid="tool-call-progress"
+          >
+            {tool.progress}
+          </span>
+        ) : null}
         <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {tool.status === 'running' ? (
             <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
@@ -540,6 +557,56 @@ function ToolCallBlock({ tool }: { readonly tool: ManagedSessionToolCall }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function TaskListBlock({
+  isRunning,
+  tasks,
+}: {
+  readonly isRunning: boolean
+  readonly tasks: readonly ManagedSessionTask[]
+}) {
+  const completed = tasks.filter((task) => task.status === 'completed').length
+
+  return (
+    <details
+      className="group/tasks overflow-hidden rounded-lg border border-[var(--border-soft)] bg-surface-1"
+      data-testid="managed-task-list"
+      open={isRunning}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-semibold text-foreground">
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tasks:rotate-90" />
+        Tasks
+        <span className="ml-auto text-[11px] font-medium tabular-nums text-muted-foreground">
+          {completed}/{tasks.length}
+        </span>
+      </summary>
+      <ul className="space-y-1 border-t border-[var(--border-soft)] px-3 py-2">
+        {tasks.map((task) => (
+          <li
+            className={cn(
+              'flex items-center gap-2 text-[13px]',
+              task.status === 'in_progress'
+                ? 'font-medium text-foreground'
+                : 'text-muted-foreground',
+              task.status === 'completed' && 'line-through',
+            )}
+            data-testid={`managed-task-${task.status}`}
+            key={task.subject}
+          >
+            {task.status === 'completed' ? (
+              <Check className="size-3.5 shrink-0 text-accent-green" />
+            ) : task.status === 'in_progress' ? (
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary-on-dark" />
+            ) : (
+              <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+            )}
+            <span className="truncate">{task.subject}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 
@@ -786,6 +853,12 @@ function TurnGroupBlock({
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
   const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
+  // why: the checklist renders once per turn, so its tool row drops out of the timeline.
+  const tasks = group.items.filter((item) => item.tool?.tasks).at(-1)
+    ?.tool?.tasks
+  const items = group.items.filter((item) => !item.tool?.tasks)
+  // why: the checklist describes the reply, so it sits after the prompt bubble.
+  const taskListIndex = items.findIndex((item) => item.kind !== 'user-prompt')
   const responseItem = group.items
     .filter(
       (item) => item.kind === 'assistant-text' && item.phase !== 'commentary',
@@ -811,26 +884,33 @@ function TurnGroupBlock({
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
-      {group.items.map((item, index) => {
-        const previous = group.items[index - 1]
+      {items.map((item, index) => {
+        const previous = items[index - 1]
         return (
-          <ContentItemBlock
-            editFromHereDisabledReason={rewindDisabledReason}
-            item={item}
-            key={`${item.kind}:${item.id}`}
-            onEditFromHere={
-              checkpointId && item.kind === 'user-prompt'
-                ? () => onEditFromHere(checkpointId, item)
-                : undefined
-            }
-            showProvider={
-              previous?.kind !== 'assistant-text' ||
-              previous.provider !== item.provider ||
-              previous.model !== item.model
-            }
-          />
+          <Fragment key={`${item.kind}:${item.id}`}>
+            {tasks && index === taskListIndex ? (
+              <TaskListBlock isRunning={isRunning} tasks={tasks} />
+            ) : null}
+            <ContentItemBlock
+              editFromHereDisabledReason={rewindDisabledReason}
+              item={item}
+              onEditFromHere={
+                checkpointId && item.kind === 'user-prompt'
+                  ? () => onEditFromHere(checkpointId, item)
+                  : undefined
+              }
+              showProvider={
+                previous?.kind !== 'assistant-text' ||
+                previous.provider !== item.provider ||
+                previous.model !== item.model
+              }
+            />
+          </Fragment>
         )
       })}
+      {tasks && taskListIndex === -1 ? (
+        <TaskListBlock isRunning={isRunning} tasks={tasks} />
+      ) : null}
       {isRunning ? (
         <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />

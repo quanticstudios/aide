@@ -55,6 +55,7 @@ import type {
   ManagedProviderRuntimeEvent,
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeRequestType,
+  ManagedProviderRuntimeTask,
   ManagedProviderRuntimeToolCall,
   ManagedProviderRuntimeToolRequest,
   ManagedProviderRuntimeUserQuestion,
@@ -472,20 +473,46 @@ export function buildToolApprovalRequest(
 
 type ToolCallDetail = Pick<
   ManagedProviderRuntimeToolCall,
-  'command' | 'diff' | 'files'
+  'command' | 'diff' | 'files' | 'tasks'
 >
+
+const TASK_STATUSES = new Set(['completed', 'in_progress', 'pending'])
+
+/** Read the entries a `TodoWrite`-shaped tool input carries. */
+function readToolTasks(value: unknown): ManagedProviderRuntimeTask[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.flatMap((entry) => {
+    const record =
+      entry && typeof entry === 'object'
+        ? (entry as Record<string, unknown>)
+        : {}
+    const subject = typeof record.content === 'string' ? record.content : ''
+    const status =
+      typeof record.status === 'string' && TASK_STATUSES.has(record.status)
+        ? (record.status as ManagedProviderRuntimeTask['status'])
+        : 'pending'
+
+    return subject ? [{ status, subject }] : []
+  })
+}
 
 /** Pull the command, touched files and diff a Claude tool input implies. */
 function describeClaudeToolInput(
   toolName: string,
   input: unknown,
 ): ToolCallDetail {
-  const request = buildToolApprovalRequest(
-    toolName,
-    input && typeof input === 'object'
-      ? (input as Record<string, unknown>)
-      : {},
-  )
+  const record =
+    input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
+
+  if (toolName === 'TodoWrite') {
+    const tasks = readToolTasks(record.todos)
+    return tasks.length > 0 ? { tasks } : {}
+  }
+
+  const request = buildToolApprovalRequest(toolName, record)
   const status =
     toolName === 'Read' ? 'read' : toolName === 'Write' ? 'added' : 'modified'
 
@@ -1226,6 +1253,16 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (message.type === 'system' && message.subtype === 'task_progress') {
+      const parent = message.tool_use_id
+        ? this.toolCalls.get(message.tool_use_id)
+        : undefined
+
+      if (parent) {
+        parent.progress = message.summary ?? message.description
+        this.emitToolCall(parent)
+        return
+      }
+
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         itemId: message.task_id,
@@ -2506,6 +2543,86 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
         kind: 'assistant-text',
         provider: this.provider,
         text: 'Ran three tools.',
+        type: 'content.delta',
+      })
+      this.finishTurn('completed')
+      return
+    }
+
+    if (trimmed === 'todos') {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: 'fake-todos',
+        kind: 'tool-call',
+        provider: this.provider,
+        text: '',
+        tool: {
+          callId: 'fake-todos',
+          input: {},
+          status: 'completed',
+          tasks: [
+            { status: 'completed', subject: 'Read the ticket' },
+            { status: 'in_progress', subject: 'Write the checklist' },
+            { status: 'pending', subject: 'Ship the PR' },
+          ],
+          toolName: 'TodoWrite',
+        },
+        type: 'content.delta',
+      })
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: randomUUID(),
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: 'Tracking three tasks.',
+        type: 'content.delta',
+      })
+      this.finishTurn('completed')
+      return
+    }
+
+    if (trimmed === 'subagent') {
+      const call: ManagedProviderRuntimeToolCall = {
+        callId: 'fake-subagent',
+        input: { description: 'Explore the repo', prompt: 'Explore' },
+        status: 'running',
+        toolName: 'Task',
+      }
+      const steps: ManagedProviderRuntimeToolCall[] = [
+        call,
+        { ...call, output: 'Listing the repo root.', progress: 'Reading src' },
+        {
+          ...call,
+          output: 'Listing the repo root.\nFound 12 source files.',
+          progress: 'Reading src',
+        },
+        {
+          ...call,
+          output: 'Listing the repo root.\nFound 12 source files.',
+          status: 'completed',
+        },
+      ]
+
+      for (const tool of steps) {
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId: call.callId,
+          kind: 'tool-call',
+          provider: this.provider,
+          text: '',
+          tool,
+          type: 'content.delta',
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        if (this.activeTurnId !== turnId) return
+      }
+
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: randomUUID(),
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: 'The subagent finished exploring.',
         type: 'content.delta',
       })
       this.finishTurn('completed')
