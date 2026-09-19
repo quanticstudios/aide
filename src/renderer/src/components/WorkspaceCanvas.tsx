@@ -51,6 +51,7 @@ interface WorkspaceCanvasProps {
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: () => void
   readonly onClosePane: (paneId: string) => void
+  readonly onOpenJevSettings: (trigger: HTMLElement) => void
   readonly onPreviewBrowserControl: (control: PreviewBrowserControl) => void
   readonly onPreviewCloseTab: (
     workspace: WorkspaceRecord,
@@ -131,6 +132,7 @@ function resolvePaneContent(args: {
   activePaneId: string | null
   activeProject: ProjectRecord
   onClosePane: (paneId: string) => void
+  onOpenJevSettings: (trigger: HTMLElement) => void
   onPreviewBrowserControl: (control: PreviewBrowserControl) => void
   onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
   onPreviewNavigate: (
@@ -152,6 +154,7 @@ function resolvePaneContent(args: {
   return renderPaneFromRegistry({
     activePaneId: args.activePaneId,
     onClosePane: args.onClosePane,
+    onOpenJevSettings: args.onOpenJevSettings,
     onPreviewBrowserControl: args.onPreviewBrowserControl,
     onPreviewCloseTab: args.onPreviewCloseTab,
     onPreviewNavigate: args.onPreviewNavigate,
@@ -267,6 +270,7 @@ function renderLayoutNode(args: {
   nodeLookup: Map<string, PersistedLayoutNode>
   onAddView: (paneId: string, templateViewId: string) => void
   onClosePane: (paneId: string) => void
+  onOpenJevSettings: (trigger: HTMLElement) => void
   onRemoveView: (paneId: string, viewIndex: number) => void
   onPreviewBrowserControl: (control: PreviewBrowserControl) => void
   onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
@@ -320,6 +324,7 @@ function renderLayoutNode(args: {
             activePaneId: isActive ? activeViewId : null,
             activeProject: args.activeProject,
             onClosePane: args.onClosePane,
+            onOpenJevSettings: args.onOpenJevSettings,
             onPreviewBrowserControl: args.onPreviewBrowserControl,
             onPreviewCloseTab: args.onPreviewCloseTab,
             onPreviewNavigate: args.onPreviewNavigate,
@@ -409,6 +414,7 @@ export default function WorkspaceCanvas({
   onCreateProject,
   onCreateWorkspace,
   onClosePane,
+  onOpenJevSettings,
   onRemoveView,
   onPreviewBrowserControl,
   onPreviewCloseTab,
@@ -631,6 +637,7 @@ export default function WorkspaceCanvas({
                                       nodeLookup,
                                       onAddView,
                                       onClosePane,
+                                      onOpenJevSettings,
                                       onRemoveView,
                                       onPreviewBrowserControl,
                                       onPreviewCloseTab,
