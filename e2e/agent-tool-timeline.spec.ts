@@ -138,7 +138,7 @@ test.describe('agent tool timeline', () => {
     await expect(diff).toContainText('before')
     await expect(diff).toContainText('after')
     await page.screenshot({
-      path: 'test-results/agent-tool-timeline.png',
+      path: 'docs/verification/agent-tool-timeline-2026-09-19.png',
       fullPage: true,
     })
 
