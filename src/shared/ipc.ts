@@ -46,6 +46,7 @@ import type {
   ManagedSessionDecision,
   ManagedSessionEvent,
   ManagedSessionInteractionMode,
+  ManagedSessionPermissionMode,
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from './managed-session'
@@ -176,6 +177,7 @@ export const IPC_CHANNELS = {
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
+  managedSessionConfigurePermissionMode: 'managed-session:set-permission-mode',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
   managedSessionCancelQueuedInput: 'managed-session:cancel-queued-input',
@@ -372,6 +374,10 @@ export interface AideApi {
   configureManagedSessionMode: (
     sessionId: string,
     interactionMode: ManagedSessionInteractionMode,
+  ) => Promise<ManagedSessionSnapshot>
+  configureManagedSessionPermissionMode: (
+    sessionId: string,
+    permissionMode: ManagedSessionPermissionMode,
   ) => Promise<ManagedSessionSnapshot>
   updateProjectSetupCommand: (
     projectId: string,

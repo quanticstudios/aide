@@ -16,6 +16,8 @@ import {
   buildCodexTurnInput,
   ManagedSessionManager,
   type ManagedSessionPersistenceStore,
+  resolveAutoApprovalLabel,
+  resolveEffectivePermissionMode,
 } from './managed-session-manager'
 
 interface Deferred {
@@ -511,6 +513,139 @@ createInterface({ input: process.stdin }).on('line', line => {
       }
     },
   )
+
+  it('auto-allows every tool request under full access', () => {
+    expect(
+      resolveAutoApprovalLabel(
+        'bypassPermissions',
+        'command-execution-approval',
+      ),
+    ).toBe('Full access')
+    expect(
+      resolveAutoApprovalLabel('bypassPermissions', 'file-change-approval'),
+    ).toBe('Full access')
+    expect(
+      resolveAutoApprovalLabel('bypassPermissions', 'dynamic-tool-call'),
+    ).toBe('Full access')
+  })
+
+  it('auto-allows only file requests under auto-accept edits', () => {
+    expect(
+      resolveAutoApprovalLabel('acceptEdits', 'file-change-approval'),
+    ).toBe('Auto-accept edits')
+    expect(resolveAutoApprovalLabel('acceptEdits', 'file-read-approval')).toBe(
+      'Auto-accept edits',
+    )
+    expect(
+      resolveAutoApprovalLabel('acceptEdits', 'command-execution-approval'),
+    ).toBeNull()
+  })
+
+  it('never auto-allows supervised, plan approvals or tool questions', () => {
+    expect(
+      resolveAutoApprovalLabel('default', 'command-execution-approval'),
+    ).toBeNull()
+    expect(
+      resolveAutoApprovalLabel('default', 'file-change-approval'),
+    ).toBeNull()
+    expect(
+      resolveAutoApprovalLabel('bypassPermissions', 'plan-approval'),
+    ).toBeNull()
+    expect(
+      resolveAutoApprovalLabel('bypassPermissions', 'tool-user-input'),
+    ).toBeNull()
+  })
+
+  it('keeps the chosen permission mode while plan mode overrides the runtime', () => {
+    expect(
+      resolveEffectivePermissionMode({
+        interactionMode: 'plan',
+        permissionMode: 'bypassPermissions',
+      }),
+    ).toBe('plan')
+    expect(
+      resolveEffectivePermissionMode({
+        interactionMode: 'build',
+        permissionMode: 'bypassPermissions',
+      }),
+    ).toBe('bypassPermissions')
+    expect(resolveEffectivePermissionMode({})).toBe('default')
+  })
+
+  it('resolves approvals without a card when full access is selected', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    const config = createConfig('codex')
+    await manager.createSession({
+      ...config,
+      permissionMode: 'bypassPermissions',
+    })
+    await manager.sendInput(config.sessionId, 'approval')
+    await Promise.resolve()
+
+    const snapshot = manager.getSnapshots()[config.sessionId]
+    expect(snapshot.pendingApprovals).toHaveLength(0)
+    expect(snapshot.content.find((item) => item.kind === 'system')?.text).toBe(
+      'Allowed by Full access: Bash: rm -rf build && bun run build',
+    )
+    await manager.closeAll()
+  })
+
+  it('shows a card for commands but not edits when auto-accept edits is selected', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    const config = createConfig('codex')
+    await manager.createSession({ ...config, permissionMode: 'acceptEdits' })
+    await manager.sendInput(config.sessionId, 'edit approval')
+    await Promise.resolve()
+
+    expect(
+      manager.getSnapshots()[config.sessionId].pendingApprovals,
+    ).toHaveLength(0)
+    expect(
+      manager
+        .getSnapshots()
+        [config.sessionId].content.find((item) => item.kind === 'system')?.text,
+    ).toBe('Allowed by Auto-accept edits: Edit: README.md')
+
+    await manager.sendInput(config.sessionId, 'approval')
+    await Promise.resolve()
+    expect(
+      manager.getSnapshots()[config.sessionId].pendingApprovals,
+    ).toHaveLength(1)
+    await manager.closeAll()
+  })
+
+  it('applies a permission mode change to the next request on a live session', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    const updated = await manager.configureSessionPermissionMode(
+      config.sessionId,
+      'bypassPermissions',
+    )
+    expect(updated.permissionMode).toBe('bypassPermissions')
+
+    await manager.sendInput(config.sessionId, 'approval')
+    await Promise.resolve()
+    expect(
+      manager.getSnapshots()[config.sessionId].pendingApprovals,
+    ).toHaveLength(0)
+    await manager.closeAll()
+  })
 
   it('tracks fake approvals and input prompts through the managed snapshot', async () => {
     const manager = new ManagedSessionManager({

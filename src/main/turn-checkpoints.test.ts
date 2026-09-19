@@ -79,6 +79,7 @@ function createSnapshot(revision = 1): ManagedSessionSnapshot {
     paneId: 'pane-1',
     pendingApprovals: [],
     pendingUserInputs: [],
+    permissionMode: 'default',
     planApproval: null,
     provider: 'codex',
     revision,

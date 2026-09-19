@@ -227,6 +227,7 @@ export interface ManagedSessionSnapshot {
   paneId: string
   pendingApprovals: ManagedSessionPendingApproval[]
   pendingUserInputs: ManagedSessionPendingUserInput[]
+  permissionMode: ManagedSessionPermissionMode
   planApproval: ManagedSessionPlanApproval | null
   provider: ManagedSessionProvider
   queuePaused?: boolean

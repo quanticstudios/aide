@@ -34,6 +34,7 @@ import type {
   ManagedSessionHistoryItem,
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
+  ManagedSessionPermissionMode,
   ManagedSessionPlanApproval,
   ManagedSessionPreparationResult,
   ManagedSessionProviderImage,
@@ -221,6 +222,9 @@ interface ManagedSessionBackend {
     requestId: string,
     answers: Record<string, string | string[]>,
   ): Promise<void>
+  setPermissionMode?(
+    permissionMode: ManagedSessionPermissionMode,
+  ): Promise<void>
   start(): Promise<void>
 }
 
@@ -298,6 +302,7 @@ function buildEmptySnapshot(
     paneId: config.paneId,
     pendingApprovals: [],
     pendingUserInputs: [],
+    permissionMode: config.permissionMode ?? 'default',
     planApproval: null,
     provider: config.mode,
     queuePaused: false,
@@ -556,6 +561,35 @@ function classifyToolRequestType(
   }
 
   return 'dynamic-tool-call'
+}
+
+/** The permission mode the runtime enforces, with plan mode overriding the composer choice. */
+export function resolveEffectivePermissionMode(
+  config: Pick<ManagedSessionConfig, 'interactionMode' | 'permissionMode'>,
+): ManagedSessionPermissionMode {
+  return config.interactionMode === 'plan'
+    ? 'plan'
+    : (config.permissionMode ?? 'default')
+}
+
+/** The transcript label for an approval the permission mode allows without a card, else null. */
+export function resolveAutoApprovalLabel(
+  permissionMode: ManagedSessionPermissionMode,
+  requestType: ManagedProviderRuntimeRequestType,
+): string | null {
+  if (requestType === 'plan-approval' || requestType === 'tool-user-input') {
+    return null
+  }
+
+  if (permissionMode === 'bypassPermissions') {
+    return 'Full access'
+  }
+
+  return permissionMode === 'acceptEdits' &&
+    (requestType === 'file-change-approval' ||
+      requestType === 'file-read-approval')
+    ? 'Auto-accept edits'
+    : null
 }
 
 function normalizeClaudeQuestions(
@@ -831,6 +865,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     const thinking = resolveClaudeThinkingOption(this.config.thinkingBudget)
+    const permissionMode = resolveEffectivePermissionMode(this.config)
 
     this.queryRuntime = query({
       options: {
@@ -853,7 +888,10 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           : {}),
         ...(this.config.model ? { model: this.config.model } : {}),
         pathToClaudeCodeExecutable: cliPath,
-        permissionMode: this.config.permissionMode,
+        permissionMode,
+        ...(permissionMode === 'bypassPermissions'
+          ? { allowDangerouslySkipPermissions: true }
+          : {}),
         settingSources: ['user', 'project', 'local'],
         ...(this.config.readOnly
           ? createReadOnlyClaudeOptions(process.env)
@@ -910,6 +948,12 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
     throw new Error(
       'Claude does not support safe mid-turn steering. Keep this message queued.',
     )
+  }
+
+  public async setPermissionMode(
+    permissionMode: ManagedSessionPermissionMode,
+  ): Promise<void> {
+    await this.queryRuntime?.setPermissionMode(permissionMode)
   }
 
   public async resolveRequest(
@@ -1497,13 +1541,14 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
 
     await this.sendRequest('initialize', buildCodexInitializeParams())
     this.writeMessage({ method: 'initialized' })
+    const permissionMode = resolveEffectivePermissionMode(this.config)
     const response = (await this.sendRequest('thread/start', {
-      approvalPolicy: 'on-request',
+      approvalPolicy:
+        permissionMode === 'bypassPermissions' ? 'never' : 'on-request',
       cwd,
       ...(this.config.effort ? { reasoningEffort: this.config.effort } : {}),
       ...(this.config.model ? { model: this.config.model } : {}),
-      sandbox:
-        this.config.permissionMode === 'plan' ? 'read-only' : 'workspace-write',
+      sandbox: permissionMode === 'plan' ? 'read-only' : 'workspace-write',
       ...(this.readOnlyPolicy?.threadStart ?? {}),
       ...(this.orchestratorTools
         ? { dynamicTools: this.orchestratorTools.codex.tools }
@@ -4382,6 +4427,23 @@ export class ManagedSessionManager {
     })
   }
 
+  public async configureSessionPermissionMode(
+    sessionId: string,
+    permissionMode: ManagedSessionPermissionMode,
+  ): Promise<ManagedSessionSnapshot> {
+    const state = this.sessions.get(sessionId)
+    if (!state) throw new Error('Managed session is unavailable.')
+    if (permissionMode === state.config.permissionMode) return state.snapshot
+    state.config = { ...state.config, permissionMode }
+    // why: the request guard backstops every mode, so a runtime that refuses the change must not fail the call.
+    await state.backend
+      .setPermissionMode?.(resolveEffectivePermissionMode(state.config))
+      .catch(() => undefined)
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    return state.snapshot
+  }
+
   public async switchSessionProvider(
     sessionId: string,
     selection: ManagedSessionProviderSelection & {
@@ -4442,11 +4504,7 @@ export class ManagedSessionManager {
           serviceTier: selection.serviceTier,
         },
         ...(selection.interactionMode
-          ? {
-              interactionMode: selection.interactionMode,
-              permissionMode:
-                selection.interactionMode === 'plan' ? 'plan' : 'default',
-            }
+          ? { interactionMode: selection.interactionMode }
           : {}),
         selectionNotice: selection.selectionNotice ?? null,
         ...(selection.serviceTier !== undefined
@@ -4960,12 +5018,44 @@ export class ManagedSessionManager {
     }
 
     if (event.type === 'request.opened') {
-      state.pendingApprovals.set(event.requestId, {
-        detail: event.detail ?? null,
-        id: event.requestId,
-        ...(event.request ? { request: event.request } : {}),
-        requestType: event.requestType ?? 'unknown',
-      })
+      const requestType = event.requestType ?? 'unknown'
+      const autoApprovalLabel = resolveAutoApprovalLabel(
+        resolveEffectivePermissionMode(state.config),
+        requestType,
+      )
+
+      if (autoApprovalLabel) {
+        const itemId = `auto-approval:${event.requestId}`
+        const target =
+          event.request?.command ?? event.request?.filePath ?? event.detail
+        state.contentByKey.set(createContentKey('system', itemId), {
+          id: itemId,
+          kind: 'system',
+          provider: state.config.mode,
+          text: `Allowed by ${autoApprovalLabel}: ${[
+            event.request?.toolName,
+            target,
+          ]
+            .filter(Boolean)
+            .join(': ')}`,
+          turnId: state.activeTurnId,
+          updatedAt: event.createdAt,
+        })
+        state.orderedContentKeys.push(createContentKey('system', itemId))
+        // why: resolving inside the emitter would re-enter this handler before the snapshot is published.
+        queueMicrotask(() => {
+          void state.backend
+            .resolveRequest(event.requestId, 'accept')
+            .catch(() => undefined)
+        })
+      } else {
+        state.pendingApprovals.set(event.requestId, {
+          detail: event.detail ?? null,
+          id: event.requestId,
+          ...(event.request ? { request: event.request } : {}),
+          requestType,
+        })
+      }
     }
 
     if (event.type === 'request.resolved') {
@@ -5178,6 +5268,7 @@ export class ManagedSessionManager {
       paneId: state.config.paneId,
       pendingApprovals: [...state.pendingApprovals.values()],
       pendingUserInputs: [...state.pendingUserInputs.values()],
+      permissionMode: state.config.permissionMode ?? 'default',
       planApproval: planApproval
         ? ({
             detail: planApproval.detail,
