@@ -1,5 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { appendFile } from 'node:fs/promises'
+import path from 'node:path'
 import readline from 'node:readline'
 
 import {
@@ -1875,6 +1877,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
 
   public constructor(
     private readonly provider: ManagedProviderRuntimeProvider,
+    private readonly cwd: string,
     private readonly emitRuntimeEvent: (
       event: ManagedProviderRuntimeEvent,
     ) => void,
@@ -2033,6 +2036,9 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       this.activeTurnId = null
       return
     }
+    if (trimmed === 'edit readme') {
+      await appendFile(path.join(this.cwd, 'README.md'), 'edited by the turn\n')
+    }
     if (trimmed === 'stream-codex' && this.provider === 'codex') {
       const itemId = randomUUID()
       for (let index = 0; index < 120; index += 1) {
@@ -2178,6 +2184,11 @@ export class ManagedSessionManager {
 
   public getActiveSessionCount(): number {
     return this.sessions.size
+  }
+
+  /** Resolves once the session's in-flight turn checkpoint has recorded its result. */
+  public async waitForCheckpointCompletion(sessionId: string): Promise<void> {
+    await this.sessions.get(sessionId)?.checkpointCompletion
   }
 
   public isSessionBusy(sessionId: string): boolean {
@@ -4107,6 +4118,7 @@ export class ManagedSessionManager {
     ) {
       return new FakeManagedSessionBackend(
         config.mode,
+        config.cwd,
         emitRuntimeEvent,
         this.getNow,
         tools,

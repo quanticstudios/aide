@@ -380,6 +380,12 @@ const aideApi: AideApi = {
       attachments,
       selectedSkill,
     ),
+  getTurnCheckpointDiff: (sessionId: string, checkpointId: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.turnCheckpointDiff,
+      sessionId,
+      checkpointId,
+    ),
   listTurnCheckpoints: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),
   previewTurnCheckpointRestore: (sessionId: string, checkpointId: string) =>
