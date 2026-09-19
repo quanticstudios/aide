@@ -725,7 +725,7 @@ export default function SidebarTree({
       </div>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
-        <div className="py-1.5">
+        <div className="pb-1.5">
           {projects.map((project, projectIndex) => {
             const projectWorkspaces = workspacesByProject[project.id] ?? []
             const isActiveProject = project.id === activeProjectId
@@ -759,7 +759,7 @@ export default function SidebarTree({
                 key={project.id}
               >
                 <div
-                  className="group/project flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-surface-secondary focus-within:bg-surface-secondary"
+                  className="group/project flex h-[var(--pane-header-h)] items-center gap-1 rounded-md px-2 transition-colors hover:bg-surface-secondary focus-within:bg-surface-secondary"
                   data-testid={`project-header-${project.id}`}
                 >
                   <button
