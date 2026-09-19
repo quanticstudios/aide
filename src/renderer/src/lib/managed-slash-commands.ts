@@ -24,8 +24,12 @@ const HELP_TEXT = [
   '• Enter — send prompt',
   '• Shift+Enter — new line',
   '• / — open this slash-command menu',
-  '• Esc — dismiss menus and modals',
+  '• Esc — dismiss menus and modals, or stop the running turn',
   '• Cmd/Ctrl+K — command palette',
+  '• Cmd/Ctrl+Shift+M — model selector',
+  '• Cmd/Ctrl+Shift+E — reasoning effort',
+  '• Cmd/Ctrl+Shift+A — permission mode',
+  '• Cmd/Ctrl+Shift+Enter — send the oldest queued message now',
 ].join('\n')
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [

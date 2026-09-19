@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
+import type { ComposerDefaults } from '../shared/composer-defaults'
 import { FleetStateSchema } from '../shared/fleet'
 
 import type { PersistedManagedSession } from '../shared/managed-session'
@@ -166,6 +167,12 @@ const MIGRATION_STRATEGY =
   'Ordered SQL migrations tracked with PRAGMA user_version.'
 
 const LEGACY_SURFACE_SUFFIX = ':surface:legacy-root'
+
+const GLOBAL_COMPOSER_DEFAULTS_SCOPE = 'global'
+
+function composerDefaultsScope(workspaceId: string): string {
+  return `workspace:${workspaceId}`
+}
 
 const MIGRATIONS = [
   {
@@ -411,6 +418,15 @@ const MIGRATIONS = [
       COMMIT;
     `,
   },
+  {
+    version: 15,
+    sql: `
+      CREATE TABLE IF NOT EXISTS composer_defaults (
+        scope TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL
+      );
+    `,
+  },
 ]
 
 const UPDATE_HEALTH_QUEUE_LIMIT = 100
@@ -458,6 +474,19 @@ const persistedAgentConfig = z.object({
     .max(200),
   selection: persistedProviderSelection,
 })
+const persistedComposerDefaults = z.object({
+  agents: z.array(persistedAgentConfig).max(8),
+  effort: z.string().max(200).optional(),
+  model: z.string().min(1).max(200),
+  permissionMode: z.enum([
+    'acceptEdits',
+    'bypassPermissions',
+    'default',
+    'plan',
+  ]),
+  provider: persistedProvider,
+  serviceTier: z.string().max(200).nullable(),
+})
 const persistedUsageModel = z.object({
   cachedInputTokens: persistedNullableNumber,
   cacheCreationInputTokens: persistedNullableNumber,
@@ -501,7 +530,17 @@ const persistedToolCall = z.object({
     .optional(),
   input: z.unknown(),
   output: persistedText.optional(),
+  progress: z.string().max(500).optional(),
   status: z.enum(['running', 'completed', 'failed']),
+  tasks: z
+    .array(
+      z.object({
+        status: z.enum(['pending', 'in_progress', 'completed']),
+        subject: z.string().min(1).max(500),
+      }),
+    )
+    .max(100)
+    .optional(),
   toolName: z.string().min(1).max(200),
 })
 const persistedQueuedInput = z.object({
@@ -1390,6 +1429,46 @@ export class AideDatabase {
         'UPDATE task_notification_preferences SET enabled = ? WHERE id = 1',
       )
       .run(Number(z.boolean().parse(enabled)))
+  }
+
+  /** Composer toolbar choices for a workspace, falling back to the last ones chosen anywhere. */
+  public getComposerDefaults(workspaceId: string): ComposerDefaults | null {
+    return (
+      this.readComposerDefaults(
+        composerDefaultsScope(persistedIdentifier.parse(workspaceId)),
+      ) ?? this.readComposerDefaults(GLOBAL_COMPOSER_DEFAULTS_SCOPE)
+    )
+  }
+
+  public setComposerDefaults(
+    workspaceId: string,
+    input: unknown,
+  ): ComposerDefaults {
+    const defaults = persistedComposerDefaults.parse(input)
+    const scope = composerDefaultsScope(persistedIdentifier.parse(workspaceId))
+    const payload = JSON.stringify(defaults)
+    const statement = this.database.prepare(`
+      INSERT INTO composer_defaults (scope, payload_json) VALUES (?, ?)
+      ON CONFLICT(scope) DO UPDATE SET payload_json = excluded.payload_json
+    `)
+    statement.run(scope, payload)
+    statement.run(GLOBAL_COMPOSER_DEFAULTS_SCOPE, payload)
+    return defaults
+  }
+
+  private readComposerDefaults(scope: string): ComposerDefaults | null {
+    const row = this.database
+      .prepare('SELECT payload_json FROM composer_defaults WHERE scope = ?')
+      .get(scope) as { payload_json: string } | undefined
+
+    if (!row) {
+      return null
+    }
+
+    const parsed = persistedComposerDefaults.safeParse(
+      JSON.parse(row.payload_json),
+    )
+    return parsed.success ? parsed.data : null
   }
 
   public listManagedSessions(): PersistedManagedSession[] {

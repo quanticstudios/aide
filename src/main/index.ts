@@ -778,6 +778,21 @@ function registerIpcHandlers(): void {
       return taskLibrary.getSnapshot()
     },
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getComposerDefaults,
+    (_event, workspaceId: unknown) =>
+      database.getComposerDefaults(
+        requireRuntimeId(workspaceId, 'workspace id'),
+      ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.setComposerDefaults,
+    (_event, workspaceId: unknown, defaults: unknown) =>
+      database.setComposerDefaults(
+        requireRuntimeId(workspaceId, 'workspace id'),
+        defaults,
+      ),
+  )
   ipcMain.handle(IPC_CHANNELS.getJevSettings, (event, workspaceId: unknown) => {
     const workspace = requireWorkspaceForSetup(event, workspaceId)
     return jevSettings.getStatus(workspace.worktreePath)

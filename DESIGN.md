@@ -418,6 +418,17 @@ Apple's whitespace is the product's pedestal. Every tile begins with at least 64
 | `{rounded.pill}` | 9999px | Primary blue pill CTAs, sub-nav buy button, configurator option chips, search input — the signature Apple pill |
 | `{rounded.full}` | 9999px / 50% | Circular control chips floating over photography |
 
+### Overlay Radius
+
+Overlay surfaces run on the implementation scale in `src/renderer/src/styles.css`
+(`--radius-sm` 6px, `--radius-md` 8px). One rule per role in that file keeps HeroUI's
+larger defaults out of every menu.
+
+- Dropdown, select, popover, command-palette and tooltip containers use `--radius-md`.
+- Menu, listbox, command-palette and mention-menu rows use `--radius-sm`.
+- Select and dropdown trigger buttons use `--radius-md`.
+- A button this document marks `{rounded.pill}` stays pill, including a dropdown trigger.
+
 ### Photography Geometry
 - **Hero imagery**: full-bleed, 21:9 or taller on the homepage; 16:9 on environment and shop pages. Product renders are photographic-realistic, often shot on a tinted surface that becomes the tile background.
 - **Product renders**: PNG/WebP with transparency; rest on a surface tile and pick up the system shadow.

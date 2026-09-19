@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Circle,
   CirclePause,
   Clipboard,
   ClipboardCheck,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
+  Fragment,
   lazy,
   Suspense,
   useCallback,
@@ -37,6 +39,7 @@ import type {
   TurnCheckpointDiff,
   TurnCheckpointRestoreResult,
 } from '../../../shared/checkpoints'
+import type { ComposerDefaults } from '../../../shared/composer-defaults'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -56,6 +59,7 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
+  ManagedSessionTask,
   ManagedSessionToolCall,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
@@ -71,6 +75,7 @@ import type {
   ProviderSkillsSnapshot,
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { resolveAgentHotkey } from '../lib/agent-hotkeys'
 import { createImageAttachments } from '../lib/managed-composer'
 import {
   loadManagedDraft,
@@ -83,6 +88,7 @@ import {
 } from '../lib/managed-session-grouping'
 import {
   canChangeManagedSessionSelection,
+  composerProviderSelectionInput,
   getComposerProviderSelection,
   isProviderSelectionHydrated,
   planManagedSessionSelectionChange,
@@ -97,6 +103,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { isMac } from '../lib/platform'
 import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
 import {
@@ -132,6 +139,12 @@ interface ManagedAgentPaneProps {
 type ManagedSlashMenuItem =
   | { readonly command: SlashCommand; readonly kind: 'command' }
   | { readonly kind: 'skill'; readonly skill: ProviderSkill }
+
+const COMPOSER_MENU_BY_HOTKEY = {
+  'open-effort-menu': 'effort',
+  'open-model-menu': 'model',
+  'open-permission-menu': 'permission',
+} as const
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -205,18 +218,24 @@ function loadPersistedProviderSelection(
   }
 }
 
-function persistProviderSelection(
+function readLegacyComposerDefaults(
   workspaceId: string,
-  provider: ManagedSessionMode,
-  selection: PersistedProviderSelection,
-): void {
-  try {
-    localStorage.setItem(
-      providerSelectionStorageKey(workspaceId, provider),
-      JSON.stringify(selection),
-    )
-  } catch {
-    // Storage failures should not prevent an available provider from running.
+): ComposerDefaults | null {
+  const stored = localStorage.getItem(`aide:workspace:${workspaceId}:provider`)
+  const provider: ManagedSessionMode = stored === 'codex' ? 'codex' : 'claude'
+  const selection = loadPersistedProviderSelection(workspaceId, provider)
+
+  if (!selection.modelId) {
+    return null
+  }
+
+  return {
+    agents: [],
+    ...(selection.effort ? { effort: selection.effort } : {}),
+    model: selection.modelId,
+    permissionMode: 'default',
+    provider,
+    serviceTier: selection.serviceTier ?? null,
   }
 }
 
@@ -301,15 +320,18 @@ function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
 }
 
 function PermissionDropdown({
+  isOpen,
+  onOpenChange,
   onPermissionModeChange,
   permissionMode,
 }: {
+  readonly isOpen: boolean
+  readonly onOpenChange: (isOpen: boolean) => void
   readonly onPermissionModeChange: (mode: ManagedSessionPermissionMode) => void
   readonly permissionMode: ManagedSessionPermissionMode
 }) {
-  const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
+  useClickOutside(containerRef, () => onOpenChange(false), isOpen)
   const active = resolvePermissionOption(permissionMode)
   const ActiveIcon = active.icon
 
@@ -317,7 +339,7 @@ function PermissionDropdown({
     <div ref={containerRef} className="relative">
       <button
         className="composer-tool"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => onOpenChange(!isOpen)}
         type="button"
       >
         <ActiveIcon className={cn('size-4', active.tone)} />
@@ -325,7 +347,10 @@ function PermissionDropdown({
         <ChevronDown className="size-3.5 opacity-50" />
       </button>
       {isOpen && (
-        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div
+          className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          data-testid="permission-menu"
+        >
           {PERMISSION_OPTIONS.map((opt) => {
             const Icon = opt.icon
             const isSelected = opt.value === permissionMode
@@ -340,7 +365,7 @@ function PermissionDropdown({
                 key={opt.value}
                 onClick={() => {
                   onPermissionModeChange(opt.value)
-                  setIsOpen(false)
+                  onOpenChange(false)
                 }}
                 type="button"
               >
@@ -437,8 +462,14 @@ function toolCallIcon(tool: ManagedSessionToolCall) {
 }
 
 function toolCallSummary(tool: ManagedSessionToolCall): string {
+  const input =
+    tool.input && typeof tool.input === 'object'
+      ? (tool.input as Record<string, unknown>)
+      : {}
+
   return (
     tool.command ??
+    (typeof input.description === 'string' ? input.description : undefined) ??
     tool.files?.[0]?.path ??
     JSON.stringify(tool.input ?? {}).slice(0, 80)
   )
@@ -478,6 +509,14 @@ function ToolCallBlock({ tool }: { readonly tool: ManagedSessionToolCall }) {
         <span className="truncate font-mono text-[12px] text-muted-foreground">
           {toolCallSummary(tool)}
         </span>
+        {tool.progress && tool.status === 'running' ? (
+          <span
+            className="shrink-0 text-[11px] text-muted-foreground"
+            data-testid="tool-call-progress"
+          >
+            {tool.progress}
+          </span>
+        ) : null}
         <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
           {tool.status === 'running' ? (
             <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
@@ -543,6 +582,56 @@ function ToolCallBlock({ tool }: { readonly tool: ManagedSessionToolCall }) {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function TaskListBlock({
+  isRunning,
+  tasks,
+}: {
+  readonly isRunning: boolean
+  readonly tasks: readonly ManagedSessionTask[]
+}) {
+  const completed = tasks.filter((task) => task.status === 'completed').length
+
+  return (
+    <details
+      className="group/tasks overflow-hidden rounded-lg border border-[var(--border-soft)] bg-surface-1"
+      data-testid="managed-task-list"
+      open={isRunning}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-semibold text-foreground">
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tasks:rotate-90" />
+        Tasks
+        <span className="ml-auto text-[11px] font-medium tabular-nums text-muted-foreground">
+          {completed}/{tasks.length}
+        </span>
+      </summary>
+      <ul className="space-y-1 border-t border-[var(--border-soft)] px-3 py-2">
+        {tasks.map((task) => (
+          <li
+            className={cn(
+              'flex items-center gap-2 text-[13px]',
+              task.status === 'in_progress'
+                ? 'font-medium text-foreground'
+                : 'text-muted-foreground',
+              task.status === 'completed' && 'line-through',
+            )}
+            data-testid={`managed-task-${task.status}`}
+            key={task.subject}
+          >
+            {task.status === 'completed' ? (
+              <Check className="size-3.5 shrink-0 text-accent-green" />
+            ) : task.status === 'in_progress' ? (
+              <LoaderCircle className="size-3.5 shrink-0 animate-spin text-primary-on-dark" />
+            ) : (
+              <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+            )}
+            <span className="truncate">{task.subject}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 
@@ -789,6 +878,12 @@ function TurnGroupBlock({
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
   const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
+  // why: the checklist renders once per turn, so its tool row drops out of the timeline.
+  const tasks = group.items.filter((item) => item.tool?.tasks).at(-1)
+    ?.tool?.tasks
+  const items = group.items.filter((item) => !item.tool?.tasks)
+  // why: the checklist describes the reply, so it sits after the prompt bubble.
+  const taskListIndex = items.findIndex((item) => item.kind !== 'user-prompt')
   const responseItem = group.items
     .filter(
       (item) => item.kind === 'assistant-text' && item.phase !== 'commentary',
@@ -814,26 +909,33 @@ function TurnGroupBlock({
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
-      {group.items.map((item, index) => {
-        const previous = group.items[index - 1]
+      {items.map((item, index) => {
+        const previous = items[index - 1]
         return (
-          <ContentItemBlock
-            editFromHereDisabledReason={rewindDisabledReason}
-            item={item}
-            key={`${item.kind}:${item.id}`}
-            onEditFromHere={
-              checkpointId && item.kind === 'user-prompt'
-                ? () => onEditFromHere(checkpointId, item)
-                : undefined
-            }
-            showProvider={
-              previous?.kind !== 'assistant-text' ||
-              previous.provider !== item.provider ||
-              previous.model !== item.model
-            }
-          />
+          <Fragment key={`${item.kind}:${item.id}`}>
+            {tasks && index === taskListIndex ? (
+              <TaskListBlock isRunning={isRunning} tasks={tasks} />
+            ) : null}
+            <ContentItemBlock
+              editFromHereDisabledReason={rewindDisabledReason}
+              item={item}
+              onEditFromHere={
+                checkpointId && item.kind === 'user-prompt'
+                  ? () => onEditFromHere(checkpointId, item)
+                  : undefined
+              }
+              showProvider={
+                previous?.kind !== 'assistant-text' ||
+                previous.provider !== item.provider ||
+                previous.model !== item.model
+              }
+            />
+          </Fragment>
         )
       })}
+      {tasks && taskListIndex === -1 ? (
+        <TaskListBlock isRunning={isRunning} tasks={tasks} />
+      ) : null}
       {isRunning ? (
         <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
@@ -969,16 +1071,10 @@ export default function ManagedAgentPane({
   )
   const isUnifiedPane = terminalMode === 'agent'
   const [selectedProvider, setSelectedProvider] = useState<ManagedSessionMode>(
-    () => {
-      if (terminalMode === 'claude' || terminalMode === 'codex') {
-        return terminalMode
-      }
-      const stored = localStorage.getItem(
-        `aide:workspace:${workspace.id}:provider`,
-      )
-      if (stored === 'claude' || stored === 'codex') return stored
-      return 'claude'
-    },
+    () =>
+      terminalMode === 'claude' || terminalMode === 'codex'
+        ? terminalMode
+        : 'claude',
   )
   const [selectedModel, setSelectedModel] = useState<string | undefined>(
     undefined,
@@ -1044,8 +1140,14 @@ export default function ManagedAgentPane({
   const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
+  const [composerDefaults, setComposerDefaults] = useState<
+    ComposerDefaults | null | undefined
+  >(undefined)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
+  const [openComposerMenu, setOpenComposerMenu] = useState<
+    'effort' | 'model' | 'permission' | null
+  >(null)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
   const [rewindTarget, setRewindTarget] = useState<{
     readonly attachments: readonly ManagedSessionAttachment[]
@@ -1099,11 +1201,51 @@ export default function ManagedAgentPane({
   }, [terminalMode])
 
   useEffect(() => {
+    const api = getAideApi()
+
+    if (!api || terminalMode === 'shell') {
+      setComposerDefaults(null)
+      return
+    }
+
+    let isStale = false
+    const applyStoredDefaults = (stored: ComposerDefaults | null) => {
+      if (isStale) {
+        return
+      }
+
+      if (stored && !startedSessionRef.current) {
+        setPermissionMode(stored.permissionMode)
+        if (isUnifiedPane) {
+          setSelectedProvider(stored.provider)
+        }
+        if (stored.agents.length > 0) {
+          configuredAgentsInitializedRef.current = true
+          setConfiguredAgents(stored.agents)
+        }
+      }
+
+      setComposerDefaults(stored)
+    }
+
+    void api
+      .getComposerDefaults(workspace.id)
+      .then((stored) =>
+        applyStoredDefaults(stored ?? readLegacyComposerDefaults(workspace.id)),
+      )
+      .catch(() => applyStoredDefaults(null))
+
+    return () => {
+      isStale = true
+    }
+  }, [isUnifiedPane, terminalMode, workspace.id])
+
+  useEffect(() => {
     const providerCapabilities = capabilities?.providers[selectedProvider]
 
     hydratedProviderSelectionKeyRef.current = null
 
-    if (!providerCapabilities) {
+    if (!providerCapabilities || composerDefaults === undefined) {
       return
     }
 
@@ -1112,11 +1254,10 @@ export default function ManagedAgentPane({
       return
     }
 
-    const persisted = loadPersistedProviderSelection(
-      workspace.id,
-      selectedProvider,
+    const resolution = resolveProviderSelection(
+      providerCapabilities,
+      composerProviderSelectionInput(composerDefaults, selectedProvider),
     )
-    const resolution = resolveProviderSelection(providerCapabilities, persisted)
 
     if (!resolution.modelId) {
       setError(resolution.explanation)
@@ -1128,25 +1269,43 @@ export default function ManagedAgentPane({
     setEffort(resolution.effort ?? undefined)
     setServiceTier(resolution.serviceTier)
     setSelectionNotice(resolution.explanation)
-    persistProviderSelection(workspace.id, selectedProvider, {
-      effort: resolution.effort ?? undefined,
-      modelId: resolution.modelId,
-      serviceTier: resolution.serviceTier,
-    })
     hydratedProviderSelectionKeyRef.current = selectionHydrationKey
-  }, [capabilities, selectedProvider, selectionHydrationKey, workspace.id])
+  }, [capabilities, composerDefaults, selectedProvider, selectionHydrationKey])
 
   useEffect(() => {
-    if (!selectedModel) {
+    const api = getAideApi()
+
+    if (
+      !api ||
+      composerDefaults === undefined ||
+      !selectedModel ||
+      !isSelectionHydrated
+    ) {
       return
     }
 
-    persistProviderSelection(workspace.id, selectedProvider, {
-      effort,
-      modelId: selectedModel,
-      serviceTier,
-    })
-  }, [effort, selectedModel, selectedProvider, serviceTier, workspace.id])
+    // why: a settings write failure must not stop an available provider from running.
+    void api
+      .setComposerDefaults(workspace.id, {
+        agents: configuredAgents,
+        ...(effort ? { effort } : {}),
+        model: selectedModel,
+        permissionMode,
+        provider: selectedProvider,
+        serviceTier,
+      })
+      .catch(() => undefined)
+  }, [
+    composerDefaults,
+    configuredAgents,
+    effort,
+    isSelectionHydrated,
+    permissionMode,
+    selectedModel,
+    selectedProvider,
+    serviceTier,
+    workspace.id,
+  ])
 
   useEffect(() => {
     if (!capabilities || configuredAgentsInitializedRef.current) {
@@ -1870,17 +2029,8 @@ export default function ManagedAgentPane({
         setEffort(change.selection.effort)
         setServiceTier(change.selection.serviceTier ?? null)
         setSelectionNotice(resolution.explanation)
-        persistProviderSelection(workspace.id, newMode, {
-          effort: change.selection.effort,
-          modelId: change.selection.model,
-          serviceTier: change.selection.serviceTier ?? null,
-        })
         if (newMode !== selectedProvider) {
           setSelectedProvider(newMode)
-          localStorage.setItem(
-            `aide:workspace:${workspace.id}:provider`,
-            newMode,
-          )
         }
         setError(null)
         return true
@@ -1903,17 +2053,8 @@ export default function ManagedAgentPane({
         setEffort(composerSelection.effort)
         setServiceTier(composerSelection.serviceTier ?? null)
         setSelectionNotice(updated.selectionNotice)
-        persistProviderSelection(workspace.id, composerSelection.mode, {
-          effort: composerSelection.effort,
-          modelId: composerSelection.model,
-          serviceTier: composerSelection.serviceTier ?? null,
-        })
         if (isUnifiedPane) {
           setSelectedProvider(composerSelection.mode)
-          localStorage.setItem(
-            `aide:workspace:${workspace.id}:provider`,
-            composerSelection.mode,
-          )
         }
         setError(null)
         return true
@@ -2361,7 +2502,10 @@ export default function ManagedAgentPane({
 
       const changed = await handleProviderSelectionChange(
         skill.provider,
-        loadPersistedProviderSelection(workspace.id, skill.provider),
+        composerProviderSelectionInput(
+          composerDefaults ?? null,
+          skill.provider,
+        ),
       )
       if (!changed) {
         return
@@ -2379,9 +2523,9 @@ export default function ManagedAgentPane({
     },
     [
       canChangeProviderSelection,
+      composerDefaults,
       handleProviderSelectionChange,
       selectedRecipientAliases.length,
-      workspace.id,
     ],
   )
 
@@ -3002,6 +3146,50 @@ export default function ManagedAgentPane({
                 }
               }
 
+              if (event.key === 'Escape' && openComposerMenu) {
+                event.preventDefault()
+                setOpenComposerMenu(null)
+                return
+              }
+
+              const hotkey = resolveAgentHotkey(event, {
+                isMac: isMac(),
+                isMenuOpen:
+                  recipientMenuOpen ||
+                  slashMenuOpen ||
+                  openComposerMenu !== null,
+                isTurnRunning: snapshot?.sessionState === 'running',
+              })
+
+              if (hotkey === 'interrupt') {
+                event.preventDefault()
+                const api = getAideApi()
+                if (api) {
+                  void api.interruptManagedSession(sessionId)
+                }
+                return
+              }
+
+              if (hotkey === 'send-queued-now') {
+                event.preventDefault()
+                const queuedInput = snapshot?.queuedInputs?.[0]
+                if (queuedInput) {
+                  void runQueueAction((api) =>
+                    api.sendManagedSessionQueuedInputNow(
+                      sessionId,
+                      queuedInput.id,
+                    ),
+                  )
+                }
+                return
+              }
+
+              if (hotkey) {
+                event.preventDefault()
+                setOpenComposerMenu(COMPOSER_MENU_BY_HOTKEY[hotkey])
+                return
+              }
+
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 if (isSubmitting) {
@@ -3045,9 +3233,13 @@ export default function ManagedAgentPane({
               <ModelSelector
                 capabilities={capabilities}
                 isDisabled={capabilities === null}
+                isOpen={openComposerMenu === 'model'}
                 model={selectedModel}
                 onChange={(mode, modelId) =>
                   void handleModelSwitch(mode, modelId)
+                }
+                onOpenChange={(isOpen) =>
+                  setOpenComposerMenu(isOpen ? 'model' : null)
                 }
                 provider={selectedProvider}
               />
@@ -3072,9 +3264,13 @@ export default function ManagedAgentPane({
               capabilities={capabilities}
               effort={effort}
               isDisabled={capabilities === null}
+              isOpen={openComposerMenu === 'effort'}
               model={selectedModel}
               onEffortChange={(nextEffort) =>
                 void handleEffortChange(nextEffort)
+              }
+              onOpenChange={(isOpen) =>
+                setOpenComposerMenu(isOpen ? 'effort' : null)
               }
               onServiceTierChange={(nextServiceTier) =>
                 void handleServiceTierChange(nextServiceTier)
@@ -3088,6 +3284,10 @@ export default function ManagedAgentPane({
               </span>
             ) : null}
             <PermissionDropdown
+              isOpen={openComposerMenu === 'permission'}
+              onOpenChange={(isOpen) =>
+                setOpenComposerMenu(isOpen ? 'permission' : null)
+              }
               onPermissionModeChange={(mode) => void applyPermissionMode(mode)}
               permissionMode={permissionMode}
             />

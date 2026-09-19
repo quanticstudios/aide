@@ -4,7 +4,7 @@
  * `navigator.platform` is deprecated but still reliable on Electron renderers
  * where the user-agent / userAgentData detection paths can be unreliable.
  */
-function isMac(): boolean {
+export function isMac(): boolean {
   if (typeof navigator === 'undefined') {
     return false
   }

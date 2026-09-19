@@ -4,6 +4,7 @@ import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
+  ManagedProviderRuntimeTask,
   ManagedProviderRuntimeToolCall,
   ManagedProviderRuntimeToolRequest,
 } from './provider-runtime'
@@ -32,6 +33,8 @@ export type ManagedSessionContentKind =
   | 'user-prompt'
 
 export type ManagedSessionToolCall = ManagedProviderRuntimeToolCall
+
+export type ManagedSessionTask = ManagedProviderRuntimeTask
 
 /** A provider-advertised reasoning effort identifier. */
 export type ManagedSessionEffort = string
