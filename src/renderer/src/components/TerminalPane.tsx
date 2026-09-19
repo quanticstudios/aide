@@ -310,9 +310,15 @@ export default function TerminalPane({
   }, [sessionId, startSession])
 
   return (
-    <div className="terminal-pane relative flex h-full min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+    <div className="terminal-pane relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-background">
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center border-b border-border px-4">
+        <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
+          Terminal
+        </h2>
+      </div>
+
       {error ? (
-        <div className="absolute left-3 right-3 top-3 z-10 rounded-md border border-accent-red bg-accent-red-soft px-3 py-2 text-sm text-accent-red">
+        <div className="absolute left-3 right-3 top-[calc(var(--pane-header-h)+0.75rem)] z-10 rounded-md border border-accent-red bg-accent-red-soft px-3 py-2 text-sm text-accent-red">
           {error}
         </div>
       ) : null}
@@ -341,7 +347,7 @@ export default function TerminalPane({
         </div>
       ) : null}
 
-      <div className="h-full w-full p-3">
+      <div className="min-h-0 w-full flex-1 p-3">
         <div className="h-full w-full" ref={containerRef} />
       </div>
     </div>
