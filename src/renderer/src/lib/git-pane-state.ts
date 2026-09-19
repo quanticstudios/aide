@@ -7,7 +7,69 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import type { GitChangeKind, WorkspaceGitFileStatus } from '../../../shared/git'
+import type {
+  GitChangeKind,
+  WorkspaceGitFileStatus,
+  WorkspaceGitPullRequest,
+} from '../../../shared/git'
+
+const FAILING_CHECK_CONCLUSIONS = new Set([
+  'ACTION_REQUIRED',
+  'CANCELLED',
+  'FAILURE',
+  'STARTUP_FAILURE',
+  'TIMED_OUT',
+])
+
+export interface PullRequestCheckSummary {
+  failing: number
+  passing: number
+  pending: number
+}
+
+export function summarizePullRequestChecks(
+  checks: WorkspaceGitPullRequest['checks'],
+): PullRequestCheckSummary {
+  const summary: PullRequestCheckSummary = {
+    failing: 0,
+    passing: 0,
+    pending: 0,
+  }
+
+  for (const check of checks) {
+    const conclusion = (check.conclusion ?? '').toUpperCase()
+
+    if (conclusion === 'SUCCESS') {
+      summary.passing += 1
+    } else if (FAILING_CHECK_CONCLUSIONS.has(conclusion)) {
+      summary.failing += 1
+    } else {
+      summary.pending += 1
+    }
+  }
+
+  return summary
+}
+
+export function formatPullRequestState(
+  pullRequest: WorkspaceGitPullRequest,
+): string {
+  const state = pullRequest.state.toUpperCase()
+
+  if (state === 'OPEN' && pullRequest.isDraft) {
+    return 'Draft'
+  }
+
+  return state.charAt(0) + state.slice(1).toLowerCase()
+}
+
+export function hasUnmergedGitFiles(
+  files: readonly WorkspaceGitFileStatus[],
+): boolean {
+  return files.some(
+    (file) => file.staged === 'unmerged' || file.unstaged === 'unmerged',
+  )
+}
 
 export function resolveSelectedGitFilePath(
   files: readonly WorkspaceGitFileStatus[],

@@ -21,6 +21,7 @@ import type {
   CreateWorkspaceRequest,
   WorkspaceGitCommitInput,
   WorkspaceGitFileMutationInput,
+  WorkspaceGitMessageInput,
   WorkspaceGitPullRequestInput,
   WorkspaceGitRevertInput,
 } from '../shared/git'
@@ -92,7 +93,11 @@ import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
-import { WorkspaceTitleService } from './workspace-title-service'
+import {
+  generateWorkspaceTitleWithCodex,
+  lunaModelId,
+  WorkspaceTitleService,
+} from './workspace-title-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 if (process.platform === 'linux') app.setDesktopName('aide.desktop')
@@ -352,7 +357,18 @@ function initializeServices(): void {
       platform: process.platform,
     })
   }
-  gitWorkspaceService = new GitWorkspaceService(database)
+  gitWorkspaceService = new GitWorkspaceService(
+    database,
+    undefined,
+    async ({ prompt, workspaceId }) => {
+      const workspace = database.getWorkspace(workspaceId)
+      const model = lunaModelId(await providerCapabilityService.getSnapshot())
+      if (!workspace || !model) {
+        throw new Error('No Codex model is available to write a message.')
+      }
+      return generateWorkspaceTitleWithCodex({ model, prompt, workspace })
+    },
+  )
   workspaceSetupManager = new WorkspaceSetupManager({
     onUpdate: (event) => {
       windowManager.broadcast(IPC_CHANNELS.workspaceSetupEvent, event)
@@ -1142,9 +1158,45 @@ function registerIpcHandlers(): void {
         ),
     ),
   )
+  ipcMain.handle(IPC_CHANNELS.commitAllAndPushWorkspaceGit, (_event, input) =>
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.commitAllAndPushWorkspace(
+          input as WorkspaceGitCommitInput,
+        ),
+    ),
+  )
   ipcMain.handle(IPC_CHANNELS.pushWorkspaceGitBranch, (_event, workspaceId) =>
     gitWorkspaceService.pushWorkspaceBranch(workspaceId as string),
   )
+  ipcMain.handle(IPC_CHANNELS.pullWorkspaceGitBranch, (_event, workspaceId) =>
+    gitWorkspaceService.runWorkspaceMutation(
+      requireRuntimeId(workspaceId, 'workspace id'),
+      () => gitWorkspaceService.pullWorkspaceBranch(workspaceId as string),
+    ),
+  )
+  ipcMain.handle(IPC_CHANNELS.abortWorkspaceGitPull, (_event, workspaceId) =>
+    gitWorkspaceService.runWorkspaceMutation(
+      requireRuntimeId(workspaceId, 'workspace id'),
+      () => gitWorkspaceService.abortWorkspacePull(workspaceId as string),
+    ),
+  )
+  ipcMain.handle(IPC_CHANNELS.startWorkspaceGitFeatureBranch, (_event, input) =>
+    gitWorkspaceService.runWorkspaceMutation(
+      requireWorkspaceGitMutationId(input),
+      () =>
+        gitWorkspaceService.startWorkspaceFeatureBranch(
+          input as WorkspaceGitCommitInput,
+        ),
+    ),
+  )
+  ipcMain.handle(IPC_CHANNELS.generateWorkspaceGitMessage, (_event, input) => {
+    requireWorkspaceGitMutationId(input)
+    return gitWorkspaceService.generateWorkspaceGitMessage(
+      input as WorkspaceGitMessageInput,
+    )
+  })
   ipcMain.handle(IPC_CHANNELS.createWorkspaceGitPullRequest, (_event, input) =>
     gitWorkspaceService.createWorkspacePullRequest(
       input as WorkspaceGitPullRequestInput,

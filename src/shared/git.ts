@@ -54,6 +54,7 @@ export interface WorkspaceGitFileStatus {
 
 export interface WorkspaceGitStatusSnapshot {
   branchName: string
+  defaultBranch: string
   files: WorkspaceGitFileStatus[]
   hasStagedChanges: boolean
   hasUnstagedChanges: boolean
@@ -98,6 +99,8 @@ export interface WorkspaceGitStatusFailure {
     | 'gh-unavailable'
     | 'invalid-input'
     | 'not-a-git-worktree'
+    | 'pull-conflict'
+    | 'push-rejected'
     | 'stale-diff'
     | 'workspace-not-owned'
     | 'workspace-not-found'
@@ -154,6 +157,41 @@ export interface WorkspaceGitCommitInput {
   workspaceId: string
 }
 
+export interface WorkspaceGitPullSummary {
+  aheadCount: number
+  behindCount: number
+  pulledCount: number
+}
+
+export interface WorkspaceGitPullSuccess {
+  ok: true
+  pull: WorkspaceGitPullSummary
+  status: WorkspaceGitStatusSnapshot
+}
+
+export type WorkspaceGitPullResult =
+  | WorkspaceGitPullSuccess
+  | WorkspaceGitStatusFailure
+
+export type WorkspaceGitMessageKind =
+  | 'commit'
+  | 'pull-request-body'
+  | 'pull-request-title'
+
+export interface WorkspaceGitMessageInput {
+  kind: WorkspaceGitMessageKind
+  workspaceId: string
+}
+
+export interface WorkspaceGitMessageSuccess {
+  message: string
+  ok: true
+}
+
+export type WorkspaceGitMessageResult =
+  | WorkspaceGitMessageSuccess
+  | WorkspaceGitStatusFailure
+
 export interface WorkspaceGitPullRequestInput {
   body: string
   title: string
@@ -169,6 +207,7 @@ export interface WorkspaceGitPullRequest {
     status: string | null
   }[]
   headRefName: string
+  isDraft: boolean
   number: number
   state: string
   title: string

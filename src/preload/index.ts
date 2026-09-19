@@ -188,8 +188,18 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.revertWorkspaceGitFile, input),
   commitWorkspaceGitIndex: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.commitWorkspaceGitIndex, input),
+  commitAllAndPushWorkspaceGit: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.commitAllAndPushWorkspaceGit, input),
   pushWorkspaceGitBranch: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.pushWorkspaceGitBranch, workspaceId),
+  pullWorkspaceGitBranch: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.pullWorkspaceGitBranch, workspaceId),
+  abortWorkspaceGitPull: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.abortWorkspaceGitPull, workspaceId),
+  startWorkspaceGitFeatureBranch: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.startWorkspaceGitFeatureBranch, input),
+  generateWorkspaceGitMessage: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.generateWorkspaceGitMessage, input),
   createWorkspaceGitPullRequest: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspaceGitPullRequest, input),
   getWorkspaceGitPullRequest: (workspaceId) =>

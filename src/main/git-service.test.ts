@@ -44,6 +44,47 @@ function runGit(cwd: string, args: string[]): string {
   }).trim()
 }
 
+function createRepositoryWithRemote(): {
+  remotePath: string
+  repoRoot: string
+} {
+  const remotePath = createTempDirectory('aide-git-remote-')
+  runGit(remotePath, ['init', '--bare', '-b', 'main'])
+
+  const repoRoot = createTempDirectory('aide-git-service-')
+  runGit(repoRoot, ['init', '-b', 'main'])
+  runGit(repoRoot, ['config', 'user.name', 'Aide Test'])
+  runGit(repoRoot, ['config', 'user.email', 'aide@example.com'])
+  writeFileSync(path.join(repoRoot, 'README.md'), '# aide\n')
+  runGit(repoRoot, ['add', 'README.md'])
+  runGit(repoRoot, ['commit', '-m', 'Initial commit'])
+  runGit(repoRoot, ['remote', 'add', 'origin', remotePath])
+  runGit(repoRoot, ['push', '--set-upstream', 'origin', 'main'])
+  runGit(repoRoot, [
+    'symbolic-ref',
+    'refs/remotes/origin/HEAD',
+    'refs/remotes/origin/main',
+  ])
+
+  return { remotePath, repoRoot }
+}
+
+function pushRemoteCommit(
+  remotePath: string,
+  filePath: string,
+  content: string,
+  message: string,
+): void {
+  const peerRoot = createTempDirectory('aide-git-peer-')
+  runGit(peerRoot, ['clone', remotePath, '.'])
+  runGit(peerRoot, ['config', 'user.name', 'Aide Peer'])
+  runGit(peerRoot, ['config', 'user.email', 'peer@example.com'])
+  writeFileSync(path.join(peerRoot, filePath), content)
+  runGit(peerRoot, ['add', filePath])
+  runGit(peerRoot, ['commit', '-m', message])
+  runGit(peerRoot, ['push', 'origin', 'main'])
+}
+
 function createGitRepository(options?: { detachedHead?: boolean }): string {
   const repoRoot = createTempDirectory('aide-git-service-')
 
@@ -474,6 +515,7 @@ describe('GitWorkspaceService', () => {
       ok: true,
       status: {
         branchName: 'main',
+        defaultBranch: 'main',
         files: [
           {
             isStaged: false,
@@ -918,6 +960,294 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('pulls a fast-forward commit from the tracked upstream', async () => {
+    const { remotePath, repoRoot } = createRepositoryWithRemote()
+    pushRemoteCommit(remotePath, 'remote.txt', 'remote work\n', 'Remote commit')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    const result = await service.pullWorkspaceBranch(imported.workspaceId)
+
+    expect(result).toMatchObject({
+      ok: true,
+      pull: { aheadCount: 0, behindCount: 0, pulledCount: 1 },
+    })
+    expect(readFileSync(path.join(repoRoot, 'remote.txt'), 'utf8')).toBe(
+      'remote work\n',
+    )
+
+    database.close()
+  })
+
+  it('rebases a local commit on top of the pulled commits', async () => {
+    const { remotePath, repoRoot } = createRepositoryWithRemote()
+    pushRemoteCommit(remotePath, 'remote.txt', 'remote work\n', 'Remote commit')
+    writeFileSync(path.join(repoRoot, 'local.txt'), 'local work\n')
+    runGit(repoRoot, ['add', 'local.txt'])
+    runGit(repoRoot, ['commit', '-m', 'Local commit'])
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    const result = await service.pullWorkspaceBranch(imported.workspaceId)
+
+    expect(result).toMatchObject({
+      ok: true,
+      pull: { aheadCount: 1, behindCount: 0, pulledCount: 1 },
+    })
+    expect(runGit(repoRoot, ['log', '-3', '--format=%s'])).toBe(
+      'Local commit\nRemote commit\nInitial commit',
+    )
+
+    database.close()
+  })
+
+  it('reports conflicted paths and restores the pre-pull state when the pull is aborted', async () => {
+    const { remotePath, repoRoot } = createRepositoryWithRemote()
+    pushRemoteCommit(remotePath, 'README.md', '# remote\n', 'Remote readme')
+    writeFileSync(path.join(repoRoot, 'README.md'), '# local\n')
+    runGit(repoRoot, ['add', 'README.md'])
+    runGit(repoRoot, ['commit', '-m', 'Local readme'])
+    const headBeforePull = runGit(repoRoot, ['rev-parse', 'HEAD'])
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    const pulled = await service.pullWorkspaceBranch(imported.workspaceId)
+
+    expect(pulled).toEqual({
+      code: 'pull-conflict',
+      error: 'Pull stopped with conflicts in README.md.',
+      ok: false,
+    })
+
+    const conflicted = await service.getWorkspaceStatus(imported.workspaceId)
+    if (!conflicted.ok) throw new Error(conflicted.error)
+    expect(conflicted.status.files).toContainEqual(
+      expect.objectContaining({ path: 'README.md', staged: 'unmerged' }),
+    )
+
+    await expect(
+      service.commitAllAndPushWorkspace({
+        message: 'Commit through a conflict',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      code: 'pull-conflict',
+      error: 'Resolve the conflicts or abort the pull before committing.',
+      ok: false,
+    })
+
+    await expect(
+      service.abortWorkspacePull(imported.workspaceId),
+    ).resolves.toMatchObject({ ok: true })
+    expect(runGit(repoRoot, ['rev-parse', 'HEAD'])).toBe(headBeforePull)
+    expect(readFileSync(path.join(repoRoot, 'README.md'), 'utf8')).toBe(
+      '# local\n',
+    )
+
+    database.close()
+  })
+
+  it('commits every tracked and untracked change and pushes it', async () => {
+    const { remotePath, repoRoot } = createRepositoryWithRemote()
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'notes\n')
+    runGit(repoRoot, ['add', 'notes.txt'])
+    runGit(repoRoot, ['commit', '-m', 'Add notes'])
+    runGit(repoRoot, ['push', 'origin', 'main'])
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'notes\nchanged\n')
+    writeFileSync(path.join(repoRoot, 'fresh.txt'), 'fresh\n')
+    writeFileSync(path.join(repoRoot, '.gitignore'), 'ignored.txt\n')
+    runGit(repoRoot, ['add', '.gitignore'])
+    runGit(repoRoot, ['commit', '-m', 'Ignore build output'])
+    writeFileSync(path.join(repoRoot, 'ignored.txt'), 'ignored\n')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.commitAllAndPushWorkspace({
+        message: 'Commit everything',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { files: [], hasStagedChanges: false },
+    })
+
+    expect(
+      runGit(repoRoot, ['show', '--name-only', '--format=%s', 'HEAD']).split(
+        '\n',
+      ),
+    ).toEqual(['Commit everything', '', 'README.md', 'fresh.txt', 'notes.txt'])
+    expect(runGit(repoRoot, ['rev-parse', 'HEAD'])).toBe(
+      runGit(remotePath, ['rev-parse', 'refs/heads/main']),
+    )
+
+    database.close()
+  })
+
+  it('classifies a rejected push and recovers by pulling before pushing again', async () => {
+    const { remotePath, repoRoot } = createRepositoryWithRemote()
+    pushRemoteCommit(remotePath, 'remote.txt', 'remote work\n', 'Remote commit')
+    writeFileSync(path.join(repoRoot, 'local.txt'), 'local work\n')
+    runGit(repoRoot, ['add', 'local.txt'])
+    runGit(repoRoot, ['commit', '-m', 'Local commit'])
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.pushWorkspaceBranch(imported.workspaceId),
+    ).resolves.toEqual({
+      code: 'push-rejected',
+      error: 'Remote has new commits.',
+      ok: false,
+    })
+
+    writeFileSync(path.join(repoRoot, 'later.txt'), 'later work\n')
+
+    await expect(
+      service.commitAllAndPushWorkspace({
+        message: 'Commit after rejection',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({ ok: true })
+
+    expect(runGit(repoRoot, ['rev-parse', 'HEAD'])).toBe(
+      runGit(remotePath, ['rev-parse', 'refs/heads/main']),
+    )
+    expect(runGit(repoRoot, ['log', '-4', '--format=%s'])).toBe(
+      'Commit after rejection\nLocal commit\nRemote commit\nInitial commit',
+    )
+
+    database.close()
+  })
+
+  it('starts a feature branch named from the commit message and carries the working tree', async () => {
+    const { repoRoot } = createRepositoryWithRemote()
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\ndrafted\n')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.startWorkspaceFeatureBranch({
+        message: 'Add the Git sync pane!',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { branchName: 'add-the-git-sync-pane' },
+    })
+    expect(readFileSync(path.join(repoRoot, 'README.md'), 'utf8')).toBe(
+      '# aide\ndrafted\n',
+    )
+
+    runGit(repoRoot, ['checkout', 'main'])
+
+    await expect(
+      service.startWorkspaceFeatureBranch({
+        message: '   ',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      status: { branchName: expect.stringMatching(/^work\/\d{8}-\d{4}$/) },
+    })
+
+    database.close()
+  })
+
+  it('names the changed files when no Codex generator is wired', async () => {
+    const { repoRoot } = createRepositoryWithRemote()
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'notes\n')
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'commit',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      message: 'Update notes.txt and README.md',
+      ok: true,
+    })
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'pull-request-body',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      message: 'Updates notes.txt and README.md.',
+      ok: true,
+    })
+
+    database.close()
+  })
+
+  it('asks the Codex generator for a message and falls back when it fails', async () => {
+    const { repoRoot } = createRepositoryWithRemote()
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
+    const database = createAideDatabase(':memory:')
+    const prompts: string[] = []
+    let failNext = false
+    const service = new GitWorkspaceService(
+      database,
+      undefined,
+      async (input) => {
+        prompts.push(input.prompt)
+        if (failNext) throw new Error('Codex is unavailable.')
+        return '"Describe the readme change"\n'
+      },
+    )
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'commit',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({ message: 'Describe the readme change', ok: true })
+    expect(prompts[0]).toContain('README.md')
+    expect(prompts[0]).toContain('+changed')
+
+    failNext = true
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'commit',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({ message: 'Update README.md', ok: true })
+
+    database.close()
+  })
+
+  it('refuses to describe a workspace with no changes', async () => {
+    const { repoRoot } = createRepositoryWithRemote()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'commit',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      code: 'invalid-input',
+      error: 'There are no changes to describe.',
+      ok: false,
+    })
+
+    database.close()
+  })
+
   it('uses argument arrays for GitHub authentication, pull request creation, and checks', async () => {
     const repoRoot = createGitRepository()
     const database = createAideDatabase(':memory:')
@@ -929,6 +1259,7 @@ describe('GitWorkspaceService', () => {
       return JSON.stringify({
         baseRefName: 'main',
         headRefName: 'feature/review',
+        isDraft: false,
         number: 7,
         state: 'OPEN',
         statusCheckRollup: [
@@ -975,7 +1306,7 @@ describe('GitWorkspaceService', () => {
         'pr',
         'view',
         '--json',
-        'number,title,url,state,headRefName,baseRefName,statusCheckRollup',
+        'number,title,url,state,isDraft,headRefName,baseRefName,statusCheckRollup',
       ],
     ])
 

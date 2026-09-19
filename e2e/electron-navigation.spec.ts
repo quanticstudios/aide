@@ -57,6 +57,48 @@ function createGitRepository(): string {
   return repoRoot
 }
 
+function createGitRepositoryWithRemote(): {
+  remotePath: string
+  repoRoot: string
+} {
+  const remotePath = mkdtempSync(path.join(tmpdir(), 'aide-electron-remote-'))
+  runGit(remotePath, ['init', '--bare', '-b', 'main'])
+
+  const repoRoot = mkdtempSync(path.join(tmpdir(), 'aide-electron-repo-'))
+  runGit(repoRoot, ['init', '-b', 'main'])
+  runGit(repoRoot, ['config', 'user.name', 'Aide Electron Test'])
+  runGit(repoRoot, ['config', 'user.email', 'aide@example.com'])
+  writeFileSync(path.join(repoRoot, 'README.md'), '# aide\n')
+  runGit(repoRoot, ['add', 'README.md'])
+  runGit(repoRoot, ['commit', '-m', 'Initial commit'])
+  runGit(repoRoot, ['remote', 'add', 'origin', remotePath])
+  runGit(repoRoot, ['push', '--set-upstream', 'origin', 'main'])
+  runGit(repoRoot, [
+    'symbolic-ref',
+    'refs/remotes/origin/HEAD',
+    'refs/remotes/origin/main',
+  ])
+
+  return { remotePath, repoRoot }
+}
+
+function pushRemoteCommit(
+  remotePath: string,
+  filePath: string,
+  content: string,
+  message: string,
+): void {
+  const peerRoot = mkdtempSync(path.join(tmpdir(), 'aide-electron-peer-'))
+  runGit(peerRoot, ['clone', remotePath, '.'])
+  runGit(peerRoot, ['config', 'user.name', 'Aide Peer'])
+  runGit(peerRoot, ['config', 'user.email', 'peer@example.com'])
+  writeFileSync(path.join(peerRoot, filePath), content)
+  runGit(peerRoot, ['add', filePath])
+  runGit(peerRoot, ['commit', '-m', message])
+  runGit(peerRoot, ['push', 'origin', 'main'])
+  rmSync(peerRoot, { force: true, recursive: true })
+}
+
 async function launchAideApp(
   envOverrides: Record<string, string> = {},
   options: {
@@ -1132,13 +1174,14 @@ test.describe('electron spatial navigation', () => {
   })
 
   test('stages, unstages, reverts and commits reviewed files', async () => {
-    const chosenProjectRoot = createGitRepository()
-    runGit(chosenProjectRoot, ['config', 'user.name', 'Aide test'])
-    runGit(chosenProjectRoot, ['config', 'user.email', 'aide@example.com'])
+    const { remotePath, repoRoot: chosenProjectRoot } =
+      createGitRepositoryWithRemote()
+    additionalRepoRoots.push(remotePath)
     const readmePath = path.join(chosenProjectRoot, 'README.md')
     const original = readFileSync(readmePath, 'utf8')
     writeFileSync(readmePath, `${original}review this change\n`)
     const launched = await launchAideApp({
+      AIDE_FAKE_MANAGED_PROVIDERS: '1',
       AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
     })
     app = launched.app
@@ -1172,9 +1215,64 @@ test.describe('electron spatial navigation', () => {
     await page
       .getByRole('button', { name: 'Commit index', exact: true })
       .click()
+    await expect(
+      page.getByTestId('git-pane-default-branch-modal'),
+    ).toBeVisible()
+    await page
+      .getByRole('button', { name: 'Commit & push to main', exact: true })
+      .click()
     await expect
       .poll(() => runGit(chosenProjectRoot, ['log', '-1', '--format=%s']))
       .toBe('Commit reviewed file')
+
+    pushRemoteCommit(remotePath, 'remote.txt', 'remote work\n', 'Remote commit')
+    await page.getByRole('button', { name: 'Pull', exact: true }).click()
+    await expect(page.getByTestId('git-pane-notice')).toHaveText(
+      'Pulled 1 commit.',
+    )
+    expect(existsSync(path.join(chosenProjectRoot, 'remote.txt'))).toBe(true)
+
+    writeFileSync(path.join(chosenProjectRoot, 'one.txt'), 'one\n')
+    writeFileSync(readmePath, `${original}second review\n`)
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await page.getByLabel('Commit message', { exact: true }).fill('')
+    await page
+      .getByRole('button', { name: 'Commit all and push', exact: true })
+      .click()
+    await expect(
+      page.getByLabel('Commit message', { exact: true }),
+    ).toHaveValue(/one\.txt/)
+    await page
+      .getByRole('button', { name: 'Commit & push to main', exact: true })
+      .click()
+    await expect(page.getByTestId('git-pane-notice')).toHaveText(
+      'Committed every change and pushed the branch.',
+    )
+    expect(
+      runGit(chosenProjectRoot, ['show', '--name-only', '--format=', 'HEAD']),
+    ).toBe('README.md\none.txt')
+
+    pushRemoteCommit(remotePath, 'peer.txt', 'peer work\n', 'Peer commit')
+    writeFileSync(path.join(chosenProjectRoot, 'two.txt'), 'two\n')
+    runGit(chosenProjectRoot, ['add', 'two.txt'])
+    runGit(chosenProjectRoot, ['commit', '-m', 'Local only commit'])
+    await page.getByRole('button', { name: 'Push branch', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Commit & push to main', exact: true })
+      .click()
+    await expect(page.getByTestId('git-pane-banner')).toContainText(
+      'Remote has new commits.',
+    )
+    await page
+      .getByRole('button', { name: 'Pull, then push', exact: true })
+      .click()
+    await expect
+      .poll(
+        () =>
+          runGit(chosenProjectRoot, ['rev-parse', 'HEAD']) ===
+          runGit(remotePath, ['rev-parse', 'refs/heads/main']),
+      )
+      .toBe(true)
   })
 
   test('renders a real git pane and updates the review surface on file selection', async () => {

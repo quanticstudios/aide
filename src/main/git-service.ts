@@ -17,7 +17,11 @@ import type {
   WorkspaceGitDiffSection,
   WorkspaceGitFileMutationInput,
   WorkspaceGitFileStatus,
+  WorkspaceGitMessageInput,
+  WorkspaceGitMessageKind,
+  WorkspaceGitMessageResult,
   WorkspaceGitMutationResult,
+  WorkspaceGitPullResult,
   WorkspaceGitPullRequest,
   WorkspaceGitPullRequestInput,
   WorkspaceGitPullRequestResult,
@@ -87,8 +91,105 @@ export type GitHubCommandRunner = (
   cwd: string,
 ) => Promise<string>
 
+export type GitMessageGenerator = (input: {
+  prompt: string
+  workspaceId: string
+}) => Promise<string>
+
+const GIT_MESSAGE_KINDS: readonly WorkspaceGitMessageKind[] = [
+  'commit',
+  'pull-request-body',
+  'pull-request-title',
+]
+
 function resolveProjectName(repoRoot: string): string {
   return path.basename(repoRoot) || 'project'
+}
+
+function formatPathList(paths: readonly string[]): string {
+  const head = paths.slice(0, 3)
+  const remaining = paths.length - head.length
+
+  if (remaining > 0) {
+    return `${head.join(', ')} and ${remaining} more files`
+  }
+
+  if (head.length < 2) {
+    return head[0] ?? 'files'
+  }
+
+  return `${head.slice(0, -1).join(', ')} and ${head.at(-1)}`
+}
+
+function fallbackGitMessage(
+  kind: WorkspaceGitMessageKind,
+  paths: readonly string[],
+): string {
+  const list = formatPathList(paths)
+
+  return kind === 'pull-request-body' ? `Updates ${list}.` : `Update ${list}`
+}
+
+function gitMessagePrompt(
+  kind: WorkspaceGitMessageKind,
+  paths: readonly string[],
+  diff: string,
+): string {
+  const goal =
+    kind === 'pull-request-body'
+      ? 'Return only a pull request description of at most three sentences for this change.'
+      : `Return only a ${kind === 'commit' ? 'commit subject line' : 'pull request title'} of at most 72 characters for this change.`
+
+  return [
+    goal,
+    'Use no tools, commands, files, or outside context.',
+    `Changed files: ${paths.join(', ') || 'none'}`,
+    'Diff:',
+    truncateDiffOutput(diff).patch,
+  ].join('\n')
+}
+
+function normalizeGeneratedMessage(
+  kind: WorkspaceGitMessageKind,
+  value: string,
+): string | null {
+  const text = value.trim()
+
+  if (kind === 'pull-request-body') {
+    return text.slice(0, MAX_PULL_REQUEST_BODY_LENGTH) || null
+  }
+
+  const subject = (text.split(/\r?\n/, 1)[0] ?? '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[.]+$/, '')
+    .trim()
+
+  return subject && subject.length <= MAX_PULL_REQUEST_TITLE_LENGTH
+    ? subject
+    : null
+}
+
+function featureBranchName(message: string, now: Date): string {
+  const slug = message
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 48)
+    .replace(/^-+|-+$/g, '')
+
+  if (slug) {
+    return slug
+  }
+
+  const pad = (value: number): string => `${value}`.padStart(2, '0')
+
+  return `work/${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`
+}
+
+function splitPathLines(output: string | null): string[] {
+  return (output ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
 }
 
 function formatGitError(error: unknown, fallback: string): Error {
@@ -337,6 +438,7 @@ function parseWorkspacePullRequest(output: string): WorkspaceGitPullRequest {
     baseRefName: requiredText('baseRefName'),
     checks,
     headRefName: requiredText('headRefName'),
+    isDraft: pullRequest.isDraft === true,
     number,
     state: requiredText('state'),
     title: requiredText('title'),
@@ -457,6 +559,7 @@ export class GitWorkspaceService {
   public constructor(
     private readonly store: GitWorkspaceStore,
     private readonly runGitHubCommand?: GitHubCommandRunner,
+    private readonly generateMessage?: GitMessageGenerator,
   ) {}
 
   public async runWorkspaceMutation<Result>(
@@ -513,6 +616,7 @@ export class GitWorkspaceService {
         ok: true,
         status: {
           branchName,
+          defaultBranch: project?.defaultBranch ?? '',
           files,
           hasStagedChanges: files.some((file) => file.isStaged),
           hasUnstagedChanges: files.some((file) => file.isUnstaged),
@@ -814,6 +918,192 @@ export class GitWorkspaceService {
     }
   }
 
+  public async pullWorkspaceBranch(
+    workspaceId: string,
+  ): Promise<WorkspaceGitPullResult> {
+    const context = await this.getOwnedWorkspace(workspaceId)
+    if (!context.ok) return context
+
+    const worktreePath = context.workspace.worktreePath
+
+    try {
+      const branchName = await this.resolvePushBranch(worktreePath)
+      const upstream = await this.readGitValue(
+        ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
+        worktreePath,
+      )
+      const remoteArguments = upstream ? [] : ['origin', branchName]
+      const comparisonRef = upstream ?? `origin/${branchName}`
+
+      await this.runGit(['fetch', ...remoteArguments], worktreePath)
+      const pulledCount = (
+        await this.getAheadBehind(worktreePath, comparisonRef)
+      ).behind
+      await this.runGit(
+        ['pull', '--rebase', '--autostash', ...remoteArguments],
+        worktreePath,
+      )
+      const aheadBehind = await this.getAheadBehind(worktreePath, comparisonRef)
+      const status = await this.getWorkspaceStatus(context.workspace.id)
+      if (!status.ok) return status
+
+      return {
+        ok: true,
+        pull: {
+          aheadCount: aheadBehind.ahead,
+          behindCount: aheadBehind.behind,
+          pulledCount,
+        },
+        status: status.status,
+      }
+    } catch (error) {
+      const conflictedPaths = splitPathLines(
+        await this.readGitValue(
+          ['diff', '--name-only', '--diff-filter=U'],
+          worktreePath,
+        ),
+      )
+
+      if (conflictedPaths.length > 0) {
+        return {
+          code: 'pull-conflict',
+          error: `Pull stopped with conflicts in ${conflictedPaths.join(', ')}.`,
+          ok: false,
+        }
+      }
+
+      return this.classifyPushError(error)
+    }
+  }
+
+  public async abortWorkspacePull(
+    workspaceId: string,
+  ): Promise<WorkspaceGitMutationResult> {
+    const context = await this.getOwnedWorkspace(workspaceId)
+    if (!context.ok) return context
+
+    try {
+      await this.runGit(['rebase', '--abort'], context.workspace.worktreePath)
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async commitAllAndPushWorkspace(
+    input: WorkspaceGitCommitInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    if (!input || typeof input.message !== 'string' || !input.message.trim()) {
+      return this.invalidInput('A workspace and commit message are required.')
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    const status = await this.getWorkspaceStatus(context.workspace.id)
+    if (!status.ok) return status
+
+    if (
+      status.status.files.some(
+        (file) => file.staged === 'unmerged' || file.unstaged === 'unmerged',
+      )
+    ) {
+      return {
+        code: 'pull-conflict',
+        error: 'Resolve the conflicts or abort the pull before committing.',
+        ok: false,
+      }
+    }
+
+    if (status.status.files.length > 0) {
+      try {
+        await this.runGit(['add', '--all'], context.workspace.worktreePath)
+      } catch (error) {
+        return classifyWorkspaceGitStatusError(error)
+      }
+
+      const committed = await this.commitWorkspaceIndex(input)
+      if (!committed.ok) return committed
+    }
+
+    const pushed = await this.pushWorkspaceBranch(context.workspace.id)
+    if (pushed.ok || pushed.code !== 'push-rejected') return pushed
+
+    const pulled = await this.pullWorkspaceBranch(context.workspace.id)
+    if (!pulled.ok) return pulled
+
+    return this.pushWorkspaceBranch(context.workspace.id)
+  }
+
+  public async startWorkspaceFeatureBranch(
+    input: WorkspaceGitCommitInput,
+  ): Promise<WorkspaceGitMutationResult> {
+    if (!input || typeof input.message !== 'string') {
+      return this.invalidInput('A workspace and commit message are required.')
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    try {
+      await this.runGit(
+        ['checkout', '-b', featureBranchName(input.message, new Date())],
+        context.workspace.worktreePath,
+      )
+      return this.getMutationStatus(context.workspace.id)
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  public async generateWorkspaceGitMessage(
+    input: WorkspaceGitMessageInput,
+  ): Promise<WorkspaceGitMessageResult> {
+    if (!input || !GIT_MESSAGE_KINDS.includes(input.kind)) {
+      return this.invalidInput('A workspace and a message kind are required.')
+    }
+    const context = await this.getOwnedWorkspace(input.workspaceId)
+    if (!context.ok) return context
+
+    const status = await this.getWorkspaceStatus(context.workspace.id)
+    if (!status.ok) return status
+
+    let changes: { diff: string; paths: readonly string[] }
+    try {
+      changes = await this.collectMessageChanges(
+        context.workspace.worktreePath,
+        context.project.defaultBranch,
+        status.status.files.map((file) => file.path),
+      )
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+
+    if (changes.paths.length === 0 && !changes.diff.trim()) {
+      return this.invalidInput('There are no changes to describe.')
+    }
+
+    const fallback = fallbackGitMessage(input.kind, changes.paths)
+    if (
+      !this.generateMessage ||
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1'
+    ) {
+      return { message: fallback, ok: true }
+    }
+
+    try {
+      const generated = await this.generateMessage({
+        prompt: gitMessagePrompt(input.kind, changes.paths, changes.diff),
+        workspaceId: context.workspace.id,
+      })
+
+      return {
+        message: normalizeGeneratedMessage(input.kind, generated) ?? fallback,
+        ok: true,
+      }
+    } catch {
+      return { message: fallback, ok: true }
+    }
+  }
+
   public async createWorkspacePullRequest(
     input: WorkspaceGitPullRequestInput,
   ): Promise<WorkspaceGitPullRequestResult> {
@@ -883,7 +1173,7 @@ export class GitWorkspaceService {
           'pr',
           'view',
           '--json',
-          'number,title,url,state,headRefName,baseRefName,statusCheckRollup',
+          'number,title,url,state,isDraft,headRefName,baseRefName,statusCheckRollup',
         ],
         context.workspace.worktreePath,
       )
@@ -1317,14 +1607,51 @@ export class GitWorkspaceService {
   }
 
   private classifyPushError(error: unknown): WorkspaceGitStatusFailure {
-    if (formatGitError(error, '').message === 'DETACHED_HEAD') {
+    const message = formatGitError(error, '').message
+
+    if (message === 'DETACHED_HEAD') {
       return {
         code: 'detached-head',
         error: 'Push requires a checked out branch.',
         ok: false,
       }
     }
+    if (/\[rejected]|non-fast-forward|fetch first/i.test(message)) {
+      return {
+        code: 'push-rejected',
+        error: 'Remote has new commits.',
+        ok: false,
+      }
+    }
     return classifyWorkspaceGitStatusError(error)
+  }
+
+  private async collectMessageChanges(
+    worktreePath: string,
+    defaultBranch: string,
+    changedPaths: readonly string[],
+  ): Promise<{ diff: string; paths: readonly string[] }> {
+    if (changedPaths.length > 0) {
+      return {
+        diff: await this.runGit(['diff', 'HEAD'], worktreePath),
+        paths: changedPaths,
+      }
+    }
+
+    const baseRef = await this.resolveComparisonBase(
+      worktreePath,
+      defaultBranch,
+    )
+    if (!baseRef) {
+      return { diff: '', paths: [] }
+    }
+
+    const [diff, names] = await Promise.all([
+      this.runGit(['diff', `${baseRef}...HEAD`], worktreePath),
+      this.runGit(['diff', '--name-only', `${baseRef}...HEAD`], worktreePath),
+    ])
+
+    return { diff, paths: splitPathLines(names) }
   }
 
   private async requireGitHubAuthentication(
