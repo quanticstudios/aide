@@ -75,6 +75,7 @@ import type {
   ProviderSkillsSnapshot,
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { resolveAgentHotkey } from '../lib/agent-hotkeys'
 import { createImageAttachments } from '../lib/managed-composer'
 import {
   loadManagedDraft,
@@ -102,6 +103,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { isMac } from '../lib/platform'
 import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
 import {
@@ -137,6 +139,12 @@ interface ManagedAgentPaneProps {
 type ManagedSlashMenuItem =
   | { readonly command: SlashCommand; readonly kind: 'command' }
   | { readonly kind: 'skill'; readonly skill: ProviderSkill }
+
+const COMPOSER_MENU_BY_HOTKEY = {
+  'open-effort-menu': 'effort',
+  'open-model-menu': 'model',
+  'open-permission-menu': 'permission',
+} as const
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -312,15 +320,18 @@ function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
 }
 
 function PermissionDropdown({
+  isOpen,
+  onOpenChange,
   onPermissionModeChange,
   permissionMode,
 }: {
+  readonly isOpen: boolean
+  readonly onOpenChange: (isOpen: boolean) => void
   readonly onPermissionModeChange: (mode: ManagedSessionPermissionMode) => void
   readonly permissionMode: ManagedSessionPermissionMode
 }) {
-  const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
+  useClickOutside(containerRef, () => onOpenChange(false), isOpen)
   const active = resolvePermissionOption(permissionMode)
   const ActiveIcon = active.icon
 
@@ -328,7 +339,7 @@ function PermissionDropdown({
     <div ref={containerRef} className="relative">
       <button
         className="composer-tool"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => onOpenChange(!isOpen)}
         type="button"
       >
         <ActiveIcon className={cn('size-4', active.tone)} />
@@ -336,7 +347,10 @@ function PermissionDropdown({
         <ChevronDown className="size-3.5 opacity-50" />
       </button>
       {isOpen && (
-        <div className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div
+          className="absolute bottom-full right-0 z-50 mb-1 min-w-[280px] rounded-md border border-border bg-surface py-1.5 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+          data-testid="permission-menu"
+        >
           {PERMISSION_OPTIONS.map((opt) => {
             const Icon = opt.icon
             const isSelected = opt.value === permissionMode
@@ -351,7 +365,7 @@ function PermissionDropdown({
                 key={opt.value}
                 onClick={() => {
                   onPermissionModeChange(opt.value)
-                  setIsOpen(false)
+                  onOpenChange(false)
                 }}
                 type="button"
               >
@@ -1131,6 +1145,9 @@ export default function ManagedAgentPane({
   >(undefined)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
+  const [openComposerMenu, setOpenComposerMenu] = useState<
+    'effort' | 'model' | 'permission' | null
+  >(null)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
   const [rewindTarget, setRewindTarget] = useState<{
     readonly attachments: readonly ManagedSessionAttachment[]
@@ -3098,6 +3115,50 @@ export default function ManagedAgentPane({
                 }
               }
 
+              if (event.key === 'Escape' && openComposerMenu) {
+                event.preventDefault()
+                setOpenComposerMenu(null)
+                return
+              }
+
+              const hotkey = resolveAgentHotkey(event, {
+                isMac: isMac(),
+                isMenuOpen:
+                  recipientMenuOpen ||
+                  slashMenuOpen ||
+                  openComposerMenu !== null,
+                isTurnRunning: snapshot?.sessionState === 'running',
+              })
+
+              if (hotkey === 'interrupt') {
+                event.preventDefault()
+                const api = getAideApi()
+                if (api) {
+                  void api.interruptManagedSession(sessionId)
+                }
+                return
+              }
+
+              if (hotkey === 'send-queued-now') {
+                event.preventDefault()
+                const queuedInput = snapshot?.queuedInputs?.[0]
+                if (queuedInput) {
+                  void runQueueAction((api) =>
+                    api.sendManagedSessionQueuedInputNow(
+                      sessionId,
+                      queuedInput.id,
+                    ),
+                  )
+                }
+                return
+              }
+
+              if (hotkey) {
+                event.preventDefault()
+                setOpenComposerMenu(COMPOSER_MENU_BY_HOTKEY[hotkey])
+                return
+              }
+
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault()
                 if (isSubmitting) {
@@ -3141,9 +3202,13 @@ export default function ManagedAgentPane({
               <ModelSelector
                 capabilities={capabilities}
                 isDisabled={capabilities === null}
+                isOpen={openComposerMenu === 'model'}
                 model={selectedModel}
                 onChange={(mode, modelId) =>
                   void handleModelSwitch(mode, modelId)
+                }
+                onOpenChange={(isOpen) =>
+                  setOpenComposerMenu(isOpen ? 'model' : null)
                 }
                 provider={selectedProvider}
               />
@@ -3168,9 +3233,13 @@ export default function ManagedAgentPane({
               capabilities={capabilities}
               effort={effort}
               isDisabled={capabilities === null}
+              isOpen={openComposerMenu === 'effort'}
               model={selectedModel}
               onEffortChange={(nextEffort) =>
                 void handleEffortChange(nextEffort)
+              }
+              onOpenChange={(isOpen) =>
+                setOpenComposerMenu(isOpen ? 'effort' : null)
               }
               onServiceTierChange={(nextServiceTier) =>
                 void handleServiceTierChange(nextServiceTier)
@@ -3184,6 +3253,10 @@ export default function ManagedAgentPane({
               </span>
             ) : null}
             <PermissionDropdown
+              isOpen={openComposerMenu === 'permission'}
+              onOpenChange={(isOpen) =>
+                setOpenComposerMenu(isOpen ? 'permission' : null)
+              }
               onPermissionModeChange={setPermissionMode}
               permissionMode={permissionMode}
             />
