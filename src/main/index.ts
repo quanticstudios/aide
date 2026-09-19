@@ -292,6 +292,19 @@ function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
   return workspace
 }
 
+/** A null workspace id addresses the global Jev gate layer, which no workspace owns. */
+function requireJevGateWorktree(
+  event: IpcMainInvokeEvent,
+  workspaceId: unknown,
+): string | null {
+  if (workspaceId === null) {
+    requireTrustedRenderer(event)
+    return null
+  }
+
+  return requireWorkspaceForSetup(event, workspaceId).worktreePath
+}
+
 function prepareDatabase(): boolean {
   const databasePath = getAideDatabasePath({
     databasePathOverride: process.env.AIDE_DATABASE_PATH,
@@ -810,9 +823,7 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(IPC_CHANNELS.getJevGates, (event, workspaceId: unknown) =>
-    jevGateSettings.get(
-      requireWorkspaceForSetup(event, workspaceId).worktreePath,
-    ),
+    jevGateSettings.get(requireJevGateWorktree(event, workspaceId)),
   )
   ipcMain.handle(
     IPC_CHANNELS.updateJevGates,
@@ -821,7 +832,7 @@ function registerIpcHandlers(): void {
         throw new Error('Unknown Jev gate scope.')
       return jevGateSettings.update(
         scope,
-        requireWorkspaceForSetup(event, workspaceId).worktreePath,
+        requireJevGateWorktree(event, workspaceId),
         overrides,
       )
     },

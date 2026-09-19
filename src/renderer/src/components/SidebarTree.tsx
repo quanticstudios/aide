@@ -40,6 +40,7 @@ import {
   type JevGateSnapshot,
   resolveJevGates,
   withJevGateOverride,
+  withoutJevGateSection,
 } from '../../../shared/jev-gates'
 import type {
   ProjectAppearance,
@@ -260,6 +261,19 @@ function JevGatesSection({
                         />
                       </label>
                     ))}
+                    {overrides === undefined ? null : (
+                      <button
+                        className="self-center rounded px-1.5 py-0.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                        onClick={() =>
+                          onUpdate(
+                            withoutJevGateSection(workspace, row.section),
+                          )
+                        }
+                        type="button"
+                      >
+                        Reset to global
+                      </button>
+                    )}
                   </div>
                 ) : null}
               </div>

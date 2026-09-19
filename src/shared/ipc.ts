@@ -228,10 +228,10 @@ export interface AideApi {
     workspaceId: string,
     defaults: ComposerDefaults,
   ) => Promise<ComposerDefaults>
-  getJevGates: (workspaceId: string) => Promise<JevGateSnapshot>
+  getJevGates: (workspaceId: string | null) => Promise<JevGateSnapshot>
   updateJevGates: (
     scope: JevGateScope,
-    workspaceId: string,
+    workspaceId: string | null,
     overrides: JevGateOverrides,
   ) => Promise<JevGateSnapshot>
   getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>

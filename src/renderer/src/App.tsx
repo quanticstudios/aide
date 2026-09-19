@@ -50,6 +50,7 @@ import PreviewBrowserHost, {
 } from './components/PreviewBrowserHost'
 import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceSetupStatus from './components/WorkspaceSetupStatus'
+import { useJevGates } from './hooks/useJevGates'
 import { buildCommandList } from './lib/command-registry'
 import {
   getPaneCatalogEntryForTemplate,
@@ -2343,6 +2344,9 @@ function WorkspaceApp() {
   const activePreviewSnapshot = activeWorkspace
     ? (previewSnapshots[activeWorkspace.id] ?? null)
     : null
+  const { gates: jevGates, updateGates: updateJevGates } = useJevGates(
+    activeWorkspace?.id ?? null,
+  )
   const projectWorkspaces = useMemo(
     () =>
       activeProject
@@ -2694,6 +2698,10 @@ function WorkspaceApp() {
       isSidebarOpen={isSidebarOpen}
       onToggleSidebar={() => setIsSidebarOpen((current) => !current)}
       isFleetOpen={isFleetOpen}
+      jevGates={jevGates}
+      onUpdateWorkspaceJevGates={(overrides) =>
+        updateJevGates('workspace', overrides)
+      }
       onFleetOpenChange={setIsFleetOpen}
       onClosePane={handleClosePane}
       onCloseSurface={handleCloseSurface}
@@ -2748,6 +2756,10 @@ function WorkspaceApp() {
                 setIsSettingsOpen(false)
                 setIsUpdateOpen(true)
               }}
+              jevGates={jevGates}
+              onUpdateGlobalJevGates={(overrides) =>
+                updateJevGates('global', overrides)
+              }
               onUpdatePreferences={updateSoftwarePreferences}
               updatePreferences={updatePreferences}
               updatePreferencesError={updatePreferencesHydrationError}

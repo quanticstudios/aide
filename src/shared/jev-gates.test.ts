@@ -6,6 +6,7 @@ import {
   JevGateOverridesSchema,
   resolveJevGates,
   withJevGateOverride,
+  withoutJevGateSection,
 } from './jev-gates'
 
 describe('resolveJevGates', () => {
@@ -37,6 +38,31 @@ describe('resolveJevGates', () => {
     })
     expect(resolved.toolGate.allowBelow).toBe(0.5)
     expect(resolved.laneRouting.highAbove).toBe(0.7)
+  })
+
+  it('keeps the global layer where the workspace layer holds no entry', () => {
+    const global = { laneRouting: { enabled: true, highAbove: 0.4 } }
+    expect(resolveJevGates(global, {}).laneRouting).toEqual({
+      enabled: true,
+      highAbove: 0.4,
+      criticalAbove: 0.85,
+    })
+
+    const overridden = resolveJevGates(global, {
+      laneRouting: { enabled: false },
+    })
+    expect(overridden.laneRouting.enabled).toBe(false)
+    expect(overridden.laneRouting.highAbove).toBe(0.4)
+
+    expect(
+      resolveJevGates(
+        global,
+        withoutJevGateSection(
+          { laneRouting: { enabled: false } },
+          'laneRouting',
+        ),
+      ).laneRouting.enabled,
+    ).toBe(true)
   })
 
   it('rejects unknown fields and out-of-range probabilities', () => {
@@ -82,5 +108,17 @@ describe('withJevGateOverride', () => {
     expect(
       withJevGateOverride(withoutBar, 'toolGate', 'enabled', undefined),
     ).toEqual({})
+  })
+})
+
+describe('withoutJevGateSection', () => {
+  it('drops one gate section and leaves the other sections alone', () => {
+    expect(
+      withoutJevGateSection(
+        { toolGate: { enabled: true }, laneRouting: { enabled: true } },
+        'toolGate',
+      ),
+    ).toEqual({ laneRouting: { enabled: true } })
+    expect(withoutJevGateSection({}, 'toolGate')).toEqual({})
   })
 })

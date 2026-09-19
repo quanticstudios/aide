@@ -1,6 +1,14 @@
 import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  formatJevGateThresholds,
+  JEV_GATE_ROWS,
+  type JevGateOverrides,
+  type JevGateSnapshot,
+  resolveJevGates,
+  withJevGateOverride,
+} from '../../../shared/jev-gates'
 import type {
   UpdatePreferencesInput,
   UpdatePreferencesSnapshot,
@@ -133,7 +141,9 @@ export function filterSettingsShortcutGroups(
 
 interface SettingsPageProps {
   readonly initialSection?: string
+  readonly jevGates: JevGateSnapshot | null
   readonly onClose: () => void
+  readonly onUpdateGlobalJevGates: (overrides: JevGateOverrides) => void
   readonly onOpenUpdate: () => void
   readonly onUpdatePreferences: (input: UpdatePreferencesInput) => Promise<void>
   readonly updatePreferences: UpdatePreferencesSnapshot | null
@@ -143,8 +153,10 @@ interface SettingsPageProps {
 
 export default function SettingsPage({
   initialSection,
+  jevGates,
   onClose,
   onOpenUpdate,
+  onUpdateGlobalJevGates,
   onUpdatePreferences,
   updatePreferences,
   updatePreferencesError,
@@ -246,6 +258,14 @@ export default function SettingsPage({
         'Reduced motion',
         'Reduce movement while keeping status and feedback visible',
       ),
+      showJevGates: containsQuery(
+        'jev-gate-settings',
+        'Jev gates',
+        'Lane routing',
+        'Tool call gate',
+        'Completion check',
+        'Gate defaults for every workspace',
+      ),
       showJev: containsQuery(
         'jev-settings',
         'Jev',
@@ -276,6 +296,9 @@ export default function SettingsPage({
       ),
     }
   }, [query, selectedSection])
+
+  const globalOverrides = jevGates?.global ?? {}
+  const globalGates = resolveJevGates(globalOverrides)
 
   function openSection(sectionId: string) {
     setQuery('')
@@ -387,6 +410,7 @@ export default function SettingsPage({
             { id: 'general-settings', label: 'General' },
             { id: 'appearance-settings', label: 'Appearance' },
             { id: 'jev-settings', label: 'Jev' },
+            { id: 'jev-gate-settings', label: 'Jev gates' },
             { id: 'keyboard-shortcuts', label: 'Keyboard shortcuts' },
             { id: 'update-settings', label: 'Updates' },
           ].map((section) => (
@@ -534,6 +558,116 @@ export default function SettingsPage({
             </section>
           ) : null}
 
+          {searchResults.showJevGates ? (
+            <section
+              aria-labelledby="jev-gate-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="jev-gate-settings"
+            >
+              <h2
+                className="text-xl font-medium"
+                id="jev-gate-settings-heading"
+              >
+                Jev gates
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Gate defaults for every workspace. A workspace can override any
+                of them in the sidebar.
+              </p>
+              <div className="mt-4 divide-y divide-border rounded-lg border border-border bg-surface-2">
+                {JEV_GATE_ROWS.map((row) => (
+                  <div
+                    className="flex items-start justify-between gap-4 px-4 py-3"
+                    data-testid={`settings-jev-gate-${row.section}`}
+                    key={row.section}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium leading-5">
+                        {row.label}
+                      </p>
+                      <p className="text-[12px] leading-4 text-muted-foreground">
+                        {row.description}
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-4 text-muted-foreground">
+                        {formatJevGateThresholds(globalGates, row.section)}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {row.thresholds.map((threshold) => (
+                          <label
+                            className="flex items-center gap-1.5 text-[12px] text-muted-foreground"
+                            key={threshold.field}
+                          >
+                            {threshold.label}
+                            <input
+                              aria-label={`${row.label}: ${threshold.label}`}
+                              className="w-20 rounded border border-border bg-surface-3 px-1.5 py-0.5 text-[12px] text-foreground"
+                              disabled={!jevGates}
+                              max={1}
+                              min={0}
+                              onChange={(event) => {
+                                const parsed = Number(event.target.value)
+                                onUpdateGlobalJevGates(
+                                  withJevGateOverride(
+                                    globalOverrides,
+                                    row.section,
+                                    threshold.field,
+                                    Number.isFinite(parsed) &&
+                                      event.target.value !== ''
+                                      ? Math.min(1, Math.max(0, parsed))
+                                      : undefined,
+                                  ),
+                                )
+                              }}
+                              placeholder={String(
+                                (
+                                  globalGates[row.section] as unknown as Record<
+                                    string,
+                                    number
+                                  >
+                                )[threshold.field],
+                              )}
+                              step={0.05}
+                              type="number"
+                              value={
+                                (
+                                  globalOverrides[row.section] as
+                                    | Record<string, number>
+                                    | undefined
+                                )?.[threshold.field] ?? ''
+                              }
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <Switch
+                      aria-label={row.label}
+                      isDisabled={!jevGates}
+                      isSelected={globalGates[row.section].enabled}
+                      onChange={(isSelected) =>
+                        onUpdateGlobalJevGates(
+                          withJevGateOverride(
+                            globalOverrides,
+                            row.section,
+                            'enabled',
+                            isSelected,
+                          ),
+                        )
+                      }
+                      size="sm"
+                    >
+                      <Switch.Content>
+                        <Switch.Control>
+                          <Switch.Thumb />
+                        </Switch.Control>
+                      </Switch.Content>
+                    </Switch>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {searchResults.showKeyboard ? (
             <section
               aria-labelledby="keyboard-shortcuts-heading"
@@ -663,6 +797,7 @@ export default function SettingsPage({
           {!searchResults.showGeneral &&
           !searchResults.showAppearance &&
           !searchResults.showJev &&
+          !searchResults.showJevGates &&
           !searchResults.showKeyboard &&
           !searchResults.showUpdates ? (
             <p className="rounded-lg border border-border bg-surface-2 px-4 py-10 text-center text-[13px] text-muted-foreground">

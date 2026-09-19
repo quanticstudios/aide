@@ -166,3 +166,13 @@ export function withJevGateOverride(
   else delete updated[section]
   return updated as JevGateOverrides
 }
+
+/** Drops a whole gate section from a layer so it inherits the layer below again. */
+export function withoutJevGateSection(
+  layer: JevGateOverrides,
+  section: JevGateSection,
+): JevGateOverrides {
+  const updated: Record<string, unknown> = { ...layer }
+  delete updated[section]
+  return updated as JevGateOverrides
+}
