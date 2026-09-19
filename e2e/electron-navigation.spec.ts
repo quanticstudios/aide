@@ -923,6 +923,9 @@ test.describe('electron spatial navigation', () => {
       branchName: 'sidebar-space',
       name: 'Sidebar Space',
     })
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'true')
+
+    await page.getByRole('button', { name: 'Close sidebar' }).click()
     await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
 
     await page.keyboard.down('Alt')
