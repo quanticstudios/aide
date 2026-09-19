@@ -5,6 +5,7 @@
       "**",
       "!!**/.beads",
       "!!**/.worktrees",
+      "!!**/promo",
       "!!**/node_modules",
       "!!**/out",
       "!!**/dist",
