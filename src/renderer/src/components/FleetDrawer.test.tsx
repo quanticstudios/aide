@@ -39,6 +39,7 @@ describe('FleetDrawerContent', () => {
         error={null}
         fleet={fleet}
         isAccepting={false}
+        jevGates={null}
         onAcceptNode={vi.fn()}
         snapshot={null}
       />,
@@ -59,6 +60,7 @@ describe('FleetDrawerContent', () => {
         error={null}
         fleet={null}
         isAccepting={false}
+        jevGates={null}
         onAcceptNode={vi.fn()}
         snapshot={null}
       />,
