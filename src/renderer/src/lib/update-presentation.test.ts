@@ -188,9 +188,10 @@ describe('resolveUpdatePresentation', () => {
       NOW,
     )
 
-    expect(development.capabilityExplanation).toContain('development')
-    expect(manual.capabilityExplanation).toContain('manually')
-    expect(unsupported.capabilityExplanation).toContain('not supported')
+    expect(development.description).toContain('development')
+    expect(development.indicatorLabel).toBe('Development build')
+    expect(manual.description).toContain('manually')
+    expect(unsupported.description).toContain('not supported')
     expect(development.canCheck).toBe(false)
     expect(manual.canDownload).toBe(false)
   })
