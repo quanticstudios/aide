@@ -32,7 +32,7 @@ test('locks a reproducible desktop packaging configuration', () => {
   assert.equal(packageJson.devDependencies['electron-builder'], '26.15.3')
   assert.equal(
     packageJson.scripts['test:packaging'],
-    'node --test scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
+    'node --test scripts/audit-dependencies.node-test.mjs scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs',
   )
   assert.equal(build.appId, 'studio.quantic.aide')
   assert.equal(build.productName, 'aIDE')
