@@ -61,6 +61,7 @@ import {
   isFakeUpdateServiceEnabled,
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
+import { JevGateSettings } from './jev-gate-settings'
 import { JevSettings } from './jev-settings'
 import { validateManagedSessionAttachments } from './managed-session-attachments'
 import { ManagedSessionManager } from './managed-session-manager'
@@ -115,6 +116,7 @@ let turnCheckpoints: TurnCheckpointService
 const restoringWorkspaces = new Set<string>()
 const checkpointPreviews = new Map<string, string>()
 let jevSettings: JevSettings
+let jevGateSettings: JevGateSettings
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
@@ -321,6 +323,9 @@ function initializeServices(): void {
   jevSettings = new JevSettings(
     path.join(path.dirname(databasePath), 'jev-settings.json'),
     safeStorage,
+  )
+  jevGateSettings = new JevGateSettings(
+    path.join(path.dirname(databasePath), 'jev-gates.json'),
   )
   if (
     (process.platform === 'linux' || process.platform === 'darwin') &&
@@ -802,6 +807,23 @@ function registerIpcHandlers(): void {
     (event, workspaceId: unknown, input: unknown) => {
       const workspace = requireWorkspaceForSetup(event, workspaceId)
       return jevSettings.update(workspace.worktreePath, input)
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.getJevGates, (event, workspaceId: unknown) =>
+    jevGateSettings.get(
+      requireWorkspaceForSetup(event, workspaceId).worktreePath,
+    ),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.updateJevGates,
+    (event, scope: unknown, workspaceId: unknown, overrides: unknown) => {
+      if (scope !== 'global' && scope !== 'workspace')
+        throw new Error('Unknown Jev gate scope.')
+      return jevGateSettings.update(
+        scope,
+        requireWorkspaceForSetup(event, workspaceId).worktreePath,
+        overrides,
+      )
     },
   )
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, (event) => {

@@ -5,6 +5,7 @@ import {
   Kbd,
   Popover,
   ScrollShadow,
+  Switch,
   Tooltip,
 } from '@heroui/react'
 import {
@@ -31,6 +32,15 @@ import { cn } from '@/lib/utils'
 import type { WorkspaceSummary } from '@/lib/workspace-summary'
 import aideIcon from '../../../../build/icon.png'
 import type { WorktreeBranchStats } from '../../../shared/git'
+import {
+  formatJevGateThresholds,
+  JEV_GATE_ROWS,
+  type JevGateOverrides,
+  type JevGateSection,
+  type JevGateSnapshot,
+  resolveJevGates,
+  withJevGateOverride,
+} from '../../../shared/jev-gates'
 import type {
   ProjectAppearance,
   ProjectColor,
@@ -89,6 +99,8 @@ interface SidebarTreeProps {
   readonly activeProjectId: string | null
   readonly activeWorkspaceId: string | null
   readonly isExpanded: boolean
+  readonly jevGates: JevGateSnapshot | null
+  readonly onUpdateJevGates: (overrides: JevGateOverrides) => void
   readonly onCreateChat: (projectId: string, workspaceId?: string) => void
   readonly onCreateProject: () => void
   readonly onCreateWorkspace: (projectId?: string) => void
@@ -109,6 +121,154 @@ interface SidebarTreeProps {
   readonly showProjectHints: boolean
   readonly summaries: Record<string, WorkspaceSummary>
   readonly workspaces: readonly WorkspaceRecord[]
+}
+
+function JevGatesSection({
+  gates,
+  onUpdate,
+}: {
+  readonly gates: JevGateSnapshot | null
+  readonly onUpdate: (overrides: JevGateOverrides) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [openSection, setOpenSection] = useState<JevGateSection | null>(null)
+  const effective = gates?.effective ?? resolveJevGates()
+  const workspace = gates?.workspace ?? {}
+  const enabledCount = JEV_GATE_ROWS.filter(
+    (row) => effective[row.section].enabled,
+  ).length
+
+  return (
+    <div className="border-t border-border" data-testid="sidebar-jev-gates">
+      <button
+        aria-expanded={isOpen}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-foreground"
+        onClick={() => setIsOpen((current) => !current)}
+        type="button"
+      >
+        <ChevronRight
+          className={cn(
+            'size-3 transition-transform',
+            isOpen ? 'rotate-90' : 'rotate-0',
+          )}
+        />
+        Jev gates
+        <span className="ml-auto font-normal tabular-nums">
+          {enabledCount}/{JEV_GATE_ROWS.length} on
+        </span>
+      </button>
+      {isOpen ? (
+        <div className="pb-2">
+          {gates ? null : (
+            <p className="px-3 pb-1 text-[11px] text-muted-foreground">
+              Select a workspace to edit its gates.
+            </p>
+          )}
+          {JEV_GATE_ROWS.map((row) => {
+            const overrides = workspace[row.section] as
+              | Record<string, boolean | number>
+              | undefined
+            const isExpandedRow = openSection === row.section
+            return (
+              <div
+                className="px-3 py-1"
+                data-testid={`sidebar-jev-gate-${row.section}`}
+                key={row.section}
+              >
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-expanded={isExpandedRow}
+                    className="flex min-w-0 flex-1 flex-col text-left"
+                    onClick={() =>
+                      setOpenSection(isExpandedRow ? null : row.section)
+                    }
+                    type="button"
+                  >
+                    <span className="truncate text-[12.5px] font-medium text-foreground">
+                      {row.label}
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {overrides === undefined ? 'inherits global · ' : ''}
+                      {formatJevGateThresholds(effective, row.section)}
+                    </span>
+                  </button>
+                  <Switch
+                    aria-label={row.label}
+                    isDisabled={!gates}
+                    isSelected={effective[row.section].enabled}
+                    onChange={(isSelected) =>
+                      onUpdate(
+                        withJevGateOverride(
+                          workspace,
+                          row.section,
+                          'enabled',
+                          isSelected,
+                        ),
+                      )
+                    }
+                    size="sm"
+                  >
+                    <Switch.Content>
+                      <Switch.Control>
+                        <Switch.Thumb />
+                      </Switch.Control>
+                    </Switch.Content>
+                  </Switch>
+                </div>
+                {isExpandedRow ? (
+                  <div className="mt-1 flex flex-wrap gap-2 pb-1">
+                    {row.thresholds.map((threshold) => (
+                      <label
+                        className="flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                        key={threshold.field}
+                      >
+                        {threshold.label}
+                        <input
+                          aria-label={`${row.label}: ${threshold.label}`}
+                          className="w-16 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-foreground"
+                          disabled={!gates}
+                          max={1}
+                          min={0}
+                          onChange={(event) => {
+                            const parsed = Number(event.target.value)
+                            onUpdate(
+                              withJevGateOverride(
+                                workspace,
+                                row.section,
+                                threshold.field,
+                                Number.isFinite(parsed)
+                                  ? Math.min(1, Math.max(0, parsed))
+                                  : undefined,
+                              ),
+                            )
+                          }}
+                          placeholder={String(
+                            (
+                              effective[row.section] as unknown as Record<
+                                string,
+                                number
+                              >
+                            )[threshold.field],
+                          )}
+                          step={0.05}
+                          type="number"
+                          value={
+                            overrides?.[threshold.field] === undefined
+                              ? ''
+                              : String(overrides[threshold.field])
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function renderWorkspaceStateIcon(input: {
@@ -564,6 +724,7 @@ export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
   isExpanded,
+  jevGates,
   onCreateChat,
   onCreateProject,
   onCreateWorkspace,
@@ -573,6 +734,7 @@ export default function SidebarTree({
   onSelectProject,
   onSelectWorkspace,
   onRenameWorkspace,
+  onUpdateJevGates,
   onUpdateProjectAppearance,
   projects,
   showProjectHints,
@@ -1107,6 +1269,8 @@ export default function SidebarTree({
           })}
         </div>
       </ScrollShadow>
+
+      <JevGatesSection gates={jevGates} onUpdate={onUpdateJevGates} />
 
       <div className="flex items-center gap-1 border-t border-border px-2 py-2">
         <Button

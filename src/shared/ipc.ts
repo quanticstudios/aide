@@ -36,6 +36,11 @@ import type {
 } from './git'
 import type { JevSettingsInput, JevSettingsStatus } from './jev'
 import type {
+  JevGateOverrides,
+  JevGateScope,
+  JevGateSnapshot,
+} from './jev-gates'
+import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
@@ -102,6 +107,8 @@ export const IPC_CHANNELS = {
   setComposerDefaults: 'composer:set-defaults',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
+  getJevGates: 'jev:get-gates',
+  updateJevGates: 'jev:update-gates',
   attachWorkspace: 'storage:attach-workspace',
   diagnosticsEvent: 'diagnostics:event',
   exportSupportBundle: 'diagnostics:export-support-bundle',
@@ -221,6 +228,12 @@ export interface AideApi {
     workspaceId: string,
     defaults: ComposerDefaults,
   ) => Promise<ComposerDefaults>
+  getJevGates: (workspaceId: string) => Promise<JevGateSnapshot>
+  updateJevGates: (
+    scope: JevGateScope,
+    workspaceId: string,
+    overrides: JevGateOverrides,
+  ) => Promise<JevGateSnapshot>
   getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>
   updateJevSettings: (
     workspaceId: string,

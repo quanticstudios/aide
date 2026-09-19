@@ -18,6 +18,10 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
+import type {
+  JevGateOverrides,
+  JevGateSnapshot,
+} from '../../../shared/jev-gates'
 import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
 import type { SavedTask } from '../../../shared/task-library'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
@@ -115,9 +119,41 @@ export default function AppShell({
   workspaceSummaries,
   children,
 }: AppShellProps) {
+  const jevGateWorkspaceId = activeWorkspace?.id ?? null
+  const [jevGates, setJevGates] = useState<JevGateSnapshot | null>(null)
   const fleetToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarShellRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!jevGateWorkspaceId) {
+      setJevGates(null)
+      return
+    }
+    let isCurrent = true
+    void window.aide
+      ?.getJevGates(jevGateWorkspaceId)
+      .then((snapshot) => {
+        if (isCurrent) setJevGates(snapshot)
+      })
+      .catch(() => {
+        if (isCurrent) setJevGates(null)
+      })
+    return () => {
+      isCurrent = false
+    }
+  }, [jevGateWorkspaceId])
+
+  const updateJevGates = useCallback(
+    (overrides: JevGateOverrides) => {
+      if (!jevGateWorkspaceId) return
+      void window.aide
+        ?.updateJevGates('workspace', jevGateWorkspaceId, overrides)
+        .then(setJevGates)
+        .catch(() => undefined)
+    },
+    [jevGateWorkspaceId],
+  )
   const [isTerminalOpen, setIsTerminalOpen] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -225,6 +261,7 @@ export default function AppShell({
           }
           activeWorkspaceId={activeWorkspace?.id ?? null}
           isExpanded={isSidebarExpanded}
+          jevGates={jevGates}
           onCreateChat={onCreateChat}
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
@@ -234,6 +271,7 @@ export default function AppShell({
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
           onRenameWorkspace={onRenameWorkspace}
+          onUpdateJevGates={updateJevGates}
           onUpdateProjectAppearance={onUpdateProjectAppearance}
           projects={projects}
           showProjectHints={showProjectHints}
@@ -338,6 +376,7 @@ export default function AppShell({
           <div className="fleet-drawer-shell" data-open={isFleetOpen}>
             <FleetDrawer
               isOpen={isFleetOpen}
+              jevGates={jevGates?.effective ?? null}
               onClose={closeFleet}
               sessionId={activeManagedSessionId}
             />

@@ -3,12 +3,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { FleetPlanNode, FleetState } from '../../../shared/fleet'
 import type { AideApi } from '../../../shared/ipc'
+import type { JevGateSettings } from '../../../shared/jev-gates'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import { summarizeManagedUsage } from '../../../shared/managed-usage'
 import { cn } from '../lib/utils'
 import { LiveFleetFlowchart, PlanDependencyFlow } from './FleetFlowchart'
 
 interface FleetDrawerProps {
+  readonly jevGates: JevGateSettings | null
   readonly isOpen: boolean
   readonly onClose: () => void
   readonly sessionId: string | null
@@ -17,6 +19,7 @@ interface FleetDrawerProps {
 interface FleetContentProps {
   readonly error: string | null
   readonly fleet: FleetState | null
+  readonly jevGates: JevGateSettings | null
   readonly isAccepting: boolean
   readonly onAcceptNode: (nodeId: string, accepted: boolean) => void
   readonly snapshot: ManagedSessionSnapshot | null
@@ -273,8 +276,9 @@ function EmptyState({ children }: { readonly children: string }) {
 
 function FleetLive({
   fleet,
+  jevGates,
   snapshot,
-}: Pick<FleetContentProps, 'fleet' | 'snapshot'>) {
+}: Pick<FleetContentProps, 'fleet' | 'jevGates' | 'snapshot'>) {
   if (!fleet || !snapshot)
     return (
       <EmptyState>
@@ -319,6 +323,7 @@ function FleetLive({
       <LiveFleetFlowchart
         agents={snapshot.agents ?? []}
         fleet={fleet}
+        gates={jevGates}
         key={snapshot.sessionId}
         snapshot={snapshot}
       />
@@ -482,7 +487,11 @@ export function FleetDrawerContent(props: FleetContentProps) {
             onAcceptNode={props.onAcceptNode}
           />
         ) : (
-          <FleetLive fleet={props.fleet} snapshot={props.snapshot} />
+          <FleetLive
+            fleet={props.fleet}
+            jevGates={props.jevGates}
+            snapshot={props.snapshot}
+          />
         )}
       </div>
     </>
@@ -491,6 +500,7 @@ export function FleetDrawerContent(props: FleetContentProps) {
 
 export default function FleetDrawer({
   isOpen,
+  jevGates,
   onClose,
   sessionId,
 }: FleetDrawerProps) {
@@ -570,6 +580,7 @@ export default function FleetDrawer({
         }
         fleet={fleet}
         isAccepting={isAccepting}
+        jevGates={jevGates}
         onAcceptNode={(nodeId, accepted) => void acceptNode(nodeId, accepted)}
         snapshot={snapshot}
       />

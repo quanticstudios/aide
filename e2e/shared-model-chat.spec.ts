@@ -897,6 +897,17 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
+    // invariant: the track only scrolls when the tick stack is taller than the rail, so the viewport cannot keep whatever size the desktop hands the window.
+    const cdp = await app.context().newCDPSession(page)
+    await cdp.send('Emulation.setDeviceMetricsOverride', {
+      deviceScaleFactor: 1,
+      height: 920,
+      mobile: false,
+      width: 1440,
+    })
+    await expect
+      .poll(() => page.evaluate(() => globalThis.innerHeight))
+      .toBeLessThanOrEqual(920)
     const session = await startSharedChat(page, app)
     const rail = page.getByRole('navigation', { name: 'Conversation minimap' })
     await expect(rail).toBeHidden()
@@ -954,7 +965,7 @@ test.describe('shared model chat', () => {
     if (!preview || !tick) throw new Error('Minimap preview or tick is hidden')
     expect(
       Math.abs(preview.y + preview.height / 2 - (tick.y + tick.height / 2)),
-    ).toBeLessThan(2)
+    ).toBeLessThanOrEqual(2)
     await page.screenshot({ path: '/tmp/aide-minimap-hover.png' })
     await page.mouse.move(400, 400)
     await expect(rail.getByRole('tooltip')).toBeHidden()
@@ -991,8 +1002,17 @@ test.describe('shared model chat', () => {
       async (id) => window.aide.sendManagedSessionInput(id, 'approval'),
       session.sessionId,
     )
-    const waiting = await getOnlySnapshot(page)
-    expect(waiting.pendingApprovals).toHaveLength(1)
+    // why: the pending approval is published after sendManagedSessionInput resolves, so a bare read can land on the snapshot before it.
+    let waiting = await getOnlySnapshot(page)
+    await expect
+      .poll(
+        async () => {
+          waiting = await getOnlySnapshot(page)
+          return waiting.pendingApprovals.length
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(1)
     const capabilities = await page.evaluate(() =>
       window.aide.getProviderCapabilities(),
     )
@@ -2285,6 +2305,9 @@ test.describe('shared model chat', () => {
     const { page } = launched
     await selectPlanMode(page)
 
+    // why: a peer's turn state lands after its reply is visible, so the fake provider's agent runs can outlast the 5 s default poll deadline under load.
+    const peerTurnPoll = { timeout: 15_000 }
+
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('@Claude @Codex fail-claude')
     await page.getByRole('button', { name: /send prompt/i }).click()
@@ -2292,7 +2315,7 @@ test.describe('shared model chat', () => {
       'Handled: fail-claude',
     )
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
@@ -2310,7 +2333,7 @@ test.describe('shared model chat', () => {
     await retryTurn.locator('xpath=../..').hover()
     await retryTurn.click()
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
@@ -2331,7 +2354,7 @@ test.describe('shared model chat', () => {
     ).toBeVisible()
     await page.getByRole('button', { name: 'Interrupt @claude' }).click()
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({

@@ -6,11 +6,13 @@ import type {
   FleetPlanNode,
   FleetState,
 } from '../../../shared/fleet'
+import type { JevGateSettings } from '../../../shared/jev-gates'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import {
   deriveLiveFleetFlow,
   type FleetFlowStatus,
   layoutFleetPlan,
+  type LiveFleetGateNode,
 } from '../lib/fleet-flow'
 import { cn } from '../lib/utils'
 import './FleetFlowchart.css'
@@ -241,6 +243,81 @@ function LiveEdgePath({
   )
 }
 
+const gateHeight = 30
+
+function GateNode({
+  gate,
+  height,
+  width,
+  x,
+  y,
+}: {
+  readonly gate: LiveFleetGateNode
+  readonly height: number
+  readonly width: number
+  readonly x: number
+  readonly y: number
+}) {
+  return (
+    <div
+      className="absolute z-10 flex flex-col justify-center overflow-hidden rounded-full border border-dashed border-primary/50 bg-surface px-3 text-center"
+      data-testid={`fleet-gate-${gate.section}`}
+      style={{ height, left: x, top: y, width }}
+    >
+      <span className="text-[9px] font-semibold uppercase tracking-[0.11em] text-primary-on-dark">
+        Gate · {gate.title}
+      </span>
+      <span className="truncate text-[10px] text-muted-foreground">
+        {gate.subtitle}
+      </span>
+    </div>
+  )
+}
+
+function routeEdgesThroughGates(
+  edges: readonly LiveEdge[],
+  gates: readonly LiveFleetGateNode[],
+  positions: ReadonlyMap<string, LiveNodePosition>,
+): LiveEdge[] {
+  let routed = [...edges]
+  for (const gate of gates) {
+    const gatePosition = positions.get(gate.id)
+    if (!gatePosition) continue
+    if (gate.targetId === null) {
+      for (const sourceId of gate.sourceIds) {
+        const from = positions.get(sourceId)
+        if (!from) continue
+        routed.push({
+          from,
+          id: `${gate.id}-in`,
+          label: 'tools',
+          status: 'idle',
+          to: gatePosition,
+        })
+      }
+      continue
+    }
+    const target = positions.get(gate.targetId)
+    if (!target) continue
+    const intercepted = routed.filter(
+      (edge) =>
+        gate.sourceIds.includes(edge.from.id) && edge.to.id === gate.targetId,
+    )
+    if (intercepted.length === 0) continue
+    routed = routed.map((edge) =>
+      intercepted.includes(edge) ? { ...edge, to: gatePosition } : edge,
+    )
+    routed.push({
+      from: gatePosition,
+      id: `${gate.id}-out`,
+      label: 'pass',
+      status: intercepted[0]?.status ?? 'idle',
+      to: target,
+    })
+  }
+  return routed
+}
+
 function eventSubtitle(event: FleetEvent | null, fallback: string): string {
   if (!event) return fallback
   if (event.status === 'started') return 'Observed running'
@@ -250,10 +327,12 @@ function eventSubtitle(event: FleetEvent | null, fallback: string): string {
 export function LiveFleetFlowchart({
   agents,
   fleet,
+  gates,
   snapshot,
 }: {
   readonly agents: readonly ManagedSessionAgentConfig[]
   readonly fleet: FleetState
+  readonly gates: JevGateSettings | null
   readonly snapshot: ManagedSessionSnapshot
 }) {
   const markerId = useId()
@@ -281,6 +360,7 @@ export function LiveFleetFlowchart({
     agents.map((agent) => agent.alias),
     activeActivityIds,
     activeTurnIds,
+    gates ?? undefined,
   )
   const detailEvent = selectedEvent ?? flow.decisionEvent
   const canvasWidth = 420
@@ -295,25 +375,76 @@ export function LiveFleetFlowchart({
     y: 18,
   }
   const jev = { ...orchestrator, id: 'jev', y: 112 }
-  const decision = { ...orchestrator, id: 'decision', y: 206 }
+  const laneGate =
+    flow.gates.find((gate) => gate.section === 'laneRouting') ?? null
+  const completionGate =
+    flow.gates.find((gate) => gate.section === 'completionCheck') ?? null
+  const toolGates = flow.gates.filter((gate) => gate.section === 'toolGate')
+  const gateWidth = 172
+  const gateX = (canvasWidth - gateWidth) / 2
+  const laneGatePosition = laneGate
+    ? {
+        height: gateHeight,
+        id: laneGate.id,
+        width: gateWidth,
+        x: gateX,
+        y: jev.y + nodeHeight + 18,
+      }
+    : null
+  const decision = {
+    ...orchestrator,
+    id: 'decision',
+    y: laneGatePosition ? laneGatePosition.y + gateHeight + 18 : 206,
+  }
   const agentGap = 12
   const agentWidth = (canvasWidth - 20 - agentGap) / 2
-  const agentStartY = 300
+  const agentStartY = decision.y + 94
+  const toolGateBand = toolGates.length > 0 ? gateHeight + 12 : 0
+  const agentRowHeight = 84 + toolGateBand
   const agentPositions = agents.map((agent, index) => ({
     height: nodeHeight,
     id: `agent-${agent.alias}`,
     width: agentWidth,
     x: 10 + (index % 2) * (agentWidth + agentGap),
-    y: agentStartY + Math.floor(index / 2) * 84,
+    y: agentStartY + Math.floor(index / 2) * agentRowHeight,
   }))
   const agentRows = Math.max(1, Math.ceil(agents.length / 2))
+  const toolGatePositions = toolGates.flatMap((gate, index) => {
+    const agentPosition = agentPositions[index]
+    if (!agentPosition) return []
+    return [
+      {
+        gate,
+        position: {
+          height: gateHeight,
+          id: gate.id,
+          width: agentWidth - 40,
+          x: agentPosition.x + 20,
+          y: agentPosition.y + nodeHeight + 12,
+        },
+      },
+    ]
+  })
+  const agentsBottom =
+    agentStartY + (agentRows - 1) * agentRowHeight + nodeHeight + toolGateBand
+  const completionGatePosition = completionGate
+    ? {
+        height: gateHeight,
+        id: completionGate.id,
+        width: gateWidth,
+        x: gateX,
+        y: agentsBottom + 22,
+      }
+    : null
   const outcome = {
     ...orchestrator,
     id: 'outcome',
-    y: agentStartY + agentRows * 84 + 20,
+    y: completionGatePosition
+      ? completionGatePosition.y + gateHeight + 22
+      : agentsBottom + 46,
   }
   const canvasHeight = outcome.y + nodeHeight + 18
-  const edges: LiveEdge[] = [
+  const baseEdges: LiveEdge[] = [
     {
       from: orchestrator,
       id: 'prepare',
@@ -375,6 +506,19 @@ export function LiveFleetFlowchart({
           ] satisfies LiveEdge[]
         })),
   ]
+  const positions = new Map<string, LiveNodePosition>(
+    [
+      orchestrator,
+      jev,
+      decision,
+      outcome,
+      ...agentPositions,
+      ...(laneGatePosition ? [laneGatePosition] : []),
+      ...(completionGatePosition ? [completionGatePosition] : []),
+      ...toolGatePositions.map((entry) => entry.position),
+    ].map((position) => [position.id, position]),
+  )
+  const edges = routeEdgesThroughGates(baseEdges, flow.gates, positions)
 
   return (
     <section className="space-y-3" data-testid="fleet-live-flow">
@@ -491,6 +635,34 @@ export function LiveFleetFlowchart({
               />
             )
           })}
+          {laneGate && laneGatePosition ? (
+            <GateNode
+              gate={laneGate}
+              height={laneGatePosition.height}
+              width={laneGatePosition.width}
+              x={laneGatePosition.x}
+              y={laneGatePosition.y}
+            />
+          ) : null}
+          {toolGatePositions.map(({ gate, position }) => (
+            <GateNode
+              gate={gate}
+              height={position.height}
+              key={gate.id}
+              width={position.width}
+              x={position.x}
+              y={position.y}
+            />
+          ))}
+          {completionGate && completionGatePosition ? (
+            <GateNode
+              gate={completionGate}
+              height={completionGatePosition.height}
+              width={completionGatePosition.width}
+              x={completionGatePosition.x}
+              y={completionGatePosition.y}
+            />
+          ) : null}
           <FlowNode
             animateRunning
             ariaLabel={`Conversation outcome, ${flow.outcomeStatus}`}
