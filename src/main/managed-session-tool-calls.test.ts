@@ -72,6 +72,50 @@ function createClaudeToolQuery(prompt: AsyncIterable<unknown>) {
   }
 }
 
+function createClaudeQuery(
+  prompt: AsyncIterable<unknown>,
+  messages: unknown[],
+) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield {
+        model: 'claude-test',
+        subtype: 'init',
+        type: 'system',
+        uuid: 'init-event',
+      }
+      await prompt[Symbol.asyncIterator]().next()
+      yield* messages
+      yield {
+        modelUsage: {},
+        session_id: 'session',
+        subtype: 'success',
+        total_cost_usd: 0,
+        type: 'result',
+        uuid: 'result-event',
+      }
+    },
+    close: vi.fn(),
+    interrupt: vi.fn(),
+  }
+}
+
+async function startClaudeSession() {
+  const manager = new ManagedSessionManager({
+    onRuntimeEvent: () => undefined,
+    onUpdate: () => undefined,
+  })
+  await manager.createSession({
+    cwd: '/tmp/workspace',
+    mode: 'claude',
+    paneId: 'pane',
+    readOnly: true,
+    sessionId: 'session',
+    workspaceId: 'workspace',
+  })
+  return manager
+}
+
 async function waitForCompletedTurn(manager: ManagedSessionManager) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const snapshot = manager.getSnapshots().session
@@ -188,6 +232,152 @@ describe('tool call content items', () => {
     expect(tool?.files).toEqual([{ path: 'README.md', status: 'modified' }])
     expect(tool?.diff).toContain('-before')
     expect(tool?.diff).toContain('+after')
+  })
+
+  it('maps a Claude TodoWrite call to a task list', async () => {
+    query.mockImplementation(({ prompt }) =>
+      createClaudeQuery(prompt, [
+        {
+          message: {
+            id: 'assistant-1',
+            content: [
+              {
+                id: 'call-todos',
+                input: {
+                  todos: [
+                    { content: 'Read the ticket', status: 'completed' },
+                    { content: 'Write the checklist', status: 'in_progress' },
+                    { content: 'Ship the PR', status: 'pending' },
+                  ],
+                },
+                name: 'TodoWrite',
+                type: 'tool_use',
+              },
+            ],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: null,
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-event',
+        },
+      ]),
+    )
+    const manager = await startClaudeSession()
+    await manager.sendInput('session', 'plan the work')
+    const snapshot = await waitForCompletedTurn(manager)
+    const tool = snapshot.content.find(
+      (item) => item.kind === 'tool-call',
+    )?.tool
+
+    expect(tool?.toolName).toBe('TodoWrite')
+    expect(tool?.tasks).toEqual([
+      { status: 'completed', subject: 'Read the ticket' },
+      { status: 'in_progress', subject: 'Write the checklist' },
+      { status: 'pending', subject: 'Ship the PR' },
+    ])
+
+    await manager.closeAll()
+  })
+
+  it('nests subagent text and task progress under the parent Task call', async () => {
+    query.mockImplementation(({ prompt }) =>
+      createClaudeQuery(prompt, [
+        {
+          message: {
+            id: 'assistant-1',
+            content: [
+              {
+                id: 'call-task',
+                input: { description: 'Explore the repo', prompt: 'Explore' },
+                name: 'Task',
+                type: 'tool_use',
+              },
+            ],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: null,
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-event',
+        },
+        {
+          message: {
+            id: 'assistant-sub-1',
+            content: [{ text: 'Listing the repo root.', type: 'text' }],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: 'call-task',
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-sub-1-event',
+        },
+        {
+          message: {
+            id: 'assistant-sub-2',
+            content: [{ text: ' Found 12 source files.', type: 'text' }],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: 'call-task',
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-sub-2-event',
+        },
+        {
+          description: 'Explore the repo',
+          session_id: 'session',
+          subtype: 'task_progress',
+          summary: 'Reading src/main',
+          task_id: 'task-1',
+          tool_use_id: 'call-task',
+          type: 'system',
+          usage: { duration_ms: 1, tool_uses: 1, total_tokens: 1 },
+          uuid: 'task-progress-event',
+        },
+        {
+          message: {
+            content: [
+              {
+                content: 'Done.',
+                is_error: false,
+                tool_use_id: 'call-task',
+                type: 'tool_result',
+              },
+            ],
+            role: 'user',
+          },
+          parent_tool_use_id: null,
+          session_id: 'session',
+          type: 'user',
+          uuid: 'user-event',
+        },
+      ]),
+    )
+    const manager = await startClaudeSession()
+    await manager.sendInput('session', 'explore')
+    const snapshot = await waitForCompletedTurn(manager)
+    const toolCalls = snapshot.content.filter(
+      (item) => item.kind === 'tool-call',
+    )
+
+    expect(toolCalls).toHaveLength(1)
+    expect(toolCalls[0]?.tool).toMatchObject({
+      progress: 'Reading src/main',
+      status: 'completed',
+      toolName: 'Task',
+    })
+    expect(toolCalls[0]?.tool?.output).toBe(
+      'Listing the repo root. Found 12 source files.Done.',
+    )
+    expect(
+      snapshot.content.filter((item) => item.kind === 'reasoning-summary-text'),
+    ).toHaveLength(0)
+
+    await manager.closeAll()
   })
 
   it('completes a Codex commandExecution item with exit code and output', async () => {

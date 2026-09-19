@@ -38,6 +38,12 @@ export type ManagedProviderRuntimeContentKind =
   | 'system'
   | 'tool-call'
 
+/** One entry of a provider-reported task list. */
+export interface ManagedProviderRuntimeTask {
+  status: 'pending' | 'in_progress' | 'completed'
+  subject: string
+}
+
 /** One provider tool invocation and everything known about it so far. */
 export interface ManagedProviderRuntimeToolCall {
   callId: string
@@ -47,7 +53,11 @@ export interface ManagedProviderRuntimeToolCall {
   files?: { path: string; status: string }[]
   input: unknown
   output?: string
+  /** One-line status the provider reports while the call runs. */
+  progress?: string
   status: 'running' | 'completed' | 'failed'
+  /** Present only on task-list calls such as `TodoWrite`. */
+  tasks?: ManagedProviderRuntimeTask[]
   toolName: string
 }
 
