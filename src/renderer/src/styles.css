@@ -298,6 +298,25 @@
   --radius-pill: 9999px;
 }
 
+/* ── Overlay radius grammar (DESIGN.md §Border Radius Scale) ──────────── */
+
+/* why: HeroUI rounds overlay containers to 24px and their rows to 16px from Tailwind's
+   default scale, which this file never redefines; one rule per role keeps every menu on
+   the app scale without a class on each component. */
+.popover,
+.select__popover,
+.dropdown__popover,
+.tooltip,
+[cmdk-root],
+[data-model-selector-menu] {
+  border-radius: var(--radius-md);
+}
+
+.menu-item,
+.list-box-item {
+  border-radius: var(--radius-sm);
+}
+
 /* ── Utility classes (DESIGN.md primitives) ──────── */
 
 .keycap {

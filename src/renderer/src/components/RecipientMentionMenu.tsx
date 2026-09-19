@@ -65,7 +65,7 @@ export default function RecipientMentionMenu({
                 tabIndex={-1}
               >
                 <Button
-                  className={`flex h-auto w-full flex-col items-start gap-0 rounded-lg px-3 py-2 text-left transition-colors ${
+                  className={`flex h-auto w-full flex-col items-start gap-0 rounded-sm px-3 py-2 text-left transition-colors ${
                     index === activeIndex
                       ? 'bg-surface-tertiary text-foreground'
                       : 'text-foreground/80 hover:bg-surface-secondary'
@@ -100,7 +100,7 @@ export default function RecipientMentionMenu({
                   tabIndex={-1}
                 >
                   <Button
-                    className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left transition-colors ${
+                    className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-sm px-2 text-left transition-colors ${
                       index === activeIndex
                         ? 'bg-surface-tertiary text-foreground'
                         : 'text-foreground/80 hover:bg-surface-secondary'
@@ -142,7 +142,7 @@ export default function RecipientMentionMenu({
               tabIndex={-1}
             >
               <Button
-                className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left transition-colors ${
+                className={`flex h-8 w-full min-w-0 justify-start gap-2 rounded-sm px-2 text-left transition-colors ${
                   index === activeIndex
                     ? 'bg-surface-tertiary text-foreground'
                     : 'text-foreground/80 hover:bg-surface-secondary'

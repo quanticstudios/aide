@@ -102,7 +102,7 @@ export default function ConfiguredAgentSettings({
         Agents
       </button>
       {isOpen ? (
-        <div className="absolute bottom-full left-0 z-50 mb-1 w-80 rounded-xl border border-border bg-surface p-3 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+        <div className="absolute bottom-full left-0 z-50 mb-1 w-80 rounded-md border border-border bg-surface p-3 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-foreground">
@@ -124,7 +124,7 @@ export default function ConfiguredAgentSettings({
           <div className="mt-3 space-y-2">
             {agents.map((agent) => (
               <div
-                className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-2.5 py-2"
+                className="flex items-center justify-between gap-3 rounded-sm border border-border/60 px-2.5 py-2"
                 key={agent.alias}
               >
                 <span className="text-sm font-semibold text-foreground">

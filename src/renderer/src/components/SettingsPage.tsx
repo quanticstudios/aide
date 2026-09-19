@@ -471,7 +471,7 @@ export default function SettingsPage({
                       setSelectedAnimation(preference)
                     }}
                   >
-                    <Select.Trigger className="h-8 min-h-8 rounded-lg bg-surface-3 text-[13px]">
+                    <Select.Trigger className="h-8 min-h-8 rounded-md bg-surface-3 text-[13px]">
                       <Select.Value />
                       <Select.Indicator />
                     </Select.Trigger>
