@@ -13,10 +13,10 @@ export function writeGlobalSidebarOpen(isOpen: boolean): void {
   )
 }
 
-/** Resolves the sidebar state a workspace should show. */
+/** Resolves the sidebar state a workspace should show, falling back while it has none of its own. */
 export function resolveSidebarOpen(
   workspaceSidebarOpen: boolean | null | undefined,
-  globalSidebarOpen: boolean,
+  fallbackSidebarOpen: boolean,
 ): boolean {
-  return workspaceSidebarOpen ?? globalSidebarOpen
+  return workspaceSidebarOpen ?? fallbackSidebarOpen
 }

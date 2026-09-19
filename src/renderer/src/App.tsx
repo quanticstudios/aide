@@ -2371,8 +2371,9 @@ function WorkspaceApp() {
     const workspace = storageSnapshotRef.current?.workspaces.find(
       (candidate) => candidate.id === activeSidebarWorkspaceId,
     )
-    setIsSidebarOpen(
-      resolveSidebarOpen(workspace?.sidebarOpen, readGlobalSidebarOpen()),
+    // why: a workspace that has never been toggled keeps the sidebar it was switched from, so creating workspaces in a row does not flap the layout.
+    setIsSidebarOpen((current) =>
+      resolveSidebarOpen(workspace?.sidebarOpen, current),
     )
   }, [activeSidebarWorkspaceId])
 
