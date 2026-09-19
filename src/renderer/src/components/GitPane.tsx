@@ -603,34 +603,28 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
       className="git-pane flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       data-testid="git-pane"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            <GitBranch className="size-3.5" />
-            Git review surface
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-[-0.374px] text-foreground">
-              {status.branchName}
-            </h2>
-            <Chip
-              color={status.hasStagedChanges ? 'warning' : 'default'}
-              size="sm"
-              variant="secondary"
-            >
-              {status.hasStagedChanges ? 'Staged changes' : 'No staged changes'}
-            </Chip>
-            <Chip
-              color={status.hasUnstagedChanges ? 'danger' : 'default'}
-              size="sm"
-              variant="secondary"
-            >
-              {status.hasUnstagedChanges
-                ? 'Unstaged changes'
-                : 'Working tree clean'}
-            </Chip>
-          </div>
-          <p className="text-xs text-muted-foreground">{status.worktreePath}</p>
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+          <h2 className="truncate text-lg font-semibold tracking-[-0.374px] text-foreground">
+            {status.branchName}
+          </h2>
+          <Chip
+            color={status.hasStagedChanges ? 'warning' : 'default'}
+            size="sm"
+            variant="secondary"
+          >
+            {status.hasStagedChanges ? 'Staged changes' : 'No staged changes'}
+          </Chip>
+          <Chip
+            color={status.hasUnstagedChanges ? 'danger' : 'default'}
+            size="sm"
+            variant="secondary"
+          >
+            {status.hasUnstagedChanges
+              ? 'Unstaged changes'
+              : 'Working tree clean'}
+          </Chip>
         </div>
 
         <Button onPress={() => void refreshStatus()} size="sm" variant="ghost">
@@ -638,6 +632,10 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           {isLoading ? 'Refreshing…' : 'Refresh'}
         </Button>
       </div>
+
+      <p className="truncate border-b border-border px-5 py-2 text-xs text-muted-foreground">
+        {status.worktreePath}
+      </p>
 
       {actionError ? (
         <div className="border-b border-accent-red bg-accent-red-soft px-5 py-2 text-sm text-accent-red">

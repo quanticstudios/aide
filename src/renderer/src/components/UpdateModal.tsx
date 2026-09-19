@@ -5,18 +5,8 @@ import {
   Label,
   Modal,
   ProgressBar,
-  Spinner,
   Switch,
 } from '@heroui/react'
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Download,
-  LoaderCircle,
-  RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
-} from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import {
@@ -24,6 +14,7 @@ import {
   getUpdateProgressAnnouncement,
   resolveUpdatePresentation,
 } from '@/lib/update-presentation'
+import type { UpdatePresentationTone } from '@/lib/update-presentation'
 import type {
   UpdatePreferencesInput,
   UpdatePreferencesSnapshot,
@@ -59,37 +50,20 @@ type PendingAction =
   | 'retry'
   | 'snooze'
 
-function StatusIcon({
-  icon,
-}: {
-  readonly icon: ReturnType<typeof resolveUpdatePresentation>['icon']
-}) {
-  const className = 'size-5'
+// why: the theme flattens --accent, so a variant="primary" button needs the Action Blue tokens to read as the filled action.
+const PRIMARY_ACTION_CLASS = 'min-h-10 bg-primary text-primary-foreground'
 
-  switch (icon) {
-    case 'critical':
-      return <ShieldAlert aria-hidden="true" className={className} />
-    case 'failed':
-      return <AlertTriangle aria-hidden="true" className={className} />
-    case 'ready':
-      return <CheckCircle2 aria-hidden="true" className={className} />
-    case 'available':
-      return <Download aria-hidden="true" className={className} />
-    case 'privacy':
-      return <ShieldCheck aria-hidden="true" className={className} />
-    case 'downloading':
-      return (
-        <LoaderCircle
-          aria-hidden="true"
-          className={`${className} animate-spin`}
-        />
-      )
-    case 'idle':
-      return <RefreshCw aria-hidden="true" className={className} />
-  }
+const STATUS_PILL_CLASSES: Record<UpdatePresentationTone, string> = {
+  critical: 'bg-accent-red-soft text-accent-red',
+  danger: 'bg-accent-red-soft text-accent-red',
+  info: 'bg-accent-blue-soft text-accent-blue',
+  neutral: 'bg-foreground/10 text-muted-foreground',
+  success: 'bg-accent-green-soft text-accent-green',
+  warning: 'bg-accent-yellow-soft text-accent-yellow',
 }
 
 function SettingSwitch({
+  className,
   description,
   isDisabled,
   isPending,
@@ -97,6 +71,7 @@ function SettingSwitch({
   label,
   onChange,
 }: {
+  readonly className?: string
   readonly description: string
   readonly isDisabled?: boolean
   readonly isPending: boolean
@@ -106,17 +81,18 @@ function SettingSwitch({
 }) {
   return (
     <Switch
+      className={className}
       isDisabled={isDisabled || isPending}
       isSelected={isSelected}
       onChange={onChange}
     >
       <Switch.Content className="min-h-10 gap-3">
-        <Switch.Control>
+        <Switch.Control className="ring-1 ring-border ring-inset">
           <Switch.Thumb />
         </Switch.Control>
         <span className="text-sm font-medium text-foreground">{label}</span>
       </Switch.Content>
-      <Description className="pl-11 text-xs leading-5 text-muted-foreground">
+      <Description className="pl-13 text-xs leading-5 text-muted-foreground">
         {description}
       </Description>
     </Switch>
@@ -164,6 +140,10 @@ export default function UpdateModal({
   }
 
   const isBusy = pendingAction !== null
+  const isAlarming =
+    presentation.tone === 'critical' || presentation.tone === 'danger'
+  const isHealthAcknowledged =
+    preferences?.healthDisclosureAcknowledged ?? false
   const progressValue = Math.min(
     100,
     Math.max(0, snapshot?.progress?.percent ?? 0),
@@ -184,39 +164,34 @@ export default function UpdateModal({
             data-testid="update-modal"
           >
             <Modal.Header>
-              <Modal.Icon
-                className={
-                  presentation.isCritical
-                    ? 'bg-accent-red-soft text-accent-red'
-                    : presentation.tone === 'danger'
-                      ? 'bg-accent-red-soft text-accent-red'
-                      : 'bg-accent-blue-soft text-accent-blue'
-                }
-              >
-                <StatusIcon icon={presentation.icon} />
-              </Modal.Icon>
-              <Modal.Heading>{presentation.heading}</Modal.Heading>
+              <div className="flex flex-wrap items-center gap-2">
+                <Modal.Heading>Updates</Modal.Heading>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_PILL_CLASSES[presentation.tone]}`}
+                >
+                  {presentation.indicatorLabel}
+                </span>
+              </div>
             </Modal.Header>
 
-            <Modal.Body className="gap-5 overflow-y-auto">
-              <p
-                className="text-sm leading-6 text-muted-foreground"
-                id="software-update-description"
-              >
-                {presentation.description}
-              </p>
-
-              {presentation.capabilityExplanation ? (
-                <Alert status="warning">
+            <Modal.Body className="space-y-5 overflow-y-auto">
+              {isAlarming ? (
+                <Alert status="danger">
                   <Alert.Indicator />
                   <Alert.Content>
-                    <Alert.Title>Automatic updates unavailable</Alert.Title>
-                    <Alert.Description>
-                      {presentation.capabilityExplanation}
-                    </Alert.Description>
+                    <Alert.Title id="software-update-description">
+                      {presentation.description}
+                    </Alert.Title>
                   </Alert.Content>
                 </Alert>
-              ) : null}
+              ) : (
+                <p
+                  className="text-sm leading-6 text-muted-foreground"
+                  id="software-update-description"
+                >
+                  {presentation.description}
+                </p>
+              )}
 
               {snapshot?.phase === 'downloading' ? (
                 <ProgressBar
@@ -245,8 +220,7 @@ export default function UpdateModal({
                 <Alert status="danger">
                   <Alert.Indicator />
                   <Alert.Content>
-                    <Alert.Title>Action could not be completed</Alert.Title>
-                    <Alert.Description>{actionError}</Alert.Description>
+                    <Alert.Title>{actionError}</Alert.Title>
                   </Alert.Content>
                 </Alert>
               ) : null}
@@ -256,48 +230,35 @@ export default function UpdateModal({
                   <Alert.Indicator />
                   <Alert.Content>
                     <Alert.Title>
-                      Confirm before interrupting active work
-                    </Alert.Title>
-                    <Alert.Description>
                       {restartSummary.detail} Restarting Aide will stop them.
-                    </Alert.Description>
+                    </Alert.Title>
                   </Alert.Content>
                 </Alert>
               ) : null}
 
               {restartStatus?.restarting ? (
-                <Alert status="success">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Title>Restart requested</Alert.Title>
-                    <Alert.Description>
-                      Aide is restarting to install the verified update.
-                    </Alert.Description>
-                  </Alert.Content>
-                </Alert>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  Restart requested. Aide is restarting to install the verified
+                  update.
+                </p>
               ) : null}
 
               <section
                 aria-labelledby="update-settings-heading"
-                className="space-y-4 rounded-lg border border-border bg-surface-secondary p-4"
+                className="space-y-4"
               >
-                <div>
-                  <h3
-                    className="text-sm font-semibold text-foreground"
-                    id="update-settings-heading"
-                  >
-                    Update settings
-                  </h3>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Preferences are stored on this device and apply immediately.
-                  </p>
-                </div>
+                <h3
+                  className="text-sm font-semibold text-foreground"
+                  id="update-settings-heading"
+                >
+                  Settings
+                </h3>
 
                 <SettingSwitch
                   description={
                     snapshot?.capability === 'supported'
-                      ? 'Download signed updates in the background. Aide never restarts without confirmation.'
-                      : 'Available only in packaged builds that support automatic updates.'
+                      ? 'Signed updates download in the background. Aide never restarts on its own.'
+                      : 'Available only in packaged builds with automatic updates.'
                   }
                   isDisabled={
                     !preferences || snapshot?.capability !== 'supported'
@@ -312,40 +273,38 @@ export default function UpdateModal({
                   }
                 />
 
-                <SettingSwitch
-                  description={
-                    preferences?.healthDisclosureAcknowledged
-                      ? 'Share version, platform, update timing, and coarse failure codes. Reports never include projects, paths, prompts, or source code.'
-                      : 'Acknowledge the disclosure below before health reporting can be enabled.'
-                  }
-                  isDisabled={!preferences?.healthDisclosureAcknowledged}
-                  isPending={pendingAction === 'health-reporting'}
-                  isSelected={
-                    (preferences?.healthDisclosureAcknowledged &&
-                      preferences.healthReportingEnabled) ??
-                    false
-                  }
-                  label="Share privacy-bounded update health reports"
-                  onChange={(selected) =>
-                    void runAction('health-reporting', () =>
-                      onUpdatePreferences({ healthReportingEnabled: selected }),
-                    )
-                  }
-                />
-
-                <div className="rounded-md border border-border bg-background p-3">
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    Health reports are sent only after you acknowledge this
-                    disclosure. You can withdraw that acknowledgement at any
-                    time.
-                  </p>
+                <div className="flex items-start justify-between gap-3">
+                  <SettingSwitch
+                    className="min-w-0 flex-1"
+                    description="Version, platform, update timing, and failure codes. Never code or prompts."
+                    isDisabled={!isHealthAcknowledged}
+                    isPending={pendingAction === 'health-reporting'}
+                    isSelected={
+                      (isHealthAcknowledged &&
+                        preferences?.healthReportingEnabled) ??
+                      false
+                    }
+                    label="Share privacy-bounded update health reports"
+                    onChange={(selected) =>
+                      void runAction('health-reporting', () =>
+                        onUpdatePreferences({
+                          healthReportingEnabled: selected,
+                        }),
+                      )
+                    }
+                  />
                   <Button
-                    className="mt-3 min-h-10"
+                    aria-label={
+                      isHealthAcknowledged
+                        ? 'Withdraw health report approval'
+                        : 'Acknowledge health report disclosure'
+                    }
+                    className="min-h-10 shrink-0"
                     isDisabled={!preferences}
                     isPending={pendingAction === 'disclosure'}
                     onPress={() =>
                       void runAction('disclosure', () =>
-                        preferences?.healthDisclosureAcknowledged
+                        isHealthAcknowledged
                           ? onUpdatePreferences({
                               healthDisclosureAcknowledged: false,
                               healthReportingEnabled: false,
@@ -357,11 +316,9 @@ export default function UpdateModal({
                       )
                     }
                     size="sm"
-                    variant="secondary"
+                    variant={isHealthAcknowledged ? 'ghost' : 'secondary'}
                   >
-                    {preferences?.healthDisclosureAcknowledged
-                      ? 'Withdraw approval and disable health reporting'
-                      : 'Acknowledge and enable health reporting'}
+                    {isHealthAcknowledged ? 'Withdraw' : 'Acknowledge'}
                   </Button>
                 </div>
               </section>
@@ -372,7 +329,7 @@ export default function UpdateModal({
                 className="min-h-10"
                 isDisabled={isBusy}
                 onPress={() => onOpenChange(false)}
-                variant="secondary"
+                variant="ghost"
               >
                 Close
               </Button>
@@ -391,7 +348,7 @@ export default function UpdateModal({
 
               {presentation.canCheck ? (
                 <Button
-                  className="min-h-10"
+                  className={PRIMARY_ACTION_CLASS}
                   isDisabled={isBusy}
                   isPending={pendingAction === 'check'}
                   onPress={() => void runAction('check', onCheck)}
@@ -402,7 +359,9 @@ export default function UpdateModal({
 
               {presentation.canDownload ? (
                 <Button
-                  className="min-h-10"
+                  className={
+                    presentation.isCritical ? 'min-h-10' : PRIMARY_ACTION_CLASS
+                  }
                   isDisabled={isBusy}
                   isPending={pendingAction === 'download'}
                   onPress={() => void runAction('download', onDownload)}
@@ -414,7 +373,7 @@ export default function UpdateModal({
 
               {presentation.canRetry ? (
                 <Button
-                  className="min-h-10"
+                  className={PRIMARY_ACTION_CLASS}
                   isDisabled={isBusy}
                   isPending={pendingAction === 'retry'}
                   onPress={() => void runAction('retry', onRetry)}
@@ -427,7 +386,9 @@ export default function UpdateModal({
               !restartStatus?.confirmationRequired &&
               !restartStatus?.restarting ? (
                 <Button
-                  className="min-h-10"
+                  className={
+                    presentation.isCritical ? 'min-h-10' : PRIMARY_ACTION_CLASS
+                  }
                   isDisabled={isBusy}
                   isPending={pendingAction === 'restart'}
                   onPress={() => void runAction('restart', onRequestRestart)}
@@ -450,13 +411,6 @@ export default function UpdateModal({
                   Restart and stop {restartSummary.activeCount} active{' '}
                   {restartSummary.activeCount === 1 ? 'task' : 'tasks'}
                 </Button>
-              ) : null}
-
-              {isBusy ? (
-                <span className="inline-flex min-h-10 items-center gap-2 text-xs text-muted-foreground">
-                  <Spinner color="current" size="sm" />
-                  Updating…
-                </span>
               ) : null}
             </Modal.Footer>
           </Modal.Dialog>
