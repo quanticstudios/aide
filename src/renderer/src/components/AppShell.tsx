@@ -46,6 +46,8 @@ interface AppShellProps {
   readonly isSidebarOpen: boolean
   readonly onToggleSidebar: () => void
   readonly isFleetOpen: boolean
+  readonly jevGates: JevGateSnapshot | null
+  readonly onUpdateWorkspaceJevGates: (overrides: JevGateOverrides) => void
   readonly onFleetOpenChange: (isOpen: boolean) => void
   readonly onClosePane: (paneId: string) => void
   readonly onCloseSurface: (surfaceId: string) => void
@@ -93,6 +95,8 @@ export default function AppShell({
   isSidebarOpen,
   onToggleSidebar,
   isFleetOpen,
+  jevGates,
+  onUpdateWorkspaceJevGates,
   onFleetOpenChange,
   onClosePane,
   onCloseSurface,
@@ -119,41 +123,10 @@ export default function AppShell({
   workspaceSummaries,
   children,
 }: AppShellProps) {
-  const jevGateWorkspaceId = activeWorkspace?.id ?? null
-  const [jevGates, setJevGates] = useState<JevGateSnapshot | null>(null)
   const fleetToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarShellRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    if (!jevGateWorkspaceId) {
-      setJevGates(null)
-      return
-    }
-    let isCurrent = true
-    void window.aide
-      ?.getJevGates(jevGateWorkspaceId)
-      .then((snapshot) => {
-        if (isCurrent) setJevGates(snapshot)
-      })
-      .catch(() => {
-        if (isCurrent) setJevGates(null)
-      })
-    return () => {
-      isCurrent = false
-    }
-  }, [jevGateWorkspaceId])
-
-  const updateJevGates = useCallback(
-    (overrides: JevGateOverrides) => {
-      if (!jevGateWorkspaceId) return
-      void window.aide
-        ?.updateJevGates('workspace', jevGateWorkspaceId, overrides)
-        .then(setJevGates)
-        .catch(() => undefined)
-    },
-    [jevGateWorkspaceId],
-  )
   const [isTerminalOpen, setIsTerminalOpen] = useState(() => {
     if (typeof window === 'undefined') {
       return false
@@ -261,7 +234,8 @@ export default function AppShell({
           }
           activeWorkspaceId={activeWorkspace?.id ?? null}
           isExpanded={isSidebarExpanded}
-          jevGates={jevGates}
+          /* why: the sidebar rows edit the workspace layer, which needs a workspace. */
+          jevGates={activeWorkspace ? jevGates : null}
           onCreateChat={onCreateChat}
           onCreateProject={onCreateProject}
           onCreateWorkspace={onCreateWorkspace}
@@ -271,7 +245,7 @@ export default function AppShell({
           onSelectPane={onSelectPane}
           onSelectWorkspace={onSelectWorkspace}
           onRenameWorkspace={onRenameWorkspace}
-          onUpdateJevGates={updateJevGates}
+          onUpdateJevGates={onUpdateWorkspaceJevGates}
           onUpdateProjectAppearance={onUpdateProjectAppearance}
           projects={projects}
           showProjectHints={showProjectHints}

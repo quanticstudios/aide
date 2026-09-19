@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
+import { resolveJevGates } from '../../../shared/jev-gates'
+
 import SettingsPage, {
   filterSettingsShortcutGroups,
   SETTINGS_SHORTCUT_GROUPS,
@@ -43,7 +45,9 @@ describe('SettingsPage', () => {
   it('renders persisted preferences and searchable shortcut groups', () => {
     const markup = renderToStaticMarkup(
       <SettingsPage
+        jevGates={null}
         onClose={vi.fn()}
+        onUpdateGlobalJevGates={vi.fn()}
         onOpenUpdate={vi.fn()}
         onUpdatePreferences={vi.fn()}
         updatePreferences={{
@@ -72,5 +76,32 @@ describe('SettingsPage', () => {
     expect(markup).toContain('Back to app')
     expect(markup).toContain('Appearance')
     expect(markup).not.toContain('Open project by sidebar position')
+  })
+
+  it('renders the global gate layer in the Jev gates section', () => {
+    const markup = renderToStaticMarkup(
+      <SettingsPage
+        initialSection="jev-gate-settings"
+        jevGates={{
+          effective: resolveJevGates({ laneRouting: { enabled: true } }),
+          global: { laneRouting: { enabled: true, highAbove: 0.4 } },
+          workspace: { laneRouting: { enabled: false } },
+        }}
+        onClose={vi.fn()}
+        onOpenUpdate={vi.fn()}
+        onUpdateGlobalJevGates={vi.fn()}
+        onUpdatePreferences={vi.fn()}
+        updatePreferences={null}
+        updatePreferencesError={null}
+        workspaceId={null}
+      />,
+    )
+
+    expect(markup).toContain('Lane routing')
+    expect(markup).toContain('Tool call gate')
+    expect(markup).toContain('Completion check')
+    expect(markup).toContain('high ≥ 0.40, critical ≥ 0.85')
+    expect(markup).toContain('data-testid="settings-jev-gate-laneRouting"')
+    expect(markup).not.toContain('Background task notifications')
   })
 })
