@@ -29,6 +29,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import type { ComposerDefaults } from '../../../shared/composer-defaults'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -70,6 +71,7 @@ import {
 } from '../lib/managed-session-grouping'
 import {
   canChangeManagedSessionSelection,
+  composerProviderSelectionInput,
   getComposerProviderSelection,
   isProviderSelectionHydrated,
   planManagedSessionSelectionChange,
@@ -190,18 +192,24 @@ function loadPersistedProviderSelection(
   }
 }
 
-function persistProviderSelection(
+function readLegacyComposerDefaults(
   workspaceId: string,
-  provider: ManagedSessionMode,
-  selection: PersistedProviderSelection,
-): void {
-  try {
-    localStorage.setItem(
-      providerSelectionStorageKey(workspaceId, provider),
-      JSON.stringify(selection),
-    )
-  } catch {
-    // Storage failures should not prevent an available provider from running.
+): ComposerDefaults | null {
+  const stored = localStorage.getItem(`aide:workspace:${workspaceId}:provider`)
+  const provider: ManagedSessionMode = stored === 'codex' ? 'codex' : 'claude'
+  const selection = loadPersistedProviderSelection(workspaceId, provider)
+
+  if (!selection.modelId) {
+    return null
+  }
+
+  return {
+    agents: [],
+    ...(selection.effort ? { effort: selection.effort } : {}),
+    model: selection.modelId,
+    permissionMode: 'default',
+    provider,
+    serviceTier: selection.serviceTier ?? null,
   }
 }
 
@@ -735,16 +743,10 @@ export default function ManagedAgentPane({
   )
   const isUnifiedPane = terminalMode === 'agent'
   const [selectedProvider, setSelectedProvider] = useState<ManagedSessionMode>(
-    () => {
-      if (terminalMode === 'claude' || terminalMode === 'codex') {
-        return terminalMode
-      }
-      const stored = localStorage.getItem(
-        `aide:workspace:${workspace.id}:provider`,
-      )
-      if (stored === 'claude' || stored === 'codex') return stored
-      return 'claude'
-    },
+    () =>
+      terminalMode === 'claude' || terminalMode === 'codex'
+        ? terminalMode
+        : 'claude',
   )
   const [selectedModel, setSelectedModel] = useState<string | undefined>(
     undefined,
@@ -811,6 +813,9 @@ export default function ManagedAgentPane({
   const [serviceTier, setServiceTier] = useState<string | null>(null)
   const [permissionMode, setPermissionMode] =
     useState<ManagedSessionPermissionMode>('default')
+  const [composerDefaults, setComposerDefaults] = useState<
+    ComposerDefaults | null | undefined
+  >(undefined)
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
@@ -864,11 +869,51 @@ export default function ManagedAgentPane({
   }, [terminalMode])
 
   useEffect(() => {
+    const api = getAideApi()
+
+    if (!api || terminalMode === 'shell') {
+      setComposerDefaults(null)
+      return
+    }
+
+    let isStale = false
+    const applyStoredDefaults = (stored: ComposerDefaults | null) => {
+      if (isStale) {
+        return
+      }
+
+      if (stored && !startedSessionRef.current) {
+        setPermissionMode(stored.permissionMode)
+        if (isUnifiedPane) {
+          setSelectedProvider(stored.provider)
+        }
+        if (stored.agents.length > 0) {
+          configuredAgentsInitializedRef.current = true
+          setConfiguredAgents(stored.agents)
+        }
+      }
+
+      setComposerDefaults(stored)
+    }
+
+    void api
+      .getComposerDefaults(workspace.id)
+      .then((stored) =>
+        applyStoredDefaults(stored ?? readLegacyComposerDefaults(workspace.id)),
+      )
+      .catch(() => applyStoredDefaults(null))
+
+    return () => {
+      isStale = true
+    }
+  }, [isUnifiedPane, terminalMode, workspace.id])
+
+  useEffect(() => {
     const providerCapabilities = capabilities?.providers[selectedProvider]
 
     hydratedProviderSelectionKeyRef.current = null
 
-    if (!providerCapabilities) {
+    if (!providerCapabilities || composerDefaults === undefined) {
       return
     }
 
@@ -877,11 +922,10 @@ export default function ManagedAgentPane({
       return
     }
 
-    const persisted = loadPersistedProviderSelection(
-      workspace.id,
-      selectedProvider,
+    const resolution = resolveProviderSelection(
+      providerCapabilities,
+      composerProviderSelectionInput(composerDefaults, selectedProvider),
     )
-    const resolution = resolveProviderSelection(providerCapabilities, persisted)
 
     if (!resolution.modelId) {
       setError(resolution.explanation)
@@ -893,25 +937,43 @@ export default function ManagedAgentPane({
     setEffort(resolution.effort ?? undefined)
     setServiceTier(resolution.serviceTier)
     setSelectionNotice(resolution.explanation)
-    persistProviderSelection(workspace.id, selectedProvider, {
-      effort: resolution.effort ?? undefined,
-      modelId: resolution.modelId,
-      serviceTier: resolution.serviceTier,
-    })
     hydratedProviderSelectionKeyRef.current = selectionHydrationKey
-  }, [capabilities, selectedProvider, selectionHydrationKey, workspace.id])
+  }, [capabilities, composerDefaults, selectedProvider, selectionHydrationKey])
 
   useEffect(() => {
-    if (!selectedModel) {
+    const api = getAideApi()
+
+    if (
+      !api ||
+      composerDefaults === undefined ||
+      !selectedModel ||
+      !isSelectionHydrated
+    ) {
       return
     }
 
-    persistProviderSelection(workspace.id, selectedProvider, {
-      effort,
-      modelId: selectedModel,
-      serviceTier,
-    })
-  }, [effort, selectedModel, selectedProvider, serviceTier, workspace.id])
+    // why: a settings write failure must not stop an available provider from running.
+    void api
+      .setComposerDefaults(workspace.id, {
+        agents: configuredAgents,
+        ...(effort ? { effort } : {}),
+        model: selectedModel,
+        permissionMode,
+        provider: selectedProvider,
+        serviceTier,
+      })
+      .catch(() => undefined)
+  }, [
+    composerDefaults,
+    configuredAgents,
+    effort,
+    isSelectionHydrated,
+    permissionMode,
+    selectedModel,
+    selectedProvider,
+    serviceTier,
+    workspace.id,
+  ])
 
   useEffect(() => {
     if (!capabilities || configuredAgentsInitializedRef.current) {
@@ -1588,17 +1650,8 @@ export default function ManagedAgentPane({
         setEffort(change.selection.effort)
         setServiceTier(change.selection.serviceTier ?? null)
         setSelectionNotice(resolution.explanation)
-        persistProviderSelection(workspace.id, newMode, {
-          effort: change.selection.effort,
-          modelId: change.selection.model,
-          serviceTier: change.selection.serviceTier ?? null,
-        })
         if (newMode !== selectedProvider) {
           setSelectedProvider(newMode)
-          localStorage.setItem(
-            `aide:workspace:${workspace.id}:provider`,
-            newMode,
-          )
         }
         setError(null)
         return true
@@ -1621,17 +1674,8 @@ export default function ManagedAgentPane({
         setEffort(composerSelection.effort)
         setServiceTier(composerSelection.serviceTier ?? null)
         setSelectionNotice(updated.selectionNotice)
-        persistProviderSelection(workspace.id, composerSelection.mode, {
-          effort: composerSelection.effort,
-          modelId: composerSelection.model,
-          serviceTier: composerSelection.serviceTier ?? null,
-        })
         if (isUnifiedPane) {
           setSelectedProvider(composerSelection.mode)
-          localStorage.setItem(
-            `aide:workspace:${workspace.id}:provider`,
-            composerSelection.mode,
-          )
         }
         setError(null)
         return true
@@ -2075,7 +2119,10 @@ export default function ManagedAgentPane({
 
       const changed = await handleProviderSelectionChange(
         skill.provider,
-        loadPersistedProviderSelection(workspace.id, skill.provider),
+        composerProviderSelectionInput(
+          composerDefaults ?? null,
+          skill.provider,
+        ),
       )
       if (!changed) {
         return
@@ -2093,9 +2140,9 @@ export default function ManagedAgentPane({
     },
     [
       canChangeProviderSelection,
+      composerDefaults,
       handleProviderSelectionChange,
       selectedRecipientAliases.length,
-      workspace.id,
     ],
   )
 

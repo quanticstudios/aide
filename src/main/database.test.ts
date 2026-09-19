@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 14,
+      schemaVersion: 15,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -66,6 +66,59 @@ describe('createAideDatabase', () => {
         icon: 'rocket',
         color: 'orange',
       })
+      reopened.close()
+    } finally {
+      rmSync(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('stores composer defaults per workspace with a global fallback', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-composer-db-'))
+    const databasePath = path.join(directory, 'aide.sqlite3')
+    const codexDefaults = {
+      agents: [
+        {
+          alias: 'Claude',
+          selection: { mode: 'claude' as const, model: 'claude-opus-5' },
+        },
+      ],
+      effort: 'low',
+      model: 'gpt-5.6-terra',
+      permissionMode: 'bypassPermissions' as const,
+      provider: 'codex' as const,
+      serviceTier: 'priority',
+    }
+    const claudeDefaults = {
+      agents: [],
+      model: 'claude-sonnet-5',
+      permissionMode: 'acceptEdits' as const,
+      provider: 'claude' as const,
+      serviceTier: null,
+    }
+
+    try {
+      const database = createAideDatabase(databasePath)
+      expect(database.getComposerDefaults('workspace-1')).toBeNull()
+      expect(database.setComposerDefaults('workspace-1', codexDefaults)).toEqual(
+        codexDefaults,
+      )
+      database.setComposerDefaults('workspace-2', claudeDefaults)
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getComposerDefaults('workspace-1')).toEqual(codexDefaults)
+      expect(reopened.getComposerDefaults('workspace-2')).toEqual(
+        claudeDefaults,
+      )
+      expect(reopened.getComposerDefaults('workspace-3')).toEqual(
+        claudeDefaults,
+      )
+      expect(() =>
+        reopened.setComposerDefaults('workspace-1', {
+          ...codexDefaults,
+          permissionMode: 'root',
+        }),
+      ).toThrow()
       reopened.close()
     } finally {
       rmSync(directory, { force: true, recursive: true })

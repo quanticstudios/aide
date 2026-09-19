@@ -4,6 +4,7 @@ import type {
   TurnCheckpointRestoreResult,
   TurnCheckpointSummary,
 } from './checkpoints'
+import type { ComposerDefaults } from './composer-defaults'
 import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type {
   DiagnosticEventType,
@@ -95,6 +96,8 @@ export const IPC_CHANNELS = {
   quitPersistedStateRecovery: 'app:quit-persisted-state-recovery',
   resetPersistedState: 'app:reset-persisted-state',
   restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
+  getComposerDefaults: 'composer:get-defaults',
+  setComposerDefaults: 'composer:set-defaults',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
   attachWorkspace: 'storage:attach-workspace',
@@ -209,6 +212,11 @@ export interface AideApi {
   quitPersistedStateRecovery: () => Promise<void>
   resetPersistedState: () => Promise<void>
   restoreKnownGoodPersistedState: () => Promise<void>
+  getComposerDefaults: (workspaceId: string) => Promise<ComposerDefaults | null>
+  setComposerDefaults: (
+    workspaceId: string,
+    defaults: ComposerDefaults,
+  ) => Promise<ComposerDefaults>
   getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>
   updateJevSettings: (
     workspaceId: string,

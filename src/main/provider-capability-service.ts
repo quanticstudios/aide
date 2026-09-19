@@ -425,6 +425,13 @@ function createFakeClaudeModelList() {
       supportsEffort: true,
       value: 'claude-sonnet-5',
     },
+    {
+      description: 'Second fake Claude model for end-to-end tests.',
+      displayName: 'Claude Opus 5',
+      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+      supportsEffort: true,
+      value: 'claude-opus-5',
+    },
   ]
 }
 
