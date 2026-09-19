@@ -116,6 +116,7 @@ export const IPC_CHANNELS = {
   reportRendererFault: 'diagnostics:report-renderer-fault',
   createWorkspace: 'storage:create-workspace',
   renameWorkspace: 'storage:rename-workspace',
+  updateWorkspaceSidebar: 'storage:update-workspace-sidebar',
   detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
@@ -248,6 +249,10 @@ export interface AideApi {
   renameWorkspace: (
     workspaceId: string,
     name: string,
+  ) => Promise<PersistenceSnapshot>
+  updateWorkspaceSidebar: (
+    workspaceId: string,
+    isOpen: boolean,
   ) => Promise<PersistenceSnapshot>
   detectWorktreeBranch: (
     worktreePath: string,

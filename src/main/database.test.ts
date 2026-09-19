@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 15,
+      schemaVersion: 16,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -964,6 +964,51 @@ describe('createAideDatabase', () => {
     expect(database.listWorkspaces()).toEqual([])
 
     database.close()
+  })
+
+  it('persists a per-workspace sidebar state across reopen', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-sidebar-db-'))
+    const databasePath = path.join(directory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'feature/nav',
+        name: 'Navigation shell',
+        projectId: project.id,
+        windowId: null,
+        worktreePath: '/workspace/aide/.worktrees/navigation',
+      })
+
+      expect(workspace.sidebarOpen).toBeNull()
+      expect(
+        database.updateWorkspace(workspace.id, { sidebarOpen: true }),
+      ).toMatchObject({ sidebarOpen: true })
+      expect(
+        database.updateWorkspace(workspace.id, { name: 'Navigation shell v2' }),
+      ).toMatchObject({ name: 'Navigation shell v2', sidebarOpen: true })
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getWorkspace(workspace.id)).toMatchObject({
+        sidebarOpen: true,
+      })
+      expect(
+        reopened.updateWorkspace(workspace.id, { sidebarOpen: false }),
+      ).toMatchObject({ sidebarOpen: false })
+      expect(reopened.getSnapshot().workspaces).toMatchObject([
+        { id: workspace.id, sidebarOpen: false },
+      ])
+      reopened.close()
+    } finally {
+      rmSync(directory, { force: true, recursive: true })
+    }
   })
 
   it('returns null or false when workspace records are missing', () => {

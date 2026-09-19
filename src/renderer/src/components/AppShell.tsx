@@ -29,7 +29,6 @@ import FleetDrawer from './FleetDrawer'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
-const SIDEBAR_PIN_STORAGE_KEY = 'aide.sidebar.pinned'
 const TERMINAL_DRAWER_STORAGE_KEY = 'aide.terminalDrawer.open'
 /* A fixed pane id keeps one PTY per workspace across open/close; the main
    process replays its buffer on remount. */
@@ -156,17 +155,6 @@ export default function AppShell({
     onFleetOpenChange(false)
     window.requestAnimationFrame(() => fleetToggleRef.current?.focus())
   }, [onFleetOpenChange])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    window.localStorage.setItem(
-      SIDEBAR_PIN_STORAGE_KEY,
-      isSidebarOpen ? 'true' : 'false',
-    )
-  }, [isSidebarOpen])
 
   useEffect(() => {
     window.localStorage.setItem(
