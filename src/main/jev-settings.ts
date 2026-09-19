@@ -14,7 +14,11 @@ import {
 import path from 'node:path'
 import type { SafeStorage } from 'electron'
 import { z } from 'zod'
-import type { JevSettingsStatus } from '../shared/jev'
+import {
+  JEV_CONSENT_REQUIRED_MESSAGE,
+  JEV_CREDENTIAL_REQUIRED_MESSAGE,
+  type JevSettingsStatus,
+} from '../shared/jev'
 
 const credentialSchema = z
   .string()
@@ -113,15 +117,10 @@ export class JevSettings {
   public requireApiKey(workspaceRoot: string): string {
     const settings = this.read()
     if (settings.disabledRoots.includes(path.resolve(workspaceRoot))) {
-      throw new Error(
-        'Allow TypeSafe processing for this workspace in Jev setup before sending a message.',
-      )
+      throw new Error(JEV_CONSENT_REQUIRED_MESSAGE)
     }
     const credential = this.readCredential(settings.credential)
-    if (!credential)
-      throw new Error(
-        'Add a TypeSafe API key in Jev setup before sending a message.',
-      )
+    if (!credential) throw new Error(JEV_CREDENTIAL_REQUIRED_MESSAGE)
     return credential
   }
 

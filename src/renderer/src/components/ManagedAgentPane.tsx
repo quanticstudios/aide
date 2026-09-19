@@ -19,7 +19,6 @@ import {
   LockOpen,
   PenLine,
   RefreshCw,
-  ShieldCheck,
   Terminal,
   Wrench,
 } from 'lucide-react'
@@ -45,6 +44,10 @@ import {
   getRecipientSuggestions,
 } from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
+import {
+  JEV_CONSENT_REQUIRED_MESSAGE,
+  JEV_CREDENTIAL_REQUIRED_MESSAGE,
+} from '../../../shared/jev'
 import type {
   ManagedSessionAttachment,
   ManagedSessionContentItem,
@@ -105,7 +108,6 @@ import {
 } from '../lib/workspace-file-mentions'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
-import JevSetup from './JevSetup'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
 } from './ManagedComposerAttachments'
@@ -122,6 +124,7 @@ import { AnthropicIcon, OpenAIIcon } from './ui/provider-icons'
 
 interface ManagedAgentPaneProps {
   readonly isActive: boolean
+  readonly onOpenJevSettings: (trigger: HTMLElement) => void
   readonly paneId: string
   readonly workspace: WorkspaceRecord
 }
@@ -951,6 +954,7 @@ type DraftAnswersState = Record<string, Record<string, string>>
 
 export default function ManagedAgentPane({
   isActive,
+  onOpenJevSettings,
   paneId,
   workspace,
 }: ManagedAgentPaneProps) {
@@ -1043,8 +1047,6 @@ export default function ManagedAgentPane({
   const [slashActiveIndex, setSlashActiveIndex] = useState(0)
   const [isSlashMenuDismissed, setIsSlashMenuDismissed] = useState(false)
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
-  const jevSettingsButtonRef = useRef<HTMLButtonElement | null>(null)
-  const [isJevSetupOpen, setIsJevSetupOpen] = useState(false)
   const [rewindTarget, setRewindTarget] = useState<{
     readonly attachments: readonly ManagedSessionAttachment[]
     readonly checkpointId: string
@@ -2384,20 +2386,6 @@ export default function ManagedAgentPane({
         </h2>
 
         <div className="flex items-center gap-2">
-          <IconTooltip label="Jev settings">
-            <Button
-              aria-label="Jev settings"
-              className="size-8 rounded-md"
-              isIconOnly
-              aria-expanded={isJevSetupOpen}
-              onPress={() => setIsJevSetupOpen((open) => !open)}
-              ref={jevSettingsButtonRef}
-              size="sm"
-              variant="ghost"
-            >
-              <ShieldCheck aria-hidden="true" className="size-4" />
-            </Button>
-          </IconTooltip>
           <OpenInEditorButton cwd={workspace.worktreePath} />
           <Button
             isDisabled={!isSubmitting && snapshot?.sessionState !== 'running'}
@@ -2425,21 +2413,19 @@ export default function ManagedAgentPane({
         />
       ) : null}
 
-      <JevSetup
-        isOpen={isJevSetupOpen}
-        key={workspace.id}
-        onOpenChange={(isOpen) => {
-          setIsJevSetupOpen(isOpen)
-          if (!isOpen) {
-            requestAnimationFrame(() => jevSettingsButtonRef.current?.focus())
-          }
-        }}
-        workspaceId={workspace.id}
-      />
-
       {error ? (
         <div className="flex items-center gap-3 border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
           <span className="flex-1">{error}</span>
+          {error === JEV_CONSENT_REQUIRED_MESSAGE ||
+          error === JEV_CREDENTIAL_REQUIRED_MESSAGE ? (
+            <button
+              className="font-semibold underline underline-offset-2"
+              onClick={(event) => onOpenJevSettings(event.currentTarget)}
+              type="button"
+            >
+              Open Settings
+            </button>
+          ) : null}
           {draftLoadError ? (
             <button
               className="font-semibold underline underline-offset-2"

@@ -28,8 +28,8 @@ The feature contract is the
 
 ## Using shared model chat
 
-Open an Agent pane and complete Jev setup for the workspace. The model selector
-sets the default orchestrator. The Agents control assigns models to the configured
+Complete Jev setup for the workspace in Settings. The model selector sets the
+default orchestrator. The Agents control assigns models to the configured
 aliases. Messages without recipients go to the orchestrator. Type `@` at the
 start of a message to choose one recipient, or switch to Plan and choose two for
 separate opinions. Selecting recipients does not change the default model.

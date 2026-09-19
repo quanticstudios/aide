@@ -10,6 +10,7 @@ import {
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
+import JevSetup from './JevSetup'
 
 export interface SettingsShortcut {
   readonly description?: string
@@ -131,19 +132,23 @@ export function filterSettingsShortcutGroups(
 }
 
 interface SettingsPageProps {
+  readonly initialSection?: string
   readonly onClose: () => void
   readonly onOpenUpdate: () => void
   readonly onUpdatePreferences: (input: UpdatePreferencesInput) => Promise<void>
   readonly updatePreferences: UpdatePreferencesSnapshot | null
   readonly updatePreferencesError: string | null
+  readonly workspaceId: string | null
 }
 
 export default function SettingsPage({
+  initialSection,
   onClose,
   onOpenUpdate,
   onUpdatePreferences,
   updatePreferences,
   updatePreferencesError,
+  workspaceId,
 }: SettingsPageProps) {
   const pageRef = useRef<HTMLElement | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -155,7 +160,9 @@ export default function SettingsPage({
     null,
   )
   const [error, setError] = useState<string | null>(null)
-  const [selectedSection, setSelectedSection] = useState('general-settings')
+  const [selectedSection, setSelectedSection] = useState(
+    initialSection ?? 'general-settings',
+  )
   const [selectedAnimation, setSelectedAnimation] =
     useState<AnimationPreference>(getAnimationPreference)
 
@@ -238,6 +245,13 @@ export default function SettingsPage({
         'On',
         'Reduced motion',
         'Reduce movement while keeping status and feedback visible',
+      ),
+      showJev: containsQuery(
+        'jev-settings',
+        'Jev',
+        'TypeSafe API key',
+        'Allow TypeSafe processing for this workspace',
+        'context preparation credential consent',
       ),
       showGeneral: containsQuery(
         'general-settings',
@@ -372,6 +386,7 @@ export default function SettingsPage({
           {[
             { id: 'general-settings', label: 'General' },
             { id: 'appearance-settings', label: 'Appearance' },
+            { id: 'jev-settings', label: 'Jev' },
             { id: 'keyboard-shortcuts', label: 'Keyboard shortcuts' },
             { id: 'update-settings', label: 'Updates' },
           ].map((section) => (
@@ -494,6 +509,28 @@ export default function SettingsPage({
                   </Select>
                 </div>
               </div>
+            </section>
+          ) : null}
+
+          {searchResults.showJev ? (
+            <section
+              aria-labelledby="jev-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="jev-settings"
+            >
+              <h2 className="text-xl font-medium" id="jev-settings-heading">
+                Jev
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                TypeSafe credential and per-workspace processing permission.
+              </p>
+              {workspaceId ? (
+                <JevSetup key={workspaceId} workspaceId={workspaceId} />
+              ) : (
+                <p className="mt-4 rounded-lg border border-border bg-surface-2 px-4 py-10 text-center text-[13px] text-muted-foreground">
+                  Select a workspace to configure Jev.
+                </p>
+              )}
             </section>
           ) : null}
 
@@ -625,6 +662,7 @@ export default function SettingsPage({
 
           {!searchResults.showGeneral &&
           !searchResults.showAppearance &&
+          !searchResults.showJev &&
           !searchResults.showKeyboard &&
           !searchResults.showUpdates ? (
             <p className="rounded-lg border border-border bg-surface-2 px-4 py-10 text-center text-[13px] text-muted-foreground">
