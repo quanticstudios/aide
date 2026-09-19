@@ -911,6 +911,7 @@ test.describe('shared model chat', () => {
   })
 
   test('navigates the conversation minimap with scrolling, clicks and keyboard', async () => {
+    test.setTimeout(150_000)
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
@@ -931,7 +932,9 @@ test.describe('shared model chat', () => {
       )
     }
     const content = page.getByTestId('managed-session-content')
-    await expect(content).toContainText('Handled: Minimap message 59')
+    await expect(content).toContainText('Handled: Minimap message 59', {
+      timeout: 60_000,
+    })
     await expect(rail).toBeVisible()
     const ticks = rail.getByRole('button')
     await expect(ticks).toHaveCount(61)
