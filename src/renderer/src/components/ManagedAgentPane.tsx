@@ -89,6 +89,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
 import {
   appendWorkspaceFileAttachment,
@@ -294,25 +295,6 @@ function resolvePermissionOption(mode: ManagedSessionPermissionMode) {
   return (
     PERMISSION_OPTIONS.find((o) => o.value === mode) ?? PERMISSION_OPTIONS[0]
   )
-}
-
-function useClickOutside(
-  ref: React.RefObject<HTMLElement | null>,
-  onClose: () => void,
-  active: boolean,
-) {
-  useEffect(() => {
-    if (!active) return
-
-    const handler = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) {
-        onClose()
-      }
-    }
-
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [active, onClose, ref])
 }
 
 function PermissionDropdown({
