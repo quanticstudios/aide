@@ -102,6 +102,9 @@
   color-scheme: dark;
   --radius: 0.5rem;
 
+  /* invariant: the sidebar project row and every pane header share this height. */
+  --pane-header-h: 40px;
+
   /* Core */
   --background: #07080a;
   --foreground: #f4f4f6;

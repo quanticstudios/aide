@@ -2245,7 +2245,7 @@ export default function ManagedAgentPane({
       data-testid="managed-agent-pane"
       ref={paneRef}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-2.5">
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
         <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
           {isUnifiedPane ? 'Agent' : providerLabel}
         </h2>
