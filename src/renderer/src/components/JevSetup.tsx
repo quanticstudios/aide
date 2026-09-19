@@ -2,6 +2,12 @@ import { Button, Input, Switch } from '@heroui/react'
 import { ChevronDown } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import type { JevSettingsStatus } from '../../../shared/jev'
+import {
+  type JevGateOverrides,
+  type JevGateSnapshot,
+  resolveJevGates,
+} from '../../../shared/jev-gates'
+import JevGateControls from './JevGateControls'
 
 interface JevSetupProps {
   readonly isOpen: boolean
@@ -21,6 +27,38 @@ export default function JevSetup({
   const [allowProcessing, setAllowProcessing] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [gates, setGates] = useState<JevGateSnapshot | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    void window.aide
+      .getJevGates(workspaceId)
+      .then((value) => {
+        if (!cancelled) setGates(value)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, workspaceId])
+
+  async function saveGates(next: JevGateOverrides) {
+    setGates((current) =>
+      current
+        ? {
+            ...current,
+            workspace: next,
+            effective: resolveJevGates(current.global, next),
+          }
+        : current,
+    )
+    try {
+      setGates(await window.aide.updateJevGates('workspace', workspaceId, next))
+    } catch {
+      setError('Jev gate settings could not be saved.')
+    }
+  }
 
   function closeSetup() {
     onOpenChange(false)
@@ -206,6 +244,21 @@ export default function JevSetup({
                   ) : null}
                 </div>
                 {error ? <p role="alert">{error}</p> : null}
+                {gates ? (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-[13px] text-muted-foreground">
+                      Jev gates for this workspace. Blank fields inherit the
+                      global settings.
+                    </p>
+                    <JevGateControls
+                      effective={resolveJevGates(gates.global)}
+                      inheritLabel="Global"
+                      isDisabled={saving}
+                      onChange={(next) => void saveGates(next)}
+                      value={gates.workspace}
+                    />
+                  </div>
+                ) : null}
               </form>
             </div>
           </div>

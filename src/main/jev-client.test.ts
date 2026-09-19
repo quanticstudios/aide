@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { JEV_MODEL, JevClient, JevClientError } from './jev-client'
+import {
+  JEV_MODEL,
+  type JevAskInput,
+  JevClient,
+  JevClientError,
+} from './jev-client'
 
 const candidates = [
   {
@@ -360,5 +365,106 @@ describe('JevClient', () => {
     })
     expect(JSON.stringify(error)).not.toContain('test-key')
     expect(JSON.stringify(error)).not.toContain('private state')
+  })
+})
+
+describe('JevClient.ask', () => {
+  const questions: JevAskInput['questions'] = {
+    destructive: {
+      type: 'noul',
+      instructions: 'Could this command delete state?',
+      criteria: { true: 'Deletes or overwrites.', false: 'Read-only.' },
+    },
+    lane: {
+      type: 'choice',
+      instructions: 'Which lane?',
+      criteria: { mechanical: 'Clear spec.', cognition: 'Needs judgment.' },
+    },
+    clarity: {
+      type: 'score',
+      instructions: 'How clear is the spec?',
+      criteria: ['vague', 'clear'],
+    },
+  }
+
+  function askResponse() {
+    return {
+      answers: {
+        destructive: { type: 'noul', noul: 0.04 },
+        lane: {
+          type: 'choice',
+          choice: 'mechanical',
+          confidence: 0.8,
+          probabilities: { mechanical: 0.9, cognition: 0.1 },
+        },
+        clarity: {
+          type: 'score',
+          score: 0.9,
+          confidence: 0.7,
+          legend: { '0': 'vague', '1': 'clear' },
+          probabilities: { '0': 0.1, '1': 0.9 },
+        },
+      },
+      model: JEV_MODEL,
+      usage: { input_tokens: 300, output_tokens: 10 },
+    }
+  }
+
+  it('sends the questions and state verbatim and returns typed answers', async () => {
+    const fetch = vi.fn(async () => Response.json(askResponse()))
+    const result = await client(fetch as typeof globalThis.fetch).ask({
+      questions,
+      state: { command: 'ls' },
+    })
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(init.body as string)).toEqual({
+      model: JEV_MODEL,
+      questions,
+      state: { command: 'ls' },
+    })
+    expect(result.answers.destructive).toEqual({ type: 'noul', noul: 0.04 })
+    expect(result.answers.lane).toMatchObject({ choice: 'mechanical' })
+    expect(result.answers.clarity).toMatchObject({ score: 0.9 })
+    expect(result.usage.inputTokens).toBe(300)
+    expect(Object.isFrozen(result.answers)).toBe(true)
+  })
+
+  it('rejects an answer set that is missing a question or changes its type', async () => {
+    const missing = askResponse()
+    delete (missing.answers as Record<string, unknown>).lane
+    const fetch = vi.fn(async () => Response.json(missing))
+    const error = await clientError(
+      client(fetch as typeof globalThis.fetch).ask({ questions, state: 'x' }),
+    )
+    expect(error.code).toBe('invalid-response')
+
+    const retyped = askResponse()
+    ;(retyped.answers as Record<string, unknown>).destructive = {
+      type: 'choice',
+      choice: 'a',
+      confidence: 1,
+      probabilities: { a: 1 },
+    }
+    const error2 = await clientError(
+      client(vi.fn(async () => Response.json(retyped)) as never).ask({
+        questions,
+        state: 'x',
+      }),
+    )
+    expect(error2.code).toBe('invalid-response')
+  })
+
+  it('rejects malformed questions before sending', async () => {
+    const fetch = vi.fn()
+    const error = await clientError(
+      client(fetch as typeof globalThis.fetch).ask({
+        questions: {
+          bad: { type: 'choice', instructions: 'x', criteria: { only: 'one' } },
+        },
+        state: 'x',
+      }),
+    )
+    expect(error.code).toBe('invalid-request')
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

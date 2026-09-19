@@ -23,6 +23,8 @@ import {
   FleetPlanSchema,
   type FleetState,
 } from '../shared/fleet'
+import type { JevGateOverrides, JevGateSettings } from '../shared/jev-gates'
+import { resolveJevGates } from '../shared/jev-gates'
 import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
@@ -57,6 +59,7 @@ import type {
 } from '../shared/provider-runtime'
 import type { ResolvedProviderSkill } from '../shared/provider-skills'
 import { parseCodexUsage } from './codex-usage'
+import type { JevGates } from './jev-gates'
 import {
   createReadOnlyClaudeOptions,
   createReadOnlyCodexRuntimePolicy,
@@ -140,9 +143,11 @@ interface ManagedSessionManagerOptions {
     emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void,
   ) => ManagedSessionBackend
   getNow?: () => string
+  jevGates?: JevGates
   prepareInput?: (
     input: ManagedSessionPreparationInput,
   ) => Promise<{ images?: ManagedSessionProviderImage[]; text: string }>
+  resolveJevGates?: (config: ManagedSessionConfig) => JevGateSettings
   onRuntimeEvent: (
     meta: {
       mode: ManagedProviderRuntimeProvider
@@ -157,6 +162,11 @@ interface ManagedSessionManagerOptions {
   onUpdate: (event: ManagedSessionEvent) => void
   store?: ManagedSessionPersistenceStore
 }
+
+type HeldToolRequestEvent = Extract<
+  ManagedProviderRuntimeEvent,
+  { type: 'request.opened' }
+> & { runtimeGeneration: number }
 
 interface ManagedSessionMutableState {
   cancelledQueuedInputIds: Set<string>
@@ -279,6 +289,7 @@ function buildEmptySnapshot(
 ): ManagedSessionSnapshot {
   return {
     ...(config.agents ? { agents: config.agents } : {}),
+    ...(config.jevGates ? { jevGates: config.jevGates } : {}),
     content: [],
     detail: null,
     effort: config.effort ?? null,
@@ -3378,8 +3389,42 @@ export class ManagedSessionManager {
       ? (state.snapshot.fleet?.attemptCounts?.[metadata.nodeId] ?? 0)
       : 0
     const activityId = `opinion:${randomUUID()}`
+    let risk = metadata?.risk ?? 'routine'
+    const laneRouting = this.gateSettings(state).laneRouting
+    if (laneRouting.enabled && this.options.jevGates) {
+      const node = state.snapshot.fleet?.plan?.nodes.find(
+        (candidate) => candidate.id === metadata?.nodeId,
+      )
+      const judgement = await this.options.jevGates.judgeRisk(
+        {
+          cwd: state.config.cwd,
+          id: activityId,
+          prompt,
+          ...(node ? { node: { title: node.title, detail: node.detail } } : {}),
+        },
+        laneRouting,
+        signal,
+      )
+      if (judgement) {
+        this.reportJevUsage(state, activityId, judgement.usage)
+        const order = { routine: 0, high: 1, critical: 2 } as const
+        if (order[judgement.risk] > order[risk]) risk = judgement.risk
+        this.recordFleetEvent(state, {
+          type: 'decision',
+          activityId,
+          agentAlias: agent.alias,
+          requestedBy: 'orchestrator',
+          status: 'completed',
+          label: `Jev risk for @${agent.alias}`,
+          nodeId: metadata?.nodeId,
+          detail: `${judgement.reason} Effective risk: ${risk}.`.slice(0, 2000),
+          model: 'jev',
+          source: 'runtime',
+        })
+      }
+    }
     const route = chooseFleetRoute({
-      risk: metadata?.risk ?? 'routine',
+      risk,
       failure: metadata?.failure,
       attempt: attempts,
       alternateAvailable: (state.config.agents ?? []).some((candidate) =>
@@ -3642,12 +3687,20 @@ export class ManagedSessionManager {
       ])
       await completion
       recordAgent('completed')
-      return `@${agent.alias} (${latest?.model ?? agent.selection.model ?? agent.selection.mode}):\n${
+      const resultText =
         latest?.content
           .filter((item) => item.kind === 'assistant-text')
           .map((item) => item.text)
           .join('\n') ?? ''
-      }`
+      const note = await this.checkCompletion(
+        state,
+        agent,
+        activityId,
+        nodeId,
+        text,
+        resultText,
+      )
+      return `@${agent.alias} (${latest?.model ?? agent.selection.model ?? agent.selection.mode}):\n${resultText}${note}`
     } catch (error) {
       recordAgent(signal.aborted ? 'cancelled' : 'failed')
       state.turns.set(turnId, {
@@ -3693,9 +3746,172 @@ export class ManagedSessionManager {
     requestId: string,
     decision: ManagedSessionDecision,
   ): Promise<void> {
-    await this.sessions
-      .get(sessionId)
-      ?.backend.resolveRequest(requestId, decision)
+    const state = this.sessions.get(sessionId)
+    if (state?.pendingApprovals.has(requestId))
+      this.options.jevGates?.recordOutcome(requestId, decision)
+    await state?.backend.resolveRequest(requestId, decision)
+  }
+
+  public configureSessionJevGates(
+    sessionId: string,
+    overrides: JevGateOverrides | undefined,
+  ): ManagedSessionSnapshot {
+    const state = this.sessions.get(sessionId)
+    if (!state) throw new Error(`Session ${sessionId} not found`)
+    if (state.closing) throw new Error('Session is closing.')
+    state.config = overrides
+      ? { ...state.config, jevGates: overrides }
+      : (({ jevGates: _dropped, ...rest }) => rest)(state.config)
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    return state.snapshot
+  }
+
+  private gateSettings(state: ManagedSessionMutableState): JevGateSettings {
+    return (
+      this.options.resolveJevGates?.(state.config) ??
+      resolveJevGates(state.config.jevGates)
+    )
+  }
+
+  private recentConversation(state: ManagedSessionMutableState): string {
+    const items = state.orderedContentKeys
+      .flatMap((key) => {
+        const item = state.contentByKey.get(key)
+        return item &&
+          (item.kind === 'user-prompt' || item.kind === 'assistant-text')
+          ? [item]
+          : []
+      })
+      .slice(-4)
+    return items
+      .map((item) => `${item.kind}: ${item.text.slice(0, 1500)}`)
+      .join('\n')
+  }
+
+  private reportJevUsage(
+    state: ManagedSessionMutableState,
+    scopeId: string,
+    usage: {
+      estimatedCostUsd: number
+      inputTokens: number
+      model: string
+      outputTokens: number
+    },
+  ): void {
+    if (state.closed) return
+    const id = randomUUID()
+    state.usageReports.set(
+      JSON.stringify(['jev', state.runtimeGeneration, scopeId, id]),
+      {
+        id,
+        scopeId,
+        provider: 'jev',
+        turnId: state.activeTurnId,
+        createdAt: this.getNow(),
+        estimatedCostUsd: usage.estimatedCostUsd,
+        models: [
+          {
+            model: usage.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cachedInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            estimatedCostUsd: usage.estimatedCostUsd,
+          },
+        ],
+        runtimeGeneration: state.runtimeGeneration,
+      },
+    )
+  }
+
+  private async gateToolRequest(
+    state: ManagedSessionMutableState,
+    event: HeldToolRequestEvent,
+    forward: (event: HeldToolRequestEvent) => void,
+  ): Promise<void> {
+    const gates = this.options.jevGates
+    const settings = this.gateSettings(state).toolGate
+    const judgement = gates
+      ? await gates.judgeTool(
+          {
+            context: this.recentConversation(state),
+            cwd: state.config.cwd,
+            id: event.requestId,
+            provider: event.provider,
+            request: event.detail ?? '',
+            requestType: event.requestType ?? 'unknown',
+          },
+          settings,
+        )
+      : null
+    if (
+      this.sessions.get(state.config.sessionId) !== state ||
+      state.runtimeGeneration !== event.runtimeGeneration
+    )
+      return
+    if (judgement?.usage)
+      this.reportJevUsage(state, event.requestId, judgement.usage)
+    if (!judgement || judgement.decision === 'prompt') {
+      forward(event)
+      if (judgement?.probabilities)
+        this.recordFleetEvent(state, {
+          type: 'tool',
+          activityId: event.requestId,
+          requestedBy: 'orchestrator',
+          status: 'started',
+          label: `Jev asks the user: ${event.requestType ?? 'tool'}`,
+          detail: `${judgement.reason} ${event.detail ?? ''}`.slice(0, 2000),
+          model: 'jev',
+          source: 'runtime',
+        })
+      return
+    }
+    this.recordFleetEvent(state, {
+      type: 'tool',
+      activityId: event.requestId,
+      requestedBy: 'orchestrator',
+      status: judgement.decision === 'allow' ? 'completed' : 'blocked',
+      label: `Jev ${judgement.decision === 'allow' ? 'allowed' : 'denied'}: ${event.requestType ?? 'tool'}`,
+      detail: `${judgement.reason} ${event.detail ?? ''}`.slice(0, 2000),
+      model: 'jev',
+      source: 'runtime',
+    })
+    await state.backend.resolveRequest(
+      event.requestId,
+      judgement.decision === 'allow' ? 'accept' : 'deny',
+    )
+  }
+
+  private async checkCompletion(
+    state: ManagedSessionMutableState,
+    agent: ManagedSessionAgentConfig,
+    activityId: string,
+    nodeId: string | undefined,
+    request: string,
+    result: string,
+  ): Promise<string> {
+    const settings = this.gateSettings(state).completionCheck
+    if (!settings.enabled || !this.options.jevGates || !result.trim()) return ''
+    const judgement = await this.options.jevGates.judgeCompletion(
+      { cwd: state.config.cwd, id: activityId, request, result },
+      settings,
+    )
+    if (!judgement || state.closed) return ''
+    this.reportJevUsage(state, activityId, judgement.usage)
+    this.recordFleetEvent(state, {
+      type: 'decision',
+      activityId,
+      agentAlias: agent.alias,
+      requestedBy: 'orchestrator',
+      status: judgement.pass ? 'completed' : 'blocked',
+      label: `Jev completion check for @${agent.alias}`,
+      nodeId,
+      detail: judgement.reason.slice(0, 2000),
+      model: 'jev',
+      source: 'runtime',
+    })
+    return judgement.pass ? '' : `\n\n[${judgement.reason}]`
   }
 
   public async resolveUserInput(
@@ -4141,6 +4357,28 @@ export class ManagedSessionManager {
       }
 
       const currentEvent = { ...event, runtimeGeneration }
+      if (
+        currentEvent.type === 'request.opened' &&
+        currentEvent.requestType !== 'plan-approval' &&
+        !state.config.readOnly &&
+        this.options.jevGates &&
+        this.gateSettings(state).toolGate.enabled
+      ) {
+        void this.gateToolRequest(state, currentEvent, (held) => {
+          this.applyRuntimeEvent(state, held)
+          this.options.onRuntimeEvent(
+            {
+              mode: state.config.mode,
+              paneId: state.config.paneId,
+              runtimeGeneration,
+              sessionId: state.config.sessionId,
+              workspaceId: state.config.workspaceId,
+            },
+            held,
+          )
+        })
+        return
+      }
       this.applyRuntimeEvent(state, currentEvent)
       this.options.onRuntimeEvent(
         {
@@ -4537,6 +4775,7 @@ export class ManagedSessionManager {
         : {}),
       ...(state.snapshot.fleet ? { fleet: state.snapshot.fleet } : {}),
       ...(state.config.agents ? { agents: state.config.agents } : {}),
+      ...(state.config.jevGates ? { jevGates: state.config.jevGates } : {}),
       content: coalesceContiguousAssistantContent(
         state.orderedContentKeys.flatMap((key) => {
           const item = state.contentByKey.get(key)

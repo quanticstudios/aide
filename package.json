@@ -4,6 +4,7 @@
   "private": true,
   "description": "Workspace-first AI-native coding shell prototype",
   "author": "Quantic Studios",
+  "license": "MIT",
   "desktopName": "aIDE",
   "type": "module",
   "main": "./out/main/index.js",

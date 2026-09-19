@@ -34,6 +34,11 @@ import type {
 } from './git'
 import type { JevSettingsInput, JevSettingsStatus } from './jev'
 import type {
+  JevGateOverrides,
+  JevGateScope,
+  JevGateSnapshot,
+} from './jev-gates'
+import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
@@ -97,6 +102,8 @@ export const IPC_CHANNELS = {
   restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
+  getJevGates: 'jev:get-gates',
+  updateJevGates: 'jev:update-gates',
   attachWorkspace: 'storage:attach-workspace',
   diagnosticsEvent: 'diagnostics:event',
   exportSupportBundle: 'diagnostics:export-support-bundle',
@@ -164,6 +171,7 @@ export const IPC_CHANNELS = {
   managedFleetAcceptNode: 'managed-session:accept-fleet-node',
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
+  managedSessionConfigureJevGates: 'managed-session:configure-jev-gates',
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
@@ -209,6 +217,12 @@ export interface AideApi {
   quitPersistedStateRecovery: () => Promise<void>
   resetPersistedState: () => Promise<void>
   restoreKnownGoodPersistedState: () => Promise<void>
+  getJevGates: (workspaceId: string | null) => Promise<JevGateSnapshot>
+  updateJevGates: (
+    scope: JevGateScope,
+    workspaceId: string | null,
+    overrides: JevGateOverrides,
+  ) => Promise<JevGateSnapshot>
   getJevSettings: (workspaceId: string) => Promise<JevSettingsStatus>
   updateJevSettings: (
     workspaceId: string,
@@ -345,6 +359,10 @@ export interface AideApi {
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],
+  ) => Promise<ManagedSessionSnapshot>
+  configureManagedSessionJevGates: (
+    sessionId: string,
+    overrides: JevGateOverrides | null,
   ) => Promise<ManagedSessionSnapshot>
   configureManagedSessionMode: (
     sessionId: string,

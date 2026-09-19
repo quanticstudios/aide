@@ -117,7 +117,7 @@ export default function PaneCreationModal({
         variant="opaque"
       >
         <Modal.Container placement="center" size="lg">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <Modal.Dialog className="rounded-xl floating-surface">
             <Modal.Header>
               <Modal.Heading>Add pane</Modal.Heading>
             </Modal.Header>

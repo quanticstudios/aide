@@ -304,7 +304,7 @@ export default function WorkspaceCreationModal({
         variant="opaque"
       >
         <Modal.Container placement="center" size="md">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <Modal.Dialog className="rounded-xl floating-surface">
             <Modal.Header>
               <Modal.Heading>
                 {mode === 'create' ? 'Create workspace' : 'Open project root'}

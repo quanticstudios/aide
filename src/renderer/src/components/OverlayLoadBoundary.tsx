@@ -25,7 +25,7 @@ export function OverlayLoadError({
       className="fixed inset-0 z-50 grid place-items-center bg-surface-1 p-6 text-foreground"
       role="dialog"
     >
-      <div className="max-w-sm rounded-xl border border-border bg-surface p-5 text-center shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+      <div className="max-w-sm rounded-xl floating-surface p-5 text-center">
         <h1 className="text-base font-semibold">{name} could not open</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Return to the app and try again. Reload the app window if the problem

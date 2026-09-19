@@ -507,7 +507,7 @@ export default function WorkspaceCanvas({
   }
 
   return (
-    <section className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+    <section className="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface-1">
       {actionError ? (
         <div className="px-4 pt-4">
           <div className="rounded-md border border-accent-red bg-accent-red-soft px-4 py-3 text-sm text-accent-red">

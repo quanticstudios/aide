@@ -66,6 +66,15 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getJevSettings, workspaceId),
   updateJevSettings: (workspaceId, input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateJevSettings, workspaceId, input),
+  getJevGates: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getJevGates, workspaceId),
+  updateJevGates: (scope, workspaceId, overrides) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.updateJevGates,
+      scope,
+      workspaceId,
+      overrides,
+    ),
   attachWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.attachWorkspace, input),
   createTerminalSession: (input: TerminalSessionConfig) =>
@@ -80,6 +89,12 @@ const aideApi: AideApi = {
     ),
   acceptManagedFleetNode: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedFleetAcceptNode, input),
+  configureManagedSessionJevGates: (sessionId: string, overrides) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionConfigureJevGates,
+      sessionId,
+      overrides,
+    ),
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],

@@ -69,7 +69,7 @@ export default function CommandPalette({
         type="button"
       />
       <Command
-        className="relative w-full max-w-lg rounded-xl border border-border bg-surface shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        className="relative w-full max-w-lg rounded-xl floating-surface"
         label="Command palette"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {

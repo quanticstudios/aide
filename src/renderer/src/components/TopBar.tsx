@@ -255,7 +255,7 @@ function PaneActionBar({
             onClick={() => setPickerMode(null)}
             type="button"
           />
-          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-md border border-border bg-surface-elevated p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-lg floating-surface p-1">
             <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
               {pickerLabel}
             </p>

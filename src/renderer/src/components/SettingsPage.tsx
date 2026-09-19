@@ -1,6 +1,11 @@
 import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type JevGateOverrides,
+  type JevGateSnapshot,
+  resolveJevGates,
+} from '../../../shared/jev-gates'
 import type {
   UpdatePreferencesInput,
   UpdatePreferencesSnapshot,
@@ -10,6 +15,13 @@ import {
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
+import {
+  getThemePreference,
+  setThemePreference,
+  type ThemePreference,
+} from '../lib/theme-preference'
+import JevGateControls from './JevGateControls'
+import ThemePicker from './ThemePicker'
 
 export interface SettingsShortcut {
   readonly description?: string
@@ -158,6 +170,38 @@ export default function SettingsPage({
   const [selectedSection, setSelectedSection] = useState('general-settings')
   const [selectedAnimation, setSelectedAnimation] =
     useState<AnimationPreference>(getAnimationPreference)
+  const [selectedTheme, setSelectedTheme] =
+    useState<ThemePreference>(getThemePreference)
+  const [jevGates, setJevGates] = useState<JevGateSnapshot | null>(null)
+
+  useEffect(() => {
+    let isDisposed = false
+    void window.aide
+      ?.getJevGates(null)
+      .then((snapshot) => {
+        if (!isDisposed) setJevGates(snapshot)
+      })
+      .catch(() => {
+        if (!isDisposed) setError('Could not load Jev gate settings.')
+      })
+    return () => {
+      isDisposed = true
+    }
+  }, [])
+
+  async function saveJevGates(next: JevGateOverrides) {
+    setJevGates((current) =>
+      current
+        ? { ...current, global: next, effective: resolveJevGates(next) }
+        : current,
+    )
+    setError(null)
+    try {
+      setJevGates(await window.aide.updateJevGates('global', null, next))
+    } catch {
+      setError('Could not save Jev gate settings.')
+    }
+  }
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -233,6 +277,10 @@ export default function SettingsPage({
       showAppearance: containsQuery(
         'appearance-settings',
         'Appearance',
+        'Theme',
+        'Dark',
+        'High contrast',
+        'Both are dark. They differ in how much the panes lift off the chrome',
         'Animations',
         'System default',
         'On',
@@ -244,6 +292,15 @@ export default function SettingsPage({
         'General',
         'Background task notifications',
         'Show a desktop notification when a background task needs attention',
+      ),
+      showJev: containsQuery(
+        'jev-settings',
+        'Jev',
+        'Jev gates',
+        'Tool call gate',
+        'Lane routing',
+        'Completion check',
+        'TypeSafe decision thresholds allow deny risk',
       ),
       showKeyboard: normalizedQuery
         ? shortcutGroups.length > 0
@@ -310,7 +367,7 @@ export default function SettingsPage({
       ref={pageRef}
       role="dialog"
     >
-      <aside className="flex w-full shrink-0 flex-col gap-3 border-b border-border bg-surface p-3 min-[740px]:h-full min-[740px]:w-56 min-[740px]:gap-4 min-[740px]:border-b-0 min-[740px]:border-r min-[740px]:p-4">
+      <aside className="flex w-full shrink-0 flex-col gap-3 border-b border-border bg-background p-3 min-[740px]:h-full min-[740px]:w-72 min-[740px]:gap-4 min-[740px]:border-b-0 min-[740px]:border-r min-[740px]:p-4">
         <div className="flex min-w-0 items-center gap-2">
           <Button
             variant="ghost"
@@ -372,6 +429,7 @@ export default function SettingsPage({
           {[
             { id: 'general-settings', label: 'General' },
             { id: 'appearance-settings', label: 'Appearance' },
+            { id: 'jev-settings', label: 'Jev gates' },
             { id: 'keyboard-shortcuts', label: 'Keyboard shortcuts' },
             { id: 'update-settings', label: 'Updates' },
           ].map((section) => (
@@ -444,9 +502,25 @@ export default function SettingsPage({
                 Appearance
               </h2>
               <p className="mt-1 text-[13px] text-muted-foreground">
-                Motion preferences for the app interface.
+                Theme and motion preferences for the app interface.
               </p>
               <div className="mt-4 rounded-lg border border-border bg-surface-2">
+                <div className="border-b border-border px-4 py-3">
+                  <span className="block text-[13px] font-medium leading-5">
+                    Theme
+                  </span>
+                  <span className="mb-3 block text-[12px] leading-4 text-muted-foreground">
+                    Both are dark. They differ in how much the panes lift off
+                    the chrome.
+                  </span>
+                  <ThemePicker
+                    onChange={(preference) => {
+                      setThemePreference(preference)
+                      setSelectedTheme(preference)
+                    }}
+                    value={selectedTheme}
+                  />
+                </div>
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium leading-5">
@@ -493,6 +567,36 @@ export default function SettingsPage({
                     </Select.Popover>
                   </Select>
                 </div>
+              </div>
+            </section>
+          ) : null}
+
+          {searchResults.showJev ? (
+            <section
+              aria-labelledby="jev-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="jev-settings"
+            >
+              <h2 className="text-xl font-medium" id="jev-settings-heading">
+                Jev gates
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Global defaults for Jev decisions in every chat. Workspaces and
+                chats can override each field.
+              </p>
+              <div className="mt-4">
+                {jevGates ? (
+                  <JevGateControls
+                    effective={resolveJevGates()}
+                    inheritLabel="Default"
+                    onChange={(next) => void saveJevGates(next)}
+                    value={jevGates.global}
+                  />
+                ) : (
+                  <p className="text-[13px] text-muted-foreground">
+                    Loading Jev gate settings.
+                  </p>
+                )}
               </div>
             </section>
           ) : null}

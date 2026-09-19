@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -25,6 +25,7 @@ import type {
   WorkspaceGitRevertInput,
 } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
+import { JevGateOverridesSchema } from '../shared/jev-gates'
 import type { ManagedSessionDecision } from '../shared/managed-session'
 import type {
   ProjectColor,
@@ -61,6 +62,8 @@ import {
   isFakeUpdateServiceEnabled,
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
+import { JevGateSettings } from './jev-gate-settings'
+import { JevGates } from './jev-gates'
 import { JevSettings } from './jev-settings'
 import { validateManagedSessionAttachments } from './managed-session-attachments'
 import { ManagedSessionManager } from './managed-session-manager'
@@ -115,6 +118,7 @@ let turnCheckpoints: TurnCheckpointService
 const restoringWorkspaces = new Set<string>()
 const checkpointPreviews = new Map<string, string>()
 let jevSettings: JevSettings
+let jevGateSettings: JevGateSettings
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
@@ -322,6 +326,25 @@ function initializeServices(): void {
     path.join(path.dirname(databasePath), 'jev-settings.json'),
     safeStorage,
   )
+  jevGateSettings = new JevGateSettings(
+    path.join(path.dirname(databasePath), 'jev-gates.json'),
+  )
+  const jevDecisionLog = path.join(
+    path.dirname(databasePath),
+    'jev-decisions.jsonl',
+  )
+  const jevGates = new JevGates({
+    getApiKey: (workspaceRoot) => jevSettings.getApiKey(workspaceRoot),
+    log: (row) => {
+      try {
+        appendFileSync(jevDecisionLog, `${JSON.stringify(row)}\n`, {
+          mode: 0o600,
+        })
+      } catch {
+        return
+      }
+    },
+  })
   if (
     (process.platform === 'linux' || process.platform === 'darwin') &&
     (process.arch === 'x64' || process.arch === 'arm64') &&
@@ -382,6 +405,9 @@ function initializeServices(): void {
   })
   managedSessionManager = new ManagedSessionManager({
     store: database,
+    jevGates,
+    resolveJevGates: (config) =>
+      jevGateSettings.resolve(config.cwd, config.jevGates),
     afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
     beforeInput: async ({ config, snapshot, text }) => {
       const workspace = database.getWorkspace(config.workspaceId)
@@ -776,6 +802,31 @@ function registerIpcHandlers(): void {
     (event, workspaceId: unknown, input: unknown) => {
       const workspace = requireWorkspaceForSetup(event, workspaceId)
       return jevSettings.update(workspace.worktreePath, input)
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.getJevGates, (event, workspaceId: unknown) => {
+    if (workspaceId === null) {
+      requireTrustedRenderer(event)
+      return jevGateSettings.get(null)
+    }
+    return jevGateSettings.get(
+      requireWorkspaceForSetup(event, workspaceId).worktreePath,
+    )
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.updateJevGates,
+    (event, scope: unknown, workspaceId: unknown, overrides: unknown) => {
+      if (scope !== 'global' && scope !== 'workspace')
+        throw new Error('Unknown Jev gate scope.')
+      if (workspaceId === null) {
+        requireTrustedRenderer(event)
+        return jevGateSettings.update(scope, null, overrides)
+      }
+      return jevGateSettings.update(
+        scope,
+        requireWorkspaceForSetup(event, workspaceId).worktreePath,
+        overrides,
+      )
     },
   )
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, (event) => {
@@ -1382,6 +1433,18 @@ function registerIpcHandlers(): void {
       return managedSessionManager.configureSessionMode(
         requireRuntimeId(sessionId, 'managed-session id'),
         interactionMode,
+      )
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionConfigureJevGates,
+    (event, sessionId: unknown, overrides: unknown) => {
+      requireTrustedRenderer(event)
+      const parsed =
+        overrides === null ? undefined : JevGateOverridesSchema.parse(overrides)
+      return managedSessionManager.configureSessionJevGates(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        parsed,
       )
     },
   )

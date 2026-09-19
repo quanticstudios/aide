@@ -9,7 +9,6 @@ import {
 } from '@heroui/react'
 import {
   Archive,
-  ChevronRight,
   CircleAlert,
   CircleCheck,
   CircleHelp,
@@ -17,8 +16,11 @@ import {
   FolderKanban,
   GitBranch,
   Loader2,
+  Copy,
   MessageSquare,
+  MessageSquarePlus,
   MoreHorizontal,
+  Pencil,
   Plus,
   Settings,
   Terminal,
@@ -291,7 +293,7 @@ function ProjectOverflowMenu({
         <MoreHorizontal className="size-4 shrink-0" />
       </Popover.Trigger>
       <Popover.Content
-        className="w-80 rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+        className="w-80 rounded-lg floating-surface p-0"
         placement="bottom end"
       >
         <Popover.Dialog className="p-0 outline-none">
@@ -465,7 +467,7 @@ function WorkspaceOverflowMenu({
       </Popover.Trigger>
       <Popover.Content
         className={cn(
-          'rounded-md border border-border bg-surface p-0 shadow-[0_20px_60px_rgba(0,0,0,0.4)]',
+          'rounded-lg floating-surface p-0',
           isRenaming ? 'w-56' : 'w-[11.25rem]',
         )}
         placement="bottom end"
@@ -520,7 +522,7 @@ function WorkspaceOverflowMenu({
           ) : (
             <div className="p-1">
               <Button
-                className="h-8 w-full justify-start px-2 text-xs"
+                className="h-8 w-full justify-start gap-2 rounded-md px-2 text-[13px] font-normal"
                 onPress={() => {
                   onCreateChat()
                   closeMenu()
@@ -528,10 +530,11 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
+                <MessageSquarePlus aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
                 New chat
               </Button>
               <Button
-                className="h-8 w-full justify-start px-2 text-xs"
+                className="h-8 w-full justify-start gap-2 rounded-md px-2 text-[13px] font-normal"
                 onPress={() => {
                   void navigator.clipboard.writeText(workspace.worktreePath)
                   closeMenu()
@@ -539,10 +542,11 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
+                <Copy aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
                 Copy folder path
               </Button>
               <Button
-                className="h-8 w-full justify-start px-2 text-xs"
+                className="h-8 w-full justify-start gap-2 rounded-md px-2 text-[13px] font-normal"
                 onPress={() => {
                   setIsRenaming(true)
                   setName(workspace.name)
@@ -550,6 +554,7 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
+                <Pencil aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
                 Rename workspace
               </Button>
             </div>
@@ -725,7 +730,7 @@ export default function SidebarTree({
       </div>
 
       <ScrollShadow className="min-h-0 flex-1" hideScrollBar size={36}>
-        <div className="py-1.5">
+        <div className="px-2 py-1.5">
           {projects.map((project, projectIndex) => {
             const projectWorkspaces = workspacesByProject[project.id] ?? []
             const isActiveProject = project.id === activeProjectId
@@ -762,21 +767,6 @@ export default function SidebarTree({
                   className="group/project flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-surface-secondary focus-within:bg-surface-secondary"
                   data-testid={`project-header-${project.id}`}
                 >
-                  <button
-                    aria-expanded={isProjectExpanded}
-                    aria-label={`Toggle ${project.name} workspaces`}
-                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover/project:text-foreground"
-                    onClick={() => onSelectProject(project.id)}
-                    type="button"
-                  >
-                    <ChevronRight
-                      className={cn(
-                        'size-3.5 transition-transform',
-                        isProjectExpanded ? 'rotate-90' : 'rotate-0',
-                      )}
-                    />
-                  </button>
-
                   <Tooltip closeDelay={100} delay={500}>
                     <Tooltip.Trigger
                       aria-current={isActiveProject ? 'true' : undefined}
@@ -822,7 +812,7 @@ export default function SidebarTree({
                       ) : null}
                     </Tooltip.Trigger>
                     <Tooltip.Content
-                      className="w-64 rounded-lg border border-border bg-surface-elevated p-3 text-foreground shadow-[0_16px_48px_rgba(0,0,0,0.36)]"
+                      className="w-64 rounded-lg floating-surface p-3 text-foreground"
                       placement="right"
                     >
                       <div className="flex flex-col gap-1.5">
@@ -850,7 +840,7 @@ export default function SidebarTree({
                       <Plus className="size-3.5 shrink-0" />
                     </Dropdown.Trigger>
                     <Dropdown.Popover
-                      className="min-w-44 rounded-md border border-border bg-surface p-1 shadow-[0_20px_60px_rgba(0,0,0,0.4)]"
+                      className="min-w-44 rounded-lg floating-surface p-1"
                       placement="bottom end"
                     >
                       <Dropdown.Menu aria-label={`Add to ${project.name}`}>
@@ -886,7 +876,7 @@ export default function SidebarTree({
                 </div>
 
                 {isProjectExpanded ? (
-                  <div className="mx-3 pb-1">
+                  <div className="flex flex-col gap-0.5 pt-1 pb-1">
                     {projectWorkspaces.map((workspace) => {
                       const isActiveWorkspace =
                         workspace.id === activeWorkspaceId
@@ -976,8 +966,7 @@ export default function SidebarTree({
                               className={cn(
                                 'group relative flex w-full cursor-pointer flex-col gap-1 rounded-md py-2 pl-3 pr-10 text-left transition-colors',
                                 bgClass,
-                                isActiveWorkspace &&
-                                  'bg-primary/10 ring-1 ring-inset ring-primary/40',
+                                isActiveWorkspace && 'bg-primary/12',
                                 !activity &&
                                   !isActiveWorkspace &&
                                   'hover:bg-surface-secondary',

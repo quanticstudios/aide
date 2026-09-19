@@ -65,6 +65,86 @@ const providerResponseSchema = z
   })
   .strict()
 
+const questionSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('noul'),
+      instructions: z.string().min(1).max(4_096),
+      criteria: z.object({ true: z.string(), false: z.string() }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('choice'),
+      instructions: z.string().min(1).max(4_096),
+      criteria: z.record(z.string().min(1), z.string()),
+    })
+    .strict()
+    .refine((question) => Object.keys(question.criteria).length >= 2),
+  z
+    .object({
+      type: z.literal('score'),
+      instructions: z.string().min(1).max(4_096),
+      criteria: z.array(z.string()).min(2).max(10),
+    })
+    .strict(),
+])
+
+const askInputSchema = z
+  .object({
+    questions: z.record(z.string().min(1).max(128), questionSchema),
+    state: z.unknown(),
+  })
+  .strict()
+  .refine((input) => Object.keys(input.questions).length >= 1)
+
+const askAnswerSchema = z.discriminatedUnion('type', [
+  providerAnswerSchema,
+  z
+    .object({
+      type: z.literal('choice'),
+      choice: z.string(),
+      confidence: z.number().min(0).max(1),
+      probabilities: z.record(z.string(), z.number().min(0).max(1)),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('score'),
+      score: z.number(),
+      confidence: z.number().min(0).max(1),
+      legend: z.record(z.string(), z.string()),
+      probabilities: z.record(z.string(), z.number().min(0).max(1)),
+    })
+    .strict(),
+])
+
+const askResponseSchema = z
+  .object({
+    answers: z.record(z.string(), askAnswerSchema),
+    model: z.literal(JEV_MODEL),
+    usage: z
+      .object({
+        input_tokens: z.int().nonnegative(),
+        output_tokens: z.int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict()
+
+export type JevQuestion = z.infer<typeof questionSchema>
+
+export type JevAskInput = z.infer<typeof askInputSchema>
+
+export type JevAnswer = z.infer<typeof askAnswerSchema>
+
+export interface JevAskResult {
+  answers: Readonly<Record<string, JevAnswer>>
+  estimatedCost: JevEvaluationResult['estimatedCost']
+  model: typeof JEV_MODEL
+  usage: JevEvaluationResult['usage']
+}
+
 export type JevCandidate = z.infer<typeof candidateSchema>
 
 export type JevEvaluationInput = z.infer<typeof evaluationInputSchema>
@@ -270,6 +350,122 @@ export class JevClient {
       )
     }
 
+    const parsedResponse = await this.request(
+      body,
+      providerResponseSchema,
+      callerSignal,
+    )
+    const expectedKeys = parsedInput.data.candidates.map(
+      (_candidate, index) => `candidate_${index}`,
+    )
+    const answerKeys = Object.keys(parsedResponse.answers)
+    if (
+      answerKeys.length !== expectedKeys.length ||
+      expectedKeys.some((key) => !Object.hasOwn(parsedResponse.answers, key))
+    ) {
+      throw new JevClientError(
+        'invalid-response',
+        'TypeSafe returned an invalid response.',
+      )
+    }
+
+    const answers = Object.freeze(
+      parsedInput.data.candidates.map((candidate, index) => {
+        const answer = parsedResponse.answers[`candidate_${index}`]
+        return Object.freeze({
+          candidateId: candidate.id,
+          contentRevision: candidate.contentRevision,
+          noul: answer.noul,
+          path: candidate.path,
+          type: answer.type,
+        })
+      }),
+    )
+    return Object.freeze({
+      answers,
+      estimatedCost: Object.freeze({
+        amountUsd:
+          parsedResponse.usage.input_tokens * JEV_INPUT_PRICE_USD_PER_TOKEN,
+        currency: 'USD' as const,
+        kind: 'estimate' as const,
+      }),
+      model: parsedResponse.model,
+      usage: Object.freeze({
+        inputTokens: parsedResponse.usage.input_tokens,
+        outputTokens: parsedResponse.usage.output_tokens,
+      }),
+    })
+  }
+
+  /** Sends typed questions about one state and returns every answer keyed by question id. */
+  public async ask(
+    input: JevAskInput,
+    callerSignal?: AbortSignal,
+  ): Promise<JevAskResult> {
+    if (callerSignal?.aborted) {
+      throw new JevClientError('cancelled', 'The Jev request was cancelled.')
+    }
+    const parsedInput = askInputSchema.safeParse(input)
+    if (!parsedInput.success) throw invalidRequest()
+    if (!/^[\x21-\x7e]+$/.test(this.apiKey)) {
+      throw new JevClientError(
+        'missing-api-key',
+        'TypeSafe API credentials are unavailable.',
+      )
+    }
+    const body = JSON.stringify({
+      model: JEV_MODEL,
+      questions: parsedInput.data.questions,
+      state: parsedInput.data.state,
+    })
+    if (Buffer.byteLength(body) > MAX_REQUEST_BYTES) {
+      throw new JevClientError(
+        'request-too-large',
+        'The Jev request is too large.',
+      )
+    }
+    const parsedResponse = await this.request(
+      body,
+      askResponseSchema,
+      callerSignal,
+    )
+    const expectedKeys = Object.keys(parsedInput.data.questions)
+    const answerKeys = Object.keys(parsedResponse.answers)
+    if (
+      answerKeys.length !== expectedKeys.length ||
+      expectedKeys.some(
+        (key) =>
+          !Object.hasOwn(parsedResponse.answers, key) ||
+          parsedResponse.answers[key]?.type !==
+            parsedInput.data.questions[key]?.type,
+      )
+    ) {
+      throw new JevClientError(
+        'invalid-response',
+        'TypeSafe returned an invalid response.',
+      )
+    }
+    return Object.freeze({
+      answers: Object.freeze({ ...parsedResponse.answers }),
+      estimatedCost: Object.freeze({
+        amountUsd:
+          parsedResponse.usage.input_tokens * JEV_INPUT_PRICE_USD_PER_TOKEN,
+        currency: 'USD' as const,
+        kind: 'estimate' as const,
+      }),
+      model: parsedResponse.model,
+      usage: Object.freeze({
+        inputTokens: parsedResponse.usage.input_tokens,
+        outputTokens: parsedResponse.usage.output_tokens,
+      }),
+    })
+  }
+
+  private async request<Schema extends z.ZodType>(
+    body: string,
+    schema: Schema,
+    callerSignal?: AbortSignal,
+  ): Promise<z.infer<Schema>> {
     const controller = new AbortController()
     const abortForCaller = () => controller.abort()
     callerSignal?.addEventListener('abort', abortForCaller, { once: true })
@@ -303,11 +499,10 @@ export class JevClient {
         throw providerError(response)
       }
 
-      let parsedResponse: z.infer<typeof providerResponseSchema>
       try {
-        parsedResponse = providerResponseSchema.parse(
+        return schema.parse(
           JSON.parse(await readBoundedResponseBody(response)),
-        )
+        ) as z.infer<Schema>
       } catch (error) {
         if (error instanceof JevClientError) throw error
         const abortError = getAbortError(callerSignal, controller.signal)
@@ -317,47 +512,6 @@ export class JevClient {
           'TypeSafe returned an invalid response.',
         )
       }
-
-      const expectedKeys = parsedInput.data.candidates.map(
-        (_candidate, index) => `candidate_${index}`,
-      )
-      const answerKeys = Object.keys(parsedResponse.answers)
-      if (
-        answerKeys.length !== expectedKeys.length ||
-        expectedKeys.some((key) => !Object.hasOwn(parsedResponse.answers, key))
-      ) {
-        throw new JevClientError(
-          'invalid-response',
-          'TypeSafe returned an invalid response.',
-        )
-      }
-
-      const answers = Object.freeze(
-        parsedInput.data.candidates.map((candidate, index) => {
-          const answer = parsedResponse.answers[`candidate_${index}`]
-          return Object.freeze({
-            candidateId: candidate.id,
-            contentRevision: candidate.contentRevision,
-            noul: answer.noul,
-            path: candidate.path,
-            type: answer.type,
-          })
-        }),
-      )
-      return Object.freeze({
-        answers,
-        estimatedCost: Object.freeze({
-          amountUsd:
-            parsedResponse.usage.input_tokens * JEV_INPUT_PRICE_USD_PER_TOKEN,
-          currency: 'USD' as const,
-          kind: 'estimate' as const,
-        }),
-        model: parsedResponse.model,
-        usage: Object.freeze({
-          inputTokens: parsedResponse.usage.input_tokens,
-          outputTokens: parsedResponse.usage.output_tokens,
-        }),
-      })
     } finally {
       clearTimeout(timeout)
       callerSignal?.removeEventListener('abort', abortForCaller)

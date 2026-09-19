@@ -189,7 +189,7 @@ export default function TerminalPane({
         'JetBrains Mono, JetBrainsMono Nerd Font, MesloLGS NF, Symbols Nerd Font Mono, monospace',
       fontSize: 13,
       theme: {
-        background: '#07080a',
+        background: 'transparent',
         black: '#0d0d0d',
         blue: '#57c1ff',
         brightBlack: '#242728',
@@ -341,7 +341,7 @@ export default function TerminalPane({
         </div>
       ) : null}
 
-      <div className="h-full w-full p-3">
+      <div className="h-full w-full bg-background p-3">
         <div className="h-full w-full" ref={containerRef} />
       </div>
     </div>

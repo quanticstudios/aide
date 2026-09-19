@@ -110,6 +110,13 @@ export class JevSettings {
     return this.getStatus(workspaceRoot)
   }
 
+  public getApiKey(workspaceRoot: string): string | null {
+    const settings = this.read()
+    if (settings.disabledRoots.includes(path.resolve(workspaceRoot)))
+      return null
+    return this.readCredential(settings.credential)
+  }
+
   public requireApiKey(workspaceRoot: string): string {
     const settings = this.read()
     if (settings.disabledRoots.includes(path.resolve(workspaceRoot))) {
