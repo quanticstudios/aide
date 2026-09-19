@@ -136,7 +136,8 @@ function inferFileLang(filePath: string): string {
   }
 }
 
-function GitDiffView({
+/** Render a unified patch with the shared highlighter and theme. */
+export function GitDiffView({
   filePath,
   outputFormat,
   patch,
