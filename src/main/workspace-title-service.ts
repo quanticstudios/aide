@@ -66,7 +66,7 @@ function normalizeGeneratedTitle(value: string): string | null {
   return title
 }
 
-function lunaModelId(
+export function lunaModelId(
   capabilities: ProviderCapabilitiesSnapshot,
 ): string | null {
   const model = capabilities.providers.codex.models.find((candidate) =>
