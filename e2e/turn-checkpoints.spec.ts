@@ -132,10 +132,29 @@ test.describe('turn checkpoints', () => {
         (turn) => turn.checkpointId,
       )?.checkpointId
       if (!session || !checkpointId) throw new Error('Checkpoint unavailable.')
-      const preview = await window.aide.previewTurnCheckpointRestore(
-        session.sessionId,
-        checkpointId,
-      )
+      // warn: the snapshot reports the turn terminal before the main process has recorded its checkpoint, so only the preview call itself reports an idle session.
+      const previewWhenIdle = async () => {
+        const deadline = Date.now() + 15_000
+        for (;;) {
+          try {
+            return await window.aide.previewTurnCheckpointRestore(
+              session.sessionId,
+              checkpointId,
+            )
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error)
+            if (
+              Date.now() > deadline ||
+              !message.includes('Stop the running task')
+            ) {
+              throw error
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+        }
+      }
+      const preview = await previewWhenIdle()
       if (!preview.changes.some((change) => change.path === 'README.md'))
         throw new Error('README missing from restore preview.')
       return await window.aide.restoreTurnCheckpoint(
