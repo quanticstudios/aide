@@ -2305,6 +2305,9 @@ test.describe('shared model chat', () => {
     const { page } = launched
     await selectPlanMode(page)
 
+    // why: a peer's turn state lands after its reply is visible, so the fake provider's agent runs can outlast the 5 s default poll deadline under load.
+    const peerTurnPoll = { timeout: 15_000 }
+
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('@Claude @Codex fail-claude')
     await page.getByRole('button', { name: /send prompt/i }).click()
@@ -2312,7 +2315,7 @@ test.describe('shared model chat', () => {
       'Handled: fail-claude',
     )
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
@@ -2330,7 +2333,7 @@ test.describe('shared model chat', () => {
     await retryTurn.locator('xpath=../..').hover()
     await retryTurn.click()
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
@@ -2351,7 +2354,7 @@ test.describe('shared model chat', () => {
     ).toBeVisible()
     await page.getByRole('button', { name: 'Interrupt @claude' }).click()
     await expect
-      .poll(() => getOnlySnapshot(page))
+      .poll(() => getOnlySnapshot(page), peerTurnPoll)
       .toMatchObject({
         turns: expect.arrayContaining([
           expect.objectContaining({
