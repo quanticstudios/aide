@@ -530,7 +530,10 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
-                <MessageSquarePlus aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <MessageSquarePlus
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
                 New chat
               </Button>
               <Button
@@ -542,7 +545,10 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
-                <Copy aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <Copy
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
                 Copy folder path
               </Button>
               <Button
@@ -554,7 +560,10 @@ function WorkspaceOverflowMenu({
                 size="sm"
                 variant="ghost"
               >
-                <Pencil aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <Pencil
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
                 Rename workspace
               </Button>
             </div>
