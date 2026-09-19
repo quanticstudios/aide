@@ -1,8 +1,12 @@
+import type { ComposerDefaults } from '../../../shared/composer-defaults'
 import type {
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
-import type { ProviderSelectionResolution } from '../../../shared/provider-capabilities'
+import type {
+  ProviderSelectionInput,
+  ProviderSelectionResolution,
+} from '../../../shared/provider-capabilities'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 
@@ -81,4 +85,20 @@ export function getComposerProviderSelection(
       serviceTier: snapshot.serviceTier,
     }
   )
+}
+
+/** Stored composer defaults as a selection input, empty when they name another provider. */
+export function composerProviderSelectionInput(
+  defaults: ComposerDefaults | null,
+  provider: ManagedSessionMode,
+): ProviderSelectionInput {
+  if (!defaults || defaults.provider !== provider) {
+    return {}
+  }
+
+  return {
+    effort: defaults.effort ?? null,
+    modelId: defaults.model,
+    serviceTier: defaults.serviceTier,
+  }
 }
