@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { TurnCheckpointCaptureInput } from '../shared/checkpoints'
 import type { ManagedSessionSnapshot } from '../shared/managed-session'
-import { TurnCheckpointService } from './turn-checkpoints'
+import { parseTurnDiffPatch, TurnCheckpointService } from './turn-checkpoints'
 
 const gitEnvironment = {
   ...process.env,
@@ -448,5 +448,147 @@ describe('TurnCheckpointService', () => {
     expect(
       readFileSync(path.join(repositoryRoot, 'entry', 'secret.env'), 'utf8'),
     ).toBe('secret\n')
+  })
+})
+
+describe('parseTurnDiffPatch', () => {
+  it('counts additions and deletions per file from the patch body', () => {
+    const files = parseTurnDiffPatch(
+      [
+        'diff --git a/README.md b/README.md',
+        'index 1111111..2222222 100644',
+        '--- a/README.md',
+        '+++ b/README.md',
+        '@@ -1,2 +1,3 @@',
+        ' before',
+        '-dropped',
+        '+added one',
+        '+added two',
+        'diff --git a/notes.txt b/notes.txt',
+        'new file mode 100644',
+        'index 0000000..3333333',
+        '--- /dev/null',
+        '+++ b/notes.txt',
+        '@@ -0,0 +1 @@',
+        '+notes',
+        '',
+      ].join('\n'),
+    )
+
+    expect(files).toEqual([
+      {
+        additions: 2,
+        deletions: 1,
+        patch: expect.stringContaining('+++ b/README.md'),
+        path: 'README.md',
+        status: 'modified',
+      },
+      {
+        additions: 1,
+        deletions: 0,
+        patch: expect.stringContaining('+++ b/notes.txt'),
+        path: 'notes.txt',
+        status: 'added',
+      },
+    ])
+  })
+
+  it('reads deleted files from the old path and ignores hunk headers', () => {
+    const files = parseTurnDiffPatch(
+      [
+        'diff --git a/gone.txt b/gone.txt',
+        'deleted file mode 100644',
+        '--- a/gone.txt',
+        '+++ /dev/null',
+        '@@ -1,2 +0,0 @@',
+        '-gone one',
+        '-gone two',
+        '',
+      ].join('\n'),
+    )
+
+    expect(files).toEqual([
+      {
+        additions: 0,
+        deletions: 2,
+        patch: expect.stringContaining('deleted file mode'),
+        path: 'gone.txt',
+        status: 'deleted',
+      },
+    ])
+  })
+
+  it('counts an added line that begins with plus signs', () => {
+    const files = parseTurnDiffPatch(
+      [
+        'diff --git a/counter.c b/counter.c',
+        '--- a/counter.c',
+        '+++ b/counter.c',
+        '@@ -1 +1,2 @@',
+        ' int i;',
+        '+++i;',
+        '',
+      ].join('\n'),
+    )
+
+    expect(files[0]?.additions).toBe(1)
+    expect(files[0]?.deletions).toBe(0)
+  })
+
+  it('returns no files for an empty patch', () => {
+    expect(parseTurnDiffPatch('')).toEqual([])
+  })
+})
+
+describe('TurnCheckpointService.getTurnDiff', () => {
+  it('reports the files the turn changed', async () => {
+    const repositoryRoot = createRepository()
+    const state = { active: false, snapshot: createSnapshot() }
+    const service = createService(repositoryRoot, state)
+    const checkpoint = await service.captureTurn(
+      createCaptureInput(repositoryRoot, state.snapshot),
+    )
+    writeFileSync(path.join(repositoryRoot, 'README.md'), 'before\nafter\n')
+    await service.completeTurn(checkpoint.checkpointId)
+
+    const diff = await service.getTurnDiff(
+      state.snapshot.sessionId,
+      checkpoint.checkpointId,
+    )
+
+    expect(diff.additions).toBe(1)
+    expect(diff.deletions).toBe(0)
+    expect(diff.files.map((file) => file.path)).toEqual(['README.md'])
+    expect(diff.files[0]?.patch).toContain('+after')
+  })
+
+  it('reports no files for a turn that changed nothing', async () => {
+    const repositoryRoot = createRepository()
+    const state = { active: false, snapshot: createSnapshot() }
+    const service = createService(repositoryRoot, state)
+    const checkpoint = await service.captureTurn(
+      createCaptureInput(repositoryRoot, state.snapshot),
+    )
+    await service.completeTurn(checkpoint.checkpointId)
+
+    expect(
+      await service.getTurnDiff(
+        state.snapshot.sessionId,
+        checkpoint.checkpointId,
+      ),
+    ).toEqual({ additions: 0, deletions: 0, files: [] })
+  })
+
+  it('refuses a checkpoint from another managed session', async () => {
+    const repositoryRoot = createRepository()
+    const state = { active: false, snapshot: createSnapshot() }
+    const service = createService(repositoryRoot, state)
+    const checkpoint = await service.captureTurn(
+      createCaptureInput(repositoryRoot, state.snapshot),
+    )
+
+    await expect(
+      service.getTurnDiff('session-2', checkpoint.checkpointId),
+    ).rejects.toThrow('belongs to another managed session')
   })
 })
