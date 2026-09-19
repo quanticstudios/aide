@@ -1,6 +1,6 @@
 # Agent pane parity
 
-Shipped on 2026-09-19 as eighteen squash merges to `main`, PRs 41 to 60. The audit that
+Shipped on 2026-09-19 as eighteen tickets in twenty squash merges to `main`, PRs 41 to 62. The audit that
 produced the ticket set compared the Agent pane with T3 Code, Claude Code desktop, the
 Codex app and Conductor. The six must-haves from that audit, three user reports from the
 same day, and the CI repairs needed to land any of it are listed below with the check that
@@ -60,6 +60,9 @@ proves each one in the Electron suite.
 - Composer persistence stores one selection per workspace; the previous per-provider model
   memory is gone, so switching provider resolves that provider's default model.
 - PRs 58, 59 and 60 merged before their CI runs finished, on the user's instruction; their
-  e2e journeys were written from existing specs and never executed locally.
+  e2e journeys were written from existing specs and never executed locally. The first full
+  `main` run then failed two of them: the Full access spec lacked the Jev key stub (PR 62)
+  and the per-workspace sidebar closed the project rail on switch (PR 61, which now
+  inherits the previous workspace's state until a workspace is toggled).
 - Starting a feature branch from the Git pane does not update the workspace record's
   branch name until the next import.
