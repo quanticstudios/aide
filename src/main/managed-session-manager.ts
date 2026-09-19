@@ -53,6 +53,7 @@ import type {
   ManagedProviderRuntimeEvent,
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeRequestType,
+  ManagedProviderRuntimeToolRequest,
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
 import type { ResolvedProviderSkill } from '../shared/provider-skills'
@@ -362,6 +363,89 @@ function summarizeToolRequest(
   return `${toolName}: ${JSON.stringify(input).slice(0, 240)}`
 }
 
+function splitDiffLines(text: string): string[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  return lines.at(-1) === '' ? lines.slice(0, -1) : lines
+}
+
+function buildUnifiedDiff(
+  filePath: string,
+  oldText: string,
+  newText: string,
+): string {
+  const removed = splitDiffLines(oldText)
+  const added = splitDiffLines(newText)
+
+  return [
+    `--- a/${filePath}`,
+    `+++ b/${filePath}`,
+    `@@ -${removed.length > 0 ? 1 : 0},${removed.length} +${added.length > 0 ? 1 : 0},${added.length} @@`,
+    ...removed.map((line) => `-${line}`),
+    ...added.map((line) => `+${line}`),
+  ].join('\n')
+}
+
+/** Turns a Claude tool call into the structured request the approval card renders. */
+export function buildToolApprovalRequest(
+  toolName: string,
+  input: Record<string, unknown>,
+): ManagedProviderRuntimeToolRequest {
+  const request: ManagedProviderRuntimeToolRequest = { input, toolName }
+  const command =
+    typeof input.command === 'string'
+      ? input.command
+      : typeof input.cmd === 'string'
+        ? input.cmd
+        : null
+
+  if (command) {
+    return {
+      ...request,
+      command,
+      ...(typeof input.cwd === 'string' ? { cwd: input.cwd } : {}),
+    }
+  }
+
+  const filePath =
+    typeof input.file_path === 'string' ? input.file_path : undefined
+
+  if (!filePath) {
+    return request
+  }
+
+  if (typeof input.content === 'string') {
+    return {
+      ...request,
+      diff: buildUnifiedDiff(filePath, '', input.content),
+      filePath,
+    }
+  }
+
+  const edits = (Array.isArray(input.edits) ? input.edits : [input]).flatMap(
+    (edit) => {
+      const record = edit as Record<string, unknown>
+      return typeof record.old_string === 'string' &&
+        typeof record.new_string === 'string'
+        ? [{ newText: record.new_string, oldText: record.old_string }]
+        : []
+    },
+  )
+
+  if (edits.length === 0) {
+    return { ...request, filePath }
+  }
+
+  return {
+    ...request,
+    diff: buildUnifiedDiff(
+      filePath,
+      edits.map((edit) => edit.oldText).join('\n'),
+      edits.map((edit) => edit.newText).join('\n'),
+    ),
+    filePath,
+  }
+}
+
 function classifyToolRequestType(
   toolName: string,
 ): ManagedProviderRuntimeRequestType {
@@ -634,6 +718,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         createdAt: this.getNow(),
         detail,
         provider: 'claude',
+        request: buildToolApprovalRequest(toolName, input),
         requestId,
         requestType,
         type: 'request.opened',
@@ -1602,6 +1687,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
           this.readString(params, 'reason') ??
           this.readString(params, 'prompt'),
         provider: 'codex',
+        request: this.buildCodexApprovalRequest(request.method, params),
         requestId,
         requestType,
         type: 'request.opened',
@@ -1843,6 +1929,49 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     )
   }
 
+  private buildCodexApprovalRequest(
+    method: string,
+    params: Record<string, unknown> | undefined,
+  ): ManagedProviderRuntimeToolRequest {
+    const item = this.readObject(params, 'item')
+    const toolName = method.split('/')[1] ?? method
+    const rawCommand = params?.command ?? item?.command
+    const command = Array.isArray(rawCommand)
+      ? rawCommand
+          .filter((part): part is string => typeof part === 'string')
+          .join(' ')
+      : typeof rawCommand === 'string'
+        ? rawCommand
+        : undefined
+
+    if (command) {
+      const cwd = this.readString(params, 'cwd') ?? this.readString(item, 'cwd')
+      return {
+        command,
+        ...(cwd ? { cwd } : {}),
+        input: params,
+        toolName,
+      }
+    }
+
+    const rawChanges = params?.changes ?? item?.changes
+    const change = Array.isArray(rawChanges)
+      ? this.readObject(rawChanges[0])
+      : undefined
+    const filePath = change ? this.readString(change, 'path') : undefined
+    const diff = change
+      ? (this.readString(change, 'diff') ??
+        this.readString(change, 'unifiedDiff'))
+      : undefined
+
+    return {
+      ...(diff ? { diff } : {}),
+      ...(filePath ? { filePath } : {}),
+      input: params,
+      toolName,
+    }
+  }
+
   private readObject(
     value: unknown,
     key?: string,
@@ -1971,12 +2100,39 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
 
     if (trimmed === 'approval') {
       this.activeRequestId = randomUUID()
+      const command = 'rm -rf build && bun run build'
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         detail: `${this.provider} needs approval`,
         provider: this.provider,
+        request: { command, input: { command }, toolName: 'Bash' },
         requestId: this.activeRequestId,
         requestType: 'command-execution-approval',
+        type: 'request.opened',
+      })
+      return
+    }
+
+    if (trimmed === 'edit approval') {
+      this.activeRequestId = randomUUID()
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        detail: `${this.provider} needs approval`,
+        provider: this.provider,
+        request: {
+          diff: [
+            '--- a/README.md',
+            '+++ b/README.md',
+            '@@ -1,1 +1,1 @@',
+            '-before',
+            '+after',
+          ].join('\n'),
+          filePath: 'README.md',
+          input: { file_path: 'README.md' },
+          toolName: 'Edit',
+        },
+        requestId: this.activeRequestId,
+        requestType: 'file-change-approval',
         type: 'request.opened',
       })
       return
@@ -4344,6 +4500,7 @@ export class ManagedSessionManager {
       state.pendingApprovals.set(event.requestId, {
         detail: event.detail ?? null,
         id: event.requestId,
+        ...(event.request ? { request: event.request } : {}),
         requestType: event.requestType ?? 'unknown',
       })
     }

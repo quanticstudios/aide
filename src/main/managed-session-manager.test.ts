@@ -11,6 +11,7 @@ import type {
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import {
   buildClaudeSkillInput,
+  buildToolApprovalRequest,
   buildClaudeUserContent,
   buildCodexTurnInput,
   ManagedSessionManager,
@@ -524,6 +525,10 @@ createInterface({ input: process.stdin }).on('line', line => {
 
     let snapshot = manager.getSnapshots()[config.sessionId]
     expect(snapshot.pendingApprovals).toHaveLength(1)
+    expect(snapshot.pendingApprovals[0]?.request).toMatchObject({
+      command: 'rm -rf build && bun run build',
+      toolName: 'Bash',
+    })
     expect(snapshot.sessionState).toBe('waiting')
 
     await manager.resolveRequest(
@@ -549,6 +554,44 @@ createInterface({ input: process.stdin }).on('line', line => {
     snapshot = manager.getSnapshots()[config.sessionId]
     expect(snapshot.pendingUserInputs).toHaveLength(0)
     expect(snapshot.sessionState).toBe('ready')
+  })
+
+  it('builds structured approval requests for Claude bash and edit tools', () => {
+    expect(
+      buildToolApprovalRequest('Bash', {
+        command: 'rm -rf build && bun run build',
+        description: 'Rebuild the app',
+      }),
+    ).toMatchObject({
+      command: 'rm -rf build && bun run build',
+      toolName: 'Bash',
+    })
+
+    expect(
+      buildToolApprovalRequest('Edit', {
+        file_path: 'README.md',
+        new_string: 'after\nnext',
+        old_string: 'before',
+      }),
+    ).toMatchObject({
+      diff: [
+        '--- a/README.md',
+        '+++ b/README.md',
+        '@@ -1,1 +1,2 @@',
+        '-before',
+        '+after',
+        '+next',
+      ].join('\n'),
+      filePath: 'README.md',
+      toolName: 'Edit',
+    })
+
+    const other = buildToolApprovalRequest('WebFetch', {
+      url: 'https://example.com',
+    })
+    expect(other.command).toBeUndefined()
+    expect(other.diff).toBeUndefined()
+    expect(other.input).toEqual({ url: 'https://example.com' })
   })
 
   it('revisions snapshots and preserves structured plan approvals', async () => {
