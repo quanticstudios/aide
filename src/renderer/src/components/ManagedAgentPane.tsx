@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   FileCode,
   GitBranch,
+  History,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -31,7 +32,10 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { TurnCheckpointDiff } from '../../../shared/checkpoints'
+import type {
+  TurnCheckpointDiff,
+  TurnCheckpointRestoreResult,
+} from '../../../shared/checkpoints'
 import type { ComposerDefaults } from '../../../shared/composer-defaults'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
@@ -106,6 +110,7 @@ import ManagedComposerAttachments, {
 } from './ManagedComposerAttachments'
 import ManagedInputQueue from './ManagedInputQueue'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import ManagedRewindDialog from './ManagedRewindDialog'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
@@ -414,10 +419,14 @@ function MessageCopyButton({
 }
 
 function ContentItemBlock({
+  editFromHereDisabledReason = null,
   item,
+  onEditFromHere,
   showProvider = true,
 }: {
+  readonly editFromHereDisabledReason?: string | null
   readonly item: ManagedSessionContentItem
+  readonly onEditFromHere?: (() => void) | undefined
   readonly showProvider?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -450,6 +459,23 @@ function ContentItemBlock({
               {formatMessageTime(item.updatedAt)}
             </time>
             <MessageCopyButton text={item.text} kind="message" />
+            {onEditFromHere ? (
+              <IconTooltip
+                label={editFromHereDisabledReason ?? 'Rewind to this message'}
+              >
+                <Button
+                  aria-label="Edit from here"
+                  className="h-7 gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground"
+                  isDisabled={Boolean(editFromHereDisabledReason)}
+                  onPress={onEditFromHere}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <History className="size-3.5" />
+                  Edit from here
+                </Button>
+              </IconTooltip>
+            ) : null}
           </div>
         </div>
       </div>
@@ -605,11 +631,13 @@ function TurnGroupBlock({
   isFailed,
   isRunning,
   onBranch,
+  onEditFromHere,
   onInterrupt,
   onRetry,
   providerLabel,
   recipientAlias,
   requestText,
+  rewindDisabledReason,
   sessionId,
 }: {
   readonly group: TurnGroup
@@ -618,11 +646,16 @@ function TurnGroupBlock({
   readonly isFailed: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
+  readonly onEditFromHere: (
+    checkpointId: string,
+    item: ManagedSessionContentItem,
+  ) => void
   readonly onInterrupt: (recipientAlias: string) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
   readonly recipientAlias: string | null
   readonly requestText: string | null
+  readonly rewindDisabledReason: string | null
   readonly sessionId: string
 }) {
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
@@ -657,8 +690,14 @@ function TurnGroupBlock({
         const previous = group.items[index - 1]
         return (
           <ContentItemBlock
+            editFromHereDisabledReason={rewindDisabledReason}
             item={item}
             key={`${item.kind}:${item.id}`}
+            onEditFromHere={
+              checkpointId && item.kind === 'user-prompt'
+                ? () => onEditFromHere(checkpointId, item)
+                : undefined
+            }
             showProvider={
               previous?.kind !== 'assistant-text' ||
               previous.provider !== item.provider ||
@@ -878,6 +917,10 @@ export default function ManagedAgentPane({
   const slashMenuRef = useRef<HTMLDivElement | null>(null)
   const jevSettingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const [isJevSetupOpen, setIsJevSetupOpen] = useState(false)
+  const [rewindTarget, setRewindTarget] = useState<{
+    readonly attachments: readonly ManagedSessionAttachment[]
+    readonly checkpointId: string
+  } | null>(null)
   const startedSessionRef = useRef(false)
   const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
@@ -1577,6 +1620,22 @@ export default function ManagedAgentPane({
     [sendPromptText],
   )
 
+  const handleRewindRestored = useCallback(
+    async (result: TurnCheckpointRestoreResult) => {
+      const api = getAideApi()
+      if (!api) {
+        throw new Error('Managed provider bridge did not load.')
+      }
+      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
+        attachments: [...(rewindTarget?.attachments ?? [])],
+        recipients: [],
+        text: result.editedPrompt,
+      })
+      await api.openTask(result.sessionId)
+    },
+    [rewindTarget],
+  )
+
   const handleBranchConversation = useCallback(
     async (responseContentItemId: string) => {
       const api = getAideApi()
@@ -2222,6 +2281,10 @@ export default function ManagedAgentPane({
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
   )
+  const rewindDisabledReason =
+    runningTurnId !== null || snapshot?.sessionState === 'running'
+      ? 'Stop the running task before rewinding.'
+      : null
 
   return (
     <section
@@ -2266,6 +2329,15 @@ export default function ManagedAgentPane({
           </Button>
         </div>
       </div>
+
+      {rewindTarget ? (
+        <ManagedRewindDialog
+          checkpointId={rewindTarget.checkpointId}
+          onClose={() => setRewindTarget(null)}
+          onRestored={handleRewindRestored}
+          sessionId={sessionId}
+        />
+      ) : null}
 
       <JevSetup
         isOpen={isJevSetupOpen}
@@ -2328,6 +2400,12 @@ export default function ManagedAgentPane({
                     onBranch={(responseContentItemId) =>
                       void handleBranchConversation(responseContentItemId)
                     }
+                    onEditFromHere={(checkpointId, item) =>
+                      setRewindTarget({
+                        attachments: item.attachments ?? [],
+                        checkpointId,
+                      })
+                    }
                     onInterrupt={handleInterruptRecipient}
                     onRetry={(text, recipientAlias) =>
                       void handleRetryTurn(text, recipientAlias)
@@ -2341,6 +2419,7 @@ export default function ManagedAgentPane({
                     }
                     recipientAlias={turn?.recipientAlias ?? null}
                     requestText={turn?.requestText ?? null}
+                    rewindDisabledReason={rewindDisabledReason}
                     sessionId={sessionId}
                   />
                 )
