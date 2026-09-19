@@ -68,6 +68,11 @@ import {
 } from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
 import {
+  readGlobalSidebarOpen,
+  resolveSidebarOpen,
+  writeGlobalSidebarOpen,
+} from './lib/sidebar-preference'
+import {
   applyPaneSelection,
   applyProjectSelection,
   applySurfaceSelection,
@@ -264,9 +269,7 @@ function WorkspaceApp() {
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isFleetOpen, setIsFleetOpen] = useState(false)
-  const [isSidebarOpen, setIsSidebarOpen] = useState(
-    () => window.localStorage.getItem('aide.sidebar.pinned') === 'true',
-  )
+  const [isSidebarOpen, setIsSidebarOpen] = useState(readGlobalSidebarOpen)
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<string | undefined>()
@@ -601,6 +604,26 @@ function WorkspaceApp() {
     },
     [],
   )
+
+  const toggleSidebar = useCallback(() => {
+    const next = !isSidebarOpen
+    setIsSidebarOpen(next)
+
+    const workspaceId = resolvedNavigationState.activeWorkspaceId
+    if (!workspaceId) {
+      // why: with no workspace selected the sidebar has nowhere to belong, so the app-wide value is both the store and the fallback.
+      writeGlobalSidebarOpen(next)
+      return
+    }
+
+    void getAideApi()
+      ?.updateWorkspaceSidebar(workspaceId, next)
+      .then((snapshot) => {
+        storageSnapshotRef.current = snapshot
+        setStorageSnapshot(snapshot)
+      })
+      .catch((error: unknown) => setActionError(getErrorMessage(error)))
+  }, [isSidebarOpen, resolvedNavigationState.activeWorkspaceId])
 
   const createPane = useCallback(() => {
     if (!resolvedNavigationState.activeWorkspaceId) {
@@ -1974,7 +1997,7 @@ function WorkspaceApp() {
       if (isSettingsOpen) return
 
       if (event.type === 'sidebar-toggle') {
-        setIsSidebarOpen((current) => !current)
+        toggleSidebar()
         return
       }
 
@@ -1990,7 +2013,7 @@ function WorkspaceApp() {
         setIsCommandPaletteOpen(true)
       }
     })
-  }, [isSettingsOpen])
+  }, [isSettingsOpen, toggleSidebar])
 
   useEffect(() => {
     const api = getAideApi()
@@ -2114,7 +2137,7 @@ function WorkspaceApp() {
 
       if (isCtrlChord && normalizedKey === 'b') {
         event.preventDefault()
-        if (!event.repeat) setIsSidebarOpen((current) => !current)
+        if (!event.repeat) toggleSidebar()
         return
       }
 
@@ -2209,6 +2232,7 @@ function WorkspaceApp() {
     isSettingsOpen,
     isWorkspaceSwitcherVisible,
     navigationSnapshot.projects,
+    toggleSidebar,
   ])
 
   useEffect(() => {
@@ -2340,6 +2364,17 @@ function WorkspaceApp() {
     allWorkspaces.find(
       (ws) => ws.id === resolvedNavigationState.activeWorkspaceId,
     ) ?? null
+  const activeSidebarWorkspaceId = resolvedNavigationState.activeWorkspaceId
+  useEffect(() => {
+    // why: the snapshot is read through the ref so an unrelated republish never reverts a toggle mid-flight.
+    const workspace = storageSnapshotRef.current?.workspaces.find(
+      (candidate) => candidate.id === activeSidebarWorkspaceId,
+    )
+    setIsSidebarOpen(
+      resolveSidebarOpen(workspace?.sidebarOpen, readGlobalSidebarOpen()),
+    )
+  }, [activeSidebarWorkspaceId])
+
   const activePreviewSnapshot = activeWorkspace
     ? (previewSnapshots[activeWorkspace.id] ?? null)
     : null
@@ -2600,7 +2635,7 @@ function WorkspaceApp() {
         onSelectProject: handleProjectSelection,
         onSelectWorkspace: handleWorkspaceSelection,
         onToggleFleet: () => setIsFleetOpen((current) => !current),
-        onToggleSidebar: () => setIsSidebarOpen((current) => !current),
+        onToggleSidebar: toggleSidebar,
         projects,
         updateAction: paletteUpdateAction,
         workspaces: projectWorkspaces,
@@ -2619,6 +2654,7 @@ function WorkspaceApp() {
       projects,
       projectWorkspaces,
       resolvedNavigationState.activePaneId,
+      toggleSidebar,
     ],
   )
 
@@ -2692,7 +2728,7 @@ function WorkspaceApp() {
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       isSidebarOpen={isSidebarOpen}
-      onToggleSidebar={() => setIsSidebarOpen((current) => !current)}
+      onToggleSidebar={toggleSidebar}
       isFleetOpen={isFleetOpen}
       onFleetOpenChange={setIsFleetOpen}
       onClosePane={handleClosePane}

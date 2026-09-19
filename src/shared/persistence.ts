@@ -56,6 +56,8 @@ export interface WorkspaceRecord {
   branchName: string
   worktreePath: string
   windowId: string | null
+  /** Whether this workspace shows the left sidebar; null until the workspace is toggled. */
+  sidebarOpen?: boolean | null
   createdAt: string
   updatedAt: string
 }
@@ -171,6 +173,7 @@ export interface UpdateWorkspaceInput {
   name?: string
   nameSource?: WorkspaceNameSource
   projectId?: string
+  sidebarOpen?: boolean
   windowId?: string | null
   worktreePath?: string
 }

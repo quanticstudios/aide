@@ -1000,6 +1000,20 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.updateWorkspaceSidebar,
+    (event, workspaceId: unknown, isOpen: unknown) => {
+      requireTrustedRenderer(event)
+      const id = requireRuntimeId(workspaceId, 'workspace id')
+      if (typeof isOpen !== 'boolean') {
+        throw new Error('Sidebar state must be a boolean.')
+      }
+      if (!database.updateWorkspace(id, { sidebarOpen: isOpen })) {
+        throw new Error('Workspace not found.')
+      }
+      return publishPersistenceSnapshot()
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.attachWorkspace,
     async (event, input: AttachWorkspaceRequest) => {
       requireTrustedRenderer(event)
