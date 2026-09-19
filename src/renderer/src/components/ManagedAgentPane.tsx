@@ -334,7 +334,6 @@ function PermissionDropdown({
   return (
     <div ref={containerRef} className="relative">
       <button
-        aria-label="Permission mode"
         className="composer-tool"
         onClick={() => onOpenChange(!isOpen)}
         type="button"
