@@ -7,6 +7,7 @@ import {
   resolveProviderSelection,
 } from '../../../shared/provider-capabilities'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { useClickOutside } from '../lib/use-click-outside'
 import ModelSelector from './ModelSelector'
 
 interface ConfiguredAgentSettingsProps {
@@ -23,7 +24,9 @@ export default function ConfiguredAgentSettings({
   onChange,
 }: ConfiguredAgentSettingsProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  useClickOutside(containerRef, () => setIsOpen(false), isOpen)
   const enabledLabel = useMemo(
     () => agents.map((agent) => `@${agent.alias}`).join(', '),
     [agents],
@@ -89,7 +92,7 @@ export default function ConfiguredAgentSettings({
   }, [isOpen])
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         ref={triggerRef}
         aria-expanded={isOpen}
