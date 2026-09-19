@@ -2345,4 +2345,38 @@ test.describe('shared model chat', () => {
         ]),
       })
   })
+  test('rounds the settings select menu and the model selector popover to 8px', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const { page } = launched
+    await startSharedChat(page, app)
+
+    await page.locator('button.composer-tool.max-w-full').first().click()
+    const picker = page.locator('[data-model-selector-menu]')
+    await expect(picker).toBeVisible()
+    await expect
+      .poll(() =>
+        picker.evaluate((element) => getComputedStyle(element).borderRadius),
+      )
+      .toBe('8px')
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await page
+      .getByRole('button', { name: 'Open settings', exact: true })
+      .click()
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+    await page.getByRole('button', { name: 'Animations' }).click()
+    const selectMenu = page.locator('.select__popover')
+    await expect(selectMenu).toBeVisible()
+    await expect
+      .poll(() =>
+        selectMenu.evaluate(
+          (element) => getComputedStyle(element).borderRadius,
+        ),
+      )
+      .toBe('8px')
+  })
 })
