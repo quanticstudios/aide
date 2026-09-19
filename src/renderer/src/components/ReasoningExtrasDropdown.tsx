@@ -13,8 +13,10 @@ interface ReasoningExtrasDropdownProps {
   readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly effort: ManagedSessionEffort | undefined
   readonly isDisabled?: boolean
+  readonly isOpen?: boolean
   readonly model: string | undefined
   readonly onEffortChange: (value: ManagedSessionEffort) => void
+  readonly onOpenChange?: (isOpen: boolean) => void
   readonly onServiceTierChange: (value: string | null) => void
   readonly provider: ManagedSessionMode
   readonly serviceTier: string | null
@@ -50,8 +52,10 @@ export default function ReasoningExtrasDropdown({
   capabilities,
   effort,
   isDisabled,
+  isOpen,
   model,
   onEffortChange,
+  onOpenChange,
   onServiceTierChange,
   provider,
   serviceTier,
@@ -77,7 +81,7 @@ export default function ReasoningExtrasDropdown({
     : false
 
   return (
-    <Dropdown>
+    <Dropdown isOpen={isOpen} onOpenChange={onOpenChange}>
       <Dropdown.Trigger
         aria-label="Reasoning settings"
         className="composer-tool is-pill"
