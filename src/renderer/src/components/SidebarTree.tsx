@@ -1008,10 +1008,11 @@ export default function SidebarTree({
                                 <span
                                   className={cn(
                                     'truncate text-[13px] font-semibold',
-                                    attentionTier === 'attention' ||
-                                      isActiveWorkspace
-                                      ? 'text-foreground'
-                                      : 'text-foreground/95',
+                                    isActiveWorkspace
+                                      ? 'text-primary'
+                                      : attentionTier === 'attention'
+                                        ? 'text-foreground'
+                                        : 'text-foreground/95',
                                   )}
                                 >
                                   {summary?.workspaceName ?? workspace.name}
