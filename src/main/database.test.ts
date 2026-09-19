@@ -99,9 +99,9 @@ describe('createAideDatabase', () => {
     try {
       const database = createAideDatabase(databasePath)
       expect(database.getComposerDefaults('workspace-1')).toBeNull()
-      expect(database.setComposerDefaults('workspace-1', codexDefaults)).toEqual(
-        codexDefaults,
-      )
+      expect(
+        database.setComposerDefaults('workspace-1', codexDefaults),
+      ).toEqual(codexDefaults)
       database.setComposerDefaults('workspace-2', claudeDefaults)
       database.close()
 
