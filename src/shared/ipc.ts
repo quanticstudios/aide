@@ -1,9 +1,11 @@
 import type {
   CheckpointRestoreMode,
+  TurnCheckpointDiff,
   TurnCheckpointPreview,
   TurnCheckpointRestoreResult,
   TurnCheckpointSummary,
 } from './checkpoints'
+import type { ComposerDefaults } from './composer-defaults'
 import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type {
   DiagnosticEventType,
@@ -100,6 +102,8 @@ export const IPC_CHANNELS = {
   quitPersistedStateRecovery: 'app:quit-persisted-state-recovery',
   resetPersistedState: 'app:reset-persisted-state',
   restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
+  getComposerDefaults: 'composer:get-defaults',
+  setComposerDefaults: 'composer:set-defaults',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
   getJevGates: 'jev:get-gates',
@@ -183,6 +187,7 @@ export const IPC_CHANNELS = {
   managedSessionSendInput: 'managed-session:send-input',
   managedSessionSendQueuedInputNow: 'managed-session:send-queued-input-now',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
+  turnCheckpointDiff: 'turn-checkpoint:diff',
   turnCheckpointList: 'turn-checkpoint:list',
   turnCheckpointPreviewRestore: 'turn-checkpoint:preview-restore',
   turnCheckpointRestore: 'turn-checkpoint:restore',
@@ -216,6 +221,11 @@ export interface AideApi {
   quitPersistedStateRecovery: () => Promise<void>
   resetPersistedState: () => Promise<void>
   restoreKnownGoodPersistedState: () => Promise<void>
+  getComposerDefaults: (workspaceId: string) => Promise<ComposerDefaults | null>
+  setComposerDefaults: (
+    workspaceId: string,
+    defaults: ComposerDefaults,
+  ) => Promise<ComposerDefaults>
   getJevGates: (workspaceId: string) => Promise<JevGateSnapshot>
   updateJevGates: (
     scope: JevGateScope,
@@ -455,6 +465,10 @@ export interface AideApi {
     attachments?: readonly ManagedSessionAttachment[],
     selectedSkill?: ProviderSkillSelection,
   ) => Promise<void>
+  getTurnCheckpointDiff: (
+    sessionId: string,
+    checkpointId: string,
+  ) => Promise<TurnCheckpointDiff>
   listTurnCheckpoints: (sessionId: string) => Promise<TurnCheckpointSummary[]>
   previewTurnCheckpointRestore: (
     sessionId: string,

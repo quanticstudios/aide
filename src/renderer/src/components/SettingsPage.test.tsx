@@ -54,6 +54,7 @@ describe('SettingsPage', () => {
           snoozedUntil: null,
         }}
         updatePreferencesError={null}
+        workspaceId={null}
       />,
     )
 

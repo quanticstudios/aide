@@ -62,6 +62,10 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.resetPersistedState),
   restoreKnownGoodPersistedState: () =>
     ipcRenderer.invoke(IPC_CHANNELS.restoreKnownGoodPersistedState),
+  getComposerDefaults: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getComposerDefaults, workspaceId),
+  setComposerDefaults: (workspaceId, defaults) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setComposerDefaults, workspaceId, defaults),
   getJevSettings: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.getJevSettings, workspaceId),
   updateJevSettings: (workspaceId, input) =>
@@ -388,6 +392,12 @@ const aideApi: AideApi = {
       recipients,
       attachments,
       selectedSkill,
+    ),
+  getTurnCheckpointDiff: (sessionId: string, checkpointId: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.turnCheckpointDiff,
+      sessionId,
+      checkpointId,
     ),
   listTurnCheckpoints: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),

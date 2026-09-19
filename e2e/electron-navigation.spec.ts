@@ -948,36 +948,44 @@ test.describe('electron spatial navigation', () => {
     const { page } = launched
     await importProject(page)
     await addPane(page, /^agent\b/i)
-    await page.getByRole('button', { name: /^Jev ·/ }).click()
-    const consent = page.getByRole('switch', {
-      name: 'Allow TypeSafe processing for this workspace',
-    })
-    await expect(consent).toBeChecked()
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('Keep this draft until Jev is configured')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(
-      page.getByText(/Add a TypeSafe API key in Jev setup/),
+      page.getByText(/Add a TypeSafe API key in Settings/),
     ).toBeVisible()
     await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
     await expect(page.getByTestId('managed-input-queue')).toBeHidden()
     await expect(page.getByTestId('managed-session-content')).not.toContainText(
       'Handled:',
     )
+    await page
+      .getByRole('button', { name: 'Open Settings', exact: true })
+      .click()
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    const consent = settings.getByRole('switch', {
+      name: 'Allow TypeSafe processing for this workspace',
+    })
+    await expect(consent).toBeChecked()
     await consent.press('Space')
-    await page.getByRole('button', { name: 'Save Jev settings' }).click()
+    await settings.getByRole('button', { name: 'Save Jev settings' }).click()
     await expect(
-      page.getByRole('button', { name: 'Save Jev settings' }),
+      settings.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeEnabled()
     await page.reload()
-    await page.getByRole('button', { name: /^Jev ·/ }).click()
+    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await page
+      .getByRole('button', { name: 'Open settings', exact: true })
+      .click()
+    await settings
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: 'Jev', exact: true })
+      .click()
     await expect(consent).not.toBeChecked()
     await expect(
-      page.getByLabel('TypeSafe API key', { exact: true }),
+      settings.getByLabel('TypeSafe API key', { exact: true }),
     ).toHaveValue('')
-    await expect(page.getByRole('button', { name: /^Jev ·/ })).toContainText(
-      'API key required',
-    )
+    await expect(settings.getByRole('status')).toHaveText('API key required')
   })
 
   test('renders managed Claude states from structured runtime events', async () => {
@@ -1590,7 +1598,7 @@ test.describe('electron spatial navigation', () => {
     await expect(healthReporting).not.toBeChecked()
     await page
       .getByRole('button', {
-        name: 'Acknowledge and enable health reporting',
+        name: 'Acknowledge health report disclosure',
       })
       .click()
     await expect(healthReporting).toBeEnabled()
@@ -1655,7 +1663,7 @@ test.describe('electron spatial navigation', () => {
     ).not.toBeChecked()
     await expect(
       page.getByRole('button', {
-        name: 'Withdraw approval and disable health reporting',
+        name: 'Withdraw health report approval',
       }),
     ).toBeVisible()
   })

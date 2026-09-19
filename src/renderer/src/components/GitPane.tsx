@@ -1,6 +1,3 @@
-import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
-import '@git-diff-view/react/styles/diff-view-pure.css'
-import { getDiffViewHighlighter } from '@git-diff-view/shiki'
 import { Button, Chip, Surface } from '@heroui/react'
 import {
   ChevronRight,
@@ -44,9 +41,7 @@ import {
 } from '../lib/prop-change-state'
 import { cn } from '../lib/utils'
 
-type DiffHighlighter = Awaited<ReturnType<typeof getDiffViewHighlighter>>
-
-type DiffLayout = 'line-by-line' | 'side-by-side'
+import { GitDiffView, type DiffLayout } from './GitDiffView'
 
 interface DiffLoadError {
   readonly message: string
@@ -63,135 +58,6 @@ function readStoredDiffLayout(): DiffLayout {
 
   const stored = window.localStorage.getItem(DIFF_LAYOUT_STORAGE_KEY)
   return stored === 'line-by-line' ? 'line-by-line' : 'side-by-side'
-}
-
-const HIGHLIGHTER_LANGS = [
-  'typescript',
-  'tsx',
-  'javascript',
-  'jsx',
-  'json',
-  'css',
-  'html',
-  'markdown',
-  'bash',
-  'python',
-  'go',
-  'sql',
-  'yaml',
-  'xml',
-] as const
-
-let highlighterPromise: Promise<DiffHighlighter> | null = null
-
-function loadHighlighter(): Promise<DiffHighlighter> {
-  highlighterPromise ??= getDiffViewHighlighter([...HIGHLIGHTER_LANGS])
-  return highlighterPromise
-}
-
-function inferFileLang(filePath: string): string {
-  const lower = filePath.toLowerCase()
-  const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : ''
-  switch (ext) {
-    case 'ts':
-      return 'typescript'
-    case 'tsx':
-      return 'tsx'
-    case 'js':
-    case 'mjs':
-    case 'cjs':
-      return 'javascript'
-    case 'jsx':
-      return 'jsx'
-    case 'json':
-      return 'json'
-    case 'md':
-    case 'mdx':
-      return 'markdown'
-    case 'css':
-      return 'css'
-    case 'scss':
-    case 'sass':
-      return 'sass'
-    case 'html':
-    case 'htm':
-      return 'html'
-    case 'xml':
-      return 'xml'
-    case 'sh':
-    case 'bash':
-    case 'zsh':
-      return 'bash'
-    case 'py':
-      return 'python'
-    case 'go':
-      return 'go'
-    case 'sql':
-      return 'sql'
-    case 'yaml':
-    case 'yml':
-      return 'yaml'
-    default:
-      return 'txt'
-  }
-}
-
-function GitDiffView({
-  filePath,
-  outputFormat,
-  patch,
-}: {
-  readonly filePath: string
-  readonly outputFormat: DiffLayout
-  readonly patch: string
-}) {
-  const [highlighter, setHighlighter] = useState<DiffHighlighter | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void loadHighlighter().then((h) => {
-      if (!cancelled) {
-        setHighlighter(h)
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const lang = useMemo(() => inferFileLang(filePath), [filePath])
-
-  const diffFile = useMemo(() => {
-    const file = DiffFile.createInstance({
-      hunks: [patch],
-      newFile: { fileLang: lang, fileName: filePath },
-      oldFile: { fileLang: lang, fileName: filePath },
-    })
-    file.initTheme('dark')
-    file.init()
-    if (outputFormat === 'side-by-side') {
-      file.buildSplitDiffLines()
-    } else {
-      file.buildUnifiedDiffLines()
-    }
-    return file
-  }, [filePath, lang, outputFormat, patch])
-
-  return (
-    <DiffView
-      diffFile={diffFile}
-      diffViewFontSize={12}
-      diffViewHighlight={highlighter !== null}
-      diffViewMode={
-        outputFormat === 'side-by-side'
-          ? DiffModeEnum.Split
-          : DiffModeEnum.Unified
-      }
-      diffViewTheme="dark"
-      diffViewWrap={false}
-      registerHighlighter={highlighter ?? undefined}
-    />
-  )
 }
 
 function getAideApi() {
@@ -737,34 +603,28 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
       className="git-pane flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       data-testid="git-pane"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            <GitBranch className="size-3.5" />
-            Git review surface
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-[-0.374px] text-foreground">
-              {status.branchName}
-            </h2>
-            <Chip
-              color={status.hasStagedChanges ? 'warning' : 'default'}
-              size="sm"
-              variant="secondary"
-            >
-              {status.hasStagedChanges ? 'Staged changes' : 'No staged changes'}
-            </Chip>
-            <Chip
-              color={status.hasUnstagedChanges ? 'danger' : 'default'}
-              size="sm"
-              variant="secondary"
-            >
-              {status.hasUnstagedChanges
-                ? 'Unstaged changes'
-                : 'Working tree clean'}
-            </Chip>
-          </div>
-          <p className="text-xs text-muted-foreground">{status.worktreePath}</p>
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+          <h2 className="truncate text-lg font-semibold tracking-[-0.374px] text-foreground">
+            {status.branchName}
+          </h2>
+          <Chip
+            color={status.hasStagedChanges ? 'warning' : 'default'}
+            size="sm"
+            variant="secondary"
+          >
+            {status.hasStagedChanges ? 'Staged changes' : 'No staged changes'}
+          </Chip>
+          <Chip
+            color={status.hasUnstagedChanges ? 'danger' : 'default'}
+            size="sm"
+            variant="secondary"
+          >
+            {status.hasUnstagedChanges
+              ? 'Unstaged changes'
+              : 'Working tree clean'}
+          </Chip>
         </div>
 
         <Button onPress={() => void refreshStatus()} size="sm" variant="ghost">
@@ -772,6 +632,10 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
           {isLoading ? 'Refreshing…' : 'Refresh'}
         </Button>
       </div>
+
+      <p className="truncate border-b border-border px-5 py-2 text-xs text-muted-foreground">
+        {status.worktreePath}
+      </p>
 
       {actionError ? (
         <div className="border-b border-accent-red bg-accent-red-soft px-5 py-2 text-sm text-accent-red">

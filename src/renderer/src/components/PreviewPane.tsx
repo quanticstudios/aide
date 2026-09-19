@@ -78,19 +78,18 @@ export default function PreviewPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            Local preview
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Persistent local tabs are restricted to loopback http(s) targets.
-          </p>
-        </div>
+      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3">
+        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          Local preview
+        </p>
         <Chip size="sm" variant="secondary">
           loopback only
         </Chip>
       </div>
+
+      <p className="mb-3 text-sm text-muted-foreground">
+        Persistent local tabs are restricted to loopback http(s) targets.
+      </p>
 
       <div className="mb-3 flex flex-wrap items-end gap-2">
         <Input

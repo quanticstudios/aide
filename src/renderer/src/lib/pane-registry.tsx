@@ -35,6 +35,7 @@ interface PaneRenderArgs {
     shouldCloseViewOnly?: boolean,
     workspaceId?: string,
   ) => void
+  onOpenJevSettings: (trigger: HTMLElement) => void
   onPreviewBrowserControl: (control: PreviewBrowserControl) => void
   onPreviewCloseTab: (workspace: WorkspaceRecord, tabId: string) => void
   onPreviewNavigate: (
@@ -89,6 +90,7 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
     >
       <LazyManagedAgentPane
         isActive={args.pane.id === args.activePaneId}
+        onOpenJevSettings={args.onOpenJevSettings}
         paneId={args.pane.id}
         workspace={args.workspace}
       />

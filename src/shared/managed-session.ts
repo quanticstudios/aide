@@ -4,6 +4,9 @@ import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
+  ManagedProviderRuntimeTask,
+  ManagedProviderRuntimeToolCall,
+  ManagedProviderRuntimeToolRequest,
 } from './provider-runtime'
 import type { ResolvedProviderSkill } from './provider-skills'
 import type { ManagedSessionMode } from './terminal'
@@ -26,7 +29,12 @@ export type ManagedSessionContentKind =
   | 'command-output'
   | 'file-change-output'
   | 'system'
+  | 'tool-call'
   | 'user-prompt'
+
+export type ManagedSessionToolCall = ManagedProviderRuntimeToolCall
+
+export type ManagedSessionTask = ManagedProviderRuntimeTask
 
 /** A provider-advertised reasoning effort identifier. */
 export type ManagedSessionEffort = string
@@ -155,13 +163,18 @@ export interface ManagedSessionContentItem {
   model?: string | null
   provider: ManagedSessionProvider | null
   text: string
+  /** Present only on `tool-call` items. */
+  tool?: ManagedSessionToolCall
   turnId: string | null
   updatedAt: string
 }
 
+export type ManagedSessionToolRequest = ManagedProviderRuntimeToolRequest
+
 export interface ManagedSessionPendingApproval {
   detail: string | null
   id: string
+  request?: ManagedSessionToolRequest
   requestType: ManagedSessionRequestType
 }
 

@@ -269,6 +269,7 @@ function WorkspaceApp() {
   )
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<string | undefined>()
   const [isUpdateOpen, setIsUpdateOpen] = useState(false)
   const [pendingPaneClose, setPendingPaneClose] =
     useState<PaneCloseDecision | null>(null)
@@ -337,8 +338,9 @@ function WorkspaceApp() {
     settingsReturnFocusRef.current = null
     requestAnimationFrame(() => returnFocus?.focus())
   }, [])
-  const openSettings = useCallback((trigger: HTMLElement) => {
+  const openSettings = useCallback((trigger: HTMLElement, section?: string) => {
     settingsReturnFocusRef.current = trigger
+    setSettingsSection(section)
     setIsCommandPaletteOpen(false)
     setIsOverviewVisible(false)
     setIsWorkspaceSwitcherVisible(false)
@@ -2738,6 +2740,7 @@ function WorkspaceApp() {
             onRetry={() => window.location.reload()}
           >
             <LazySettingsPage
+              initialSection={settingsSection}
               onClose={closeSettings}
               onOpenUpdate={() => {
                 updateReturnFocusRef.current = settingsReturnFocusRef.current
@@ -2748,6 +2751,7 @@ function WorkspaceApp() {
               onUpdatePreferences={updateSoftwarePreferences}
               updatePreferences={updatePreferences}
               updatePreferencesError={updatePreferencesHydrationError}
+              workspaceId={activeWorkspace?.id ?? null}
             />
           </OverlayLoadBoundary>
         ) : null}
@@ -2892,6 +2896,7 @@ function WorkspaceApp() {
           onCreateProject={openProject}
           onCreateWorkspace={createWorkspace}
           onClosePane={handleClosePane}
+          onOpenJevSettings={(trigger) => openSettings(trigger, 'jev-settings')}
           onRemoveView={handleRemoveView}
           onPreviewBrowserControl={handlePreviewBrowserControl}
           onPreviewCloseTab={(workspace, tabId) => {

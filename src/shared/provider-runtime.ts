@@ -36,6 +36,40 @@ export type ManagedProviderRuntimeContentKind =
   | 'command-output'
   | 'file-change-output'
   | 'system'
+  | 'tool-call'
+
+/** One entry of a provider-reported task list. */
+export interface ManagedProviderRuntimeTask {
+  status: 'pending' | 'in_progress' | 'completed'
+  subject: string
+}
+
+/** One provider tool invocation and everything known about it so far. */
+export interface ManagedProviderRuntimeToolCall {
+  callId: string
+  command?: string
+  diff?: string
+  exitCode?: number
+  files?: { path: string; status: string }[]
+  input: unknown
+  output?: string
+  /** One-line status the provider reports while the call runs. */
+  progress?: string
+  status: 'running' | 'completed' | 'failed'
+  /** Present only on task-list calls such as `TodoWrite`. */
+  tasks?: ManagedProviderRuntimeTask[]
+  toolName: string
+}
+
+/** The structured tool request behind an approval, rendered by the approval card. */
+export interface ManagedProviderRuntimeToolRequest {
+  command?: string
+  cwd?: string
+  diff?: string
+  filePath?: string
+  input?: unknown
+  toolName: string
+}
 
 export interface ManagedProviderRuntimePromptOption {
   description?: string
@@ -81,6 +115,7 @@ export type ManagedProviderRuntimeEvent =
     })
   | (ManagedProviderRuntimeEventBase & {
       detail?: string
+      request?: ManagedProviderRuntimeToolRequest
       requestType?: ManagedProviderRuntimeRequestType
       requestId: string
       type: 'request.opened'
@@ -95,6 +130,8 @@ export type ManagedProviderRuntimeEvent =
       model?: string
       itemId: string
       text: string
+      /** invariant: the backend sends the full merged call, not a delta. */
+      tool?: ManagedProviderRuntimeToolCall
       type: 'content.delta'
     })
   | (ManagedProviderRuntimeEventBase & {
