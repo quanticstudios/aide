@@ -805,8 +805,12 @@ test.describe('electron spatial navigation', () => {
   })
 
   test('toggles the sidebar from the header and moves workspace content', async () => {
-    const launched = await launchAideApp()
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
     app = launched.app
+    importedRepoRoot = chosenProjectRoot
     tempDirectory = launched.tempDirectory
 
     const { page } = launched
@@ -864,6 +868,55 @@ test.describe('electron spatial navigation', () => {
     await expect(openSidebar).toBeVisible()
     await page.keyboard.press('Control+B')
     await expect(sidebarShell).toHaveAttribute('data-expanded', 'true')
+
+    await page.keyboard.press('Control+B')
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
+
+    await importProject(page)
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
+    await openSidebar.click()
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'true')
+
+    await createWorkspace(page, {
+      branchName: 'sidebar-space',
+      name: 'Sidebar Space',
+    })
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('k')
+    await page.keyboard.up('Alt')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'true')
+
+    await page.keyboard.down('Alt')
+    await page.keyboard.press('j')
+    await page.keyboard.up('Alt')
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Sidebar Space',
+    )
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'false')
+
+    await app.close()
+    const relaunched = await launchAideApp(
+      { AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot },
+      { tempDirectory: launched.tempDirectory },
+    )
+    app = relaunched.app
+    const relaunchedSidebar = relaunched.page.getByTestId('sidebar-shell')
+
+    await expect(
+      relaunched.page.getByTestId('active-workspace-name'),
+    ).toHaveText('Sidebar Space')
+    await expect(relaunchedSidebar).toHaveAttribute('data-expanded', 'false')
+
+    await relaunched.page.keyboard.down('Alt')
+    await relaunched.page.keyboard.press('k')
+    await relaunched.page.keyboard.up('Alt')
+    await expect(
+      relaunched.page.getByTestId('active-workspace-name'),
+    ).toHaveText('main')
+    await expect(relaunchedSidebar).toHaveAttribute('data-expanded', 'true')
   })
 
   test('renames a workspace without changing its branch and persists reload', async () => {
