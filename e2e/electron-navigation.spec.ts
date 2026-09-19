@@ -582,7 +582,7 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await addPane(page, /terminal/i)
     await page.getByLabel(/split vertically/i).click()
-    await page.getByRole('button', { name: /^Chat$/i }).click()
+    await page.getByRole('button', { name: /^Agent$/ }).click()
     await addPane(page, /git/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
 
@@ -628,7 +628,7 @@ test.describe('electron spatial navigation', () => {
     await page.getByRole('button', { name: 'Git review', exact: true }).click()
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await page.getByLabel(/split vertically/i).click()
-    await page.getByRole('button', { name: /^Chat$/i }).click()
+    await page.getByRole('button', { name: /^Agent$/ }).click()
 
     await expect(
       page.locator('.workspace-strip .workspace-strip-item'),
@@ -1364,7 +1364,6 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByRole('button', { name: /^git/i })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /agent/i })).toBeVisible()
     await expect(page.getByRole('button', { name: /terminal/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /editor/i })).toBeVisible()
     await page.getByRole('button', { name: /^terminal/i }).click()
     await expect(page.getByTestId('active-pane-name')).toHaveText(
       'Workspace terminal',
@@ -1450,7 +1449,7 @@ test.describe('electron spatial navigation', () => {
 
     await expect(
       page.locator('.workspace-strip .workspace-strip-item'),
-    ).toHaveCount(1)
+    ).toHaveCount(0)
     await expect(page.getByText('Empty workspace')).toBeVisible()
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
 
