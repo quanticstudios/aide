@@ -1,5 +1,6 @@
 import type {
   CheckpointRestoreMode,
+  TurnCheckpointDiff,
   TurnCheckpointPreview,
   TurnCheckpointRestoreResult,
   TurnCheckpointSummary,
@@ -176,6 +177,7 @@ export const IPC_CHANNELS = {
   managedSessionSendInput: 'managed-session:send-input',
   managedSessionSendQueuedInputNow: 'managed-session:send-queued-input-now',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
+  turnCheckpointDiff: 'turn-checkpoint:diff',
   turnCheckpointList: 'turn-checkpoint:list',
   turnCheckpointPreviewRestore: 'turn-checkpoint:preview-restore',
   turnCheckpointRestore: 'turn-checkpoint:restore',
@@ -442,6 +444,10 @@ export interface AideApi {
     attachments?: readonly ManagedSessionAttachment[],
     selectedSkill?: ProviderSkillSelection,
   ) => Promise<void>
+  getTurnCheckpointDiff: (
+    sessionId: string,
+    checkpointId: string,
+  ) => Promise<TurnCheckpointDiff>
   listTurnCheckpoints: (sessionId: string) => Promise<TurnCheckpointSummary[]>
   previewTurnCheckpointRestore: (
     sessionId: string,

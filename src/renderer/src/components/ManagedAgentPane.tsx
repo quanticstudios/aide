@@ -23,6 +23,8 @@ import {
 } from 'lucide-react'
 import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -30,7 +32,10 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { TurnCheckpointRestoreResult } from '../../../shared/checkpoints'
+import type {
+  TurnCheckpointDiff,
+  TurnCheckpointRestoreResult,
+} from '../../../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import {
   extractExplicitRecipientAliases,
@@ -625,6 +630,10 @@ function ContentItemBlock({
   )
 }
 
+const LazyGitDiffView = lazy(async () => ({
+  default: (await import('./GitDiffView')).GitDiffView,
+}))
+
 function TurnGroupBlock({
   group,
   canBranch,
@@ -639,6 +648,7 @@ function TurnGroupBlock({
   recipientAlias,
   requestText,
   rewindDisabledReason,
+  sessionId,
 }: {
   readonly group: TurnGroup
   readonly canBranch: boolean
@@ -656,7 +666,10 @@ function TurnGroupBlock({
   readonly recipientAlias: string | null
   readonly requestText: string | null
   readonly rewindDisabledReason: string | null
+  readonly sessionId: string
 }) {
+  const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
+  const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   const responseItem = group.items
     .filter(
@@ -664,6 +677,22 @@ function TurnGroupBlock({
     )
     .at(-1)
   const responseContentItemId = responseItem?.id
+
+  useEffect(() => {
+    if (!checkpointId || isRunning) return
+    let cancelled = false
+    void getAideApi()
+      ?.getTurnCheckpointDiff(sessionId, checkpointId)
+      .then(
+        (diff) => {
+          if (!cancelled) setTurnDiff(diff)
+        },
+        () => undefined,
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [checkpointId, isRunning, sessionId])
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
@@ -717,6 +746,22 @@ function TurnGroupBlock({
               .map((item) => item.text)
               .join('\n\n')}
           />
+          {turnDiff && turnDiff.files.length > 0 ? (
+            <button
+              aria-expanded={isTurnDiffOpen}
+              className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium tabular-nums text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+              data-testid="turn-diff-chip"
+              onClick={() => setIsTurnDiffOpen((open) => !open)}
+              type="button"
+            >
+              <span className="text-accent-green">+{turnDiff.additions}</span>{' '}
+              <span className="text-accent-red">-{turnDiff.deletions}</span>{' '}
+              <span>
+                · {turnDiff.files.length}{' '}
+                {turnDiff.files.length === 1 ? 'file' : 'files'}
+              </span>
+            </button>
+          ) : null}
           {canRetry && requestText && recipientAlias ? (
             <button
               aria-label="Retry turn"
@@ -750,6 +795,37 @@ function TurnGroupBlock({
               {formatMessageTime(responseItem.updatedAt)}
             </time>
           ) : null}
+        </div>
+      ) : null}
+      {isTurnDiffOpen && turnDiff ? (
+        <div className="space-y-2" data-testid="turn-diff-files">
+          {turnDiff.files.map((file) => (
+            <details
+              className="group/turn-diff rounded-md border border-border bg-surface"
+              key={file.path}
+              open
+            >
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <ChevronRight className="size-3 transition-transform group-open/turn-diff:rotate-90" />
+                {file.path}
+                <span className="ml-auto tabular-nums text-accent-green">
+                  +{file.additions}
+                </span>
+                <span className="tabular-nums text-accent-red">
+                  -{file.deletions}
+                </span>
+              </summary>
+              <div className="max-h-96 overflow-auto border-t border-border">
+                <Suspense fallback={null}>
+                  <LazyGitDiffView
+                    filePath={file.path}
+                    outputFormat="line-by-line"
+                    patch={file.patch}
+                  />
+                </Suspense>
+              </div>
+            </details>
+          ))}
         </div>
       ) : null}
     </div>
@@ -2315,6 +2391,7 @@ export default function ManagedAgentPane({
                     recipientAlias={turn?.recipientAlias ?? null}
                     requestText={turn?.requestText ?? null}
                     rewindDisabledReason={rewindDisabledReason}
+                    sessionId={sessionId}
                   />
                 )
               })}

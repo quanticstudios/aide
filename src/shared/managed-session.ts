@@ -4,6 +4,7 @@ import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type {
   ManagedProviderRuntimeProvider,
   ManagedProviderRuntimeSessionState,
+  ManagedProviderRuntimeToolRequest,
 } from './provider-runtime'
 import type { ResolvedProviderSkill } from './provider-skills'
 import type { ManagedSessionMode } from './terminal'
@@ -159,9 +160,12 @@ export interface ManagedSessionContentItem {
   updatedAt: string
 }
 
+export type ManagedSessionToolRequest = ManagedProviderRuntimeToolRequest
+
 export interface ManagedSessionPendingApproval {
   detail: string | null
   id: string
+  request?: ManagedSessionToolRequest
   requestType: ManagedSessionRequestType
 }
 
