@@ -501,7 +501,17 @@ const persistedToolCall = z.object({
     .optional(),
   input: z.unknown(),
   output: persistedText.optional(),
+  progress: z.string().max(500).optional(),
   status: z.enum(['running', 'completed', 'failed']),
+  tasks: z
+    .array(
+      z.object({
+        status: z.enum(['pending', 'in_progress', 'completed']),
+        subject: z.string().min(1).max(500),
+      }),
+    )
+    .max(100)
+    .optional(),
   toolName: z.string().min(1).max(200),
 })
 const persistedQueuedInput = z.object({
