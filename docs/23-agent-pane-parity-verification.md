@@ -35,12 +35,15 @@ proves each one in the Electron suite.
 
 ## Evidence
 
-- Every PR ran the full CI job (dependency policy, packaging tests, audit, React Doctor,
-  vitest, Biome, build, bundle budget, native ABI, Electron e2e under Xvfb) on its own
-  head before merge. Workers ran vitest and their own Playwright spec locally before the
-  first push; after that CI was the only gate.
+- PRs 41 to 54 ran the full CI job (dependency policy, packaging tests, audit, React
+  Doctor, vitest, Biome, build, bundle budget, native ABI, Electron e2e under Xvfb) green
+  on their own head before merge. PRs 55, 56 and 57 merged on the user's instruction
+  before their runs finished; their specs are covered by the `main` run.
+- Workers ran vitest and their own Playwright spec locally before the first push; after
+  that CI was the only gate.
 - `bun run test` on the final tree: 710 tests across 106 files.
-- The merged `main` run for `a512946` is the authoritative full-suite result.
+- The `main` run for the commit that adds this file is the authoritative full-suite
+  result; earlier `main` runs were cancelled by the next merge's concurrency group.
 
 ## Known gaps
 
