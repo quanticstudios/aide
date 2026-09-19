@@ -1,6 +1,6 @@
 # Agent pane parity
 
-Shipped on 2026-09-19 as fifteen squash merges to `main`, PRs 41 to 57. The audit that
+Shipped on 2026-09-19 as eighteen squash merges to `main`, PRs 41 to 60. The audit that
 produced the ticket set compared the Agent pane with T3 Code, Claude Code desktop, the
 Codex app and Conductor. The six must-haves from that audit, three user reports from the
 same day, and the CI repairs needed to land any of it are listed below with the check that
@@ -24,6 +24,9 @@ proves each one in the Electron suite.
 | Jev configured in Settings                  | 52  | The pane header has no Jev button; a blocked send offers "Open Settings" landing on the Jev section.                              |
 | Overlay radius                              | 53  | Every dropdown, select, popover and palette container is 8 px, rows 6 px.                                                         |
 | Jev gates in the sidebar and the flowchart  | 56  | Toggle a gate in the sidebar section: a dashed gate node appears in the fleet flowchart at its pipeline position.                 |
+| Global Jev gates in Settings                | 58  | Toggle a gate in Settings: the sidebar row reads "inherits global" and the flowchart node appears; a workspace override wins, Reset to global clears it. |
+| Sidebar open state per workspace            | 59  | Open the sidebar in workspace A, switch to B: B keeps its own state; switch back: A is still open; relaunch keeps both.            |
+| Git pull, commit all and push, PR follow    | 60  | `Pull` rebases with autostash; `Commit all and push` stages everything, fills a generated message, confirms on `main`; an open PR shows state and check counts. |
 
 ## CI repairs that had to land first
 
@@ -56,4 +59,7 @@ proves each one in the Electron suite.
   top edge is 16 px lower than the sidebar row.
 - Composer persistence stores one selection per workspace; the previous per-provider model
   memory is gone, so switching provider resolves that provider's default model.
-- The global Jev gate layer has no editor yet; AP-16 adds it to Settings.
+- PRs 58, 59 and 60 merged before their CI runs finished, on the user's instruction; their
+  e2e journeys were written from existing specs and never executed locally.
+- Starting a feature branch from the Git pane does not update the workspace record's
+  branch name until the next import.
