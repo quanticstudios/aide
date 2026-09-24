@@ -1,5 +1,12 @@
 # Phased Delivery Plan
 
+## Next focus areas
+
+User priorities recorded on 2026-09-25. These are reminders only; implementation is not authorized yet.
+
+- Self-healing app behavior.
+- Paperclip-style agents and employees.
+
 This roadmap assumes:
 
 - one-person core team
