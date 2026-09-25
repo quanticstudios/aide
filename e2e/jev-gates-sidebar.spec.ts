@@ -69,17 +69,26 @@ async function launch(
 
 async function openSidebarGates(page: Page): Promise<void> {
   const sidebar = page.getByTestId('sidebar-shell')
-  if ((await sidebar.getAttribute('data-expanded')) !== 'true') {
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
-  }
-  const section = page.getByTestId('sidebar-jev-gates')
-  if (
-    (await section
-      .getByRole('button', { name: 'Jev gates' })
-      .getAttribute('aria-expanded')) !== 'true'
-  ) {
-    await section.getByRole('button', { name: 'Jev gates' }).click()
-  }
+  const toggle = page
+    .getByTestId('sidebar-jev-gates')
+    .getByRole('button', { name: 'Jev gates' })
+  // why: after a relaunch the saved sidebar state lands after first paint, so a one-shot read can see it collapsed and then lose the button.
+  await expect(async () => {
+    if ((await sidebar.getAttribute('data-expanded')) !== 'true') {
+      await page
+        .getByRole('button', { name: 'Open sidebar' })
+        .click({ timeout: 1_000 })
+    }
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click({ timeout: 1_000 })
+    }
+    await expect(sidebar).toHaveAttribute('data-expanded', 'true', {
+      timeout: 1_000,
+    })
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', {
+      timeout: 1_000,
+    })
+  }).toPass()
 }
 
 async function startFleetSession(

@@ -57,6 +57,19 @@ describe('createRtkPreToolUseHook', () => {
     })
   })
 
+  it('is a no-op when rtk exits without reading its input', async () => {
+    const dir = tempDir()
+    writeFileSync(path.join(dir, 'rtk'), '#!/bin/sh\nexit 0\n')
+    chmodSync(path.join(dir, 'rtk'), 0o755)
+    const hook = createRtkPreToolUseHook({ HOME: '/nonexistent', PATH: dir })
+    // why: input larger than the pipe buffer makes the write fail with EPIPE once rtk has exited.
+    const command = 'x'.repeat(1 << 20)
+
+    await expect(
+      hook({ ...input, tool_input: { command } }, 'call-1', callOptions),
+    ).resolves.toEqual({})
+  })
+
   it('is a no-op when rtk is not installed', async () => {
     const empty = tempDir()
     const hook = createRtkPreToolUseHook({ HOME: empty, PATH: empty })

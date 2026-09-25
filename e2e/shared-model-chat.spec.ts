@@ -869,7 +869,7 @@ test.describe('shared model chat', () => {
       page.getByRole('button', { name: /^Auto-accept edits\b/ }),
     ).toBeVisible()
     await page
-      .getByTestId('managed-session-content')
+      .locator('article[data-active-pane="true"]')
       .click({ position: { x: 1, y: 1 } })
 
     await expect

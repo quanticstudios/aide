@@ -37,6 +37,8 @@ export function createRtkPreToolUseHook(
       const child = execFile(rtk, ['hook', 'claude'], { env }, (error, out) =>
         resolve(error ? '' : out),
       )
+      // why: rtk may exit before reading its input, and an unhandled EPIPE on stdin crashes the main process.
+      child.stdin?.on('error', () => undefined)
       child.stdin?.end(JSON.stringify(input))
     })
 
