@@ -201,9 +201,17 @@ async function addPane(page: Page, paneName: RegExp): Promise<void> {
 
 async function expandSidebar(page: Page): Promise<void> {
   const sidebarShell = page.getByTestId('sidebar-shell')
-  if ((await sidebarShell.getAttribute('data-expanded')) !== 'true') {
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
-  }
+  // why: after a reload the saved sidebar state lands after first paint, so a one-shot read can see it collapsed and then lose the button.
+  await expect(async () => {
+    if ((await sidebarShell.getAttribute('data-expanded')) !== 'true') {
+      await page
+        .getByRole('button', { name: 'Open sidebar' })
+        .click({ timeout: 1_000 })
+    }
+    await expect(sidebarShell).toHaveAttribute('data-expanded', 'true', {
+      timeout: 1_000,
+    })
+  }).toPass()
   await expect(page.getByTestId('workspace-tree-panel')).toHaveAttribute(
     'data-expanded',
     'true',
@@ -1070,7 +1078,7 @@ test.describe('electron spatial navigation', () => {
       settings.getByRole('button', { name: 'Save Jev settings' }),
     ).toBeEnabled()
     await page.reload()
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
+    await expandSidebar(page)
     await page
       .getByRole('button', { name: 'Open settings', exact: true })
       .click()
