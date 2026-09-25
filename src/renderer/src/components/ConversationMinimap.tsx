@@ -1,10 +1,15 @@
 import { type RefObject, useId, useLayoutEffect, useRef, useState } from 'react'
 
 const tickSpacing = 12
+const minimapMessageSelector = '[data-minimap-message="Your message"]'
 
 // why: turns skip layout off screen, and reading a rect inside one forces it; the turn box itself stays measurable.
 function anchorOf(message: HTMLElement): HTMLElement {
-  return message.closest<HTMLElement>('.chat-turn') ?? message
+  const turn = message.closest<HTMLElement>('.chat-turn')
+  // why: a steered follow-up sits lower in its turn, so only the turn's first prompt can stand in for it.
+  return turn?.querySelector(minimapMessageSelector) === message
+    ? turn
+    : message
 }
 
 export function ConversationMinimap({
@@ -31,9 +36,7 @@ export function ConversationMinimap({
     const rail = railRef.current
     if (!scroll || !rail) return
     const messages = Array.from(
-      scroll.querySelectorAll<HTMLElement>(
-        '[data-minimap-message="Your message"]',
-      ),
+      scroll.querySelectorAll<HTMLElement>(minimapMessageSelector),
     )
     messagesRef.current = messages
     setLabels(
