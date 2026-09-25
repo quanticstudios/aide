@@ -28,6 +28,7 @@ import {
   memo,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -75,13 +76,17 @@ import type {
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { resolveAgentHotkey } from '../lib/agent-hotkeys'
+import { isEqualValue } from '../lib/deep-equal'
 import { createImageAttachments } from '../lib/managed-composer'
 import {
   loadManagedDraft,
   removeManagedDraft,
   saveManagedDraft,
 } from '../lib/managed-draft-storage'
-import { subscribeManagedSession } from '../lib/managed-session-events'
+import {
+  type ManagedSessionUpdate,
+  subscribeManagedSession,
+} from '../lib/managed-session-events'
 import {
   groupContentByTurn,
   type TurnGroup,
@@ -113,6 +118,7 @@ import {
   resolveMentionMenuSelection,
   WorkspaceFileMentionSearch,
 } from '../lib/workspace-file-mentions'
+import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import { ConversationMinimap } from './ConversationMinimap'
@@ -1586,6 +1592,16 @@ export default function ManagedAgentPane({
     workspace.worktreePath,
   ])
 
+  const isWorkspaceVisible = useContext(WorkspaceVisibilityContext)
+  const isWorkspaceVisibleRef = useRef(isWorkspaceVisible)
+  const deferredUpdatesRef = useRef<ManagedSessionUpdate[]>([])
+  const flushDeferredUpdatesRef = useRef<() => void>(() => undefined)
+  // why: off-screen workspaces keep only the latest snapshot and render it once they slide into view.
+  useLayoutEffect(() => {
+    isWorkspaceVisibleRef.current = isWorkspaceVisible
+    if (isWorkspaceVisible) flushDeferredUpdatesRef.current()
+  }, [isWorkspaceVisible])
+
   useEffect(() => {
     const api = getAideApi()
 
@@ -1610,7 +1626,11 @@ export default function ManagedAgentPane({
       setAgentMode(nextSnapshot.interactionMode)
       setPermissionMode(nextSnapshot.permissionMode)
       if (nextSnapshot.agents) {
-        setConfiguredAgents(nextSnapshot.agents)
+        const agents = nextSnapshot.agents
+        // why: a fresh array on every snapshot re-runs the effect that writes composer defaults to the database.
+        setConfiguredAgents((current) =>
+          isEqualValue(current, agents) ? current : agents,
+        )
         configuredAgentsInitializedRef.current = true
       }
       const composerSelection = getComposerProviderSelection(nextSnapshot)
@@ -1624,7 +1644,7 @@ export default function ManagedAgentPane({
       startedSessionRef.current = true
     }
 
-    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+    const handleUpdate = (update: ManagedSessionUpdate) => {
       if (update.type === 'removed') {
         snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
         startedSessionRef.current = false
@@ -1633,7 +1653,23 @@ export default function ManagedAgentPane({
       }
 
       applySnapshot(update.snapshot)
+    }
+    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+      if (isWorkspaceVisibleRef.current) {
+        handleUpdate(update)
+        return
+      }
+      const deferred = deferredUpdatesRef.current
+      if (update.type === 'snapshot' && deferred.at(-1)?.type === 'snapshot') {
+        deferred[deferred.length - 1] = update
+      } else {
+        deferred.push(update)
+      }
     })
+    flushDeferredUpdatesRef.current = () => {
+      const deferred = deferredUpdatesRef.current.splice(0)
+      for (const update of deferred) handleUpdate(update)
+    }
 
     void api.getManagedSessionSnapshots().then(async (snapshots) => {
       const existing = snapshots[sessionId]
@@ -1652,7 +1688,11 @@ export default function ManagedAgentPane({
       }
     })
 
-    return unsubscribe
+    return () => {
+      deferredUpdatesRef.current = []
+      flushDeferredUpdatesRef.current = () => undefined
+      unsubscribe()
+    }
   }, [isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
