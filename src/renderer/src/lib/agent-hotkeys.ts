@@ -3,7 +3,6 @@ export type AgentHotkeyAction =
   | 'open-effort-menu'
   | 'open-model-menu'
   | 'open-permission-menu'
-  | 'send-queued-now'
 
 export interface AgentHotkeyEvent {
   readonly altKey: boolean
@@ -46,10 +45,6 @@ export function resolveAgentHotkey(
   // invariant: Alt stays free for the App-level workspace and pane navigation.
   if (!hasChordModifier || !event.shiftKey || event.altKey) {
     return null
-  }
-
-  if (event.key === 'Enter') {
-    return 'send-queued-now'
   }
 
   return MENU_KEYS[event.key.toLowerCase()] ?? null

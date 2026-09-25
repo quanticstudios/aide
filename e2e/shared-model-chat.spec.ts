@@ -1883,7 +1883,7 @@ test.describe('shared model chat', () => {
     await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced')
   })
 
-  test('queues follow-ups, cancels one, and resumes after interruption', async () => {
+  test('hands a follow-up with images to the running agent', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
@@ -1899,7 +1899,7 @@ test.describe('shared model chat', () => {
       .toMatchObject({ sessionState: 'running' })
     const followUp =
       'Use Fable 5.1 in v0.0.2.\nKeep the entire message and its screenshot.'
-    for (const text of ['cancel this follow-up', followUp]) {
+    for (const text of [followUp]) {
       await prompt.fill(text)
       if (text === followUp) {
         const thumbnail = readFileSync(
@@ -1961,34 +1961,9 @@ test.describe('shared model chat', () => {
       }
       await page.getByRole('button', { name: 'Send prompt' }).click()
     }
-    const queue = page.getByTestId('managed-input-queue')
-    await expect(queue).toContainText('2 queued')
-    const previewToggle = queue
-      .locator('summary')
-      .filter({ hasText: 'Use Fable' })
-    await previewToggle.focus()
-    await page.keyboard.press('Enter')
-    await expect(
-      queue.getByTestId('queued-message-preview').last(),
-    ).toContainText(followUp)
-    await expect(
-      queue.getByRole('img', { name: 'preview.png', exact: true }),
-    ).toBeVisible()
-    await page.screenshot({
-      path: test.info().outputPath('queued-follow-ups.png'),
-    })
-    await queue
-      .getByRole('button', { name: 'Cancel queued message' })
-      .first()
-      .click()
-    await expect(queue).not.toContainText('cancel this follow-up')
-    await page.getByRole('textbox', { name: /prompt/i }).fill('/interrupt')
-    await page.getByRole('option', { name: /\/interrupt/ }).click()
-    await queue.getByRole('button', { name: 'Resume', exact: true }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Handled: Use Fable 5.1 in v0.0.2.',
+      'Steered: Use Fable 5.1 in v0.0.2.',
     )
-    await expect(queue).not.toBeVisible()
     const sentMessage = page
       .getByTestId('managed-content-user-prompt')
       .filter({ hasText: 'Use Fable' })
@@ -2006,42 +1981,6 @@ test.describe('shared model chat', () => {
         .filter({ hasText: 'Use Fable' })
         .getByRole('img'),
     ).toHaveCount(2)
-  })
-
-  test('keeps queued follow-ups paused across a full app restart', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const prompt = launched.page.getByRole('textbox', {
-      name: /claude prompt/i,
-    })
-    await prompt.fill('wait-claude')
-    await launched.page.getByRole('button', { name: 'Send prompt' }).click()
-    await expect
-      .poll(() => getOnlySnapshot(launched.page))
-      .toMatchObject({ sessionState: 'running' })
-    await prompt.fill('resume after restart')
-    await launched.page.getByRole('button', { name: 'Send prompt' }).click()
-    await expect(
-      launched.page.getByTestId('managed-input-queue'),
-    ).toContainText('resume after restart')
-    await app.close()
-    app = null
-    const restarted = await launchAideApp(repository, dataDirectory)
-    app = restarted.app
-    await prepareSyntheticJev(app, restarted.page)
-    const queue = restarted.page.getByTestId('managed-input-queue')
-    await expect(queue).toContainText('resume after restart')
-    await expect(
-      restarted.page.getByTestId('managed-session-content'),
-    ).not.toContainText('Handled: resume after restart')
-    await queue.getByRole('button', { name: 'Resume', exact: true }).click()
-    await expect(
-      restarted.page.getByTestId('managed-session-content'),
-    ).toContainText('Handled: resume after restart')
-    await expect(queue).not.toBeVisible()
   })
 
   test('sends Codex follow-ups immediately through required Jev preparation', async () => {
@@ -2069,7 +2008,6 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Steered: change direction now',
     )
-    await expect(page.getByTestId('managed-input-queue')).not.toBeVisible()
   })
 
   test('labels a running Codex opinion response under a Claude parent', async () => {

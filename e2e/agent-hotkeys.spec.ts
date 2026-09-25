@@ -179,10 +179,9 @@ test.describe('agent pane hotkeys', () => {
       .getByRole('option', { name: /\/help/ })
       .click()
     await expect(prompt).toHaveValue(/Cmd\/Ctrl\+Shift\+M — model selector/)
-    await expect(prompt).toHaveValue(/Cmd\/Ctrl\+Shift\+Enter/)
   })
 
-  test('steers the oldest queued Codex message on Ctrl+Shift+Enter', async () => {
+  test('steers a running Codex turn with the next message', async () => {
     const launched = await openAgentPane(repository ?? '', dataDirectory ?? '')
     app = launched.app
     const { page } = launched
@@ -210,26 +209,10 @@ test.describe('agent pane hotkeys', () => {
       .poll(() => getSnapshot(page))
       .toMatchObject({ sessionState: 'running' })
 
-    // why: a recipient message cannot steer, so it holds the queue open for the next one.
-    await page.evaluate(
-      async (id) =>
-        await window.aide.sendManagedSessionInput(id, 'ask claude', ['Claude']),
-      sessionId,
-    )
     await prompt.fill('change direction now')
     await page.getByRole('button', { name: 'Send prompt' }).click()
-    const queue = page.getByTestId('managed-input-queue')
-    await expect(queue).toContainText('change direction now')
-    await queue
-      .getByRole('button', { name: 'Cancel queued message' })
-      .first()
-      .click()
-    await expect(queue).toContainText('1 queued')
-
-    await prompt.press('Control+Shift+Enter')
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Steered: change direction now',
     )
-    await expect(queue).toBeHidden()
   })
 })

@@ -785,12 +785,7 @@ function registerIpcHandlers(): void {
             const identity = { paneId, sessionId, workspaceId: workspace.id }
             managedSessionManager.registerRestoredSession(
               { ...seed.config, ...identity },
-              {
-                ...seed.snapshot,
-                ...identity,
-                queuedInputs: [],
-                queuePaused: false,
-              },
+              { ...seed.snapshot, ...identity },
             )
             checkpointPreviews.delete(id)
             windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
@@ -1453,29 +1448,6 @@ function registerIpcHandlers(): void {
           : requireRecipientAliases([recipientAlias])
       return managedSessionManager.interruptSession(id, aliases[0])
     },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionCancelQueuedInput,
-    (_event, sessionId: unknown, queuedInputId: unknown) =>
-      managedSessionManager.cancelQueuedInput(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        requireRuntimeId(queuedInputId, 'queued input id'),
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionResumeQueue,
-    (_event, sessionId: unknown) =>
-      managedSessionManager.resumeQueue(
-        requireRuntimeId(sessionId, 'managed-session id'),
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionSendQueuedInputNow,
-    (_event, sessionId: unknown, queuedInputId: unknown) =>
-      managedSessionManager.sendQueuedInputNow(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        requireRuntimeId(queuedInputId, 'queued input id'),
-      ),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionPickFiles,

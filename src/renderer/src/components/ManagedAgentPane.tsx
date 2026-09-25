@@ -125,7 +125,6 @@ import { ConversationMinimap } from './ConversationMinimap'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
 } from './ManagedComposerAttachments'
-import ManagedInputQueue from './ManagedInputQueue'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import MarkdownContent from './MarkdownContent'
@@ -1945,24 +1944,6 @@ export default function ManagedAgentPane({
     }
   }, [attachments, workspace.id])
 
-  const runQueueAction = useCallback(
-    async (action: (api: AideApi) => Promise<void>) => {
-      const api = getAideApi()
-      if (!api) return
-      setIsSubmitting(true)
-      try {
-        if (!(await ensureSession())) return
-        await action(api)
-        setError(null)
-      } catch (queueError) {
-        setError(getErrorMessage(queueError))
-      } finally {
-        setIsSubmitting(false)
-      }
-    },
-    [ensureSession],
-  )
-
   const handleRetryTurn = useCallback(
     async (text: string, recipientAlias: string) => {
       await sendPromptText(text, [recipientAlias])
@@ -2821,34 +2802,6 @@ export default function ManagedAgentPane({
           />
         ))}
 
-        <ManagedInputQueue
-          canSteer={Boolean(
-            snapshot?.provider === 'codex' &&
-              !snapshot.pendingProviderSelection &&
-              snapshot.turns.some(
-                (turn) => turn.state === 'running' && !turn.recipientAlias,
-              ),
-          )}
-          isPaused={snapshot?.queuePaused ?? false}
-          isSubmitting={isSubmitting}
-          items={snapshot?.queuedInputs ?? []}
-          onCancel={(queuedInputId) =>
-            void runQueueAction((api) =>
-              api.cancelManagedSessionQueuedInput(sessionId, queuedInputId),
-            )
-          }
-          onResume={() =>
-            void runQueueAction((api) =>
-              api.resumeManagedSessionQueue(sessionId),
-            )
-          }
-          onSendNow={(queuedInputId) =>
-            void runQueueAction((api) =>
-              api.sendManagedSessionQueuedInputNow(sessionId, queuedInputId),
-            )
-          }
-        />
-
         <div
           className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-2 shadow-[0_1px_2px_rgba(0,0,0,0.5),0_0_0_1px_var(--border)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--primary),0_8px_24px_-12px_rgba(0,0,0,0.8)]"
           data-testid="managed-composer"
@@ -3269,20 +3222,6 @@ export default function ManagedAgentPane({
                 const api = getAideApi()
                 if (api) {
                   void api.interruptManagedSession(sessionId)
-                }
-                return
-              }
-
-              if (hotkey === 'send-queued-now') {
-                event.preventDefault()
-                const queuedInput = snapshot?.queuedInputs?.[0]
-                if (queuedInput) {
-                  void runQueueAction((api) =>
-                    api.sendManagedSessionQueuedInputNow(
-                      sessionId,
-                      queuedInput.id,
-                    ),
-                  )
                 }
                 return
               }

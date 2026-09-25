@@ -128,4 +128,65 @@ describe('ManagedSessionManager Claude streaming', () => {
 
     await manager.closeAll()
   })
+
+  it('hands a mid-turn message to the CLI and tracks the turn it queues', async () => {
+    const prompts: unknown[] = []
+    const result = (uuid: string, queuedTurnCount: number) => ({
+      modelUsage: {},
+      queued_turn_count: queuedTurnCount,
+      session_id: 'session',
+      subtype: 'success',
+      total_cost_usd: 0,
+      type: 'result',
+      uuid,
+    })
+    query.mockImplementation(({ prompt }) => ({
+      async *[Symbol.asyncIterator]() {
+        const incoming = prompt[Symbol.asyncIterator]()
+        prompts.push((await incoming.next()).value)
+        prompts.push((await incoming.next()).value)
+        yield result('first-result', 1)
+        yield result('second-result', 0)
+      },
+      close: vi.fn(),
+      interrupt: vi.fn(),
+    }))
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    await manager.createSession({
+      cwd: '/tmp/workspace',
+      mode: 'claude',
+      paneId: 'pane',
+      readOnly: true,
+      sessionId: 'session',
+      workspaceId: 'workspace',
+    })
+
+    await manager.sendInput('session', 'first')
+    await manager.sendInput('session', 'second')
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots().session?.turns).toEqual([
+        expect.objectContaining({ state: 'completed' }),
+        expect.objectContaining({ state: 'completed' }),
+      ]),
+    )
+    expect(JSON.stringify(prompts[1])).toContain('second')
+    expect(
+      manager
+        .getSnapshots()
+        .session?.content.filter((item) => item.kind === 'user-prompt')
+        .map((item) => item.text),
+    ).toEqual(['first', 'second'])
+    const [firstTurn, secondTurn] = manager.getSnapshots().session?.turns ?? []
+    expect(
+      manager
+        .getSnapshots()
+        .session?.content.find((item) => item.text === 'second')?.turnId,
+    ).toBe(secondTurn?.id)
+    expect(secondTurn?.id).not.toBe(firstTurn?.id)
+
+    await manager.closeAll()
+  })
 })

@@ -104,6 +104,8 @@ export type ManagedProviderRuntimeEvent =
       type: 'session.exited'
     })
   | (ManagedProviderRuntimeEventBase & {
+      /** Sends the CLI still held when it started this turn for them. */
+      queuedSendCount?: number
       turnId: string
       type: 'turn.started'
     })

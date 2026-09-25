@@ -9,7 +9,6 @@ import type {
   ManagedProviderRuntimeToolCall,
   ManagedProviderRuntimeToolRequest,
 } from './provider-runtime'
-import type { ResolvedProviderSkill } from './provider-skills'
 import type { ManagedSessionMode } from './terminal'
 
 export type ManagedSessionProvider = ManagedProviderRuntimeProvider
@@ -87,17 +86,6 @@ export interface ManagedSessionProviderImage {
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
   name: string
   path?: string
-}
-
-export interface ManagedSessionQueuedInput {
-  attachments: ManagedSessionAttachment[]
-  checkpointId?: string
-  createdAt: string
-  id: string
-  lastError?: string
-  recipients: string[]
-  skill?: ResolvedProviderSkill
-  text: string
 }
 
 export interface ManagedSessionConfig {
@@ -234,8 +222,6 @@ export interface ManagedSessionSnapshot {
   permissionMode: ManagedSessionPermissionMode
   planApproval: ManagedSessionPlanApproval | null
   provider: ManagedSessionProvider
-  queuePaused?: boolean
-  queuedInputs?: ManagedSessionQueuedInput[]
   revision: number
   running: boolean
   runtimeGeneration: number
