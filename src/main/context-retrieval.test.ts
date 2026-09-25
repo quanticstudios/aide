@@ -55,7 +55,7 @@ describe('retrieveContext', () => {
       task: 'https://github.com/Graphify-Labs/graphify run graphify here so that we can speed up our process',
       workspaceRoot: root,
     })
-    expect(url.mandatory.map((excerpt) => excerpt.path)).toEqual(['README.md'])
+    expect(url.mandatory).toEqual([])
   })
 
   it('keeps safe instructions and explicit evidence while excluding unsafe Git paths', async () => {

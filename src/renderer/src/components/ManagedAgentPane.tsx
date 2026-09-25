@@ -954,7 +954,9 @@ function TurnGroupBlock({
 
         if (item.kind === 'tool-call') {
           if (previous?.kind === 'tool-call') {
-            return <Fragment key={`${item.kind}:${item.id}`}>{taskList}</Fragment>
+            return (
+              <Fragment key={`${item.kind}:${item.id}`}>{taskList}</Fragment>
+            )
           }
 
           let end = index + 1

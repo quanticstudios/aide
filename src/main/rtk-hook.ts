@@ -48,9 +48,9 @@ export function createRtkPreToolUseHook(
   }
 }
 
-export function createRtkHooks(
-  env: NodeJS.ProcessEnv = process.env,
-): { PreToolUse: HookCallbackMatcher[] } {
+export function createRtkHooks(env: NodeJS.ProcessEnv = process.env): {
+  PreToolUse: HookCallbackMatcher[]
+} {
   return {
     PreToolUse: [{ hooks: [createRtkPreToolUseHook(env)], matcher: 'Bash' }],
   }
