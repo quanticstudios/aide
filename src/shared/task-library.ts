@@ -30,8 +30,6 @@ export interface SavedTask extends TaskMetadata {
     | 'failed'
     | 'interrupted'
     | 'running'
-    | 'queued'
-    | 'paused'
     | 'completed'
     | 'idle'
   activityKey: string | null
@@ -78,14 +76,6 @@ export function getTaskActivity(snapshot: ManagedSessionSnapshot): {
     return { status: 'running', activityKey: null }
   }
   const lastTurn = snapshot.turns.at(-1)
-  if (snapshot.queuedInputs?.length) {
-    return {
-      status: snapshot.queuePaused ? 'paused' : 'queued',
-      activityKey: snapshot.queuePaused
-        ? `queue-paused:${snapshot.queuedInputs.map((input) => input.id).join(',')}`
-        : null,
-    }
-  }
   if (snapshot.sessionState === 'error' || lastTurn?.state === 'failed') {
     return {
       status: 'failed',

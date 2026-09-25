@@ -102,7 +102,7 @@ export class TaskLibrary {
     if (!task) throw new Error('This conversation is no longer available.')
     if (
       input.archived &&
-      ['running', 'approval', 'input', 'queued', 'paused'].includes(task.status)
+      ['running', 'approval', 'input'].includes(task.status)
     )
       throw new Error('Finish or interrupt this task before archiving it.')
     if (

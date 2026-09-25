@@ -228,12 +228,6 @@ const aideApi: AideApi = {
       sessionId,
       recipientAlias,
     ),
-  cancelManagedSessionQueuedInput: (sessionId, queuedInputId) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionCancelQueuedInput,
-      sessionId,
-      queuedInputId,
-    ),
   pickManagedSessionFiles: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionPickFiles, workspaceId),
   searchManagedSessionFiles: (workspaceId, query) =>
@@ -241,14 +235,6 @@ const aideApi: AideApi = {
       IPC_CHANNELS.managedSessionSearchFiles,
       workspaceId,
       query,
-    ),
-  resumeManagedSessionQueue: (sessionId) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionResumeQueue, sessionId),
-  sendManagedSessionQueuedInputNow: (sessionId, queuedInputId) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionSendQueuedInputNow,
-      sessionId,
-      queuedInputId,
     ),
   killTerminalSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalKill, sessionId),

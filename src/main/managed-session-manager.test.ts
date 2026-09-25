@@ -11,9 +11,9 @@ import type {
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
 import {
   buildClaudeSkillInput,
-  buildToolApprovalRequest,
   buildClaudeUserContent,
   buildCodexTurnInput,
+  buildToolApprovalRequest,
   ManagedSessionManager,
   type ManagedSessionPersistenceStore,
   resolveAutoApprovalLabel,
@@ -864,7 +864,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
   })
 
-  it('finishes the active reply before applying the latest choice to queued input', async () => {
+  it('steers a mid-turn message into the active reply and applies the latest choice afterwards', async () => {
     const emitters: Array<(event: ManagedProviderRuntimeEvent) => void> = []
     const sent: Array<{ model?: string; text: string }> = []
     const interrupt = vi.fn(async () => undefined)
@@ -918,13 +918,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
     expect(sent).toHaveLength(1)
     expect(interrupt).not.toHaveBeenCalled()
-    expect(steer).not.toHaveBeenCalled()
-    const queuedId =
-      manager.getSnapshots()[config.sessionId].queuedInputs?.[0]?.id
-    expect(queuedId).toBeDefined()
-    await expect(
-      manager.sendQueuedInputNow(config.sessionId, queuedId ?? ''),
-    ).rejects.toThrow('waiting for the selected model')
+    expect(steer).toHaveBeenCalledWith('second', [], undefined)
     emitters[0]({
       createdAt: '2026-04-11T10:00:01.000Z',
       provider: 'codex',
@@ -932,12 +926,16 @@ createInterface({ input: process.stdin }).on('line', line => {
       state: 'completed',
       type: 'turn.completed',
     })
-    await vi.waitFor(() => expect(sent).toHaveLength(2))
-    expect(sent[1].model).toBe('latest')
-    expect(sent[1].text).toContain('second')
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+        model: 'latest',
+        provider: 'claude',
+      }),
+    )
     expect(
       manager.getSnapshots()[config.sessionId].pendingProviderSelection,
     ).toBeUndefined()
+    expect(sent).toHaveLength(1)
     await manager.closeAll()
   })
 
@@ -1681,8 +1679,9 @@ createInterface({ input: process.stdin }).on('line', line => {
     await second.closeAll()
   })
 
-  it('captures the pre-turn snapshot and queues another prompt while the turn runs', async () => {
+  it('captures the pre-turn snapshot and steers another prompt into the running turn', async () => {
     let savedPrompt = ''
+    const steered: string[] = []
     const manager = new ManagedSessionManager({
       createBackend: (config, emit) => ({
         close: async () => undefined,
@@ -1696,6 +1695,9 @@ createInterface({ input: process.stdin }).on('line', line => {
             turnId: 'running-turn',
             type: 'turn.started',
           })
+        },
+        steerInput: async (text) => {
+          steered.push(text)
         },
         start: async () => {
           emit({
@@ -1714,7 +1716,7 @@ createInterface({ input: process.stdin }).on('line', line => {
       onRuntimeEvent: () => undefined,
       onUpdate: () => undefined,
       prepareInput: async ({ text }) => {
-        expect(savedPrompt).toBe(text)
+        if (text === 'persist before dispatch') expect(savedPrompt).toBe(text)
         return { text }
       },
       store: {
@@ -1730,8 +1732,15 @@ createInterface({ input: process.stdin }).on('line', line => {
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'persist before dispatch')
     await manager.sendInput(config.sessionId, 'second prompt')
+    expect(steered).toEqual(['second prompt'])
     expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
-      queuedInputs: [expect.objectContaining({ text: 'second prompt' })],
+      content: [
+        expect.objectContaining({ text: 'persist before dispatch' }),
+        expect.objectContaining({
+          text: 'second prompt',
+          turnId: 'running-turn',
+        }),
+      ],
       turns: [
         expect.objectContaining({
           checkpointId: 'checkpoint-persist before dispatch',
@@ -1740,62 +1749,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
   })
 
-  it('delivers queued prompts in order and supports cancellation', async () => {
-    let emitRuntimeEvent:
-      | ((event: ManagedProviderRuntimeEvent) => void)
-      | undefined
-    const sent: string[] = []
-    const manager = new ManagedSessionManager({
-      createBackend: (config, emit) => {
-        emitRuntimeEvent = emit
-        return {
-          close: async () => undefined,
-          interrupt: async () => undefined,
-          resolveRequest: async () => undefined,
-          resolveUserInput: async () => undefined,
-          sendInput: async (text) => {
-            sent.push(text)
-            emit({
-              createdAt: '2026-04-11T10:00:00.000Z',
-              provider: config.mode,
-              turnId: `turn-${sent.length}`,
-              type: 'turn.started',
-            })
-          },
-          start: async () => {
-            emit({
-              createdAt: '2026-04-11T10:00:00.000Z',
-              provider: config.mode,
-              state: 'ready',
-              type: 'session.state.changed',
-            })
-          },
-        }
-      },
-      onRuntimeEvent: () => undefined,
-      onUpdate: () => undefined,
-    })
-    const config = createConfig()
-    await manager.createSession(config)
-    await manager.sendInput(config.sessionId, 'first')
-    await manager.sendInput(config.sessionId, 'cancel me')
-    await manager.sendInput(config.sessionId, 'third')
-    const queued = manager.getSnapshots()[config.sessionId]?.queuedInputs ?? []
-    manager.cancelQueuedInput(config.sessionId, queued[0]?.id ?? '')
-    emitRuntimeEvent?.({
-      createdAt: '2026-04-11T10:00:01.000Z',
-      provider: 'claude',
-      state: 'completed',
-      turnId: 'turn-1',
-      type: 'turn.completed',
-    })
-    await vi.waitFor(() => expect(sent).toHaveLength(2))
-    expect(sent[0]?.split('\n\nFleet policy.')[0]).toBe('first')
-    expect(sent[1]).toContain('third')
-    expect(sent.join('\n')).not.toContain('cancel me')
-  })
-
-  it('pauses queued work after dispatch failure and resumes explicitly', async () => {
+  it('rejects a send whose preparation fails and accepts the retry', async () => {
     let shouldFail = true
     const sent: string[] = []
     const manager = new ManagedSessionManager({
@@ -1839,77 +1793,18 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
     const config = createConfig()
     await manager.createSession(config)
-    await manager.sendInput(config.sessionId, 'retry me')
-    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
-      queuePaused: true,
-      queuedInputs: [expect.objectContaining({ lastError: 'Jev unavailable' })],
-    })
+    await expect(
+      manager.sendInput(config.sessionId, 'retry me'),
+    ).rejects.toThrow('Jev unavailable')
+    expect(manager.getSnapshots()[config.sessionId]?.content).toEqual([])
     shouldFail = false
-    await manager.resumeQueue(config.sessionId)
+    await manager.sendInput(config.sessionId, 'retry me')
     expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
       'retry me',
     ])
-    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
   })
 
-  it('retains a paused skill input when the session owner changes', async () => {
-    let shouldFailPreparation = true
-    let checkpointAttempts = 0
-    const codexSends: string[] = []
-    const manager = new ManagedSessionManager({
-      beforeInput: async () => {
-        checkpointAttempts += 1
-        return undefined
-      },
-      createBackend: (config, emit) => ({
-        close: async () => undefined,
-        interrupt: async () => undefined,
-        resolveRequest: async () => undefined,
-        resolveUserInput: async () => undefined,
-        sendInput: async (text) => {
-          if (config.mode === 'codex') codexSends.push(text)
-        },
-        start: async () => {
-          emit({
-            createdAt: '2026-04-11T10:00:00.000Z',
-            provider: config.mode,
-            state: 'ready',
-            type: 'session.state.changed',
-          })
-        },
-      }),
-      onRuntimeEvent: () => undefined,
-      onUpdate: () => undefined,
-      prepareInput: async ({ text }) => {
-        if (shouldFailPreparation) throw new Error('Jev unavailable')
-        return { text }
-      },
-    })
-    const config = createConfig('claude')
-    await manager.createSession(config)
-    await manager.sendInput(config.sessionId, 'run skill', [], [], {
-      id: 'claude:skill:claude-test',
-      nativeName: 'claude-test',
-      provider: 'claude',
-    })
-    await manager.switchSessionProvider(config.sessionId, { mode: 'codex' })
-    shouldFailPreparation = false
-
-    await manager.resumeQueue(config.sessionId)
-
-    expect(codexSends).toEqual([])
-    expect(checkpointAttempts).toBe(1)
-    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
-      queuePaused: true,
-      queuedInputs: [
-        expect.objectContaining({
-          lastError: 'Selected provider skill does not match this session.',
-        }),
-      ],
-    })
-  })
-
-  it('cancels a queued input while preparation is still running', async () => {
+  it('interrupts a send while preparation is still running', async () => {
     const preparationStarted = createDeferred()
     const releasePreparation = createDeferred()
     const sent: string[] = []
@@ -1956,17 +1851,15 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(
       save.mock.calls.at(-1)?.[0].snapshot.preparingActivityId,
     ).toBeUndefined()
-    const queuedInputId =
-      manager.getSnapshots()[config.sessionId]?.queuedInputs?.[0]?.id ?? ''
-    manager.cancelQueuedInput(config.sessionId, queuedInputId)
+    await manager.interruptSession(config.sessionId)
     releasePreparation.resolve()
-    await send
+    await expect(send).rejects.toThrow('interrupted')
 
     expect(sent).toEqual([])
     expect(
       manager.getSnapshots()[config.sessionId]?.preparingActivityId,
     ).toBeUndefined()
-    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
+    expect(manager.getSnapshots()[config.sessionId]?.content).toEqual([])
   })
 
   it('never redelivers an input after an ambiguous provider failure', async () => {
@@ -1996,13 +1889,11 @@ createInterface({ input: process.stdin }).on('line', line => {
     const config = createConfig()
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'send at most once')
-    await manager.resumeQueue(config.sessionId)
 
     expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
       'send at most once',
     ])
     expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
-      queuedInputs: [],
       content: [
         expect.objectContaining({ text: 'send at most once' }),
         expect.objectContaining({
@@ -2012,80 +1903,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
   })
 
-  it('keeps queued work paused after restart', async () => {
-    const store = createMemoryStore()
-    const config = createConfig()
-    const first = new ManagedSessionManager({
-      createBackend: (backendConfig, emit) => ({
-        close: async () => undefined,
-        interrupt: async () => undefined,
-        resolveRequest: async () => undefined,
-        resolveUserInput: async () => undefined,
-        sendInput: async () => {
-          emit({
-            createdAt: '2026-04-11T10:00:00.000Z',
-            provider: backendConfig.mode,
-            turnId: 'running',
-            type: 'turn.started',
-          })
-        },
-        start: async () => {
-          emit({
-            createdAt: '2026-04-11T10:00:00.000Z',
-            provider: backendConfig.mode,
-            state: 'ready',
-            type: 'session.state.changed',
-          })
-        },
-      }),
-      onRuntimeEvent: () => undefined,
-      onUpdate: () => undefined,
-      store,
-    })
-    await first.createSession(config)
-    await first.sendInput(config.sessionId, 'running')
-    await first.sendInput(config.sessionId, 'after restart', [], [], {
-      id: 'claude:skill:claude-test',
-      nativeName: 'claude-test',
-      provider: 'claude',
-    })
-    await first.closeAll()
-
-    let sendsAfterRestart = 0
-    const second = new ManagedSessionManager({
-      createBackend: (backendConfig, emit) => ({
-        close: async () => undefined,
-        interrupt: async () => undefined,
-        resolveRequest: async () => undefined,
-        resolveUserInput: async () => undefined,
-        sendInput: async () => {
-          sendsAfterRestart += 1
-        },
-        start: async () => {
-          emit({
-            createdAt: '2026-04-11T11:00:00.000Z',
-            provider: backendConfig.mode,
-            state: 'ready',
-            type: 'session.state.changed',
-          })
-        },
-      }),
-      onRuntimeEvent: () => undefined,
-      onUpdate: () => undefined,
-      store,
-    })
-    const restored = await second.createSession(config)
-    expect(sendsAfterRestart).toBe(0)
-    expect(restored.queuePaused).toBe(true)
-    expect(restored.queuedInputs).toEqual([
-      expect.objectContaining({
-        skill: expect.objectContaining({ id: 'claude:skill:claude-test' }),
-        text: 'after restart',
-      }),
-    ])
-  })
-
-  it('drains an explicitly resumed queue after a cancelled turn checkpoint completes', async () => {
+  it('holds a send until the cancelled turn checkpoint completes', async () => {
     const checkpointCaptureStarted = createDeferred()
     const completeCheckpointCapture = createDeferred()
     let emitRuntimeEvent:
@@ -2130,7 +1948,6 @@ createInterface({ input: process.stdin }).on('line', line => {
     const config = createConfig()
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'first')
-    await manager.sendInput(config.sessionId, 'queued after cancellation')
     emitRuntimeEvent?.({
       createdAt: '2026-04-11T10:00:01.000Z',
       provider: 'claude',
@@ -2140,17 +1957,19 @@ createInterface({ input: process.stdin }).on('line', line => {
     })
     await checkpointCaptureStarted.promise
 
-    await manager.resumeQueue(config.sessionId)
+    const next = manager.sendInput(config.sessionId, 'after cancellation')
+    await Promise.resolve()
     expect(sent.map((prompt) => prompt.split('\n\nFleet policy.')[0])).toEqual([
       'first',
     ])
 
     completeCheckpointCapture.resolve()
-    await vi.waitFor(() => expect(sent).toHaveLength(2))
-    expect(sent[1]).toContain('queued after cancellation')
+    await next
+    expect(sent).toHaveLength(2)
+    expect(sent[1]).toContain('after cancellation')
   })
 
-  it('automatically steers an eligible active Codex turn with prepared context', async () => {
+  it('steers an active Codex turn with prepared context', async () => {
     const checkpoints: string[] = []
     const preparedInputs: string[] = []
     const steered: string[] = []
@@ -2204,32 +2023,15 @@ createInterface({ input: process.stdin }).on('line', line => {
         expect.objectContaining({ text: 'start' }),
         expect.objectContaining({ text: 'steer this', turnId: 'active' }),
       ],
-      queuedInputs: [],
       turns: [expect.objectContaining({ id: 'active', state: 'running' })],
     })
-
-    await manager.sendInput(config.sessionId, 'run skill', [], [], {
-      id: 'codex:skill:test',
-      nativeName: 'test',
-      provider: 'codex',
-    })
-
-    expect(steered).toEqual(['prepared steer this'])
-    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([
-      expect.objectContaining({
-        skill: expect.objectContaining({ id: 'codex:skill:test' }),
-        text: 'run skill',
-      }),
-    ])
   })
 
-  it('persists an active Codex follow-up before preparation without steering a completed turn', async () => {
+  it('starts a new turn for a follow-up whose target turn ended during preparation', async () => {
     const preparationStarted = createDeferred()
     const releasePreparation = createDeferred()
     const sent: string[] = []
     const steered: string[] = []
-    const store = createMemoryStore()
-    const save = vi.spyOn(store, 'saveManagedSession')
     let emitRuntimeEvent:
       | ((event: ManagedProviderRuntimeEvent) => void)
       | undefined
@@ -2272,18 +2074,12 @@ createInterface({ input: process.stdin }).on('line', line => {
         }
         return { text }
       },
-      store,
     })
     const config = createConfig('codex')
     await manager.createSession(config)
     await manager.sendInput(config.sessionId, 'start')
     const followUp = manager.sendInput(config.sessionId, 'follow up')
     await preparationStarted.promise
-
-    expect(save.mock.calls.at(-1)?.[0].snapshot.queuedInputs).toEqual([
-      expect.objectContaining({ text: 'follow up' }),
-    ])
-    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toEqual([])
 
     emitRuntimeEvent?.({
       createdAt: '2026-04-11T10:00:01.000Z',

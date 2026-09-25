@@ -67,15 +67,6 @@ describe('resolveAgentHotkey', () => {
     )
   })
 
-  it('sends the queued input on Ctrl+Shift+Enter', () => {
-    expect(
-      resolveAgentHotkey(
-        keyEvent('Enter', { ctrlKey: true, shiftKey: true }),
-        runningContext,
-      ),
-    ).toBe('send-queued-now')
-  })
-
   it('reads Meta instead of Ctrl on macOS', () => {
     const macContext = { ...runningContext, isMac: true }
     expect(

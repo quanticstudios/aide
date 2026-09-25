@@ -566,23 +566,6 @@ const persistedToolCall = z.object({
     .optional(),
   toolName: z.string().min(1).max(200),
 })
-const persistedQueuedInput = z.object({
-  attachments: z.array(persistedManagedAttachment).max(8),
-  checkpointId: persistedIdentifier.optional(),
-  createdAt: persistedTimestamp,
-  id: persistedIdentifier,
-  lastError: z.string().max(2_000).optional(),
-  recipients: z.array(z.string().min(1).max(64)).max(2),
-  skill: z
-    .object({
-      id: z.string().min(1).max(4_096),
-      nativeName: z.string().min(1).max(4_096),
-      nativePath: z.string().min(1).max(4_096).optional(),
-      provider: z.enum(['claude', 'codex']),
-    })
-    .optional(),
-  text: z.string().min(1).max(65_536),
-})
 const persistedManagedSessionSchema = z
   .object({
     config: z.object({
@@ -686,8 +669,6 @@ const persistedManagedSessionSchema = z
         })
         .nullable(),
       provider: persistedProvider,
-      queuePaused: z.boolean().optional(),
-      queuedInputs: z.array(persistedQueuedInput).optional(),
       revision: z.number().finite().int().nonnegative(),
       running: z.boolean(),
       runtimeGeneration: z.number().finite().int().positive(),
