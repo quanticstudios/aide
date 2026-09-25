@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
-  CirclePause,
   Clipboard,
   ClipboardCheck,
   FileCode,
@@ -123,7 +122,6 @@ import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
-import OpenInEditorButton from './OpenInEditorButton'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
 import RecipientMentionMenu from './RecipientMentionMenu'
 import IconTooltip from './ui/icon-tooltip'
@@ -2614,30 +2612,6 @@ export default function ManagedAgentPane({
       data-testid="managed-agent-pane"
       ref={paneRef}
     >
-      <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border/70 px-4">
-        <h2 className="text-sm font-semibold tracking-[-0.374px] text-foreground">
-          {isUnifiedPane ? 'Agent' : providerLabel}
-        </h2>
-
-        <div className="flex items-center gap-2">
-          <OpenInEditorButton cwd={workspace.worktreePath} />
-          <Button
-            isDisabled={!isSubmitting && snapshot?.sessionState !== 'running'}
-            onPress={() => {
-              const api = getAideApi()
-              if (api) {
-                void api.interruptManagedSession(sessionId)
-              }
-            }}
-            size="sm"
-            variant="ghost"
-          >
-            <CirclePause className="size-3.5" />
-            Interrupt
-          </Button>
-        </div>
-      </div>
-
       {rewindTarget ? (
         <ManagedRewindDialog
           checkpointId={rewindTarget.checkpointId}

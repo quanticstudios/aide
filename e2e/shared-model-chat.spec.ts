@@ -868,7 +868,9 @@ test.describe('shared model chat', () => {
     await expect(
       page.getByRole('button', { name: /^Auto-accept edits\b/ }),
     ).toBeVisible()
-    await page.getByRole('heading', { name: 'Agent', exact: true }).click()
+    await page
+      .getByTestId('managed-session-content')
+      .click({ position: { x: 1, y: 1 } })
 
     await expect
       .poll(() => getOnlySnapshot(page), { timeout: 5_000 })
@@ -1980,7 +1982,8 @@ test.describe('shared model chat', () => {
       .first()
       .click()
     await expect(queue).not.toContainText('cancel this follow-up')
-    await page.getByRole('button', { name: 'Interrupt', exact: true }).click()
+    await page.getByRole('textbox', { name: /prompt/i }).fill('/interrupt')
+    await page.getByRole('option', { name: /\/interrupt/ }).click()
     await queue.getByRole('button', { name: 'Resume', exact: true }).click()
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'Handled: Use Fable 5.1 in v0.0.2.',

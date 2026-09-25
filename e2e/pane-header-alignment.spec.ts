@@ -111,15 +111,6 @@ test.describe('pane header alignment', () => {
     const projectRow = page.locator('[data-testid^="project-header-"]').first()
     await expect(projectRow).toBeVisible()
 
-    await addPane(page, /^agent\b/i)
-    await expectAlignedWithProjectRow(
-      projectRow,
-      page.getByTestId('managed-agent-pane').locator('> div').first(),
-    )
-    await page.screenshot({
-      path: test.info().outputPath('pane-header-agent.png'),
-    })
-
     await addPane(page, /git/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await expectAlignedWithProjectRow(
