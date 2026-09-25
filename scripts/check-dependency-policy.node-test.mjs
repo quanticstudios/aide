@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  MINIMUM_RELEASE_AGE_EXCLUDES,
   REQUIRED_DEV_DEPENDENCIES,
   REQUIRED_OVERRIDES,
   validateDependencyPolicy,
@@ -35,7 +36,7 @@ function createLockfile() {
 const validBunfig = `
 [install]
 minimumReleaseAge = 604800
-minimumReleaseAgeExcludes = ["fast-uri"]
+minimumReleaseAgeExcludes = ${JSON.stringify(MINIMUM_RELEASE_AGE_EXCLUDES)}
 `
 
 test('accepts exact direct pins, the seven-day release age, and resolved security overrides', () => {
@@ -71,7 +72,7 @@ test('rejects a release age below seven days or an unapproved exemption', () => 
   }).join('\n')
 
   assert.match(errors, /minimumReleaseAge = 604800/)
-  assert.match(errors, /must exempt only fast-uri/)
+  assert.match(errors, /must exempt only the approved packages/)
 })
 
 test('rejects a release age outside the install table and quoted exemption keys', () => {
@@ -87,7 +88,7 @@ test('rejects a release age outside the install table and quoted exemption keys'
   }).join('\n')
 
   assert.match(misplacedAgeErrors, /minimumReleaseAge = 604800/)
-  assert.match(quotedExemptionErrors, /must exempt only fast-uri/)
+  assert.match(quotedExemptionErrors, /must exempt only the approved packages/)
 })
 
 test('rejects invalid TOML without crashing the policy report', () => {

@@ -21,7 +21,19 @@ export const REQUIRED_DEV_DEPENDENCIES = Object.freeze({
 const EXACT_SEMVER =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const MINIMUM_RELEASE_AGE = 604800
-const MINIMUM_RELEASE_AGE_EXCLUDES = Object.freeze(['fast-uri'])
+export const MINIMUM_RELEASE_AGE_EXCLUDES = Object.freeze([
+  'fast-uri',
+  // workaround(until 2026-10-01): the exact-pinned claude-agent-sdk 0.3.282 is inside the seven-day window until then.
+  '@anthropic-ai/claude-agent-sdk',
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64',
+  '@anthropic-ai/claude-agent-sdk-darwin-x64',
+  '@anthropic-ai/claude-agent-sdk-linux-arm64',
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl',
+  '@anthropic-ai/claude-agent-sdk-linux-x64',
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl',
+  '@anthropic-ai/claude-agent-sdk-win32-arm64',
+  '@anthropic-ai/claude-agent-sdk-win32-x64',
+])
 
 function policyError(message) {
   return `Dependency policy violation: ${message}`
@@ -80,7 +92,7 @@ export function validateDependencyPolicy({ packageJson, bunfig, lockfile }) {
   ) {
     errors.push(
       policyError(
-        'bunfig.toml must exempt only fast-uri from the release-age gate',
+        'bunfig.toml must exempt only the approved packages from the release-age gate',
       ),
     )
   }
