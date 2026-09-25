@@ -61,6 +61,7 @@ interface SqlProjectRow {
 }
 
 interface SqlWorkspaceRow {
+  archived: number
   branch_name: string
   created_at: string
   id: string
@@ -440,6 +441,13 @@ const MIGRATIONS = [
     sql: `
       ALTER TABLE workspaces ADD COLUMN sidebar_open INTEGER
       CHECK (sidebar_open IN (0, 1));
+    `,
+  },
+  {
+    version: 17,
+    sql: `
+      ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0
+      CHECK (archived IN (0, 1));
     `,
   },
 ]
@@ -1733,6 +1741,7 @@ export class AideDatabase {
       worktreePath: input.worktreePath,
       windowId: input.windowId,
       sidebarOpen: null,
+      archived: false,
       createdAt: now,
       updatedAt: now,
     }
@@ -1783,7 +1792,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, archived, created_at, updated_at
           FROM workspaces
           WHERE id = ?
         `,
@@ -1797,7 +1806,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, archived, created_at, updated_at
           FROM workspaces
           ORDER BY created_at ASC, id ASC
         `,
@@ -1811,7 +1820,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, archived, created_at, updated_at
           FROM workspaces
           WHERE project_id = ?
           ORDER BY created_at ASC
@@ -1829,7 +1838,7 @@ export class AideDatabase {
     const row = this.database
       .prepare(
         `
-          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, created_at, updated_at
+          SELECT id, project_id, name, name_source, branch_name, worktree_path, window_id, sidebar_open, archived, created_at, updated_at
           FROM workspaces
           WHERE project_id = ? AND worktree_path = ?
           LIMIT 1
@@ -1862,6 +1871,7 @@ export class AideDatabase {
           : existingWorkspace.windowId,
       worktreePath: input.worktreePath ?? existingWorkspace.worktreePath,
       sidebarOpen: input.sidebarOpen ?? existingWorkspace.sidebarOpen ?? null,
+      archived: input.archived ?? existingWorkspace.archived,
       updatedAt: new Date().toISOString(),
     }
 
@@ -1869,7 +1879,7 @@ export class AideDatabase {
       .prepare(
         `
           UPDATE workspaces
-          SET project_id = ?, name = ?, name_source = ?, branch_name = ?, worktree_path = ?, window_id = ?, sidebar_open = ?, updated_at = ?
+          SET project_id = ?, name = ?, name_source = ?, branch_name = ?, worktree_path = ?, window_id = ?, sidebar_open = ?, archived = ?, updated_at = ?
           WHERE id = ?
         `,
       )
@@ -1881,6 +1891,7 @@ export class AideDatabase {
         updatedWorkspace.worktreePath,
         updatedWorkspace.windowId,
         sidebarOpenColumn(updatedWorkspace.sidebarOpen),
+        Number(updatedWorkspace.archived ?? false),
         updatedWorkspace.updatedAt,
         workspaceId,
       )
@@ -1922,7 +1933,8 @@ export class AideDatabase {
 
   public getSnapshot(): PersistenceSnapshot {
     const activeSelection = this.getActiveSelection()
-    const workspaces = this.listWorkspaces()
+    const allWorkspaces = this.listWorkspaces()
+    const workspaces = allWorkspaces.filter((workspace) => !workspace.archived)
     const legacyWorkspaceLayouts = this.listWorkspaceLayouts().reduce<
       Record<string, WorkspaceLayoutRecord>
     >((layouts, layout) => {
@@ -2006,6 +2018,9 @@ export class AideDatabase {
       workspaceSurfaces,
       workspaceSurfaceRevisions,
       workspaces,
+      archivedWorkspaces: allWorkspaces.filter(
+        (workspace) => workspace.archived,
+      ),
     }
   }
 
@@ -2311,6 +2326,7 @@ export class AideDatabase {
       worktreePath: row.worktree_path,
       windowId: row.window_id,
       sidebarOpen: row.sidebar_open === null ? null : row.sidebar_open === 1,
+      archived: row.archived === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }

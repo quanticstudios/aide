@@ -1071,6 +1071,41 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.archiveWorkspace,
+    (event, workspaceId: unknown, archived: unknown) => {
+      requireTrustedRenderer(event)
+      const validWorkspaceId = requireRuntimeId(workspaceId, 'workspace id')
+      if (typeof archived !== 'boolean') {
+        throw new Error('Archived flag must be a boolean.')
+      }
+      if (!database.updateWorkspace(validWorkspaceId, { archived })) {
+        throw new Error('Workspace does not exist.')
+      }
+      return publishPersistenceSnapshot()
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.deleteWorkspace,
+    async (event, workspaceId: unknown, removeWorktree: unknown) => {
+      requireTrustedRenderer(event)
+      const validWorkspaceId = requireRuntimeId(workspaceId, 'workspace id')
+      if (typeof removeWorktree !== 'boolean') {
+        throw new Error('Remove-worktree flag must be a boolean.')
+      }
+      // Stop everything running in the workspace before its rows cascade away.
+      await workspaceSetupManager.cancelForWorkspace(validWorkspaceId)
+      await managedSessionManager.reapSessions(
+        (snapshot) => snapshot.workspaceId === validWorkspaceId,
+      )
+      terminalSessionManager.killWorkspaceSessions(validWorkspaceId)
+      await gitWorkspaceService.deleteWorkspace(
+        validWorkspaceId,
+        removeWorktree,
+      )
+      return publishPersistenceSnapshot()
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.detectWorktreeBranch,
     (_event, worktreePath: string) =>
       gitWorkspaceService.detectWorktreeBranch(worktreePath),

@@ -58,6 +58,8 @@ export interface WorkspaceRecord {
   windowId: string | null
   /** Whether this workspace shows the left sidebar; null until the workspace is toggled. */
   sidebarOpen?: boolean | null
+  /** Archived workspaces stay on disk and in storage but leave navigation. */
+  archived?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -128,7 +130,9 @@ export interface PersistenceSnapshot {
   workspaceLayouts: Record<string, WorkspaceLayoutRecord>
   workspaceSurfaceRevisions: Record<string, number>
   workspaceSurfaces?: Record<string, WorkspaceSurfaceRecord[]>
+  /** Navigable workspaces only; archived ones are in `archivedWorkspaces`. */
   workspaces: WorkspaceRecord[]
+  archivedWorkspaces?: WorkspaceRecord[]
 }
 
 export interface SetActiveSelectionInput {
@@ -169,6 +173,7 @@ export interface CreateWorkspaceInput {
 }
 
 export interface UpdateWorkspaceInput {
+  archived?: boolean
   branchName?: string
   name?: string
   nameSource?: WorkspaceNameSource
@@ -236,4 +241,16 @@ export function createEmptyPersistenceSnapshot(
     workspaceSurfaceRevisions: {},
     workspaces: [],
   }
+}
+
+/**
+ * True when the workspace is a linked worktree rather than the project's own
+ * checkout or a folder project. Stored paths are resolved on write, so a plain
+ * comparison holds.
+ */
+export function isLinkedWorktree(
+  project: Pick<ProjectRecord, 'kind' | 'repoRoot'>,
+  workspace: Pick<WorkspaceRecord, 'worktreePath'>,
+): boolean {
+  return project.kind === 'git' && workspace.worktreePath !== project.repoRoot
 }

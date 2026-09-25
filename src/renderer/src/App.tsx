@@ -2729,6 +2729,7 @@ function WorkspaceApp() {
   return (
     <AppShell
       activePaneId={resolvedNavigationState.activePaneId}
+      archivedWorkspaces={navigationSnapshot.archivedWorkspaces ?? []}
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}

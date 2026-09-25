@@ -102,6 +102,14 @@ export class TerminalSessionManager {
     return this.toSnapshot(sessionState)
   }
 
+  public killWorkspaceSessions(workspaceId: string): void {
+    for (const [sessionId, session] of this.sessions) {
+      if (session.workspaceId !== workspaceId) continue
+      session.pty?.kill()
+      this.sessions.delete(sessionId)
+    }
+  }
+
   public killAll(): void {
     for (const sessionId of this.sessions.keys()) {
       this.killSession(sessionId)

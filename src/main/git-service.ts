@@ -40,6 +40,7 @@ import type {
   UpdateWorkspaceInput,
   WorkspaceRecord,
 } from '../shared/persistence'
+import { isLinkedWorktree } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
 
 const execFileAsync = promisify(execFile)
@@ -75,6 +76,7 @@ export interface GitWorkspaceStore {
   ): WorkspaceRecord | null
   getProject(projectId: string): ProjectRecord | null
   getWorkspace(workspaceId: string): WorkspaceRecord | null
+  deleteWorkspace(workspaceId: string): boolean
   getSnapshot(): PersistenceSnapshot
   updateProject(
     projectId: string,
@@ -1437,6 +1439,41 @@ export class GitWorkspaceService {
       worktreePath,
     })
 
+    return this.store.getSnapshot()
+  }
+
+  /**
+   * `removeWorktree` runs `git worktree remove` without `--force`, so Git
+   * refuses when the worktree has modified or untracked files. The branch is
+   * kept either way.
+   */
+  public async deleteWorkspace(
+    workspaceId: string,
+    removeWorktree: boolean,
+  ): Promise<PersistenceSnapshot> {
+    const workspace = this.store.getWorkspace(workspaceId)
+    if (!workspace) {
+      throw new Error('Workspace does not exist.')
+    }
+
+    if (removeWorktree) {
+      const project = this.store.getProject(workspace.projectId)
+      if (!project || !isLinkedWorktree(project, workspace)) {
+        throw new Error('This workspace is not a separate Git worktree.')
+      }
+      if (existsSync(workspace.worktreePath)) {
+        try {
+          await this.runGit(
+            ['worktree', 'remove', workspace.worktreePath],
+            await this.resolveRepoRoot(project.repoRoot),
+          )
+        } catch (error) {
+          throw formatGitError(error, 'Worktree removal failed.')
+        }
+      }
+    }
+
+    this.store.deleteWorkspace(workspaceId)
     return this.store.getSnapshot()
   }
 

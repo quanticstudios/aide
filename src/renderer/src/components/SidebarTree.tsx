@@ -26,6 +26,7 @@ import {
   Plus,
   Settings,
   Terminal,
+  Trash2,
 } from 'lucide-react'
 import { iconNames } from 'lucide-react/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -62,6 +63,7 @@ import {
   shouldPulseWorkspaceActivity,
 } from '../../../shared/workspace-activity'
 import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
+import DeleteWorkspaceModal from './DeleteWorkspaceModal'
 import IconTooltip from './ui/icon-tooltip'
 import './SidebarTree.css'
 
@@ -102,6 +104,7 @@ function iconLabel(name: string): string {
 interface SidebarTreeProps {
   readonly activeProjectId: string | null
   readonly activeWorkspaceId: string | null
+  readonly archivedWorkspaces: readonly WorkspaceRecord[]
   readonly isExpanded: boolean
   readonly jevGates: JevGateSnapshot | null
   readonly onUpdateJevGates: (overrides: JevGateOverrides) => void
@@ -601,10 +604,12 @@ function ProjectOverflowMenu({
 
 function WorkspaceOverflowMenu({
   onCreateChat,
+  onDelete,
   onRename,
   workspace,
 }: {
   readonly onCreateChat: () => void
+  readonly onDelete: () => void
   readonly onRename: (name: string) => Promise<string | null>
   readonly workspace: WorkspaceRecord
 }) {
@@ -741,7 +746,108 @@ function WorkspaceOverflowMenu({
                 />
                 Rename workspace
               </Button>
+              <Button
+                className="h-8 w-full justify-start gap-2 rounded-md px-2 text-[13px] font-normal"
+                onPress={() => {
+                  closeMenu()
+                  void window.aide.archiveWorkspace(workspace.id, true)
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                <Archive
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
+                Archive
+              </Button>
+              <Button
+                className="h-8 w-full justify-start gap-2 rounded-md px-2 text-[13px] font-normal text-destructive"
+                onPress={() => {
+                  closeMenu()
+                  onDelete()
+                }}
+                size="sm"
+                variant="ghost"
+              >
+                <Trash2 aria-hidden="true" className="size-3.5 shrink-0" />
+                Delete…
+              </Button>
             </div>
+          )}
+        </Popover.Dialog>
+      </Popover.Content>
+    </Popover>
+  )
+}
+
+function ArchivedWorkspacesMenu({
+  archivedWorkspaces,
+  onDelete,
+  projects,
+}: {
+  readonly archivedWorkspaces: readonly WorkspaceRecord[]
+  readonly onDelete: (workspace: WorkspaceRecord) => void
+  readonly projects: readonly ProjectRecord[]
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <Popover isOpen={isOpen} onOpenChange={setIsOpen}>
+      <Popover.Trigger
+        aria-label="Archived workspaces"
+        className="flex size-7 cursor-pointer items-center justify-center rounded-md bg-transparent text-muted-foreground outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Archive className="size-3.5" />
+      </Popover.Trigger>
+      <Popover.Content
+        className="w-60 rounded-lg floating-surface p-0"
+        placement="top"
+      >
+        <Popover.Dialog className="max-h-80 overflow-y-auto p-1 outline-none">
+          {archivedWorkspaces.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">
+              No archived workspaces
+            </p>
+          ) : (
+            archivedWorkspaces.map((workspace) => (
+              <div
+                className="flex items-center gap-1 px-2 py-1 text-xs"
+                key={workspace.id}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-foreground">
+                    {workspace.name}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {projects.find(
+                      (project) => project.id === workspace.projectId,
+                    )?.name ?? ''}
+                  </span>
+                </span>
+                <Button
+                  onPress={() =>
+                    void window.aide.archiveWorkspace(workspace.id, false)
+                  }
+                  size="sm"
+                  variant="ghost"
+                >
+                  Restore
+                </Button>
+                <Button
+                  aria-label={`Delete ${workspace.name}`}
+                  isIconOnly
+                  onPress={() => {
+                    setIsOpen(false)
+                    onDelete(workspace)
+                  }}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            ))
           )}
         </Popover.Dialog>
       </Popover.Content>
@@ -752,6 +858,7 @@ function WorkspaceOverflowMenu({
 export default function SidebarTree({
   activeProjectId,
   activeWorkspaceId,
+  archivedWorkspaces,
   isExpanded,
   jevGates,
   onCreateChat,
@@ -777,6 +884,12 @@ export default function SidebarTree({
     Record<string, WorktreeBranchStats>
   >({})
   const [, setTimestampTick] = useState(0)
+  const [pendingDelete, setPendingDelete] = useState<WorkspaceRecord | null>(
+    null,
+  )
+  const pendingDeleteProject = pendingDelete
+    ? projects.find((project) => project.id === pendingDelete.projectId)
+    : undefined
   const pollTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -1264,6 +1377,7 @@ export default function SidebarTree({
                               onCreateChat={() =>
                                 onCreateChat(project.id, workspace.id)
                               }
+                              onDelete={() => setPendingDelete(workspace)}
                               onRename={(name) =>
                                 onRenameWorkspace(workspace.id, name)
                               }
@@ -1295,14 +1409,11 @@ export default function SidebarTree({
           <FolderKanban className="size-3.5" />
           Add project folder
         </Button>
-        <button
-          aria-label="Archive view (coming soon)"
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
-          disabled
-          type="button"
-        >
-          <Archive className="size-3.5" />
-        </button>
+        <ArchivedWorkspacesMenu
+          archivedWorkspaces={archivedWorkspaces}
+          onDelete={setPendingDelete}
+          projects={projects}
+        />
         <button
           aria-label="Comments (coming soon)"
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-50 hover:bg-surface-secondary hover:text-foreground"
@@ -1331,6 +1442,13 @@ export default function SidebarTree({
       data-testid="workspace-tree-panel"
     >
       {expandedTree}
+      {pendingDelete && pendingDeleteProject ? (
+        <DeleteWorkspaceModal
+          onClose={() => setPendingDelete(null)}
+          project={pendingDeleteProject}
+          workspace={pendingDelete}
+        />
+      ) : null}
     </div>
   )
 }

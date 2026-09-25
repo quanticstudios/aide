@@ -137,6 +137,14 @@ const aideApi: AideApi = {
       workspaceId,
       isOpen,
     ),
+  archiveWorkspace: (workspaceId, archived) =>
+    ipcRenderer.invoke(IPC_CHANNELS.archiveWorkspace, workspaceId, archived),
+  deleteWorkspace: (workspaceId, removeWorktree) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.deleteWorkspace,
+      workspaceId,
+      removeWorktree,
+    ),
   detectWorktreeBranch: (worktreePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
   closeManagedSession: (sessionId: string) =>

@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 16,
+      schemaVersion: 17,
       workspaceLayouts: {},
       workspaces: [],
     })
@@ -1009,6 +1009,35 @@ describe('createAideDatabase', () => {
     } finally {
       rmSync(directory, { force: true, recursive: true })
     }
+  })
+
+  it('moves archived workspaces out of navigation and back on restore', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/tmp/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/tmp/aide',
+    })
+
+    database.updateWorkspace(workspace.id, { archived: true })
+    expect(database.getSnapshot().workspaces).toEqual([])
+    expect(database.getSnapshot().archivedWorkspaces?.[0]?.id).toBe(
+      workspace.id,
+    )
+
+    database.updateWorkspace(workspace.id, { archived: false })
+    expect(database.getSnapshot().workspaces[0]?.archived).toBe(false)
+    expect(database.getSnapshot().archivedWorkspaces).toEqual([])
+
+    database.close()
   })
 
   it('returns null or false when workspace records are missing', () => {

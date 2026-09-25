@@ -38,6 +38,7 @@ const LazyTerminalPane = lazy(() => import('./TerminalPane'))
 interface AppShellProps {
   readonly activePaneId: string | null
   readonly activeSurfaceId: string | null
+  readonly archivedWorkspaces: readonly WorkspaceRecord[]
   readonly projects: readonly ProjectRecord[]
   readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
@@ -87,6 +88,7 @@ interface AppShellProps {
 export default function AppShell({
   activePaneId,
   activeSurfaceId,
+  archivedWorkspaces,
   projects,
   workspaces,
   activeProject,
@@ -221,6 +223,7 @@ export default function AppShell({
             activeWorkspace?.projectId ?? activeProject?.id ?? null
           }
           activeWorkspaceId={activeWorkspace?.id ?? null}
+          archivedWorkspaces={archivedWorkspaces}
           isExpanded={isSidebarExpanded}
           /* why: the sidebar rows edit the workspace layer, which needs a workspace. */
           jevGates={activeWorkspace ? jevGates : null}

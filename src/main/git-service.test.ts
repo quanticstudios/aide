@@ -330,6 +330,76 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('deletes a workspace and removes its clean worktree but keeps the branch', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+    const worktreePath = path.join(repoRoot, '.worktrees', 'to-delete')
+    const created = await service.createWorkspaceWithResult({
+      baseBranch: 'main',
+      branchName: 'feature/to-delete',
+      name: 'to-delete',
+      projectId: imported.projectId,
+      windowId: null,
+      worktreePath,
+    })
+
+    const snapshot = await service.deleteWorkspace(created.workspaceId, true)
+
+    expect(snapshot.workspaces.map((ws) => ws.id)).not.toContain(
+      created.workspaceId,
+    )
+    expect(existsSync(worktreePath)).toBe(false)
+    expect(
+      runGit(repoRoot, ['branch', '--list', 'feature/to-delete']),
+    ).toContain('feature/to-delete')
+
+    database.close()
+  })
+
+  it('refuses to remove a worktree with uncommitted files and keeps the record', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+    const worktreePath = path.join(repoRoot, '.worktrees', 'dirty')
+    const created = await service.createWorkspaceWithResult({
+      baseBranch: 'main',
+      branchName: 'feature/dirty',
+      name: 'dirty',
+      projectId: imported.projectId,
+      windowId: null,
+      worktreePath,
+    })
+    writeFileSync(path.join(worktreePath, 'scratch.txt'), 'unsaved')
+
+    await expect(
+      service.deleteWorkspace(created.workspaceId, true),
+    ).rejects.toThrow()
+    expect(existsSync(path.join(worktreePath, 'scratch.txt'))).toBe(true)
+    expect(database.getWorkspace(created.workspaceId)).not.toBeNull()
+
+    database.close()
+  })
+
+  it('never removes the project checkout, only its record', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.deleteWorkspace(imported.workspaceId, true),
+    ).rejects.toThrow('This workspace is not a separate Git worktree.')
+
+    await service.deleteWorkspace(imported.workspaceId, false)
+    expect(database.getWorkspace(imported.workspaceId)).toBeNull()
+    expect(existsSync(repoRoot)).toBe(true)
+
+    database.close()
+  })
+
   it('fails before running git when the target worktree path already exists', async () => {
     const repoRoot = createGitRepository()
     const database = createAideDatabase(':memory:')
@@ -381,6 +451,7 @@ describe('GitWorkspaceService', () => {
         return database.createWorkspace(input)
       },
       deleteProject: database.deleteProject.bind(database),
+      deleteWorkspace: database.deleteWorkspace.bind(database),
       findProjectByRepoRoot: database.findProjectByRepoRoot.bind(database),
       findWorkspaceByWorktreePath:
         database.findWorkspaceByWorktreePath.bind(database),

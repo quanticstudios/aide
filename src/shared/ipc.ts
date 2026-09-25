@@ -120,6 +120,8 @@ export const IPC_CHANNELS = {
   createWorkspace: 'storage:create-workspace',
   renameWorkspace: 'storage:rename-workspace',
   updateWorkspaceSidebar: 'storage:update-workspace-sidebar',
+  archiveWorkspace: 'storage:archive-workspace',
+  deleteWorkspace: 'storage:delete-workspace',
   detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
@@ -262,6 +264,14 @@ export interface AideApi {
   updateWorkspaceSidebar: (
     workspaceId: string,
     isOpen: boolean,
+  ) => Promise<PersistenceSnapshot>
+  archiveWorkspace: (
+    workspaceId: string,
+    archived: boolean,
+  ) => Promise<PersistenceSnapshot>
+  deleteWorkspace: (
+    workspaceId: string,
+    removeWorktree: boolean,
   ) => Promise<PersistenceSnapshot>
   detectWorktreeBranch: (
     worktreePath: string,
