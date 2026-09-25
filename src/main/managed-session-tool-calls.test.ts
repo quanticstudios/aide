@@ -166,6 +166,18 @@ describe('tool call content items', () => {
     await manager.closeAll()
   })
 
+  it('routes Bash tool input through the rtk PreToolUse hook', async () => {
+    query.mockImplementation(({ prompt }) => createClaudeToolQuery(prompt))
+    const manager = await startClaudeSession()
+    const options = query.mock.calls.at(-1)?.[0].options
+
+    expect(options.hooks.PreToolUse).toEqual([
+      { hooks: [expect.any(Function)], matcher: 'Bash' },
+    ])
+
+    await manager.closeAll()
+  })
+
   it('derives a unified diff for a Claude Edit call', async () => {
     query.mockImplementation(({ prompt }) => ({
       async *[Symbol.asyncIterator]() {

@@ -128,6 +128,10 @@ test.describe('agent tool timeline', () => {
     await expect(rows.nth(0)).toContainText('exit 0')
     await expect(page.getByTestId('tool-call-output')).toHaveCount(0)
 
+    const group = page.getByTestId('managed-tool-call-group')
+    await expect(group).toHaveCount(1)
+    await expect(group).toContainText('3 tool calls')
+    await group.locator('summary').click()
     await page.getByTestId('tool-call-Bash').click()
     await expect(page.getByTestId('tool-call-output')).toHaveText('hello')
     await expect(rows.nth(0)).toContainText('echo hello')

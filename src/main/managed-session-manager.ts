@@ -73,6 +73,7 @@ import {
   type ReadOnlyCodexRuntimePolicy,
   sanitizeProviderEnvironment,
 } from './managed-runtime-policy'
+import { createRtkHooks } from './rtk-hook'
 import {
   type CodexDynamicToolCallParams,
   createOrchestratorTools,
@@ -889,6 +890,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
           | 'medium'
           | undefined,
         env: sanitizeProviderEnvironment(process.env),
+        hooks: createRtkHooks(),
         includePartialMessages: true,
         ...(this.orchestratorTools
           ? {

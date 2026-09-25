@@ -2,15 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(git clone *)",
-      "mcp__heroui-pro__list_components",
       "Read(//tmp/t3code-ref/**)",
-      "mcp__heroui-pro__get_component_docs",
-      "mcp__heroui-pro__get_docs",
       "Bash(xargs -I {} basename {})",
       "Bash(rtk grep *)",
       "Bash(rtk ls *)",
       "Bash(rtk wc *)",
-      "Bash(rtk read *)"
+      "Bash(rtk read *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)"
     ]
   }
 }

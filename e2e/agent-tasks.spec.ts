@@ -142,6 +142,7 @@ test.describe('agent tasks', () => {
     await expect(subagentRow).toContainText('done')
     await expect(page.getByTestId('tool-call-output')).toHaveCount(0)
 
+    await page.getByTestId('managed-tool-call-group').locator('summary').click()
     await page.getByTestId('tool-call-Task').click()
     const output = page.getByTestId('tool-call-output')
     await expect(output).toContainText('Listing the repo root.')

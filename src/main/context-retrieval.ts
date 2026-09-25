@@ -118,10 +118,13 @@ function normalizePath(value: string): string | null {
 }
 
 function explicitReferences(task: string): Map<string, number | undefined> {
+  // why: A URL host such as github.com looks like a file name and must not become a required file.
   const values =
-    task.match(
-      /(?:(?:\.{1,2}|[A-Za-z0-9_.-]+)\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+(?::\d+)?/g,
-    ) ?? []
+    task
+      .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ')
+      .match(
+        /(?:(?:\.{1,2}|[A-Za-z0-9_.-]+)\/)*[A-Za-z0-9_.-]+\.[A-Za-z0-9_-]+(?::\d+)?/g,
+      ) ?? []
   const references = new Map<string, number | undefined>()
 
   for (const value of values) {

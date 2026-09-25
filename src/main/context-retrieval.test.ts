@@ -51,6 +51,11 @@ describe('retrieveContext', () => {
     await expect(
       retrieveContext({ task: 'Inspect missing.ts', workspaceRoot: root }),
     ).rejects.toThrow('Required context file "missing.ts" is unavailable.')
+    const url = await retrieveContext({
+      task: 'https://github.com/Graphify-Labs/graphify run graphify here so that we can speed up our process',
+      workspaceRoot: root,
+    })
+    expect(url.mandatory.map((excerpt) => excerpt.path)).toEqual(['README.md'])
   })
 
   it('keeps safe instructions and explicit evidence while excluding unsafe Git paths', async () => {
