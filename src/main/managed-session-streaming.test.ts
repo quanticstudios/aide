@@ -179,6 +179,13 @@ describe('ManagedSessionManager Claude streaming', () => {
         .session?.content.filter((item) => item.kind === 'user-prompt')
         .map((item) => item.text),
     ).toEqual(['first', 'second'])
+    const [firstTurn, secondTurn] = manager.getSnapshots().session?.turns ?? []
+    expect(
+      manager
+        .getSnapshots()
+        .session?.content.find((item) => item.text === 'second')?.turnId,
+    ).toBe(secondTurn?.id)
+    expect(secondTurn?.id).not.toBe(firstTurn?.id)
 
     await manager.closeAll()
   })

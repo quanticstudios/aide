@@ -199,6 +199,7 @@ interface ManagedSessionMutableState {
   pendingUserPromptItemId: string | null
   pendingCheckpointId: string | null
   inputDispatch: Promise<void> | null
+  steeredPromptKeys: string[]
   persistenceTimer: ReturnType<typeof setTimeout> | null
   streamSnapshotTimer: ReturnType<typeof setTimeout> | null
   pendingStreamUpdatedAt: string | null
@@ -240,6 +241,9 @@ interface ManagedSessionBackend {
   ): Promise<void>
   start(): Promise<void>
 }
+
+/** A provider turned a message down before taking it, so resending it cannot duplicate it. */
+export class ProviderRefusalError extends Error {}
 
 class AsyncQueue<T> implements AsyncIterable<T> {
   private done = false
@@ -954,7 +958,8 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   ): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
-    if (!this.activeTurnId) throw new Error('Claude has no active turn.')
+    if (!this.activeTurnId)
+      throw new ProviderRefusalError('Claude has no active turn.')
     this.enqueuePrompt(trimmed, images, skill)
   }
 
@@ -1418,6 +1423,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         this.emitRuntimeEvent({
           createdAt: this.getNow(),
           provider: 'claude',
+          queuedSendCount: message.queued_turn_count,
           turnId: this.activeTurnId,
           type: 'turn.started',
         })
@@ -1634,10 +1640,12 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     skill?: ResolvedProviderSkill,
   ): Promise<void> {
     if (skill) {
-      throw new Error('Provider skills cannot steer an active Codex turn.')
+      throw new ProviderRefusalError(
+        'Provider skills cannot steer an active Codex turn.',
+      )
     }
     if (!this.providerThreadId || !this.activeTurnId) {
-      throw new Error('Codex has no active turn to steer.')
+      throw new ProviderRefusalError('Codex has no active turn to steer.')
     }
     await this.sendRequest('turn/steer', {
       expectedTurnId: this.activeTurnId,
@@ -2123,7 +2131,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     this.pendingRequests.delete(String(response.id))
 
     if (response.error?.message) {
-      pending.reject(new Error(response.error.message))
+      pending.reject(new ProviderRefusalError(response.error.message))
       return
     }
 
@@ -2811,7 +2819,8 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async steerInput(text: string): Promise<void> {
-    if (!this.activeTurnId) throw new Error('No active turn to steer.')
+    if (!this.activeTurnId)
+      throw new ProviderRefusalError('No active turn to steer.')
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       provider: this.provider,
@@ -3071,6 +3080,7 @@ export class ManagedSessionManager {
       pendingUserPromptText: null,
       pendingUserPromptItemId: null,
       inputDispatch: null,
+      steeredPromptKeys: [],
       persistenceTimer: null,
       streamSnapshotTimer: null,
       pendingStreamUpdatedAt: null,
@@ -3305,12 +3315,32 @@ export class ManagedSessionManager {
     input: ManagedSessionInput,
   ): Promise<void> {
     // why: a send right behind another waits out its preparation, then steers the turn it started.
-    while (state.inputDispatch) {
-      await state.inputDispatch.catch(() => undefined)
-    }
-    await state.checkpointCompletion
-    if (state.activeTurnId && input.recipients.length === 0) {
-      await this.steerInput(state, input)
+    do {
+      while (state.inputDispatch) {
+        await state.inputDispatch.catch(() => undefined)
+      }
+      await state.checkpointCompletion
+      // invariant: another send may have claimed the slot while this one awaited the checkpoint.
+    } while (state.inputDispatch)
+    if (
+      state.activeTurnId &&
+      input.recipients.length === 0 &&
+      // why: sendInput checked the skill against the pending provider, not the one running this turn.
+      !(input.skill && state.pendingProviderSelection)
+    ) {
+      const steer = this.steerInput(state, input)
+      const dispatch = steer.then(
+        () => undefined,
+        () => undefined,
+      )
+      state.inputDispatch = dispatch
+      let steered: boolean
+      try {
+        steered = await steer
+      } finally {
+        if (state.inputDispatch === dispatch) state.inputDispatch = null
+      }
+      if (!steered) await this.routeInput(state, input)
       return
     }
     if (this.isInputBusy(state)) {
@@ -3332,15 +3362,16 @@ export class ManagedSessionManager {
     }
   }
 
+  /** Resolves false when the turn ended during preparation, so the caller should send a fresh turn. */
   private async steerInput(
     state: ManagedSessionMutableState,
     input: ManagedSessionInput,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!state.backend.steerInput) {
       throw new Error('This provider cannot take messages during a turn.')
     }
     const preparationAbortController = new AbortController()
-    state.preparationAbortController ??= preparationAbortController
+    state.preparationAbortController = preparationAbortController
     let prepared: ManagedSessionPreparationResult
     try {
       prepared = await this.prepareProviderInput(
@@ -3356,10 +3387,7 @@ export class ManagedSessionManager {
     if (preparationAbortController.signal.aborted) {
       throw new Error('Managed session preparation was interrupted.')
     }
-    if (!state.activeTurnId) {
-      await this.routeInput(state, input)
-      return
-    }
+    if (!state.activeTurnId) return false
     const promptItemId = `user-prompt:${randomUUID()}`
     const promptKey = createContentKey('user-prompt', promptItemId)
     state.contentByKey.set(promptKey, {
@@ -3372,6 +3400,7 @@ export class ManagedSessionManager {
       updatedAt: this.getNow(),
     })
     state.orderedContentKeys.push(promptKey)
+    state.steeredPromptKeys.push(promptKey)
     this.publishSnapshot(state, this.getNow())
     this.persistSession(state)
     try {
@@ -3381,6 +3410,14 @@ export class ManagedSessionManager {
         input.skill,
       )
     } catch (error) {
+      if (!(error instanceof ProviderRefusalError)) {
+        // why: a timeout or exit may land after the provider took the message, so a resend could duplicate it.
+        this.recordAmbiguousDispatch(state, input.text)
+        return true
+      }
+      state.steeredPromptKeys = state.steeredPromptKeys.filter(
+        (key) => key !== promptKey,
+      )
       state.contentByKey.delete(promptKey)
       state.orderedContentKeys = state.orderedContentKeys.filter(
         (key) => key !== promptKey,
@@ -3390,6 +3427,7 @@ export class ManagedSessionManager {
       throw error
     }
     await this.applyPendingProviderSelection(state)
+    return true
   }
 
   private resolveRecipientAgents(
@@ -4999,6 +5037,14 @@ export class ManagedSessionManager {
 
     if (event.type === 'turn.started') {
       state.activeTurnId = event.turnId
+      // invariant: the CLI runs queued sends in order, so the last N steered prompts are the ones still waiting.
+      state.steeredPromptKeys = event.queuedSendCount
+        ? state.steeredPromptKeys.slice(-event.queuedSendCount)
+        : []
+      for (const key of state.steeredPromptKeys) {
+        const prompt = state.contentByKey.get(key)
+        if (prompt) prompt.turnId = event.turnId
+      }
       if (state.snapshot.fleet && state.pendingUserPromptItemId) {
         state.snapshot.fleet.events = state.snapshot.fleet.events.map(
           (activity) =>

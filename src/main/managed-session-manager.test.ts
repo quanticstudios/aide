@@ -16,6 +16,7 @@ import {
   buildToolApprovalRequest,
   ManagedSessionManager,
   type ManagedSessionPersistenceStore,
+  ProviderRefusalError,
   resolveAutoApprovalLabel,
   resolveEffectivePermissionMode,
 } from './managed-session-manager'
@@ -2096,6 +2097,110 @@ createInterface({ input: process.stdin }).on('line', line => {
       'start',
       'follow up',
     ])
+  })
+
+  function createSteeringManager(
+    steerInput: (text: string) => Promise<void>,
+    prepareInput?: (text: string) => Promise<void>,
+  ) {
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId: 'active',
+            type: 'turn.started',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+        steerInput,
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        await prepareInput?.(text)
+        return { text }
+      },
+    })
+    return manager
+  }
+
+  it('keeps a steered prompt and flags it when the provider may have taken it', async () => {
+    const manager = createSteeringManager(async () => {
+      throw new Error('Timed out waiting for turn/steer')
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+
+    await manager.sendInput(config.sessionId, 'follow up')
+
+    const content = manager.getSnapshots()[config.sessionId]?.content ?? []
+    expect(content).toContainEqual(
+      expect.objectContaining({ kind: 'user-prompt', text: 'follow up' }),
+    )
+    expect(content.at(-1)).toMatchObject({
+      kind: 'system',
+      text: expect.stringContaining('could not confirm'),
+    })
+  })
+
+  it('drops a steered prompt and rejects the send when the provider refuses it', async () => {
+    const manager = createSteeringManager(async () => {
+      throw new ProviderRefusalError('turn already finished')
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+
+    await expect(
+      manager.sendInput(config.sessionId, 'follow up'),
+    ).rejects.toThrow('turn already finished')
+
+    expect(
+      manager
+        .getSnapshots()
+        [config.sessionId]?.content.filter(
+          (item) => item.kind === 'user-prompt',
+        )
+        .map((item) => item.text),
+    ).toEqual(['start'])
+  })
+
+  it('steers follow-ups in send order when the first prepares slower', async () => {
+    const releaseFirst = createDeferred()
+    const steered: string[] = []
+    const manager = createSteeringManager(
+      async (text) => {
+        steered.push(text)
+      },
+      async (text) => {
+        if (text === 'first') await releaseFirst.promise
+      },
+    )
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+
+    const first = manager.sendInput(config.sessionId, 'first')
+    const second = manager.sendInput(config.sessionId, 'second')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    releaseFirst.resolve()
+    await Promise.all([first, second])
+
+    expect(steered).toEqual(['first', 'second'])
   })
 
   it('registers a restored session without starting a backend', async () => {

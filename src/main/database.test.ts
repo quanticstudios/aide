@@ -339,6 +339,29 @@ describe('createAideDatabase', () => {
         completedAt: '2026-04-11T11:00:00.000Z',
         state: 'interrupted',
       })
+      const legacy = {
+        ...persisted,
+        snapshot: {
+          ...persisted.snapshot,
+          queuePaused: true,
+          queuedInputs: [
+            {
+              attachments: [],
+              createdAt: '2026-04-11T10:00:01.000Z',
+              id: 'queued-1',
+              recipients: [],
+              text: 'run the tests next',
+            },
+          ],
+        },
+      }
+      const migrated = reopened.saveManagedSession(legacy)?.snapshot
+      expect(migrated).not.toHaveProperty('queuedInputs')
+      expect(migrated?.content.at(-1)).toMatchObject({
+        id: 'unsent-follow-up:queued-1',
+        kind: 'system',
+        text: expect.stringContaining('run the tests next'),
+      })
       reopened.close()
     } finally {
       rmSync(tempDirectory, { force: true, recursive: true })

@@ -669,6 +669,16 @@ const persistedManagedSessionSchema = z
         })
         .nullable(),
       provider: persistedProvider,
+      // why: builds before steering saved unsent follow-ups here; load turns them into visible notes.
+      queuedInputs: z
+        .array(
+          z.object({
+            createdAt: persistedTimestamp,
+            id: persistedIdentifier,
+            text: z.string().min(1).max(65_536),
+          }),
+        )
+        .optional(),
       revision: z.number().finite().int().nonnegative(),
       running: z.boolean(),
       runtimeGeneration: z.number().finite().int().positive(),
@@ -2475,10 +2485,22 @@ export class AideDatabase {
       throw new Error('Invalid managed session.')
     }
 
+    const { queuedInputs = [], ...snapshot } = parsed.data.snapshot
     return {
       ...parsed.data,
       snapshot: {
-        ...parsed.data.snapshot,
+        ...snapshot,
+        content: [
+          ...snapshot.content,
+          ...queuedInputs.map((input) => ({
+            id: `unsent-follow-up:${input.id}`,
+            kind: 'system' as const,
+            provider: null,
+            text: `Aide did not send this queued follow-up before the update:\n\n${input.text}`,
+            turnId: null,
+            updatedAt: input.createdAt,
+          })),
+        ],
         ...(parsed.data.config.agents
           ? { agents: parsed.data.config.agents }
           : {}),
