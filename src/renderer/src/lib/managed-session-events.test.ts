@@ -152,6 +152,47 @@ describe('subscribeManagedSession', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1)
   })
 
+  it('ignores a repeated unsubscribe instead of dropping a newer listener', () => {
+    const { emit, source } = createSource()
+    const received: ManagedSessionUpdate[] = []
+    const stopStale = subscribeManagedSession(source, 'one', () => undefined)
+    stopStale()
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+    const keepHubOpen = subscribeManagedSession(source, 'two', () => undefined)
+
+    stopStale()
+    emit({ revision: 1, sessionId: 'one', type: 'removed' })
+
+    expect(received).toEqual([{ type: 'removed' }])
+    stop()
+    keepHubOpen()
+  })
+
+  it('forgets a session once its last listener leaves', () => {
+    const { emit, source } = createSource()
+    const keepHubOpen = subscribeManagedSession(source, 'two', () => undefined)
+    const first = subscribeManagedSession(source, 'one', () => undefined)
+    emit({
+      revision: 1,
+      snapshot: snapshot('one', 1, [item('a', 'x')]),
+      type: 'snapshot',
+    })
+    first()
+
+    const received: ManagedSessionSnapshot[] = []
+    const second = subscribeManagedSession(source, 'one', (update) => {
+      if (update.type === 'snapshot') received.push(update.snapshot)
+    })
+    const next = snapshot('one', 2, [item('a', 'x')])
+    emit({ revision: 2, snapshot: next, type: 'snapshot' })
+
+    expect(received[0]?.content[0]).toBe(next.content[0])
+    second()
+    keepHubOpen()
+  })
+
   it('hands listeners snapshots that share unchanged items with the last one', () => {
     const { emit, source } = createSource()
     const received: ManagedSessionSnapshot[] = []

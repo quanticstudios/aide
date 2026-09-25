@@ -65,12 +65,14 @@ function dispatch(hub: Hub, event: ManagedSessionEvent): void {
   }
 
   const { sessionId } = event.snapshot
+  const listeners = hub.listeners.get(sessionId)
+  if (!listeners) return
   const snapshot = shareSnapshotContent(
     hub.lastSnapshots.get(sessionId),
     event.snapshot,
   )
   hub.lastSnapshots.set(sessionId, snapshot)
-  for (const listener of hub.listeners.get(sessionId) ?? []) {
+  for (const listener of listeners) {
     listener({ snapshot, type: 'snapshot' })
   }
 }
@@ -96,8 +98,11 @@ export function subscribeManagedSession(
   )
 
   return () => {
-    listeners.delete(listener)
-    if (listeners.size === 0) hub.listeners.delete(sessionId)
+    if (!listeners.delete(listener)) return
+    if (listeners.size === 0 && hub.listeners.get(sessionId) === listeners) {
+      hub.listeners.delete(sessionId)
+      hub.lastSnapshots.delete(sessionId)
+    }
     if (hub.listeners.size === 0) {
       hub.unsubscribe?.()
       hub.unsubscribe = null

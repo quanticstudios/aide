@@ -1,3 +1,8 @@
+function isPlainObject(value: object): boolean {
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
 /** Compares two JSON-like values structurally; functions and other objects compare by identity. */
 export function isEqualValue(left: unknown, right: unknown): boolean {
   if (left === right) return true
@@ -17,6 +22,7 @@ export function isEqualValue(left: unknown, right: unknown): boolean {
     )
   }
   if (Array.isArray(right)) return false
+  if (!isPlainObject(left) || !isPlainObject(right)) return false
   const leftRecord = left as Record<string, unknown>
   const rightRecord = right as Record<string, unknown>
   const keys = Object.keys(leftRecord)

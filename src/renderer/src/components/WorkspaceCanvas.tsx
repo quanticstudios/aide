@@ -458,7 +458,34 @@ interface WorkspaceSlideProps {
   readonly workspaceProject: ProjectRecord | null
 }
 
-// why: navigation snapshots arrive as fresh objects, so slides compare by value to skip unchanged workspaces.
+// why: navigation snapshots arrive as fresh objects, and the layout records cover every workspace, so a slide compares only its own slice by value.
+function areWorkspaceSlidePropsEqual(
+  previous: WorkspaceSlideProps,
+  next: WorkspaceSlideProps,
+): boolean {
+  const { surfaceSnapshot: previousSnapshot, ...previousRest } = previous
+  const { surfaceSnapshot: nextSnapshot, ...nextRest } = next
+  if (!isEqualValue(previousRest, nextRest)) return false
+  const workspaceId = next.workspace.id
+  const previousSurfaces = previousSnapshot.workspaceSurfaces ?? {}
+  const nextSurfaces = nextSnapshot.workspaceSurfaces ?? {}
+  return (
+    Object.hasOwn(previousSurfaces, workspaceId) ===
+      Object.hasOwn(nextSurfaces, workspaceId) &&
+    isEqualValue(previousSurfaces[workspaceId], nextSurfaces[workspaceId]) &&
+    isEqualValue(
+      previousSnapshot.workspaceLayouts[workspaceId],
+      nextSnapshot.workspaceLayouts[workspaceId],
+    ) &&
+    resolveWorkspaceSurfaces(nextSnapshot, workspaceId).every((surface) =>
+      isEqualValue(
+        previousSnapshot.surfaceLayouts?.[surface.id],
+        nextSnapshot.surfaceLayouts?.[surface.id],
+      ),
+    )
+  )
+}
+
 const WorkspaceSlide = memo(function WorkspaceSlide({
   activePaneId,
   activeSurfaceId,
@@ -609,7 +636,7 @@ const WorkspaceSlide = memo(function WorkspaceSlide({
       </section>
     </WorkspaceVisibilityContext>
   )
-}, isEqualValue)
+}, areWorkspaceSlidePropsEqual)
 
 export default function WorkspaceCanvas({
   activePaneId,

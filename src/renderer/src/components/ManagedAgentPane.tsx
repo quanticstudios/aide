@@ -1596,7 +1596,7 @@ export default function ManagedAgentPane({
   const isWorkspaceVisibleRef = useRef(isWorkspaceVisible)
   const deferredUpdatesRef = useRef<ManagedSessionUpdate[]>([])
   const flushDeferredUpdatesRef = useRef<() => void>(() => undefined)
-  // why: off-screen workspaces keep only the latest snapshot and render it once they slide into view.
+  // why: off-screen workspaces hold their updates, collapsing back-to-back snapshots, and render them once they slide into view.
   useLayoutEffect(() => {
     isWorkspaceVisibleRef.current = isWorkspaceVisible
     if (isWorkspaceVisible) flushDeferredUpdatesRef.current()
