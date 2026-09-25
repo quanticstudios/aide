@@ -3340,7 +3340,12 @@ export class ManagedSessionManager {
       } finally {
         if (state.inputDispatch === dispatch) state.inputDispatch = null
       }
-      if (!steered) await this.routeInput(state, input)
+      if (!steered) {
+        await this.routeInput(state, input)
+        return
+      }
+      // why: a switch attempted while the steer held the slot was skipped, and nothing else retries it.
+      await this.applyPendingProviderSelection(state)
       return
     }
     if (this.isInputBusy(state)) {
@@ -3426,7 +3431,6 @@ export class ManagedSessionManager {
       this.persistSession(state)
       throw error
     }
-    await this.applyPendingProviderSelection(state)
     return true
   }
 

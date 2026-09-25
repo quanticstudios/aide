@@ -2137,6 +2137,60 @@ createInterface({ input: process.stdin }).on('line', line => {
     return manager
   }
 
+  it('applies a pending provider switch when the steer itself ends the turn', async () => {
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            turnId: 'active',
+            type: 'turn.started',
+          })
+        },
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+        steerInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:01.000Z',
+            provider: config.mode,
+            state: 'completed',
+            turnId: 'active',
+            type: 'turn.completed',
+          })
+        },
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'start')
+    await manager.switchSessionProvider(config.sessionId, {
+      mode: 'claude',
+      model: 'next',
+    })
+
+    await manager.sendInput(config.sessionId, 'follow up')
+
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+        model: 'next',
+        provider: 'claude',
+      }),
+    )
+  })
+
   it('keeps a steered prompt and flags it when the provider may have taken it', async () => {
     const manager = createSteeringManager(async () => {
       throw new Error('Timed out waiting for turn/steer')
