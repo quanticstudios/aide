@@ -2,6 +2,11 @@ import { type RefObject, useId, useLayoutEffect, useRef, useState } from 'react'
 
 const tickSpacing = 12
 
+// why: turns skip layout off screen, and reading a rect inside one forces it; the turn box itself stays measurable.
+function anchorOf(message: HTMLElement): HTMLElement {
+  return message.closest<HTMLElement>('.chat-turn') ?? message
+}
+
 export function ConversationMinimap({
   scrollRef,
   contentLength,
@@ -61,7 +66,9 @@ export function ConversationMinimap({
       const top = scroll.getBoundingClientRect().top
       offsets = messages.map(
         (message) =>
-          message.getBoundingClientRect().top - top + scroll.scrollTop,
+          anchorOf(message).getBoundingClientRect().top -
+          top +
+          scroll.scrollTop,
       )
       update()
     }
@@ -100,7 +107,7 @@ export function ConversationMinimap({
     ).matches
     scroll.scrollTo({
       top:
-        message.getBoundingClientRect().top -
+        anchorOf(message).getBoundingClientRect().top -
         scroll.getBoundingClientRect().top +
         scroll.scrollTop -
         16,
