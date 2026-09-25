@@ -767,6 +767,11 @@ button:active:not(:disabled),
   color: var(--foreground);
 }
 
+/* Off-screen workspaces skip style, layout and paint until the slider brings them into view. */
+.workspace-slide {
+  content-visibility: auto;
+}
+
 /* ── Chat thread ─────────────────────────────── */
 
 /* One authored moment: a turn settles into place when it mounts. */

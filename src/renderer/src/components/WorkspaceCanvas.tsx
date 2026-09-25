@@ -1,6 +1,6 @@
 import { Button } from '@heroui/react'
 import { FolderOpen, Plus, X } from 'lucide-react'
-import { useMemo } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef } from 'react'
 import { getPaneSlideWidth, getPaneTrackStyle } from '@/lib/pane-camera'
 import {
   createFallbackPaneMetadata,
@@ -36,6 +36,7 @@ import type {
 } from '../../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import { isEqualValue } from '../lib/deep-equal'
 import type {
   PreviewBrowserControl,
   PreviewPresentation,
@@ -404,6 +405,204 @@ function renderLayoutNode(args: {
   )
 }
 
+const SLIDE_HANDLER_KEYS = [
+  'onAddView',
+  'onClosePane',
+  'onOpenJevSettings',
+  'onPreviewBrowserControl',
+  'onPreviewCloseTab',
+  'onPreviewNavigate',
+  'onPreviewOpenTab',
+  'onPreviewPresentationChange',
+  'onPreviewSelectTab',
+  'onRemoveView',
+  'onSelectPane',
+  'onSwitchView',
+] as const
+
+type SlideHandlers = Pick<
+  WorkspaceCanvasProps,
+  (typeof SLIDE_HANDLER_KEYS)[number]
+>
+
+function useStableSlideHandlers(current: SlideHandlers): SlideHandlers {
+  const currentRef = useRef(current)
+  useLayoutEffect(() => {
+    currentRef.current = current
+  })
+  return useMemo(
+    () =>
+      Object.fromEntries(
+        SLIDE_HANDLER_KEYS.map((key) => [
+          key,
+          (...args: unknown[]) =>
+            (currentRef.current[key] as (...values: unknown[]) => void)(
+              ...args,
+            ),
+        ]),
+      ) as unknown as SlideHandlers,
+    [],
+  )
+}
+
+interface WorkspaceSlideProps {
+  readonly activePaneId: string | null
+  readonly activeSurfaceId: string | null
+  readonly handlers: SlideHandlers
+  readonly isActiveWorkspace: boolean
+  readonly previewSnapshot: WorkspacePreviewSnapshot | null
+  readonly slideHeight: string
+  readonly surfaceSnapshot: PersistenceSnapshot
+  readonly workspace: WorkspaceRecord
+  readonly workspaceProject: ProjectRecord | null
+}
+
+// why: navigation snapshots arrive as fresh objects, so slides compare by value to skip unchanged workspaces.
+const WorkspaceSlide = memo(function WorkspaceSlide({
+  activePaneId,
+  activeSurfaceId,
+  handlers,
+  isActiveWorkspace,
+  previewSnapshot,
+  slideHeight,
+  surfaceSnapshot,
+  workspace,
+  workspaceProject,
+}: WorkspaceSlideProps) {
+  const {
+    onAddView,
+    onClosePane,
+    onOpenJevSettings,
+    onPreviewBrowserControl,
+    onPreviewCloseTab,
+    onPreviewNavigate,
+    onPreviewOpenTab,
+    onPreviewPresentationChange,
+    onPreviewSelectTab,
+    onRemoveView,
+    onSelectPane,
+    onSwitchView,
+  } = handlers
+  const surfaces = resolveWorkspaceSurfaces(surfaceSnapshot, workspace.id)
+  const visibleSurfaceId = isActiveWorkspace
+    ? activeSurfaceId
+    : (surfaces[0]?.id ?? null)
+
+  return (
+    <section
+      className="workspace-slide flex min-h-0 min-w-0 w-full shrink-0 flex-col overflow-hidden"
+      data-active-workspace={isActiveWorkspace ? 'true' : 'false'}
+      key={workspace.id}
+      style={{ height: slideHeight }}
+    >
+      <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
+        {workspaceProject && surfaces.length > 0 ? (
+          (() => {
+            const surfaceCount = surfaces.length
+            const activeSurfaceIndex = Math.max(
+              surfaces.findIndex((surface) => surface.id === visibleSurfaceId),
+              0,
+            )
+            const surfaceTrackStyle = getPaneTrackStyle(
+              surfaceCount,
+              activeSurfaceIndex,
+            )
+            const surfaceSlideWidth = getPaneSlideWidth(surfaceCount)
+
+            return (
+              <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
+                <div
+                  className="surface-slider flex h-full shrink-0 transition-transform duration-200 ease-[var(--ease-out-strong)]"
+                  style={surfaceTrackStyle}
+                >
+                  {surfaces.map((surface, surfaceIndex) => {
+                    const isActiveSurface = surfaceIndex === activeSurfaceIndex
+                    const isInteractiveSurface =
+                      isActiveWorkspace && isActiveSurface
+                    const layout = resolveSurfaceLayout(
+                      surfaceSnapshot,
+                      workspace.id,
+                      surface.id,
+                    )
+                    const rootNode = resolveWorkspaceLayoutRoot(layout)
+                    const paneCount =
+                      collectWorkspaceLayoutPaneIds(layout).length
+                    const nodeLookup = new Map(
+                      layout?.nodes.map((node) => [node.id, node]),
+                    )
+
+                    return (
+                      <div
+                        className="flex min-h-0 min-w-0 h-full shrink-0 overflow-hidden"
+                        data-active-surface={isActiveSurface ? 'true' : 'false'}
+                        key={surface.id}
+                        style={{ width: surfaceSlideWidth }}
+                      >
+                        {rootNode && paneCount > 0 ? (
+                          renderLayoutNode({
+                            activePaneId: isInteractiveSurface
+                              ? activePaneId
+                              : null,
+                            activeProject: workspaceProject,
+                            isInteractive: isInteractiveSurface,
+                            isSolePane: rootNode.type === 'pane',
+                            node: rootNode,
+                            nodeLookup,
+                            onAddView,
+                            onClosePane,
+                            onOpenJevSettings,
+                            onRemoveView,
+                            onPreviewBrowserControl,
+                            onPreviewCloseTab,
+                            onPreviewNavigate,
+                            onPreviewOpenTab,
+                            onPreviewPresentationChange,
+                            onPreviewSelectTab,
+                            onSelectPane,
+                            onSwitchView,
+                            previewSnapshot: isInteractiveSurface
+                              ? previewSnapshot
+                              : null,
+                            workspace,
+                          })
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
+                            Surface layout is missing a valid root node.
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()
+        ) : workspaceProject ? (
+          <div className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface p-8 text-center">
+            <div className="max-w-md space-y-3">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                Empty workspace
+              </p>
+              <h2 className="text-2xl font-semibold tracking-[-0.374px] text-foreground">
+                {workspace.name} starts blank
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Add a pane to create the first full-size destination in this
+                workspace. Split actions only apply inside an existing
+                destination.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
+            Workspace layout is missing a valid root node.
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}, isEqualValue)
+
 export default function WorkspaceCanvas({
   activePaneId,
   activeProject,
@@ -432,6 +631,20 @@ export default function WorkspaceCanvas({
   workspaceLayouts,
   workspaceSurfaces,
 }: WorkspaceCanvasProps) {
+  const handlers = useStableSlideHandlers({
+    onAddView,
+    onClosePane,
+    onOpenJevSettings,
+    onPreviewBrowserControl,
+    onPreviewCloseTab,
+    onPreviewNavigate,
+    onPreviewOpenTab,
+    onPreviewPresentationChange,
+    onPreviewSelectTab,
+    onRemoveView,
+    onSelectPane,
+    onSwitchView,
+  })
   const workspaceCount = Math.max(allWorkspaces.length, 1)
   const activeWorkspaceIndex = Math.max(
     allWorkspaces.findIndex(
@@ -444,25 +657,28 @@ export default function WorkspaceCanvas({
     activeWorkspaceIndex,
   )
   const workspaceSlideHeight = getWorkspaceSlideHeight(workspaceCount)
-  const surfaceSnapshot: PersistenceSnapshot = {
-    catalogRevision: 0,
-    databasePath: '',
-    lastActivePaneIdsBySurface: {},
-    lastActivePaneIdsByWorkspace: {},
-    lastActiveProjectId: null,
-    lastActiveSurfaceIdsByWorkspace: {},
-    lastActiveWorkspaceIdsByProject: {},
-    lastActiveWorkspaceId: null,
-    migrationStrategy: '',
-    projects: [],
-    schemaVersion: 0,
-    surfaceLayouts,
-    workspaceLayoutRevisions: {},
-    workspaceLayouts,
-    workspaceSurfaces,
-    workspaceSurfaceRevisions: {},
-    workspaces: [],
-  }
+  const surfaceSnapshot = useMemo<PersistenceSnapshot>(
+    () => ({
+      catalogRevision: 0,
+      databasePath: '',
+      lastActivePaneIdsBySurface: {},
+      lastActivePaneIdsByWorkspace: {},
+      lastActiveProjectId: null,
+      lastActiveSurfaceIdsByWorkspace: {},
+      lastActiveWorkspaceIdsByProject: {},
+      lastActiveWorkspaceId: null,
+      migrationStrategy: '',
+      projects: [],
+      schemaVersion: 0,
+      surfaceLayouts,
+      workspaceLayoutRevisions: {},
+      workspaceLayouts,
+      workspaceSurfaces,
+      workspaceSurfaceRevisions: {},
+      workspaces: [],
+    }),
+    [surfaceLayouts, workspaceLayouts, workspaceSurfaces],
+  )
   const activePaneLabel =
     (activeWorkspace && activeSurfaceId
       ? resolveWorkspaceSurfaces(surfaceSnapshot, activeWorkspace.id).find(
@@ -557,137 +773,25 @@ export default function WorkspaceCanvas({
         >
           {allWorkspaces.map((workspace) => {
             const isActiveWorkspace = workspace.id === activeWorkspace.id
-            const workspaceProject =
-              workspace.projectId === activeProject?.id
-                ? activeProject
-                : (projects.find((p) => p.id === workspace.projectId) ?? null)
-            const surfaces = resolveWorkspaceSurfaces(
-              surfaceSnapshot,
-              workspace.id,
-            )
-            const visibleSurfaceId = isActiveWorkspace
-              ? activeSurfaceId
-              : (surfaces[0]?.id ?? null)
 
             return (
-              <section
-                className="workspace-slide flex min-h-0 min-w-0 w-full shrink-0 flex-col overflow-hidden"
-                data-active-workspace={isActiveWorkspace ? 'true' : 'false'}
+              <WorkspaceSlide
+                activePaneId={isActiveWorkspace ? activePaneId : null}
+                activeSurfaceId={isActiveWorkspace ? activeSurfaceId : null}
+                handlers={handlers}
+                isActiveWorkspace={isActiveWorkspace}
                 key={workspace.id}
-                style={{ height: workspaceSlideHeight }}
-              >
-                <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
-                  {workspaceProject && surfaces.length > 0 ? (
-                    (() => {
-                      const surfaceCount = surfaces.length
-                      const activeSurfaceIndex = Math.max(
-                        surfaces.findIndex(
-                          (surface) => surface.id === visibleSurfaceId,
-                        ),
-                        0,
-                      )
-                      const surfaceTrackStyle = getPaneTrackStyle(
-                        surfaceCount,
-                        activeSurfaceIndex,
-                      )
-                      const surfaceSlideWidth = getPaneSlideWidth(surfaceCount)
-
-                      return (
-                        <div className="flex min-h-0 min-w-0 w-full flex-1 overflow-hidden">
-                          <div
-                            className="surface-slider flex h-full shrink-0 transition-transform duration-200 ease-[var(--ease-out-strong)]"
-                            style={surfaceTrackStyle}
-                          >
-                            {surfaces.map((surface, surfaceIndex) => {
-                              const isActiveSurface =
-                                surfaceIndex === activeSurfaceIndex
-                              const isInteractiveSurface =
-                                isActiveWorkspace && isActiveSurface
-                              const layout = resolveSurfaceLayout(
-                                surfaceSnapshot,
-                                workspace.id,
-                                surface.id,
-                              )
-                              const rootNode =
-                                resolveWorkspaceLayoutRoot(layout)
-                              const paneCount =
-                                collectWorkspaceLayoutPaneIds(layout).length
-                              const nodeLookup = new Map(
-                                layout?.nodes.map((node) => [node.id, node]),
-                              )
-
-                              return (
-                                <div
-                                  className="flex min-h-0 min-w-0 h-full shrink-0 overflow-hidden"
-                                  data-active-surface={
-                                    isActiveSurface ? 'true' : 'false'
-                                  }
-                                  key={surface.id}
-                                  style={{ width: surfaceSlideWidth }}
-                                >
-                                  {rootNode && paneCount > 0 ? (
-                                    renderLayoutNode({
-                                      activePaneId: isInteractiveSurface
-                                        ? activePaneId
-                                        : null,
-                                      activeProject: workspaceProject,
-                                      isInteractive: isInteractiveSurface,
-                                      isSolePane: rootNode.type === 'pane',
-                                      node: rootNode,
-                                      nodeLookup,
-                                      onAddView,
-                                      onClosePane,
-                                      onOpenJevSettings,
-                                      onRemoveView,
-                                      onPreviewBrowserControl,
-                                      onPreviewCloseTab,
-                                      onPreviewNavigate,
-                                      onPreviewOpenTab,
-                                      onPreviewPresentationChange,
-                                      onPreviewSelectTab,
-                                      onSelectPane,
-                                      onSwitchView,
-                                      previewSnapshot: isInteractiveSurface
-                                        ? previewSnapshot
-                                        : null,
-                                      workspace,
-                                    })
-                                  ) : (
-                                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
-                                      Surface layout is missing a valid root
-                                      node.
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                      )
-                    })()
-                  ) : workspaceProject ? (
-                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-border bg-surface p-8 text-center">
-                      <div className="max-w-md space-y-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                          Empty workspace
-                        </p>
-                        <h2 className="text-2xl font-semibold tracking-[-0.374px] text-foreground">
-                          {workspace.name} starts blank
-                        </h2>
-                        <p className="text-sm text-muted-foreground">
-                          Add a pane to create the first full-size destination
-                          in this workspace. Split actions only apply inside an
-                          existing destination.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center rounded-lg border border-accent-red bg-accent-red-soft text-sm text-muted-foreground">
-                      Workspace layout is missing a valid root node.
-                    </div>
-                  )}
-                </div>
-              </section>
+                previewSnapshot={isActiveWorkspace ? previewSnapshot : null}
+                slideHeight={workspaceSlideHeight}
+                surfaceSnapshot={surfaceSnapshot}
+                workspace={workspace}
+                workspaceProject={
+                  workspace.projectId === activeProject.id
+                    ? activeProject
+                    : (projects.find((p) => p.id === workspace.projectId) ??
+                      null)
+                }
+              />
             )
           })}
         </div>
