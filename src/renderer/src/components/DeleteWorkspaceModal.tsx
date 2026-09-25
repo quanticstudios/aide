@@ -59,7 +59,7 @@ export default function DeleteWorkspaceModal({
                 with its conversations.
               </p>
               {hasWorktree ? (
-                <label className="flex items-start gap-2">
+                <label className="flex items-start gap-2 text-foreground">
                   <input
                     checked={removeWorktree}
                     className="mt-0.5"
