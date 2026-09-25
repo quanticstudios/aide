@@ -25,8 +25,10 @@ import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
   Fragment,
   lazy,
+  memo,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -74,12 +76,17 @@ import type {
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { resolveAgentHotkey } from '../lib/agent-hotkeys'
+import { isEqualValue } from '../lib/deep-equal'
 import { createImageAttachments } from '../lib/managed-composer'
 import {
   loadManagedDraft,
   removeManagedDraft,
   saveManagedDraft,
 } from '../lib/managed-draft-storage'
+import {
+  type ManagedSessionUpdate,
+  subscribeManagedSession,
+} from '../lib/managed-session-events'
 import {
   groupContentByTurn,
   type TurnGroup,
@@ -111,6 +118,7 @@ import {
   resolveMentionMenuSelection,
   WorkspaceFileMentionSearch,
 } from '../lib/workspace-file-mentions'
+import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import { ConversationMinimap } from './ConversationMinimap'
@@ -273,11 +281,13 @@ function formatMessageTime(iso: string): string {
     return ''
   }
 
-  return date.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return messageTimeFormat.format(date)
 }
+
+const messageTimeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+})
 
 type PermissionOption = {
   description: string
@@ -875,7 +885,28 @@ function ContentItemBlock({
   )
 }
 
-function TurnGroupBlock({
+type TurnGroupBlockProps = Parameters<typeof TurnGroupBlockContent>[0]
+
+// why: groups are rebuilt on every snapshot, so equality compares the shared item objects instead.
+function areTurnGroupPropsEqual(
+  previous: TurnGroupBlockProps,
+  next: TurnGroupBlockProps,
+): boolean {
+  for (const key of Object.keys(next) as (keyof TurnGroupBlockProps)[]) {
+    if (key !== 'group' && previous[key] !== next[key]) return false
+  }
+  return (
+    previous.group.turnId === next.group.turnId &&
+    previous.group.items.length === next.group.items.length &&
+    previous.group.items.every(
+      (item, index) => item === next.group.items[index],
+    )
+  )
+}
+
+const TurnGroupBlock = memo(TurnGroupBlockContent, areTurnGroupPropsEqual)
+
+function TurnGroupBlockContent({
   group,
   canBranch,
   checkpointId,
@@ -1561,6 +1592,16 @@ export default function ManagedAgentPane({
     workspace.worktreePath,
   ])
 
+  const isWorkspaceVisible = useContext(WorkspaceVisibilityContext)
+  const isWorkspaceVisibleRef = useRef(isWorkspaceVisible)
+  const deferredUpdatesRef = useRef<ManagedSessionUpdate[]>([])
+  const flushDeferredUpdatesRef = useRef<() => void>(() => undefined)
+  // why: off-screen workspaces hold their updates, collapsing back-to-back snapshots, and render them once they slide into view.
+  useLayoutEffect(() => {
+    isWorkspaceVisibleRef.current = isWorkspaceVisible
+    if (isWorkspaceVisible) flushDeferredUpdatesRef.current()
+  }, [isWorkspaceVisible])
+
   useEffect(() => {
     const api = getAideApi()
 
@@ -1585,7 +1626,11 @@ export default function ManagedAgentPane({
       setAgentMode(nextSnapshot.interactionMode)
       setPermissionMode(nextSnapshot.permissionMode)
       if (nextSnapshot.agents) {
-        setConfiguredAgents(nextSnapshot.agents)
+        const agents = nextSnapshot.agents
+        // why: a fresh array on every snapshot re-runs the effect that writes composer defaults to the database.
+        setConfiguredAgents((current) =>
+          isEqualValue(current, agents) ? current : agents,
+        )
         configuredAgentsInitializedRef.current = true
       }
       const composerSelection = getComposerProviderSelection(nextSnapshot)
@@ -1599,22 +1644,32 @@ export default function ManagedAgentPane({
       startedSessionRef.current = true
     }
 
-    const unsubscribe = api.onManagedSessionEvent((event) => {
-      if (event.type === 'removed') {
-        if (event.sessionId === sessionId) {
-          snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
-          startedSessionRef.current = false
-          setSnapshot(null)
-        }
+    const handleUpdate = (update: ManagedSessionUpdate) => {
+      if (update.type === 'removed') {
+        snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
+        startedSessionRef.current = false
+        setSnapshot(null)
         return
       }
 
-      if (event.snapshot.sessionId !== sessionId) {
+      applySnapshot(update.snapshot)
+    }
+    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+      if (isWorkspaceVisibleRef.current) {
+        handleUpdate(update)
         return
       }
-
-      applySnapshot(event.snapshot)
+      const deferred = deferredUpdatesRef.current
+      if (update.type === 'snapshot' && deferred.at(-1)?.type === 'snapshot') {
+        deferred[deferred.length - 1] = update
+      } else {
+        deferred.push(update)
+      }
     })
+    flushDeferredUpdatesRef.current = () => {
+      const deferred = deferredUpdatesRef.current.splice(0)
+      for (const update of deferred) handleUpdate(update)
+    }
 
     void api.getManagedSessionSnapshots().then(async (snapshots) => {
       const existing = snapshots[sessionId]
@@ -1633,7 +1688,11 @@ export default function ManagedAgentPane({
       }
     })
 
-    return unsubscribe
+    return () => {
+      deferredUpdatesRef.current = []
+      flushDeferredUpdatesRef.current = () => undefined
+      unsubscribe()
+    }
   }, [isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
@@ -1951,6 +2010,26 @@ export default function ManagedAgentPane({
       }
     },
     [sessionId],
+  )
+
+  const retryTurnRef = useRef(handleRetryTurn)
+  useLayoutEffect(() => {
+    retryTurnRef.current = handleRetryTurn
+  })
+  const handleTurnRetry = useCallback(
+    (text: string, recipientAlias: string) =>
+      void retryTurnRef.current(text, recipientAlias),
+    [],
+  )
+  const handleTurnBranch = useCallback(
+    (responseContentItemId: string) =>
+      void handleBranchConversation(responseContentItemId),
+    [handleBranchConversation],
+  )
+  const handleTurnEditFromHere = useCallback(
+    (checkpointId: string, item: ManagedSessionContentItem) =>
+      setRewindTarget({ attachments: item.attachments ?? [], checkpointId }),
+    [],
   )
 
   const handleConfiguredAgentsChange = useCallback(
@@ -2677,19 +2756,10 @@ export default function ManagedAgentPane({
                     isFailed={turn?.state === 'failed'}
                     isRunning={turn?.state === 'running'}
                     key={group.turnId ?? `system-${group.items[0]?.id}`}
-                    onBranch={(responseContentItemId) =>
-                      void handleBranchConversation(responseContentItemId)
-                    }
-                    onEditFromHere={(checkpointId, item) =>
-                      setRewindTarget({
-                        attachments: item.attachments ?? [],
-                        checkpointId,
-                      })
-                    }
+                    onBranch={handleTurnBranch}
+                    onEditFromHere={handleTurnEditFromHere}
                     onInterrupt={handleInterruptRecipient}
-                    onRetry={(text, recipientAlias) =>
-                      void handleRetryTurn(text, recipientAlias)
-                    }
+                    onRetry={handleTurnRetry}
                     providerLabel={
                       turn?.provider === 'claude'
                         ? 'Claude'

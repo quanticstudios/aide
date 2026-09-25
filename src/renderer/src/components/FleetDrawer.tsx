@@ -6,6 +6,7 @@ import type { AideApi } from '../../../shared/ipc'
 import type { JevGateSettings } from '../../../shared/jev-gates'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import { summarizeManagedUsage } from '../../../shared/managed-usage'
+import { subscribeManagedSession } from '../lib/managed-session-events'
 import { cn } from '../lib/utils'
 import { LiveFleetFlowchart, PlanDependencyFlow } from './FleetFlowchart'
 
@@ -82,12 +83,12 @@ function useFleetSnapshot(sessionId: string | null): {
       setEntry({ sessionId, snapshot })
     }
 
-    const unsubscribe = api.onManagedSessionEvent((event) => {
-      if (event.type === 'snapshot' && event.snapshot.sessionId === sessionId) {
+    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+      if (update.type === 'snapshot') {
         eventSequence += 1
-        applySnapshot(event.snapshot)
+        applySnapshot(update.snapshot)
       }
-      if (event.type === 'removed' && event.sessionId === sessionId) {
+      if (update.type === 'removed') {
         eventSequence += 1
         revisionRef.current = { revision: -1, runtimeGeneration: -1 }
         setLoadError(null)

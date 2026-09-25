@@ -1,4 +1,5 @@
 import type { Paragraph, Root } from 'mdast'
+import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import remarkGfm from 'remark-gfm'
@@ -47,22 +48,24 @@ function remarkFormatSessionLabels() {
   }
 }
 
-export default function MarkdownContent({
+const rehypePlugins = [rehypeHighlight]
+const remarkPlugins = [remarkGfm]
+const remarkPluginsWithLabels = [remarkGfm, remarkFormatSessionLabels]
+
+export default memo(function MarkdownContent({
   text,
   formatSessionLabels = false,
 }: MarkdownContentProps) {
   return (
     <div className="prose max-w-none">
       <ReactMarkdown
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={rehypePlugins}
         remarkPlugins={
-          formatSessionLabels
-            ? [remarkGfm, remarkFormatSessionLabels]
-            : [remarkGfm]
+          formatSessionLabels ? remarkPluginsWithLabels : remarkPlugins
         }
       >
         {text}
       </ReactMarkdown>
     </div>
   )
-}
+})

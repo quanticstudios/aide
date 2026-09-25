@@ -767,7 +767,18 @@ button:active:not(:disabled),
   color: var(--foreground);
 }
 
+/* Off-screen workspaces skip style, layout and paint until the slider brings them into view. */
+.workspace-slide {
+  content-visibility: auto;
+}
+
 /* ── Chat thread ─────────────────────────────── */
+
+/* Long threads lay out only the turns near the viewport; `auto` keeps each turn's last measured height. */
+.chat-turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
 
 /* One authored moment: a turn settles into place when it mounts. */
 .turn {
