@@ -6,6 +6,7 @@
       "!!**/.beads",
       "!!**/.worktrees",
       "!!**/promo",
+      "!!**/docs/design",
       "!!**/node_modules",
       "!!**/out",
       "!!**/dist",
