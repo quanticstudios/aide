@@ -30,9 +30,9 @@ import type {
   WorkspaceGitMessageInput,
   WorkspaceGitMessageResult,
   WorkspaceGitMutationResult,
-  WorkspaceGitPullResult,
   WorkspaceGitPullRequestInput,
   WorkspaceGitPullRequestResult,
+  WorkspaceGitPullResult,
   WorkspaceGitRevertInput,
   WorkspaceGitStatusResult,
   WorktreeBranchStatsResult,
@@ -190,14 +190,11 @@ export const IPC_CHANNELS = {
   managedSessionConfigurePermissionMode: 'managed-session:set-permission-mode',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
-  managedSessionCancelQueuedInput: 'managed-session:cancel-queued-input',
   managedSessionPickFiles: 'managed-session:pick-files',
   managedSessionSearchFiles: 'managed-session:search-files',
-  managedSessionResumeQueue: 'managed-session:resume-queue',
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
-  managedSessionSendQueuedInputNow: 'managed-session:send-queued-input-now',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
   turnCheckpointDiff: 'turn-checkpoint:diff',
   turnCheckpointList: 'turn-checkpoint:list',
@@ -427,20 +424,11 @@ export interface AideApi {
     sessionId: string,
     recipientAlias?: string,
   ) => Promise<void>
-  cancelManagedSessionQueuedInput: (
-    sessionId: string,
-    queuedInputId: string,
-  ) => Promise<void>
   pickManagedSessionFiles: (workspaceId: string) => Promise<string[]>
   searchManagedSessionFiles: (
     workspaceId: string,
     query: string,
   ) => Promise<string[]>
-  resumeManagedSessionQueue: (sessionId: string) => Promise<void>
-  sendManagedSessionQueuedInputNow: (
-    sessionId: string,
-    queuedInputId: string,
-  ) => Promise<void>
   killTerminalSession: (sessionId: string) => Promise<void>
   onManagedSessionEvent: (
     callback: (event: ManagedSessionEvent) => void,

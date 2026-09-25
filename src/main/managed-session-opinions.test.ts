@@ -288,9 +288,8 @@ describe('managed session opinions', () => {
     const aliases = ['alpha', 'beta']
     const dispatch = manager.sendInput(config.sessionId, 'compare', aliases)
     await vi.waitFor(() => expect([...pending.keys()]).toHaveLength(2))
-    await manager.sendInput(config.sessionId, 'normal')
-    expect(manager.getSnapshots()[config.sessionId].queuedInputs).toEqual(
-      expect.arrayContaining([expect.objectContaining({ text: 'normal' })]),
+    await expect(manager.sendInput(config.sessionId, 'normal')).rejects.toThrow(
+      'still answering',
     )
     expect([...pending.keys()]).toHaveLength(2)
     await manager.interruptSession(config.sessionId)

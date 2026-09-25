@@ -1053,7 +1053,6 @@ test.describe('electron spatial navigation', () => {
       page.getByText(/Add a TypeSafe API key in Settings/),
     ).toBeVisible()
     await expect(prompt).toHaveValue('Keep this draft until Jev is configured')
-    await expect(page.getByTestId('managed-input-queue')).toBeHidden()
     await expect(page.getByTestId('managed-session-content')).not.toContainText(
       'Handled:',
     )

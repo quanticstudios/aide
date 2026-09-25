@@ -15,8 +15,6 @@ const STATUS_LABELS: Record<SavedTask['status'], string> = {
   failed: 'Failed',
   interrupted: 'Interrupted',
   running: 'Working',
-  queued: 'Queued',
-  paused: 'Queue paused',
   completed: 'Completed',
   idle: 'Ready',
 }
@@ -170,15 +168,9 @@ export default function TaskLibraryControl({
 
   const needsAttention = (task: SavedTask) =>
     task.unread ||
-    [
-      'approval',
-      'input',
-      'failed',
-      'interrupted',
-      'running',
-      'queued',
-      'paused',
-    ].includes(task.status)
+    ['approval', 'input', 'failed', 'interrupted', 'running'].includes(
+      task.status,
+    )
   const unreadCount = library.tasks.filter(
     (task) => !task.archived && task.unread,
   ).length
@@ -396,13 +388,9 @@ export default function TaskLibraryControl({
                           isDisabled={
                             busy ||
                             (!task.archived &&
-                              [
-                                'running',
-                                'approval',
-                                'input',
-                                'queued',
-                                'paused',
-                              ].includes(task.status))
+                              ['running', 'approval', 'input'].includes(
+                                task.status,
+                              ))
                           }
                           onPress={() =>
                             void update(task, { archived: !task.archived })

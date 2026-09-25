@@ -29,7 +29,6 @@ const HELP_TEXT = [
   '• Cmd/Ctrl+Shift+M — model selector',
   '• Cmd/Ctrl+Shift+E — reasoning effort',
   '• Cmd/Ctrl+Shift+A — permission mode',
-  '• Cmd/Ctrl+Shift+Enter — send the oldest queued message now',
 ].join('\n')
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
