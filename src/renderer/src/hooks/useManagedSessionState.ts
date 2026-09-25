@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { AideApi } from '../../../shared/ipc'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
+import { subscribeManagedSession } from '../lib/managed-session-events'
 
 function getAideApi(): AideApi | null {
   if (typeof window === 'undefined') {
@@ -45,18 +46,14 @@ export function useManagedSessionState(
       setState(snapshot.sessionState)
     }
 
-    const unsubscribe = api.onManagedSessionEvent((event) => {
-      if (event.type === 'removed') {
-        if (event.sessionId === sessionId) {
-          revisionRef.current = { revision: -1, runtimeGeneration: -1 }
-          setState(null)
-        }
+    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+      if (update.type === 'removed') {
+        revisionRef.current = { revision: -1, runtimeGeneration: -1 }
+        setState(null)
         return
       }
 
-      if (event.snapshot.sessionId === sessionId) {
-        applySnapshot(event.snapshot)
-      }
+      applySnapshot(update.snapshot)
     })
 
     void api.getManagedSessionSnapshots().then((snapshots) => {

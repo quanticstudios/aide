@@ -25,6 +25,7 @@ import type { ChangeEvent, ClipboardEvent, DragEvent } from 'react'
 import {
   Fragment,
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -80,6 +81,7 @@ import {
   removeManagedDraft,
   saveManagedDraft,
 } from '../lib/managed-draft-storage'
+import { subscribeManagedSession } from '../lib/managed-session-events'
 import {
   groupContentByTurn,
   type TurnGroup,
@@ -273,11 +275,13 @@ function formatMessageTime(iso: string): string {
     return ''
   }
 
-  return date.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
+  return messageTimeFormat.format(date)
 }
+
+const messageTimeFormat = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+})
 
 type PermissionOption = {
   description: string
@@ -875,7 +879,28 @@ function ContentItemBlock({
   )
 }
 
-function TurnGroupBlock({
+type TurnGroupBlockProps = Parameters<typeof TurnGroupBlockContent>[0]
+
+// why: groups are rebuilt on every snapshot, so equality compares the shared item objects instead.
+function areTurnGroupPropsEqual(
+  previous: TurnGroupBlockProps,
+  next: TurnGroupBlockProps,
+): boolean {
+  for (const key of Object.keys(next) as (keyof TurnGroupBlockProps)[]) {
+    if (key !== 'group' && previous[key] !== next[key]) return false
+  }
+  return (
+    previous.group.turnId === next.group.turnId &&
+    previous.group.items.length === next.group.items.length &&
+    previous.group.items.every(
+      (item, index) => item === next.group.items[index],
+    )
+  )
+}
+
+const TurnGroupBlock = memo(TurnGroupBlockContent, areTurnGroupPropsEqual)
+
+function TurnGroupBlockContent({
   group,
   canBranch,
   checkpointId,
@@ -1599,21 +1624,15 @@ export default function ManagedAgentPane({
       startedSessionRef.current = true
     }
 
-    const unsubscribe = api.onManagedSessionEvent((event) => {
-      if (event.type === 'removed') {
-        if (event.sessionId === sessionId) {
-          snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
-          startedSessionRef.current = false
-          setSnapshot(null)
-        }
+    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+      if (update.type === 'removed') {
+        snapshotRevisionRef.current = { revision: -1, runtimeGeneration: -1 }
+        startedSessionRef.current = false
+        setSnapshot(null)
         return
       }
 
-      if (event.snapshot.sessionId !== sessionId) {
-        return
-      }
-
-      applySnapshot(event.snapshot)
+      applySnapshot(update.snapshot)
     })
 
     void api.getManagedSessionSnapshots().then(async (snapshots) => {
@@ -1951,6 +1970,26 @@ export default function ManagedAgentPane({
       }
     },
     [sessionId],
+  )
+
+  const retryTurnRef = useRef(handleRetryTurn)
+  useLayoutEffect(() => {
+    retryTurnRef.current = handleRetryTurn
+  })
+  const handleTurnRetry = useCallback(
+    (text: string, recipientAlias: string) =>
+      void retryTurnRef.current(text, recipientAlias),
+    [],
+  )
+  const handleTurnBranch = useCallback(
+    (responseContentItemId: string) =>
+      void handleBranchConversation(responseContentItemId),
+    [handleBranchConversation],
+  )
+  const handleTurnEditFromHere = useCallback(
+    (checkpointId: string, item: ManagedSessionContentItem) =>
+      setRewindTarget({ attachments: item.attachments ?? [], checkpointId }),
+    [],
   )
 
   const handleConfiguredAgentsChange = useCallback(
@@ -2677,19 +2716,10 @@ export default function ManagedAgentPane({
                     isFailed={turn?.state === 'failed'}
                     isRunning={turn?.state === 'running'}
                     key={group.turnId ?? `system-${group.items[0]?.id}`}
-                    onBranch={(responseContentItemId) =>
-                      void handleBranchConversation(responseContentItemId)
-                    }
-                    onEditFromHere={(checkpointId, item) =>
-                      setRewindTarget({
-                        attachments: item.attachments ?? [],
-                        checkpointId,
-                      })
-                    }
+                    onBranch={handleTurnBranch}
+                    onEditFromHere={handleTurnEditFromHere}
                     onInterrupt={handleInterruptRecipient}
-                    onRetry={(text, recipientAlias) =>
-                      void handleRetryTurn(text, recipientAlias)
-                    }
+                    onRetry={handleTurnRetry}
                     providerLabel={
                       turn?.provider === 'claude'
                         ? 'Claude'
