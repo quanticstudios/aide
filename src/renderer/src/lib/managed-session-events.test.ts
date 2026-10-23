@@ -8,6 +8,8 @@ import type {
 } from '../../../shared/managed-session'
 import type { SessionDeltaState } from '../../../shared/session-delta'
 import {
+  MANAGED_SESSION_SYNC_BUFFER_LIMIT,
+  MANAGED_SESSION_SYNC_TIMEOUT_MS,
   type ManagedSessionUpdate,
   shareSnapshotContent,
   subscribeManagedSession,
@@ -259,6 +261,63 @@ describe('subscribeManagedSession', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(received).toEqual([{ type: 'removed' }])
+    stop()
+  })
+
+  it('asks again when a snapshot request never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      const main = createMain(snapshot('one', 1, [item('a', 'Hel')]))
+      let calls = 0
+      const { emit, source } = createSource(() => {
+        calls += 1
+        return (
+          calls === 1 ? new Promise(() => undefined) : main.state
+        ) as never
+      })
+      const received: ManagedSessionUpdate[] = []
+      const stop = subscribeManagedSession(source, 'one', (update) =>
+        received.push(update),
+      )
+      emit(main.next(snapshot('one', 2, [item('a', 'Hello')])))
+
+      await vi.advanceTimersByTimeAsync(MANAGED_SESSION_SYNC_TIMEOUT_MS)
+
+      expect(source.syncManagedSession).toHaveBeenCalledTimes(2)
+      expect(received.map(text)).toEqual(['Hello'])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks again instead of buffering past the limit', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', '')]))
+    let calls = 0
+    const { emit, source } = createSource(() => {
+      calls += 1
+      return (calls === 1 ? new Promise(() => undefined) : main.state) as never
+    })
+    const received: ManagedSessionUpdate[] = []
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+
+    for (
+      let index = 1;
+      index <= MANAGED_SESSION_SYNC_BUFFER_LIMIT + 1;
+      index += 1
+    ) {
+      emit(
+        main.next(snapshot('one', index + 1, [item('a', 'x'.repeat(index))])),
+      )
+    }
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+
+    expect(source.syncManagedSession).toHaveBeenCalledTimes(2)
+    expect(received.map(text)).toEqual([
+      'x'.repeat(MANAGED_SESSION_SYNC_BUFFER_LIMIT + 1),
+    ])
     stop()
   })
 

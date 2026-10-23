@@ -28,13 +28,21 @@ interface SessionEntry {
   readonly listeners: Set<Listener>
   state: SessionDeltaState | null
   /** The outstanding snapshot request and the deltas that arrived while it was in flight. */
-  sync: { readonly buffered: SessionDelta[] } | null
+  sync: {
+    readonly buffered: SessionDelta[]
+    readonly timer: ReturnType<typeof setTimeout>
+  } | null
 }
 
 interface Hub {
   readonly sessions: Map<string, SessionEntry>
   unsubscribe: (() => void) | null
 }
+
+/** How long a snapshot request may stay unanswered before the hub asks again. */
+export const MANAGED_SESSION_SYNC_TIMEOUT_MS = 5_000
+/** How many deltas the hub holds for an unanswered snapshot request before it asks again. */
+export const MANAGED_SESSION_SYNC_BUFFER_LIMIT = 2_000
 
 const hubs = new WeakMap<ManagedSessionEventSource, Hub>()
 
@@ -114,13 +122,20 @@ function resync(
   entry: SessionEntry,
 ): void {
   if (entry.sync) return
-  const sync = { buffered: [] as SessionDelta[] }
+  const sync = {
+    buffered: [] as SessionDelta[],
+    timer: setTimeout(() => {
+      if (hub.sessions.get(sessionId) !== entry || entry.sync !== sync) return
+      restartSync(source, hub, sessionId, entry)
+    }, MANAGED_SESSION_SYNC_TIMEOUT_MS),
+  }
   entry.sync = sync
   void source
     .syncManagedSession(sessionId)
     .catch(() => null)
     .then((reply) => {
       if (hub.sessions.get(sessionId) !== entry || entry.sync !== sync) return
+      clearTimeout(sync.timer)
       entry.sync = null
       const fresher = reply !== null && reply.seq > (entry.state?.seq ?? 0)
       apply(
@@ -135,6 +150,22 @@ function resync(
     })
 }
 
+/** Abandons the outstanding snapshot request and its buffered deltas, then asks again. */
+function restartSync(
+  source: ManagedSessionEventSource,
+  hub: Hub,
+  sessionId: string,
+  entry: SessionEntry,
+): void {
+  cancelSync(entry)
+  resync(source, hub, sessionId, entry)
+}
+
+function cancelSync(entry: SessionEntry): void {
+  if (entry.sync) clearTimeout(entry.sync.timer)
+  entry.sync = null
+}
+
 function dispatch(
   source: ManagedSessionEventSource,
   hub: Hub,
@@ -144,12 +175,19 @@ function dispatch(
   if (!entry) return
   if (event.type === 'removed') {
     entry.state = null
-    entry.sync = null
+    cancelSync(entry)
     for (const listener of entry.listeners) listener({ type: 'removed' })
     return
   }
   if (entry.sync) {
-    entry.sync.buffered.push(...event.deltas)
+    if (
+      entry.sync.buffered.length + event.deltas.length >
+      MANAGED_SESSION_SYNC_BUFFER_LIMIT
+    ) {
+      restartSync(source, hub, event.sessionId, entry)
+    } else {
+      entry.sync.buffered.push(...event.deltas)
+    }
     return
   }
   apply(source, hub, event.sessionId, entry, entry.state, event.deltas, false)
@@ -179,10 +217,9 @@ export function subscribeManagedSession(
 
   return () => {
     if (!listeners.delete(listener)) return
-    if (
-      listeners.size === 0 &&
-      hub.sessions.get(sessionId)?.listeners === listeners
-    ) {
+    const current = hub.sessions.get(sessionId)
+    if (listeners.size === 0 && current?.listeners === listeners) {
+      cancelSync(current)
       hub.sessions.delete(sessionId)
     }
     if (hub.sessions.size === 0) {
