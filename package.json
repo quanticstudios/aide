@@ -50,7 +50,7 @@
     "@gravity-ui/icons": "2.20.0",
     "@heroui/react": "3.2.2",
     "@heroui/styles": "3.2.2",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@monaco-editor/react": "4.7.0",
     "@number-flow/react": "0.6.1",
     "@tailwindcss/vite": "4.3.2",
@@ -89,22 +89,23 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.2.0",
-    "electron": "43.0.0",
+    "electron": "43.8.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "react-doctor": "0.7.1",
     "typescript": "6.0.3",
-    "vite": "7.3.6",
+    "vite": "7.3.7",
     "vitest": "4.1.10",
-    "wrangler": "4.120.0"
+    "wrangler": "4.151.1"
   },
   "overrides": {
-    "fast-uri": "3.1.6",
+    "dompurify": "3.4.17",
+    "fast-uri": "3.1.8",
     "hono": "4.12.25",
     "ip-address": "10.3.1",
     "picomatch": "4.0.4",
     "postcss": "8.5.19",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "tar": "7.5.21"
   },
   "trustedDependencies": [

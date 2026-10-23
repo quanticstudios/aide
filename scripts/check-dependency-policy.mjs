@@ -5,17 +5,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import TOML from '@iarna/toml'
 
 export const REQUIRED_OVERRIDES = Object.freeze({
-  'fast-uri': '3.1.6',
+  dompurify: '3.4.17',
+  'fast-uri': '3.1.8',
   hono: '4.12.25',
   'ip-address': '10.3.1',
   picomatch: '4.0.4',
   postcss: '8.5.19',
-  sharp: '0.35.4',
+  sharp: '0.35.5',
   tar: '7.5.21',
 })
 
 export const REQUIRED_DEV_DEPENDENCIES = Object.freeze({
-  wrangler: '4.120.0',
+  wrangler: '4.151.1',
 })
 
 const EXACT_SEMVER =
