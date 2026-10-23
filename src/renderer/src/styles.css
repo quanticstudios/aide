@@ -787,12 +787,6 @@ button:active:not(:disabled),
 
 /* ── Chat thread ─────────────────────────────── */
 
-/* Long threads lay out only the turns near the viewport; `auto` keeps each turn's last measured height. */
-.chat-turn {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
-}
-
 /* One authored moment: a turn settles into place when it mounts. */
 .turn {
   opacity: 1;
