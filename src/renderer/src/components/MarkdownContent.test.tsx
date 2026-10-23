@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+
+import { highlight, loadLanguage } from '../lib/highlighter'
 import MarkdownContent from './MarkdownContent'
 
 describe('assistant Markdown formatting', () => {
@@ -27,5 +29,38 @@ describe('assistant Markdown formatting', () => {
         <MarkdownContent text="`[aide · geography]` Answer." />,
       ),
     ).toContain('aide · geography')
+  })
+})
+
+const code = 'const answer: number = 42\n'
+
+describe('MarkdownContent code blocks', () => {
+  it('renders plain text and never tokenizes during render', async () => {
+    await loadLanguage('typescript')
+
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={`\`\`\`ts\n${code}\`\`\``} />,
+    )
+
+    expect(markup).toContain('<pre data-language="typescript"><code>const')
+    expect(markup).not.toContain('--shiki-token')
+  })
+
+  it('renders a block highlighted earlier from the cache', async () => {
+    await highlight(code, 'typescript')
+
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={`\`\`\`ts\n${code}\`\`\``} />,
+    )
+
+    expect(markup).toContain('color:var(--shiki-token-keyword)">const</span>')
+  })
+
+  it('leaves languages without a grammar to the default renderer', () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={'```brainfuck\n++[>+<-]\n```'} />,
+    )
+
+    expect(markup).toContain('<pre><code class="language-brainfuck">')
   })
 })

@@ -1,21 +1,10 @@
 import type { Paragraph, Root } from 'mdast'
-import {
-  type ComponentProps,
-  Fragment,
-  memo,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react'
+import { type ComponentProps, Fragment, memo, useEffect, useState } from 'react'
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { ThemedToken } from 'shiki/core'
 
-import {
-  isLanguageLoaded,
-  loadLanguage,
-  resolveLanguage,
-  tokenize,
-} from '../lib/highlighter'
+import { cachedTokens, highlight, resolveLanguage } from '../lib/highlighter'
 
 interface MarkdownContentProps {
   readonly text: string
@@ -59,6 +48,15 @@ function remarkFormatSessionLabels() {
   }
 }
 
+// why: a streaming block changes on every chunk; tokenizing waits until its text settles.
+const HIGHLIGHT_SETTLE_MS = 50
+
+interface Highlighted {
+  readonly code: string
+  readonly lang: string
+  readonly lines: ThemedToken[][]
+}
+
 function HighlightedCode({
   code,
   lang,
@@ -66,14 +64,29 @@ function HighlightedCode({
   readonly code: string
   readonly lang: string
 }) {
-  const [ready, setReady] = useState(() => isLanguageLoaded(lang))
+  const [highlighted, setHighlighted] = useState<Highlighted | null>(null)
+  const lines =
+    highlighted?.code === code && highlighted.lang === lang
+      ? highlighted.lines
+      : cachedTokens(code, lang)
   useEffect(() => {
-    if (!ready) void loadLanguage(lang).then(() => setReady(true))
-  }, [lang, ready])
-  const lines = useMemo(
-    () => (ready ? tokenize(code, lang) : null),
-    [code, lang, ready],
-  )
+    if (cachedTokens(code, lang)) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      highlight(code, lang).then(
+        (result) => {
+          if (!cancelled && result)
+            setHighlighted({ code, lang, lines: result })
+        },
+        // why: a failed grammar load keeps the block plain; the next change retries.
+        () => undefined,
+      )
+    }, HIGHLIGHT_SETTLE_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [code, lang])
   return (
     <pre data-language={lang}>
       <code>
@@ -109,8 +122,7 @@ function CodeBlock({ children, node }: ComponentProps<'pre'> & ExtraProps) {
   const text = code.children
     .map((child) => (child.type === 'text' ? child.value : ''))
     .join('')
-  // why: the fence language streams in character by character; a new key resets the loaded state.
-  return <HighlightedCode code={text} key={lang} lang={lang} />
+  return <HighlightedCode code={text} lang={lang} />
 }
 
 const components: Components = { pre: CodeBlock }

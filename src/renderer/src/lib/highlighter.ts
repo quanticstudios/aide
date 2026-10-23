@@ -17,7 +17,7 @@ const PRELOADED_GRAMMARS = {
   yaml: () => import('shiki/langs/yaml.mjs'),
 }
 
-// invariant: only grammars listed here are bundled; any other language renders plain.
+// invariant: a language without an entry here renders plain; entries may pull in grammars they embed.
 const GRAMMARS: Record<string, LanguageInput> = {
   ...PRELOADED_GRAMMARS,
   c: () => import('shiki/langs/c.mjs'),
@@ -77,9 +77,14 @@ const ALIASES: Record<string, string> = {
 let highlighter: HighlighterCore | null = null
 let highlighterLoad: Promise<HighlighterCore> | null = null
 const languageLoads = new Map<string, Promise<void>>()
+const tokenCache = new Map<string, ThemedToken[][]>()
+const TOKEN_CACHE_SIZE = 200
+// why: tokenizing is O(lines) on the main thread; matches the diff view's cap.
+const MAX_HIGHLIGHT_LINES = 2000
 
 function loadHighlighter(): Promise<HighlighterCore> {
-  highlighterLoad ??= Promise.all([
+  if (highlighterLoad) return highlighterLoad
+  highlighterLoad = Promise.all([
     import('shiki/core'),
     import('shiki/engine/javascript'),
   ]).then(
@@ -96,6 +101,9 @@ function loadHighlighter(): Promise<HighlighterCore> {
       return highlighter
     },
   )
+  highlighterLoad.catch(() => {
+    highlighterLoad = null
+  })
   return highlighterLoad
 }
 
@@ -107,27 +115,49 @@ export function resolveLanguage(name: string | undefined): string | null {
   return Object.hasOwn(GRAMMARS, lang) ? lang : null
 }
 
-/** True once `tokenize` can highlight a resolved language. */
+/** True once the grammar for a resolved language is loaded. */
 export function isLanguageLoaded(lang: string): boolean {
   return highlighter?.getLoadedLanguages().includes(lang) ?? false
 }
 
-/** Loads the shared highlighter and the grammar for a resolved language. */
+/** Loads the shared highlighter and the grammar for a resolved language; a failed load is retried on the next call. */
 export function loadLanguage(lang: string): Promise<void> {
   let load = languageLoads.get(lang)
   if (!load) {
     load = loadHighlighter().then(async (core) => {
       if (!isLanguageLoaded(lang)) await core.loadLanguage(GRAMMARS[lang])
     })
+    load.catch(() => languageLoads.delete(lang))
     languageLoads.set(lang, load)
   }
   return load
 }
 
-/** Tokenizes code, or returns null until the language's grammar is loaded. */
-export function tokenize(code: string, lang: string): ThemedToken[][] | null {
-  if (!highlighter || !isLanguageLoaded(lang)) return null
-  return highlighter.codeToTokensBase(code, { lang, theme: THEME })
+/** Returns tokens for a block `highlight` already tokenized, without tokenizing. */
+export function cachedTokens(
+  code: string,
+  lang: string,
+): ThemedToken[][] | null {
+  return tokenCache.get(`${lang}\n${code}`) ?? null
+}
+
+/** Tokenizes a block once its grammar loads and caches the result; null for blocks over the line cap. */
+export async function highlight(
+  code: string,
+  lang: string,
+): Promise<ThemedToken[][] | null> {
+  const key = `${lang}\n${code}`
+  const cached = tokenCache.get(key)
+  if (cached) return cached
+  if (code.split('\n').length > MAX_HIGHLIGHT_LINES) return null
+  await loadLanguage(lang)
+  if (!highlighter) return null
+  const lines = highlighter.codeToTokensBase(code, { lang, theme: THEME })
+  tokenCache.set(key, lines)
+  if (tokenCache.size > TOKEN_CACHE_SIZE) {
+    tokenCache.delete(tokenCache.keys().next().value ?? '')
+  }
+  return lines
 }
 
 type SyntaxNode = SyntaxLine['nodeList'][number]['node']
@@ -198,7 +228,7 @@ export const diffHighlighter: DiffFileHighlighter = {
   },
   hasRegisteredCurrentLang: isLanguageLoaded,
   ignoreSyntaxHighlightList: [],
-  maxLineToIgnoreSyntax: 2000,
+  maxLineToIgnoreSyntax: MAX_HIGHLIGHT_LINES,
   name: 'aide-shiki',
   processAST,
   setIgnoreSyntaxHighlightList(list) {

@@ -1,12 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
+  cachedTokens,
   diffHighlighter,
+  highlight,
   isLanguageLoaded,
   loadLanguage,
   resolveLanguage,
-  tokenize,
 } from './highlighter'
+
+const grammarImport = vi.hoisted(() => ({ failures: 0 }))
+
+vi.mock('shiki/langs/lua.mjs', async (importOriginal) => {
+  if (grammarImport.failures > 0) {
+    grammarImport.failures -= 1
+    throw new Error('Failed to fetch dynamically imported module')
+  }
+  return importOriginal()
+})
 
 describe('resolveLanguage', () => {
   it('maps fence names and file extensions to bundled grammars', () => {
@@ -28,19 +39,30 @@ describe('resolveLanguage', () => {
   })
 })
 
-describe('tokenize', () => {
-  it('returns null until the grammar loads, then colors tokens from theme variables', async () => {
-    expect(tokenize('fn main() {}', 'rust')).toBeNull()
+describe('highlight', () => {
+  it('tokenizes asynchronously, colors tokens from theme variables, and caches the block', async () => {
+    const code = 'fn main() {\n  let x = 1;\n}'
+    const pending = highlight(code, 'rust')
+    expect(cachedTokens(code, 'rust')).toBeNull()
 
-    await loadLanguage('rust')
-    const startedAt = performance.now()
-    const lines = tokenize('fn main() {\n  let x = 1;\n}', 'rust')
-    const elapsedMs = performance.now() - startedAt
+    const lines = await pending
 
-    expect(elapsedMs).toBeLessThan(100)
     expect(lines).toHaveLength(3)
     const fn = lines?.[0]?.find((token) => token.content === 'fn')
     expect(fn?.color).toBe('var(--shiki-token-keyword)')
+    expect(cachedTokens(code, 'rust')).toBe(lines)
+    expect(cachedTokens(code, 'go')).toBeNull()
+  })
+
+  it('highlights a block within 100 ms once its grammar is loaded', async () => {
+    await loadLanguage('go')
+    const startedAt = performance.now()
+    await highlight('package main\n\nfunc main() {\n}\n', 'go')
+    expect(performance.now() - startedAt).toBeLessThan(100)
+  })
+
+  it('skips blocks over the line cap', async () => {
+    expect(await highlight('x\n'.repeat(2001), 'go')).toBeNull()
   })
 
   it('preloads the common grammars with the highlighter', async () => {
@@ -48,6 +70,14 @@ describe('tokenize', () => {
     expect(isLanguageLoaded('go')).toBe(true)
     expect(isLanguageLoaded('typescript')).toBe(true)
     expect(isLanguageLoaded('cpp')).toBe(false)
+  })
+
+  it('retries a grammar whose chunk failed to load', async () => {
+    grammarImport.failures = 1
+
+    await expect(loadLanguage('lua')).rejects.toThrow()
+    await expect(highlight('local x = 1', 'lua')).resolves.toHaveLength(1)
+    expect(isLanguageLoaded('lua')).toBe(true)
   })
 })
 

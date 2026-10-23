@@ -33,11 +33,15 @@ export function GitDiffView({
   useEffect(() => {
     if (!lang || highlight) return
     let cancelled = false
-    void loadLanguage(lang).then(() => {
-      if (!cancelled) {
-        setLoadedLang(lang)
-      }
-    })
+    loadLanguage(lang).then(
+      () => {
+        if (!cancelled) {
+          setLoadedLang(lang)
+        }
+      },
+      // why: a failed grammar load leaves the diff plain; the next mount retries.
+      () => undefined,
+    )
     return () => {
       cancelled = true
     }
