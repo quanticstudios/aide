@@ -78,7 +78,7 @@ or removing one, or changing a unit, needs a new `schemaVersion`.
 {
   "schemaVersion": 1,
   "createdAt": "ISO 8601 time",
-  "commit": "git SHA the app was built from",
+  "commit": "git SHA checked out; on a pull request, GitHub's merge commit",
   "machine": {
     "ci": false,
     "cpu": "CPU model",
@@ -124,24 +124,28 @@ Main at `b3a2d44`, measured 2026-10-23 with the defaults above: five agents at
 in one workspace, which is what "Add pane" gives you, so one transcript is on
 screen and all five render.
 
-Machine: AMD Ryzen 9 9950X (32 threads), 60.5 GB RAM, Linux 7.2.8, Electron
-43.0.0, software rendering in a private Xwayland display through `agent-ws`.
-Other fleet workers shared the machine during the run (load average 8.1).
+The desktop column ran on an AMD Ryzen 9 9950X (32 threads, 60.5 GB RAM,
+Linux 7.2.8, Electron 43.0.0) in a private Xwayland display through
+`agent-ws`, while other fleet workers shared the machine (load average 8.1).
+The CI column is the optional job on a GitHub `ubuntu-24.04` runner (AMD EPYC
+9V45, 2 vCPUs, 7.8 GB RAM, Electron 43.8.0) at main `03834d9` plus this
+branch. Both use software rendering.
 
-| Metric | Value |
-| --- | --- |
-| Cold start to first interactive frame | 345 ms |
-| Main process RSS after 2 minutes | 292.9 MB |
-| Renderer RSS after 2 minutes | 561.3 MB |
-| Frame time p50 / p95 | 16.9 / 19.5 ms |
-| Frames per second | 59.9 |
-| Long tasks over 100 ms (20 s trace) | 0, longest 11.7 ms |
-| IPC main to renderer | 3.73 MB/s, 249 messages/s |
-| React commits | 184.7/s |
-| Chat pane renders, all five panes | 83.1/s |
+| Metric | Desktop | CI runner |
+| --- | --- | --- |
+| Cold start to first interactive frame | 345 ms | 3,716 ms |
+| Main process RSS after 2 minutes | 292.9 MB | 315.3 MB |
+| Renderer RSS after 2 minutes | 561.3 MB | 549.9 MB |
+| Frame time p50 / p95 | 16.9 / 19.5 ms | 16.7 / 25.6 ms |
+| Frames per second | 59.9 | 60 |
+| Long tasks over 100 ms (20 s trace) | 0, longest 11.7 ms | 0, longest 71.6 ms |
+| IPC main to renderer | 3.73 MB/s, 249 messages/s | 3.52 MB/s, 229 messages/s |
+| React commits | 184.7/s | 109.7/s |
+| Chat pane renders, all five panes | 83.1/s | 76.2/s |
 
-PR #63's 60 fps claim holds for this setup: frames arrive at the 16.7 ms
-display rate with nothing over 12 ms on the renderer main thread.
+PR #63's 60 fps claim holds on both: frames arrive at the 16.7 ms display
+rate and no renderer task reaches 100 ms. The 2-vCPU runner shows the margin
+is thin there, with a 71.6 ms task and p95 frames at 25.6 ms.
 
 IPC is the number to watch. Every snapshot carries the whole transcript, about
 25 snapshots a second per agent, each followed by a `taskLibraryChanged` ping.
