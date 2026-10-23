@@ -293,16 +293,33 @@ test.describe('shared model chat', () => {
         text: '`[aide · geography]` The capital of Japan is Tokyo.',
       },
     ]
-    await app.evaluate(({ BrowserWindow }, snapshot) => {
-      BrowserWindow.getAllWindows()[0].webContents.send(
-        'managed-session:event',
-        {
-          type: 'snapshot',
-          revision: snapshot.revision,
-          snapshot,
-        },
-      )
-    }, snapshot)
+    const synced = await page.evaluate(
+      (sessionId) => window.aide.syncManagedSession(sessionId),
+      snapshot.sessionId,
+    )
+    await app.evaluate(
+      ({ BrowserWindow }, { seq, snapshot }) => {
+        BrowserWindow.getAllWindows()[0].webContents.send(
+          'managed-session:event',
+          {
+            deltas: [
+              {
+                revision: snapshot.revision,
+                seq,
+                sessionId: snapshot.sessionId,
+                snapshot,
+                type: 'snapshot',
+                updatedAt: snapshot.updatedAt,
+                version: 1,
+              },
+            ],
+            sessionId: snapshot.sessionId,
+            type: 'deltas',
+          },
+        )
+      },
+      { seq: (synced?.seq ?? 0) + 1, snapshot },
+    )
     const messages = page.getByTestId('managed-content-assistant-text')
     await expect(messages).toHaveCount(2)
     const activity = page.getByTestId('assistant-activity')
@@ -888,6 +905,42 @@ test.describe('shared model chat', () => {
         .at(-1)?.text
     }, session.sessionId)
     expect(streamedText).toBe(
+      `${Array.from({ length: 120 }, (_, index) => `${index.toString().padStart(3, '0')} `).join('')}complete`,
+    )
+  })
+
+  test('reattaches to a Codex stream after a renderer reload with the same transcript', async () => {
+    repository = createGitRepository()
+    const launched = await launchAideApp(repository)
+    app = launched.app
+    dataDirectory = launched.dataDirectory
+    const session = await startSharedChat(launched.page, app)
+    const { page } = launched
+    await page.evaluate(
+      ({ sessionId }) =>
+        window.aide.switchManagedSessionProvider(sessionId, {
+          effort: 'medium',
+          mode: 'codex',
+          model: 'gpt-5.6-terra',
+          serviceTier: 'priority',
+        }),
+      { sessionId: session.sessionId },
+    )
+    const prompt = page.getByRole('textbox', { name: /codex prompt/i })
+    await prompt.fill('stream-codex')
+    await prompt.press('Enter')
+    const streamed = page.getByTestId('managed-content-assistant-text').last()
+    await expect(streamed).toContainText('005 ')
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect
+      .poll(() => getOnlySnapshot(page), { timeout: 10_000 })
+      .toMatchObject({ sessionState: 'ready' })
+    await expect(
+      page.getByTestId('managed-content-assistant-text').last(),
+    ).toContainText(
       `${Array.from({ length: 120 }, (_, index) => `${index.toString().padStart(3, '0')} `).join('')}complete`,
     )
   })

@@ -3,12 +3,15 @@ import type { CheckpointRestoreMode } from '../shared/checkpoints'
 import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
-import { type AideApi, IPC_CHANNELS } from '../shared/ipc'
+import {
+  type AideApi,
+  IPC_CHANNELS,
+  type ManagedSessionIpcEvent,
+} from '../shared/ipc'
 import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
-  ManagedSessionEvent,
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionProviderSelection,
@@ -167,6 +170,8 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
+  syncManagedSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionSync, sessionId),
   getProviderCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getProviderCapabilities),
   getProviderSkills: (workspaceId: string, forceReload?: boolean) =>
@@ -278,8 +283,8 @@ const aideApi: AideApi = {
       ipcRenderer.off(IPC_CHANNELS.updatePreferencesEvent, listener)
     }
   },
-  onManagedSessionEvent: (callback: (event: ManagedSessionEvent) => void) => {
-    const listener = (_event: unknown, payload: ManagedSessionEvent) =>
+  onManagedSessionEvent: (callback) => {
+    const listener = (_event: unknown, payload: ManagedSessionIpcEvent) =>
       callback(payload)
 
     ipcRenderer.on(IPC_CHANNELS.managedSessionEvent, listener)
