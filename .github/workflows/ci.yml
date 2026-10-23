@@ -121,7 +121,7 @@ jobs:
       # v7.0.1, pinned to the upstream release commit.
       - name: Upload perf-baseline.json
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: perf-baseline
           if-no-files-found: warn
