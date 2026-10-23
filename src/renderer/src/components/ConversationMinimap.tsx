@@ -5,17 +5,35 @@ const tickSpacing = 12
 
 /** A user prompt the minimap can jump to, located by its transcript row. */
 export interface MinimapAnchor {
+  readonly id: string
   readonly prompt: string
   readonly reply: string
   readonly row: number
 }
 
-// why: off-screen rows are not mounted, so offsets come from the virtualizer's measured or estimated row starts.
+function findPrompt(
+  scroll: HTMLElement,
+  anchor: MinimapAnchor,
+): HTMLElement | null {
+  return scroll.querySelector<HTMLElement>(
+    `[data-message-id="${CSS.escape(anchor.id)}"]`,
+  )
+}
+
+// why: off-screen rows are not mounted, so an unmounted prompt falls back to its row's measured or estimated start.
 function offsetOf(
   scroll: HTMLElement,
   virtualizer: TranscriptVirtualizer | null,
   anchor: MinimapAnchor | undefined,
 ): number {
+  const prompt = anchor && findPrompt(scroll, anchor)
+  if (prompt) {
+    return (
+      prompt.getBoundingClientRect().top -
+      scroll.getBoundingClientRect().top +
+      scroll.scrollTop
+    )
+  }
   const list = scroll.firstElementChild
   const start = anchor && virtualizer?.measurementsCache[anchor.row]?.start
   return list instanceof HTMLElement && start !== undefined
@@ -36,6 +54,7 @@ export function ConversationMinimap({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const railRef = useRef<HTMLElement>(null)
   const anchorsRef = useRef(anchors)
+  const settleRef = useRef<AbortController | null>(null)
   const labels = anchors.map((_, index) => `${index + 1}. Your message`)
   const [position, setPosition] = useState({
     active: 0,
@@ -112,10 +131,28 @@ export function ConversationMinimap({
     const prefersReducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches
+    const isMounted = findPrompt(scroll, anchor) !== null
+    settleRef.current?.abort()
     scroll.scrollTo({
       top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
       behavior: isKeyboard || prefersReducedMotion ? 'instant' : 'smooth',
     })
+    if (!isMounted) {
+      // why: the row mounts only once the scroll reaches it, and a steered prompt can sit far below its row's start.
+      const settle = new AbortController()
+      settleRef.current = settle
+      scroll.addEventListener(
+        'scrollend',
+        () => {
+          settle.abort()
+          scroll.scrollTo({
+            top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
+            behavior: 'instant',
+          })
+        },
+        { signal: settle.signal },
+      )
+    }
     if (isKeyboard)
       railRef.current
         ?.querySelectorAll('button')

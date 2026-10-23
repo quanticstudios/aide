@@ -883,7 +883,7 @@ export default function ManagedAgentPane({
         )
         return row.items.flatMap((item) =>
           item.kind === 'user-prompt'
-            ? [{ prompt: item.text, reply, row: index }]
+            ? [{ id: item.id, prompt: item.text, reply, row: index }]
             : [],
         )
       }),

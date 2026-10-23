@@ -226,6 +226,50 @@ test.describe('long agent transcript', () => {
     await expect(transcript.getByText('Handled: hello')).toBeInViewport()
     await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2)
 
+    const heightBeforeSteer = await scrollHeight(page)
+    await prompt.fill('long transcript wait')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect
+      .poll(() => scrollHeight(page), { timeout: 30_000 })
+      .toBeGreaterThan(heightBeforeSteer * 1.2)
+    await prompt.fill('steer here')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(transcript.getByText('Steered: steer here')).toBeInViewport()
+    const heightAfterSteer = await scrollHeight(page)
+    await prompt.fill('long transcript')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect
+      .poll(() => scrollHeight(page), { timeout: 30_000 })
+      .toBeGreaterThan(heightAfterSteer * 1.2)
+
+    // why: the steered prompt sits deep inside a long turn's last row, so landing on the row start leaves it far below the top.
+    await page.evaluate((selector) => {
+      const scroll = document.querySelector(selector)
+      if (scroll) scroll.scrollTop = 0
+    }, content)
+    await page
+      .getByRole('navigation', { name: 'Conversation minimap' })
+      .getByRole('button', { name: 'Go to message 5. Your message' })
+      .click()
+    const steered = transcript
+      .getByTestId('managed-content-user-prompt')
+      .filter({ hasText: 'steer here' })
+    await expect(steered).toBeInViewport()
+    await expect
+      .poll(() =>
+        steered.evaluate((element) => {
+          const scroll = element.closest(
+            '[data-testid="managed-session-content"]',
+          )
+          if (!scroll) throw new Error('Transcript unavailable.')
+          return (
+            element.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top
+          )
+        }),
+      )
+      .toBeLessThan(48)
+
     test.info().annotations.push({
       type: 'long-transcript',
       description: JSON.stringify({ openMs, frames, nodesAt2000, nodesAt4000 }),

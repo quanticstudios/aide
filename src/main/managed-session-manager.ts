@@ -2658,7 +2658,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
-    if (trimmed === 'long transcript') {
+    if (trimmed === 'long transcript' || trimmed === 'long transcript wait') {
       // why: alternating kinds keeps coalesceContiguousAssistantContent from merging the texts into one item.
       for (let index = 0; index < 1000; index += 1) {
         const callId = `${turnId}-long-${index}`
@@ -2693,7 +2693,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
           type: 'content.delta',
         })
       }
-      this.finishTurn('completed')
+      if (trimmed === 'long transcript') this.finishTurn('completed')
       return
     }
 

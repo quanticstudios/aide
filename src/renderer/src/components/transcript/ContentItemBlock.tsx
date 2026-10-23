@@ -40,6 +40,7 @@ export default memo(function ContentItemBlock({
       <div className="flex justify-end">
         <div
           className="group/user-message flex max-w-[85%] flex-col items-end"
+          data-message-id={item.id}
           data-testid={`managed-content-${item.kind}`}
         >
           <div
