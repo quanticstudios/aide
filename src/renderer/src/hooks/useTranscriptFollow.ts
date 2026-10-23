@@ -56,7 +56,7 @@ export function useTranscriptFollow({
   const pendingPinRef = useRef<{ readonly previous: Element | null } | null>(
     null,
   )
-  const pinnedRef = useRef<Element | null>(null)
+  const pinActiveRef = useRef(false)
   const spacerRef = useRef(0)
   const sessionIdRef = useRef(sessionId)
 
@@ -93,7 +93,7 @@ export function useTranscriptFollow({
     sessionIdRef.current = sessionId
     followingRef.current = true
     pendingPinRef.current = null
-    pinnedRef.current = null
+    pinActiveRef.current = false
     if (contentRef.current) setSpacer(contentRef.current, 0)
     const scroll = scrollRef.current
     if (scroll) {
@@ -108,44 +108,48 @@ export function useTranscriptFollow({
 
     const settle = () => {
       const pending = pendingPinRef.current
+      // why: a turn's group remounts when it gets its turn id, so the pinned message is looked up again on every pass.
       const latest =
-        pending && observedContent
+        (pending || pinActiveRef.current) && observedContent
           ? lastMatch(observedContent, pinSelector)
           : null
       if (pending && latest && latest !== pending.previous) {
         pendingPinRef.current = null
-        pinnedRef.current = latest
+        pinActiveRef.current = true
         followingRef.current = true
       }
 
-      const pinned = pinnedRef.current
-      if (pinned && observedContent?.contains(pinned)) {
-        const scrollTop = scroll.scrollTop
-        const scrollRect = scroll.getBoundingClientRect()
-        const pinTop =
-          pinned.getBoundingClientRect().top -
-          scrollRect.top +
-          scrollTop -
-          PIN_OFFSET_PX
-        const contentEnd =
-          observedContent.getBoundingClientRect().bottom -
-          scrollRect.top +
-          scrollTop -
-          spacerRef.current +
-          Number.parseFloat(getComputedStyle(scroll).paddingBottom)
-        const spacer = pinSpacerHeight({
-          clientHeight: scroll.clientHeight,
-          contentEnd,
-          pinTop,
-        })
-        setSpacer(observedContent, spacer)
-        if (spacer === 0) pinnedRef.current = null
-        else if (followingRef.current) scroll.scrollTop = pinTop
-      } else if (pinned) {
-        pinnedRef.current = null
+      if (pinActiveRef.current && observedContent) {
+        let spacer = 0
+        if (latest) {
+          const scrollTop = scroll.scrollTop
+          const scrollRect = scroll.getBoundingClientRect()
+          const pinTop =
+            latest.getBoundingClientRect().top -
+            scrollRect.top +
+            scrollTop -
+            PIN_OFFSET_PX
+          const contentEnd =
+            observedContent.getBoundingClientRect().bottom -
+            scrollRect.top +
+            scrollTop -
+            spacerRef.current +
+            Number.parseFloat(getComputedStyle(scroll).paddingBottom)
+          spacer = pinSpacerHeight({
+            clientHeight: scroll.clientHeight,
+            contentEnd,
+            pinTop,
+          })
+          setSpacer(observedContent, spacer)
+          if (spacer > 0 && followingRef.current) scroll.scrollTop = pinTop
+        }
+        if (spacer === 0) {
+          pinActiveRef.current = false
+          setSpacer(observedContent, 0)
+        }
       }
 
-      if (!pinnedRef.current && followingRef.current) {
+      if (!pinActiveRef.current && followingRef.current) {
         scroll.scrollTop = scroll.scrollHeight
       }
       updateJumpButton(scroll)
