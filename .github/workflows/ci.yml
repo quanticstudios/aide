@@ -76,11 +76,10 @@ jobs:
       - name: Run Electron end-to-end tests under Xvfb
         run: bun run test:e2e
 
-  perf-baseline:
-    name: Performance baseline (optional)
+  perf-budget:
+    name: Perf budget
     runs-on: ubuntu-24.04
-    continue-on-error: true
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       # v6.0.2, pinned to the upstream release commit.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -113,7 +112,10 @@ jobs:
         run: bun run playwright install-deps chromium
 
       - name: Measure five streaming agents under Xvfb
-        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a bun run perf:baseline
+        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 PERF_SECONDS=60 xvfb-run -a bun run perf:baseline
+
+      - name: Check the perf budget
+        run: node scripts/perf-budget.mjs perf-baseline.json
 
       # v7.0.1, pinned to the upstream release commit.
       - name: Upload perf-baseline.json

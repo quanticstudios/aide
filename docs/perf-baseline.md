@@ -26,9 +26,11 @@ agent-ws run perf --wait -- bun run perf:baseline
 agent-ws down perf
 ```
 
-The `Performance baseline (optional)` job in `.github/workflows/ci.yml` runs it
-on every push with `continue-on-error`, and uploads `perf-baseline.json` as the
-`perf-baseline` artifact. When the run fails its final check, it also uploads
+The `Perf budget` job in `.github/workflows/ci.yml` runs it on every push with
+`PERF_SECONDS=60`, then `scripts/perf-budget.mjs` fails the job when a metric
+goes over its ceiling in `scripts/perf-budget.json`. Each key there is a dotted
+path into the JSON. The job uploads `perf-baseline.json` as the `perf-baseline`
+artifact. When the run fails its final check, it also uploads
 `perf-baseline.json.png`, a screenshot of the window.
 
 ## Options
