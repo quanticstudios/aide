@@ -47,6 +47,7 @@ export function ConversationMinimap({
     anchorsRef.current = anchors
   }, [anchors])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new anchor changes the set of offsets to measure
   useLayoutEffect(() => {
     const scroll = scrollRef.current
     const rail = railRef.current
