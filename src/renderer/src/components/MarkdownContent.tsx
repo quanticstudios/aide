@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import type { ThemedToken } from 'shiki/core'
 
 import { cachedTokens, highlight, resolveLanguage } from '../lib/highlighter'
+import { splitMarkdownBlocks } from '../lib/markdown-blocks'
 
 interface MarkdownContentProps {
   readonly text: string
@@ -129,20 +130,26 @@ const components: Components = { pre: CodeBlock }
 const remarkPlugins = [remarkGfm]
 const remarkPluginsWithLabels = [remarkGfm, remarkFormatSessionLabels]
 
+// why: a block's props are its text plus stable plugin and component references, so finished blocks skip re-parsing while the tail streams.
+const MemoizedMarkdown = memo(ReactMarkdown)
+
 export default memo(function MarkdownContent({
   text,
   formatSessionLabels = false,
 }: MarkdownContentProps) {
   return (
     <div className="prose max-w-none">
-      <ReactMarkdown
-        components={components}
-        remarkPlugins={
-          formatSessionLabels ? remarkPluginsWithLabels : remarkPlugins
-        }
-      >
-        {text}
-      </ReactMarkdown>
+      {splitMarkdownBlocks(text).map((block) => (
+        <MemoizedMarkdown
+          components={components}
+          key={block.start}
+          remarkPlugins={
+            formatSessionLabels ? remarkPluginsWithLabels : remarkPlugins
+          }
+        >
+          {block.text}
+        </MemoizedMarkdown>
+      ))}
     </div>
   )
 })
