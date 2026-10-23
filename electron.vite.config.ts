@@ -39,6 +39,10 @@ export default defineConfig({
     resolve: {
       alias: {
         '@': resolve(root, 'src/renderer/src'),
+        '@git-diff-view/lowlight': resolve(
+          root,
+          'src/renderer/src/lib/git-diff-view-lowlight.ts',
+        ),
       },
     },
     plugins: [tailwindcss(), react()],

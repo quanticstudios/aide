@@ -133,6 +133,9 @@ test.describe('turn diff chip', () => {
     const files = page.getByTestId('turn-diff-files')
     await expect(files).toContainText('README.md')
     await expect(files).toContainText('edited by the turn')
+    await expect(
+      files.locator('[data-component="git-diff-view"]'),
+    ).toHaveAttribute('data-highlighter', 'aide-shiki')
     await page.screenshot({ path: 'test-results/agent-turn-diff.png' })
 
     await chip.click()
