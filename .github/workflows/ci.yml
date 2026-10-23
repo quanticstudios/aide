@@ -75,3 +75,51 @@ jobs:
 
       - name: Run Electron end-to-end tests under Xvfb
         run: bun run test:e2e
+
+  perf-baseline:
+    name: Performance baseline (optional)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      # v6.0.2, pinned to the upstream release commit.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      # v6.4.0, pinned to the upstream release commit; package.json requires Node 24.17.0.
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.17.0
+          package-manager-cache: false
+
+      # v2.2.0, pinned to the upstream release commit; package.json locks Bun 1.3.14.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Rebuild native dependencies for Electron
+        run: bun run rebuild:native
+
+      - name: Install Electron's Linux dependencies
+        run: bun run playwright install-deps chromium
+
+      - name: Measure five streaming agents under Xvfb
+        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a bun run perf:baseline
+
+      # v7.0.1, pinned to the upstream release commit.
+      - name: Upload perf-baseline.json
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: perf-baseline
+          if-no-files-found: warn
+          path: |
+            perf-baseline.json
+            perf-baseline.json.png
