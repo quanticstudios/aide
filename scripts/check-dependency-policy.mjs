@@ -5,7 +5,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import TOML from '@iarna/toml'
 
 export const REQUIRED_OVERRIDES = Object.freeze({
-  dompurify: '3.4.17',
   'fast-uri': '3.1.8',
   hono: '4.12.25',
   'ip-address': '10.3.1',

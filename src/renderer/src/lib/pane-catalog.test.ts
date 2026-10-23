@@ -14,12 +14,10 @@ describe('pane catalog', () => {
   it('lists all pane templates including hidden ones', () => {
     expect(listAllPaneCatalogEntries().map((entry) => entry.id)).toEqual([
       'agent',
-      'chat',
       'terminal',
       'terminal-claude',
       'terminal-codex',
       'git',
-      'editor',
       'preview',
     ])
   })
@@ -58,6 +56,8 @@ describe('pane catalog', () => {
     expect(resolvePaneType('Claude')).toBe('terminal')
     expect(resolvePaneType('Codex')).toBe('terminal')
     expect(resolvePaneType('Agent')).toBe('terminal')
+    expect(resolvePaneType('Chat')).toBeNull()
+    expect(resolvePaneType('Editor')).toBeNull()
     expect(resolvePaneType('Unknown')).toBeNull()
   })
 
@@ -81,12 +81,12 @@ describe('pane catalog', () => {
       resolvedType: 'terminal',
     })
 
-    expect(createFallbackPaneMetadata('mystery-pane')).toEqual({
+    expect(createFallbackPaneMetadata('editor')).toEqual({
       metadata: {
         accent: 'blue',
-        description: 'Task and coordination surface.',
-        label: 'Chat task thread',
-        type: 'Chat',
+        description: 'This pane type is no longer available.',
+        label: 'Unavailable pane',
+        type: 'Unavailable',
       },
       resolvedType: null,
     })

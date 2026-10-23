@@ -6,7 +6,6 @@ import type {
 } from '../../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
 import { PaneLoadBoundary } from '../components/PaneLoadBoundary'
-import PlaceholderWorkspaceView from '../components/PlaceholderWorkspaceView'
 import type {
   PreviewBrowserControl,
   PreviewPresentation,
@@ -59,12 +58,10 @@ export interface PaneRegistryEntry {
   render: (args: PaneRenderArgs) => ReactNode
 }
 
-const placeholderRenderer = (args: PaneRenderArgs): ReactNode => (
-  <PlaceholderWorkspaceView
-    pane={args.pane}
-    project={args.project}
-    workspace={args.workspace}
-  />
+const paneNoticeRenderer = (args: PaneRenderArgs): ReactNode => (
+  <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+    {args.pane.description}
+  </div>
 )
 
 const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
@@ -117,7 +114,7 @@ const previewRenderer = (args: PaneRenderArgs): ReactNode =>
       />
     </PaneLoadBoundary>
   ) : (
-    placeholderRenderer(args)
+    paneNoticeRenderer(args)
   )
 
 const gitRenderer = (args: PaneRenderArgs): ReactNode => (
@@ -139,21 +136,13 @@ const paneRegistryEntries = listAllPaneCatalogEntries().map((entry) => ({
       ? terminalRenderer
       : entry.type === 'git'
         ? gitRenderer
-        : entry.type === 'preview'
-          ? previewRenderer
-          : placeholderRenderer,
+        : previewRenderer,
   type: entry.type,
 })) satisfies readonly PaneRegistryEntry[]
 
 const paneRegistry = Object.fromEntries(
   paneRegistryEntries.map((entry) => [entry.type, entry]),
-) as Record<PaneRegistryEntry['type'], PaneRegistryEntry>
-
-export function getPaneRegistryEntry(
-  paneType: PaneRegistryEntry['type'],
-): PaneRegistryEntry {
-  return paneRegistry[paneType]
-}
+) as Partial<Record<PaneRegistryEntry['type'], PaneRegistryEntry>>
 
 export function createFallbackPane(paneId: string): ResolvedPaneMetadata {
   const { resolvedType } = createFallbackPaneMetadata(paneId)
@@ -164,13 +153,14 @@ export function createFallbackPane(paneId: string): ResolvedPaneMetadata {
     ...resolvePaneMetadata(paneId),
     description:
       registryEntry?.defaultMetadata.description ??
-      'Placeholder pane metadata is missing for this layout node.',
+      'This pane type is no longer available.',
     label: registryEntry ? resolvePaneMetadata(paneId).label : paneId,
   }
 }
 
 export function renderPaneFromRegistry(args: PaneRenderArgs): ReactNode {
-  const paneType = resolvePaneType(args.pane.type) ?? 'chat'
+  const paneType = resolvePaneType(args.pane.type)
+  const entry = paneType ? paneRegistry[paneType] : undefined
 
-  return getPaneRegistryEntry(paneType).render(args)
+  return entry ? entry.render(args) : paneNoticeRenderer(args)
 }
