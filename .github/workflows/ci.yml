@@ -112,9 +112,6 @@ jobs:
       - name: Verify native PTY Electron ABI
         run: bun run test:native
 
-      - name: Install Electron's Linux dependencies
-        run: bun run playwright install-deps chromium
-
       - name: Measure five streaming agents under Xvfb
         run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 PERF_SECONDS=60 xvfb-run -a bun run perf:baseline
 
