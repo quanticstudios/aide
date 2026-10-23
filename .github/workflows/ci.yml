@@ -108,6 +108,10 @@ jobs:
       - name: Rebuild native dependencies for Electron
         run: bun run rebuild:native
 
+      # why: the electron package downloads its binary on first require, and this is the first.
+      - name: Verify native PTY Electron ABI
+        run: bun run test:native
+
       - name: Install Electron's Linux dependencies
         run: bun run playwright install-deps chromium
 
