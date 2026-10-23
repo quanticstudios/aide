@@ -138,12 +138,27 @@ test.describe('transcript follow', () => {
     await expect.poll(() => distanceFromBottom(page)).toBeLessThanOrEqual(40)
     await expect(page.getByText('line 299')).toBeInViewport()
 
+    await prompt.fill('short question')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(replies.nth(1)).toContainText('Handled: short question')
+    const question = page.getByTestId('managed-content-user-prompt').nth(1)
+    const questionOffset = () =>
+      question.evaluate(
+        (el) =>
+          el.getBoundingClientRect().top -
+          (el
+            .closest('[data-testid="managed-session-content"]')
+            ?.getBoundingClientRect().top ?? 0),
+      )
+    await expect.poll(questionOffset).toBeLessThanOrEqual(40)
+    expect(await questionOffset()).toBeGreaterThanOrEqual(0)
+
     await prompt.fill('stream-lines')
     await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(replies.nth(1)).toContainText('line 060')
+    await expect(replies.nth(2)).toContainText('line 060')
     await content.hover()
     await page.mouse.wheel(0, -2000)
-    await expect(replies.nth(1)).toContainText('line 299')
+    await expect(replies.nth(2)).toContainText('line 299')
     expect(await distanceFromBottom(page)).toBeGreaterThan(400)
 
     const jump = page.getByRole('button', { name: /jump to latest/i })

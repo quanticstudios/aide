@@ -251,6 +251,7 @@ export default function ManagedAgentPane({
       contentRef: transcriptRef,
       pinSelector: '[data-testid="managed-content-user-prompt"]',
       scrollRef,
+      sessionId,
     })
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'

@@ -14,16 +14,33 @@ function lastMatch(content: HTMLElement, selector: string): Element | null {
 }
 
 /**
+ * Trailing space the content needs so `pinTop` can reach the top of the viewport; 0 once the content is tall enough.
+ */
+export function pinSpacerHeight({
+  clientHeight,
+  contentEnd,
+  pinTop,
+}: {
+  readonly clientHeight: number
+  readonly contentEnd: number
+  readonly pinTop: number
+}): number {
+  return Math.max(0, Math.ceil(pinTop + clientHeight - contentEnd))
+}
+
+/**
  * Keeps a transcript at the bottom while the reader stays near it, even as one item's text grows.
  */
 export function useTranscriptFollow({
   contentRef,
   pinSelector,
   scrollRef,
+  sessionId,
 }: {
   readonly contentRef: RefObject<HTMLElement | null>
   readonly pinSelector: string
   readonly scrollRef: RefObject<HTMLElement | null>
+  readonly sessionId: string
 }): {
   readonly pinNextMessage: () => void
   readonly scrollToLatest: () => void
@@ -39,6 +56,14 @@ export function useTranscriptFollow({
   const pendingPinRef = useRef<{ readonly previous: Element | null } | null>(
     null,
   )
+  const pinnedRef = useRef<Element | null>(null)
+  const spacerRef = useRef(0)
+  const sessionIdRef = useRef(sessionId)
+
+  const setSpacer = useCallback((content: HTMLElement, height: number) => {
+    spacerRef.current = height
+    content.style.paddingBottom = height > 0 ? `${height}px` : ''
+  }, [])
 
   const updateJumpButton = useCallback((scroll: HTMLElement) => {
     if (distanceFromBottom(scroll) <= FOLLOW_THRESHOLD_PX) {
@@ -64,6 +89,20 @@ export function useTranscriptFollow({
   })
 
   useEffect(() => {
+    if (sessionIdRef.current === sessionId) return
+    sessionIdRef.current = sessionId
+    followingRef.current = true
+    pendingPinRef.current = null
+    pinnedRef.current = null
+    if (contentRef.current) setSpacer(contentRef.current, 0)
+    const scroll = scrollRef.current
+    if (scroll) {
+      scroll.scrollTop = scroll.scrollHeight
+      updateJumpButton(scroll)
+    }
+  }, [contentRef, scrollRef, sessionId, setSpacer, updateJumpButton])
+
+  useEffect(() => {
     const scroll = scrollRef.current
     if (!scroll) return
 
@@ -75,13 +114,38 @@ export function useTranscriptFollow({
           : null
       if (pending && latest && latest !== pending.previous) {
         pendingPinRef.current = null
-        scroll.scrollTop =
-          latest.getBoundingClientRect().top -
-          scroll.getBoundingClientRect().top +
-          scroll.scrollTop -
+        pinnedRef.current = latest
+        followingRef.current = true
+      }
+
+      const pinned = pinnedRef.current
+      if (pinned && observedContent?.contains(pinned)) {
+        const scrollTop = scroll.scrollTop
+        const scrollRect = scroll.getBoundingClientRect()
+        const pinTop =
+          pinned.getBoundingClientRect().top -
+          scrollRect.top +
+          scrollTop -
           PIN_OFFSET_PX
-        followingRef.current = distanceFromBottom(scroll) <= FOLLOW_THRESHOLD_PX
-      } else if (followingRef.current) {
+        const contentEnd =
+          observedContent.getBoundingClientRect().bottom -
+          scrollRect.top +
+          scrollTop -
+          spacerRef.current +
+          Number.parseFloat(getComputedStyle(scroll).paddingBottom)
+        const spacer = pinSpacerHeight({
+          clientHeight: scroll.clientHeight,
+          contentEnd,
+          pinTop,
+        })
+        setSpacer(observedContent, spacer)
+        if (spacer === 0) pinnedRef.current = null
+        else if (followingRef.current) scroll.scrollTop = pinTop
+      } else if (pinned) {
+        pinnedRef.current = null
+      }
+
+      if (!pinnedRef.current && followingRef.current) {
         scroll.scrollTop = scroll.scrollHeight
       }
       updateJumpButton(scroll)
@@ -129,7 +193,7 @@ export function useTranscriptFollow({
       scroll.removeEventListener('keydown', handleKeyDown)
       scroll.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [observedContent, pinSelector, scrollRef, updateJumpButton])
+  }, [observedContent, pinSelector, scrollRef, setSpacer, updateJumpButton])
 
   useEffect(
     () => () => {
