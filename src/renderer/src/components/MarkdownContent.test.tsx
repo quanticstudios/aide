@@ -164,6 +164,21 @@ describe('splitMarkdownBlocks', () => {
     ])
   })
 
+  it('renders like one parse once a definition with escaped brackets arrives', () => {
+    const text = `${reply}\n\nSee [a\\]b].\n\n[a\\]b]: https://example.dev`
+    expect(splitMarkdownBlocks(text)).toHaveLength(1)
+    expect(
+      withoutBlockGaps(renderToStaticMarkup(<MarkdownContent text={text} />)),
+    ).toBe(renderWhole(text))
+  })
+
+  it('parses CDATA and processing instructions whole', () => {
+    expect(splitMarkdownBlocks('<![CDATA[\n\nText\n]]>\n\nMore')).toHaveLength(
+      1,
+    )
+    expect(splitMarkdownBlocks('<?xml\n\nText\n?>\n\nMore')).toHaveLength(1)
+  })
+
   it('parses documents with link definitions or raw HTML whole', () => {
     expect(splitMarkdownBlocks('See [a].\n\n[a]: https://x.dev')).toHaveLength(
       1,
