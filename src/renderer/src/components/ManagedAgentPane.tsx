@@ -877,13 +877,15 @@ export default function ManagedAgentPane({
   const minimapAnchors = useMemo(
     () =>
       transcriptRows.flatMap((row, index): MinimapAnchor[] => {
-        const reply =
-          row.group.items
-            .filter((item) => item.kind === 'assistant-text')
-            .at(-1)?.text ?? ''
-        return row.items
-          .filter((item) => item.kind === 'user-prompt')
-          .map((item) => ({ prompt: item.text, reply, row: index }))
+        const reply = row.group.items.reduce(
+          (last, item) => (item.kind === 'assistant-text' ? item.text : last),
+          '',
+        )
+        return row.items.flatMap((item) =>
+          item.kind === 'user-prompt'
+            ? [{ prompt: item.text, reply, row: index }]
+            : [],
+        )
       }),
     [transcriptRows],
   )
