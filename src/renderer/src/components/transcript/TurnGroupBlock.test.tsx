@@ -6,6 +6,10 @@ import type {
   ManagedSessionContentItem,
   ManagedSessionSnapshot,
 } from '../../../../shared/managed-session'
+import {
+  applyDelta,
+  SESSION_DELTA_VERSION,
+} from '../../../../shared/session-delta'
 import { shareSnapshotContent } from '../../lib/managed-session-events'
 import { groupContentByTurn } from '../../lib/managed-session-grouping'
 import TurnGroupBlock from './TurnGroupBlock'
@@ -101,56 +105,85 @@ function Transcript({
   ))
 }
 
+const STREAMED_TOKENS = 500
+
+function initialContent(): ManagedSessionContentItem[] {
+  return [
+    contentItem('old-prompt', 'turn-1', 'user-prompt', 'Earlier question'),
+    contentItem('old-reply', 'turn-1', 'assistant-text', 'Earlier reply'),
+    contentItem('prompt', 'turn-2', 'user-prompt', 'Question'),
+    contentItem('thinking', 'turn-2', 'assistant-text', 'Thinking aloud', {
+      phase: 'commentary',
+    }),
+    contentItem('tool', 'turn-2', 'tool-call', '', {
+      tool: {
+        callId: 'call-1',
+        input: {},
+        status: 'completed',
+        toolName: 'Read',
+      },
+    }),
+    contentItem('answer', 'turn-2', 'assistant-text', 'Answer'),
+  ]
+}
+
+// why: IPC snapshots carry fresh copies of every item, and the hub shares the unchanged ones back.
+function streamSnapshot(
+  snapshot: ManagedSessionSnapshot,
+  token: number,
+): ManagedSessionSnapshot {
+  const content = structuredClone(snapshot.content).map((item) =>
+    item.id === 'answer' ? { ...item, text: `${item.text} t${token}` } : item,
+  )
+  return shareSnapshotContent(snapshot, { ...snapshot, content })
+}
+
+function streamDelta(
+  snapshot: ManagedSessionSnapshot,
+  token: number,
+): ManagedSessionSnapshot {
+  return applyDelta(
+    { seq: token, snapshot },
+    {
+      itemId: 'answer',
+      itemUpdatedAt: snapshot.updatedAt,
+      revision: token + 1,
+      seq: token + 1,
+      sessionId: 'session',
+      text: ` t${token}`,
+      type: 'item.text.append',
+      updatedAt: snapshot.updatedAt,
+      version: SESSION_DELTA_VERSION,
+    },
+  ).snapshot
+}
+
 describe('TurnGroupBlock', () => {
   afterEach(() => {
     rowUpdates.length = 0
   })
 
-  it('re-renders only the streaming row while 500 tokens arrive', () => {
+  it.each([
+    ['snapshots', streamSnapshot],
+    ['deltas', streamDelta],
+  ])('re-renders only the streaming row while %s stream 500 tokens', (_, stream) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
-    const content = [
-      contentItem('old-prompt', 'turn-1', 'user-prompt', 'Earlier question'),
-      contentItem('old-reply', 'turn-1', 'assistant-text', 'Earlier reply'),
-      contentItem('prompt', 'turn-2', 'user-prompt', 'Question'),
-      contentItem('thinking', 'turn-2', 'assistant-text', 'Thinking aloud', {
-        phase: 'commentary',
-      }),
-      contentItem('tool', 'turn-2', 'tool-call', '', {
-        tool: {
-          callId: 'call-1',
-          input: {},
-          status: 'completed',
-          toolName: 'Read',
-        },
-      }),
-      contentItem('answer', 'turn-2', 'assistant-text', 'Answer'),
-    ]
-    const container = document.createElement('div')
-    const root = createRoot(container)
-    let snapshot = { content } as ManagedSessionSnapshot
+    const root = createRoot(document.createElement('div'))
+    let snapshot = {
+      content: initialContent(),
+      revision: 0,
+      sessionId: 'session',
+      updatedAt: '2026-10-23T12:00:00.000Z',
+    } as ManagedSessionSnapshot
     act(() => root.render(<Transcript content={snapshot.content} />))
 
-    for (let token = 0; token < 500; token += 1) {
-      // why: every IPC snapshot carries fresh copies of every item, as the context bridge delivers them.
-      const next = structuredClone(snapshot.content).map((item) =>
-        item.id === 'answer'
-          ? { ...item, text: `${item.text} t${token}` }
-          : item,
-      )
-      snapshot = shareSnapshotContent(snapshot, {
-        ...snapshot,
-        content: next,
-      })
+    for (let token = 0; token < STREAMED_TOKENS; token += 1) {
+      snapshot = stream(snapshot, token)
       act(() => root.render(<Transcript content={snapshot.content} />))
     }
 
-    console.log(
-      'row updates',
-      rowUpdates.length,
-      [...new Set(rowUpdates)].join(','),
-    )
     expect(new Set(rowUpdates)).toEqual(new Set(['Answer']))
-    expect(rowUpdates).toHaveLength(500)
+    expect(rowUpdates).toHaveLength(STREAMED_TOKENS)
     act(() => root.unmount())
   })
 })
