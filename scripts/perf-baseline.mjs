@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -158,7 +159,8 @@ git(repository, 'commit', '-m', 'Initial commit')
 const launchedAt = performance.now()
 const app = await electron.launch({
   args: [root, '--force-device-scale-factor=1'],
-  executablePath: path.join(root, 'node_modules/electron/dist/electron'),
+  // why: requiring electron downloads its binary when bun install skipped the postinstall.
+  executablePath: createRequire(import.meta.url)('electron'),
   env: {
     ...process.env,
     AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
