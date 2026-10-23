@@ -34,6 +34,7 @@ import {
 import type { ProviderSkill } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { isEqualValue } from '../lib/deep-equal'
+import { requestFrameFlush } from '../lib/frame-flush'
 import { saveManagedDraft } from '../lib/managed-draft-storage'
 import {
   type ManagedSessionUpdate,
@@ -554,22 +555,24 @@ export default function ManagedAgentPane({
 
       applySnapshot(update.snapshot)
     }
+    const flushDeferredUpdates = () => {
+      const deferred = deferredUpdatesRef.current.splice(0)
+      for (const update of deferred) handleUpdate(update)
+    }
+    let cancelFrameFlush = () => {}
     const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
-      if (isWorkspaceVisibleRef.current) {
-        handleUpdate(update)
-        return
-      }
       const deferred = deferredUpdatesRef.current
       if (update.type === 'snapshot' && deferred.at(-1)?.type === 'snapshot') {
         deferred[deferred.length - 1] = update
       } else {
         deferred.push(update)
       }
+      // why: every visible pane flushes in the same animation frame, so streaming agents cost one React commit per frame instead of one per update.
+      if (isWorkspaceVisibleRef.current) {
+        cancelFrameFlush = requestFrameFlush(flushDeferredUpdates)
+      }
     })
-    flushDeferredUpdatesRef.current = () => {
-      const deferred = deferredUpdatesRef.current.splice(0)
-      for (const update of deferred) handleUpdate(update)
-    }
+    flushDeferredUpdatesRef.current = flushDeferredUpdates
 
     void api.getManagedSessionSnapshots().then(async (snapshots) => {
       const existing = snapshots[sessionId]
@@ -589,6 +592,7 @@ export default function ManagedAgentPane({
     })
 
     return () => {
+      cancelFrameFlush()
       deferredUpdatesRef.current = []
       flushDeferredUpdatesRef.current = () => undefined
       unsubscribe()

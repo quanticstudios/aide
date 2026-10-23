@@ -7,7 +7,7 @@ import {
   History,
   Terminal,
 } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
 import { cn } from '../../lib/utils'
 import ManagedComposerAttachments from '../ManagedComposerAttachments'
@@ -18,15 +18,19 @@ import { formatMessageTime } from './format-message-time'
 import MessageCopyButton from './MessageCopyButton'
 import ToolCallBlock from './ToolCallBlock'
 
-export default function ContentItemBlock({
+export default memo(function ContentItemBlock({
+  checkpointId = null,
   editFromHereDisabledReason = null,
   item,
   onEditFromHere,
   showProvider = true,
 }: {
+  readonly checkpointId?: string | null
   readonly editFromHereDisabledReason?: string | null
   readonly item: ManagedSessionContentItem
-  readonly onEditFromHere?: (() => void) | undefined
+  readonly onEditFromHere?:
+    | ((checkpointId: string, item: ManagedSessionContentItem) => void)
+    | undefined
   readonly showProvider?: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -59,7 +63,7 @@ export default function ContentItemBlock({
               {formatMessageTime(item.updatedAt)}
             </time>
             <MessageCopyButton text={item.text} kind="message" />
-            {onEditFromHere ? (
+            {checkpointId && onEditFromHere ? (
               <IconTooltip
                 label={editFromHereDisabledReason ?? 'Rewind to this message'}
               >
@@ -67,7 +71,7 @@ export default function ContentItemBlock({
                   aria-label="Edit from here"
                   className="h-7 gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground"
                   isDisabled={Boolean(editFromHereDisabledReason)}
-                  onPress={onEditFromHere}
+                  onPress={() => onEditFromHere(checkpointId, item)}
                   size="sm"
                   variant="ghost"
                 >
@@ -222,4 +226,4 @@ export default function ContentItemBlock({
       )}
     </div>
   )
-}
+})

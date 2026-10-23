@@ -1,8 +1,9 @@
 import { Check, ChevronRight, Circle, LoaderCircle } from 'lucide-react'
+import { memo } from 'react'
 import type { ManagedSessionTask } from '../../../../shared/managed-session'
 import { cn } from '../../lib/utils'
 
-export default function TaskListBlock({
+export default memo(function TaskListBlock({
   isRunning,
   tasks,
 }: {
@@ -50,4 +51,4 @@ export default function TaskListBlock({
       </ul>
     </details>
   )
-}
+})

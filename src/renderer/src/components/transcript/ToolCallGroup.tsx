@@ -1,8 +1,9 @@
 import { ChevronRight, LoaderCircle } from 'lucide-react'
+import { memo } from 'react'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
 import ToolCallBlock from './ToolCallBlock'
 
-export default function ToolCallGroup({
+function ToolCallGroup({
   items,
 }: {
   readonly items: readonly ManagedSessionContentItem[]
@@ -37,3 +38,18 @@ export default function ToolCallGroup({
     </details>
   )
 }
+
+type ToolCallGroupProps = Parameters<typeof ToolCallGroup>[0]
+
+// why: the turn slices a fresh items array on every snapshot, so equality compares the shared item objects instead.
+function areToolCallGroupPropsEqual(
+  previous: ToolCallGroupProps,
+  next: ToolCallGroupProps,
+): boolean {
+  return (
+    previous.items.length === next.items.length &&
+    previous.items.every((item, index) => item === next.items[index])
+  )
+}
+
+export default memo(ToolCallGroup, areToolCallGroupPropsEqual)
