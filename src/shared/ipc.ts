@@ -47,7 +47,6 @@ import type {
   ManagedSessionAttachment,
   ManagedSessionConfig,
   ManagedSessionDecision,
-  ManagedSessionEvent,
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionProviderSelection,
@@ -74,6 +73,7 @@ import type {
 } from './provider-skills'
 import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
+import type { SessionDelta, SessionDeltaState } from './session-delta'
 import type { AppShortcutEvent } from './shortcuts'
 import type { TaskLibrarySnapshot, TaskMetadataUpdate } from './task-library'
 import type {
@@ -99,6 +99,11 @@ import type {
   WorkspaceSetupEvent,
   WorkspaceSetupSnapshot,
 } from './workspace-setup'
+
+/** What main sends on `managedSessionEvent`: one frame's deltas for a session, or its removal. */
+export type ManagedSessionIpcEvent =
+  | { deltas: SessionDelta[]; sessionId: string; type: 'deltas' }
+  | { revision: number; sessionId: string; type: 'removed' }
 
 export const IPC_CHANNELS = {
   getPersistedStateRecovery: 'app:get-persisted-state-recovery',
@@ -191,6 +196,7 @@ export const IPC_CHANNELS = {
   managedSessionConfigureMode: 'managed-session:set-interaction-mode',
   managedSessionConfigurePermissionMode: 'managed-session:set-permission-mode',
   managedSessionEvent: 'managed-session:event',
+  managedSessionSync: 'managed-session:sync',
   managedSessionInterrupt: 'managed-session:interrupt',
   managedSessionPickFiles: 'managed-session:pick-files',
   managedSessionSearchFiles: 'managed-session:search-files',
@@ -362,6 +368,7 @@ export interface AideApi {
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
+  syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
   getTaskTranscript: (
     sessionId: string,
@@ -441,7 +448,7 @@ export interface AideApi {
   ) => Promise<string[]>
   killTerminalSession: (sessionId: string) => Promise<void>
   onManagedSessionEvent: (
-    callback: (event: ManagedSessionEvent) => void,
+    callback: (event: ManagedSessionIpcEvent) => void,
   ) => () => void
   onPreviewEvent: (
     callback: (event: WorkspacePreviewEvent) => void,

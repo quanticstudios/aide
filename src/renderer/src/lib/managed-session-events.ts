@@ -1,8 +1,13 @@
+import type { ManagedSessionIpcEvent } from '../../../shared/ipc'
 import type {
   ManagedSessionContentItem,
-  ManagedSessionEvent,
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
+import {
+  applyDelta,
+  SessionDeltaResyncError,
+  type SessionDeltaState,
+} from '../../../shared/session-delta'
 import { isEqualValue } from './deep-equal'
 
 export type ManagedSessionUpdate =
@@ -13,13 +18,19 @@ type Listener = (update: ManagedSessionUpdate) => void
 
 interface ManagedSessionEventSource {
   onManagedSessionEvent: (
-    callback: (event: ManagedSessionEvent) => void,
+    callback: (event: ManagedSessionIpcEvent) => void,
   ) => () => void
+  syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
+}
+
+interface SessionEntry {
+  readonly listeners: Set<Listener>
+  state: SessionDeltaState | null
+  syncing: boolean
 }
 
 interface Hub {
-  readonly lastSnapshots: Map<string, ManagedSessionSnapshot>
-  readonly listeners: Map<string, Set<Listener>>
+  readonly sessions: Map<string, SessionEntry>
   unsubscribe: (() => void) | null
 }
 
@@ -49,37 +60,78 @@ export function shareSnapshotContent(
 function getHub(source: ManagedSessionEventSource): Hub {
   let hub = hubs.get(source)
   if (!hub) {
-    hub = { lastSnapshots: new Map(), listeners: new Map(), unsubscribe: null }
+    hub = { sessions: new Map(), unsubscribe: null }
     hubs.set(source, hub)
   }
   return hub
 }
 
-function dispatch(hub: Hub, event: ManagedSessionEvent): void {
-  if (event.type === 'removed') {
-    hub.lastSnapshots.delete(event.sessionId)
-    for (const listener of hub.listeners.get(event.sessionId) ?? []) {
-      listener({ type: 'removed' })
-    }
-    return
-  }
-
-  const { sessionId } = event.snapshot
-  const listeners = hub.listeners.get(sessionId)
-  if (!listeners) return
-  const snapshot = shareSnapshotContent(
-    hub.lastSnapshots.get(sessionId),
-    event.snapshot,
-  )
-  hub.lastSnapshots.set(sessionId, snapshot)
-  for (const listener of listeners) {
+function publish(
+  entry: SessionEntry,
+  state: SessionDeltaState,
+  replaced: boolean,
+): void {
+  const snapshot = replaced
+    ? shareSnapshotContent(entry.state?.snapshot, state.snapshot)
+    : state.snapshot
+  entry.state = { seq: state.seq, snapshot }
+  for (const listener of entry.listeners) {
     listener({ snapshot, type: 'snapshot' })
   }
 }
 
+function resync(
+  source: ManagedSessionEventSource,
+  hub: Hub,
+  sessionId: string,
+  entry: SessionEntry,
+): void {
+  if (entry.syncing) return
+  entry.syncing = true
+  void source
+    .syncManagedSession(sessionId)
+    .catch(() => null)
+    .then((state) => {
+      if (hub.sessions.get(sessionId) !== entry) return
+      entry.syncing = false
+      if (state && state.seq > (entry.state?.seq ?? 0)) {
+        publish(entry, state, true)
+      }
+    })
+}
+
+function dispatch(
+  source: ManagedSessionEventSource,
+  hub: Hub,
+  event: ManagedSessionIpcEvent,
+): void {
+  const entry = hub.sessions.get(event.sessionId)
+  if (!entry) return
+  if (event.type === 'removed') {
+    entry.state = null
+    for (const listener of entry.listeners) listener({ type: 'removed' })
+    return
+  }
+
+  let state = entry.state
+  let replaced = false
+  try {
+    for (const delta of event.deltas) {
+      if (state && delta.seq <= state.seq) continue
+      state = applyDelta(state, delta)
+      if (delta.type === 'snapshot') replaced = true
+    }
+  } catch (error) {
+    if (!(error instanceof SessionDeltaResyncError)) throw error
+    resync(source, hub, event.sessionId, entry)
+    return
+  }
+  if (state && state !== entry.state) publish(entry, state, replaced)
+}
+
 /**
- * Subscribes `listener` to one session's events through a single shared IPC subscription.
- * @remarks Each IPC callback deep-copies its payload across the context bridge, so one subscription per window keeps a snapshot to one copy.
+ * Subscribes `listener` to one session's snapshots, rebuilt from deltas over a single shared IPC subscription.
+ * @remarks The first listener for a session fetches a snapshot from main; a seq gap fetches a fresh one.
  */
 export function subscribeManagedSession(
   source: ManagedSessionEventSource,
@@ -87,26 +139,29 @@ export function subscribeManagedSession(
   listener: Listener,
 ): () => void {
   const hub = getHub(source)
-  let listeners = hub.listeners.get(sessionId)
-  if (!listeners) {
-    listeners = new Set()
-    hub.listeners.set(sessionId, listeners)
-  }
-  listeners.add(listener)
   hub.unsubscribe ??= source.onManagedSessionEvent((event) =>
-    dispatch(hub, event),
+    dispatch(source, hub, event),
   )
+  let entry = hub.sessions.get(sessionId)
+  if (!entry) {
+    entry = { listeners: new Set(), state: null, syncing: false }
+    hub.sessions.set(sessionId, entry)
+    resync(source, hub, sessionId, entry)
+  }
+  const { listeners } = entry
+  listeners.add(listener)
 
   return () => {
     if (!listeners.delete(listener)) return
-    if (listeners.size === 0 && hub.listeners.get(sessionId) === listeners) {
-      hub.listeners.delete(sessionId)
-      hub.lastSnapshots.delete(sessionId)
+    if (
+      listeners.size === 0 &&
+      hub.sessions.get(sessionId)?.listeners === listeners
+    ) {
+      hub.sessions.delete(sessionId)
     }
-    if (hub.listeners.size === 0) {
+    if (hub.sessions.size === 0) {
       hub.unsubscribe?.()
       hub.unsubscribe = null
-      hub.lastSnapshots.clear()
     }
   }
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { diffSnapshots } from '../../../main/managed-session-ipc'
+import type { ManagedSessionIpcEvent } from '../../../shared/ipc'
 import type {
   ManagedSessionContentItem,
-  ManagedSessionEvent,
   ManagedSessionSnapshot,
 } from '../../../shared/managed-session'
+import type { SessionDeltaState } from '../../../shared/session-delta'
 import {
   type ManagedSessionUpdate,
   shareSnapshotContent,
@@ -60,24 +62,48 @@ function snapshot(
   } as ManagedSessionSnapshot
 }
 
-function createSource() {
-  let emit: ((event: ManagedSessionEvent) => void) | null = null
+function createSource(
+  sync: (sessionId: string) => SessionDeltaState | null = () => null,
+) {
+  let emit: ((event: ManagedSessionIpcEvent) => void) | null = null
   const unsubscribe = vi.fn(() => {
     emit = null
   })
   const source = {
     onManagedSessionEvent: vi.fn(
-      (callback: (event: ManagedSessionEvent) => void) => {
+      (callback: (event: ManagedSessionIpcEvent) => void) => {
         emit = callback
         return unsubscribe
       },
     ),
+    syncManagedSession: vi.fn(async (sessionId: string) => sync(sessionId)),
   }
   return {
-    emit: (event: ManagedSessionEvent) => emit?.(event),
+    emit: (event: ManagedSessionIpcEvent) => emit?.(event),
     source,
     unsubscribe,
   }
+}
+
+/** Main's side of one session: diffs each snapshot against the last and keeps the seq. */
+function createMain(initial: ManagedSessionSnapshot) {
+  let state: SessionDeltaState = { seq: 1, snapshot: initial }
+  return {
+    next(next: ManagedSessionSnapshot): ManagedSessionIpcEvent {
+      const deltas = diffSnapshots(state, next)
+      state = { seq: deltas.at(-1)?.seq ?? state.seq, snapshot: next }
+      return { deltas, sessionId: next.sessionId, type: 'deltas' }
+    },
+    get state() {
+      return state
+    },
+  }
+}
+
+function text(update: ManagedSessionUpdate | undefined): string | undefined {
+  return update?.type === 'snapshot'
+    ? update.snapshot.content.map((entry) => entry.text).join('|')
+    : undefined
 }
 
 describe('shareSnapshotContent', () => {
@@ -124,8 +150,11 @@ describe('shareSnapshotContent', () => {
 })
 
 describe('subscribeManagedSession', () => {
-  it('opens one IPC subscription and routes events to their session only', () => {
-    const { emit, source, unsubscribe } = createSource()
+  it('opens one IPC subscription and routes events to their session only', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'x')]))
+    const { emit, source, unsubscribe } = createSource((sessionId) =>
+      sessionId === 'one' ? main.state : null,
+    )
     const first: ManagedSessionUpdate[] = []
     const second: ManagedSessionUpdate[] = []
 
@@ -135,21 +164,62 @@ describe('subscribeManagedSession', () => {
     const stopSecond = subscribeManagedSession(source, 'two', (update) =>
       second.push(update),
     )
-    emit({
-      revision: 1,
-      snapshot: snapshot('one', 1, [item('a', 'x')]),
-      type: 'snapshot',
-    })
+    await vi.waitFor(() => expect(first).toHaveLength(1))
+    emit(main.next(snapshot('one', 2, [item('a', 'xy')])))
     emit({ revision: 2, sessionId: 'two', type: 'removed' })
 
     expect(source.onManagedSessionEvent).toHaveBeenCalledTimes(1)
-    expect(first.map((update) => update.type)).toEqual(['snapshot'])
+    expect(first.map(text)).toEqual(['x', 'xy'])
     expect(second).toEqual([{ type: 'removed' }])
 
     stopFirst()
     expect(unsubscribe).not.toHaveBeenCalled()
     stopSecond()
     expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetches a snapshot on attach, then applies each later delta once', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'Hel')]))
+    const { emit, source } = createSource(() => main.state)
+    const received: ManagedSessionUpdate[] = []
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+    const delta = main.next(snapshot('one', 2, [item('a', 'Hello')]))
+
+    emit(delta)
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+    emit(delta)
+    emit(delta)
+    emit(main.next(snapshot('one', 3, [item('a', 'Hello'), item('b', '!')])))
+
+    expect(source.syncManagedSession).toHaveBeenCalledTimes(1)
+    expect(received.map(text)).toEqual(['Hel', 'Hello', 'Hello|!'])
+    stop()
+  })
+
+  it('resyncs on a seq gap instead of applying a delta to the wrong base', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'one')]))
+    const { emit, source } = createSource(() => main.state)
+    const received: ManagedSessionUpdate[] = []
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+
+    main.next(snapshot('one', 2, [item('a', 'one two')]))
+    emit(main.next(snapshot('one', 3, [item('a', 'one two three')])))
+    expect(received.map(text)).toEqual(['one'])
+    await vi.waitFor(() => expect(received).toHaveLength(2))
+    emit(main.next(snapshot('one', 4, [item('a', 'one two three four')])))
+
+    expect(source.syncManagedSession).toHaveBeenCalledTimes(2)
+    expect(received.map(text)).toEqual([
+      'one',
+      'one two three',
+      'one two three four',
+    ])
+    stop()
   })
 
   it('ignores a repeated unsubscribe instead of dropping a newer listener', () => {
@@ -170,46 +240,39 @@ describe('subscribeManagedSession', () => {
     keepHubOpen()
   })
 
-  it('forgets a session once its last listener leaves', () => {
-    const { emit, source } = createSource()
+  it('forgets a session once its last listener leaves and fetches it again on return', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'x')]))
+    const { source } = createSource(() => main.state)
     const keepHubOpen = subscribeManagedSession(source, 'two', () => undefined)
     const first = subscribeManagedSession(source, 'one', () => undefined)
-    emit({
-      revision: 1,
-      snapshot: snapshot('one', 1, [item('a', 'x')]),
-      type: 'snapshot',
-    })
     first()
 
-    const received: ManagedSessionSnapshot[] = []
-    const second = subscribeManagedSession(source, 'one', (update) => {
-      if (update.type === 'snapshot') received.push(update.snapshot)
-    })
-    const next = snapshot('one', 2, [item('a', 'x')])
-    emit({ revision: 2, snapshot: next, type: 'snapshot' })
+    const received: ManagedSessionUpdate[] = []
+    const second = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+    await vi.waitFor(() => expect(received).toHaveLength(1))
 
-    expect(received[0]?.content[0]).toBe(next.content[0])
+    expect(source.syncManagedSession).toHaveBeenCalledWith('one')
+    expect(
+      source.syncManagedSession.mock.calls.filter(([id]) => id === 'one'),
+    ).toHaveLength(2)
     second()
     keepHubOpen()
   })
 
-  it('hands listeners snapshots that share unchanged items with the last one', () => {
-    const { emit, source } = createSource()
+  it('hands listeners snapshots that share unchanged items with the last one', async () => {
+    const main = createMain(
+      snapshot('one', 1, [item('a', 'x'), item('b', 'y')]),
+    )
+    const { emit, source } = createSource(() => main.state)
     const received: ManagedSessionSnapshot[] = []
     const stop = subscribeManagedSession(source, 'one', (update) => {
       if (update.type === 'snapshot') received.push(update.snapshot)
     })
+    await vi.waitFor(() => expect(received).toHaveLength(1))
 
-    emit({
-      revision: 1,
-      snapshot: snapshot('one', 1, [item('a', 'x'), item('b', 'y')]),
-      type: 'snapshot',
-    })
-    emit({
-      revision: 2,
-      snapshot: snapshot('one', 2, [item('a', 'x'), item('b', 'yz')]),
-      type: 'snapshot',
-    })
+    emit(main.next(snapshot('one', 2, [item('a', 'x'), item('b', 'yz')])))
 
     expect(received[1]?.content[0]).toBe(received[0]?.content[0])
     expect(received[1]?.content[1]).not.toBe(received[0]?.content[1])

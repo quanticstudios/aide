@@ -67,6 +67,7 @@ import { JevGateSettings } from './jev-gate-settings'
 import { JevGates } from './jev-gates'
 import { JevSettings } from './jev-settings'
 import { validateManagedSessionAttachments } from './managed-session-attachments'
+import { ManagedSessionIpcBroadcaster } from './managed-session-ipc'
 import { ManagedSessionManager } from './managed-session-manager'
 import {
   preparePersistedState,
@@ -118,6 +119,7 @@ let runtimeInitialized = false
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
+let managedSessionBroadcaster: ManagedSessionIpcBroadcaster
 let taskLibrary: TaskLibrary
 let turnCheckpoints: TurnCheckpointService
 const restoringWorkspaces = new Set<string>()
@@ -432,6 +434,10 @@ function initializeServices(): void {
       },
     },
   })
+  managedSessionBroadcaster = new ManagedSessionIpcBroadcaster({
+    send: (event) =>
+      windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event),
+  })
   managedSessionManager = new ManagedSessionManager({
     store: database,
     jevGates,
@@ -505,10 +511,11 @@ function initializeServices(): void {
           })
           notification.show()
         }
+        managedSessionBroadcaster.update(event.snapshot)
       } else {
         workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
+        managedSessionBroadcaster.remove(event.sessionId, event.revision)
       }
-      windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
       windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
     },
   })
@@ -920,6 +927,9 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
     managedSessionManager.getSnapshots(),
+  )
+  ipcMain.handle(IPC_CHANNELS.managedSessionSync, (_event, sessionId) =>
+    managedSessionBroadcaster.sync(String(sessionId)),
   )
   ipcMain.handle(IPC_CHANNELS.getProviderCapabilities, () =>
     providerCapabilityService.getSnapshot(),
