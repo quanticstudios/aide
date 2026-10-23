@@ -2658,6 +2658,45 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (trimmed === 'long transcript') {
+      // why: alternating kinds keeps coalesceContiguousAssistantContent from merging the texts into one item.
+      for (let index = 0; index < 1000; index += 1) {
+        const callId = `${turnId}-long-${index}`
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId: callId,
+          kind: 'tool-call',
+          provider: this.provider,
+          text: '',
+          tool: {
+            callId,
+            command: `echo ${index}`,
+            exitCode: 0,
+            input: { command: `echo ${index}` },
+            output: String(index),
+            status: 'completed',
+            toolName: 'Bash',
+          },
+          type: 'content.delta',
+        })
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId: `${turnId}-long-text-${index}`,
+          kind: 'assistant-text',
+          provider: this.provider,
+          text: Array.from(
+            { length: 1 + (index % 6) },
+            (_, line) => `Step ${index} line ${line}: checked the next file.`,
+          ).join(
+            index % 10 === 0 ? '\n\n```ts\nconst step = 1\n```\n\n' : '\n\n',
+          ),
+          type: 'content.delta',
+        })
+      }
+      this.finishTurn('completed')
+      return
+    }
+
     if (trimmed === 'todos') {
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
