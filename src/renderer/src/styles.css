@@ -109,6 +109,19 @@
   --background: #07080a;
   --foreground: #f4f4f6;
 
+  /* Syntax highlighting (Shiki css-variables theme, GitHub dark colors) */
+  --shiki-foreground: var(--foreground);
+  --shiki-background: transparent;
+  --shiki-token-comment: #6a737d;
+  --shiki-token-constant: #79b8ff;
+  --shiki-token-function: #b392f0;
+  --shiki-token-keyword: #f97583;
+  --shiki-token-link: #dbedff;
+  --shiki-token-parameter: #ffab70;
+  --shiki-token-punctuation: #e1e4e8;
+  --shiki-token-string: #9ecbff;
+  --shiki-token-string-expression: #85e89d;
+
   /* Surface ladder (carried over from Raycast pass) */
   --card: #0d0d0d;
   --card-foreground: #f4f4f6;
