@@ -2394,6 +2394,20 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
   }
 }
 
+const PERF_STREAM_TEXT = `## Reading the change
+
+The session hub fans each snapshot out to every pane, so a **busy transcript** costs one copy per window instead of one per pane. Here is the loop that matters:
+
+\`\`\`ts
+for (const listener of listeners) listener(snapshot)
+\`\`\`
+
+- Unchanged items keep their identity across snapshots.
+- Memoized turns skip rendering when their items match.
+- Off-screen workspaces hold the latest snapshot until shown.
+
+Next I will check the \`content-visibility\` rules and measure the minimap again. `
+
 class FakeManagedSessionBackend implements ManagedSessionBackend {
   private activeRequestId: string | null = null
   private activeTurnId: string | null = null
@@ -2724,6 +2738,11 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (trimmed === 'perf-stream') {
+      await this.streamPerfReply(turnId)
+      return
+    }
+
     if (trimmed === `wait-${this.provider}`) return
     if (trimmed === `fail-${this.provider}`) {
       this.emitRuntimeEvent({
@@ -2829,6 +2848,75 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       kind: 'assistant-text',
       text: `Steered: ${text}`,
     })
+    this.finishTurn('completed')
+  }
+
+  private async streamPerfReply(turnId: string): Promise<void> {
+    const tokensPerSecond = Number(
+      process.env.AIDE_FAKE_STREAM_TOKENS_PER_SECOND ?? 50,
+    )
+    const seconds = Number(process.env.AIDE_FAKE_STREAM_SECONDS ?? 150)
+    const toolEvery = Number(process.env.AIDE_FAKE_STREAM_TOOL_EVERY ?? 150)
+    const toolMix = (process.env.AIDE_FAKE_STREAM_TOOL_MIX ?? 'Bash,Edit,Read')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+    const words = PERF_STREAM_TEXT.split(/(?<=\s)/)
+    const total = Math.round(tokensPerSecond * seconds)
+    const startedAt = Date.now()
+    let itemId = randomUUID()
+    let tools = 0
+
+    for (let sent = 0; sent < total; ) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      if (this.activeTurnId !== turnId) return
+      const due = Math.min(
+        total,
+        Math.floor(((Date.now() - startedAt) * tokensPerSecond) / 1000),
+      )
+      for (; sent < due; sent += 1) {
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId,
+          kind: 'assistant-text',
+          provider: this.provider,
+          text: words[sent % words.length] ?? ' ',
+          type: 'content.delta',
+        })
+
+        if (toolEvery <= 0 || toolMix.length === 0) continue
+        if ((sent + 1) % toolEvery !== 0) continue
+        const toolName = toolMix[tools % toolMix.length] ?? 'Bash'
+        const callId = `perf-${toolName}-${tools}`
+        tools += 1
+        const input =
+          toolName === 'Bash'
+            ? { command: 'bun run test' }
+            : { file_path: 'README.md' }
+        for (const status of ['running', 'completed'] as const) {
+          this.emitRuntimeEvent({
+            createdAt: this.getNow(),
+            itemId: callId,
+            kind: 'tool-call',
+            provider: this.provider,
+            text: '',
+            tool: {
+              callId,
+              input,
+              status,
+              toolName,
+              ...(toolName === 'Bash' ? { command: 'bun run test' } : {}),
+              ...(status === 'completed'
+                ? { exitCode: 0, output: PERF_STREAM_TEXT.slice(0, 400) }
+                : {}),
+            },
+            type: 'content.delta',
+          })
+        }
+        itemId = randomUUID()
+      }
+    }
+
     this.finishTurn('completed')
   }
 

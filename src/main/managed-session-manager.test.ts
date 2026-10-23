@@ -692,6 +692,54 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(snapshot.sessionState).toBe('ready')
   })
 
+  it('streams a paced fake reply with the configured tool mix', async () => {
+    process.env.AIDE_FAKE_STREAM_TOKENS_PER_SECOND = '100'
+    process.env.AIDE_FAKE_STREAM_SECONDS = '0.3'
+    process.env.AIDE_FAKE_STREAM_TOOL_EVERY = '10'
+    process.env.AIDE_FAKE_STREAM_TOOL_MIX = 'Bash,Read'
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+    await manager.createSession(config)
+
+    const startedAt = Date.now()
+    await manager.sendInput(config.sessionId, 'perf-stream')
+    await vi.waitFor(
+      () =>
+        expect(manager.getSnapshots()[config.sessionId].sessionState).toBe(
+          'ready',
+        ),
+      { timeout: 2_000 },
+    )
+
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(250)
+    const content = manager.getSnapshots()[config.sessionId].content
+    expect(
+      content
+        .filter((item) => item.kind === 'tool-call')
+        .map((item) => [item.tool?.toolName, item.tool?.status]),
+    ).toEqual([
+      ['Bash', 'completed'],
+      ['Read', 'completed'],
+      ['Bash', 'completed'],
+    ])
+    expect(
+      content
+        .filter((item) => item.kind === 'assistant-text')
+        .map((item) => item.text)
+        .join('')
+        .split(/(?<=\s)/),
+    ).toHaveLength(30)
+    delete process.env.AIDE_FAKE_STREAM_TOKENS_PER_SECOND
+    delete process.env.AIDE_FAKE_STREAM_SECONDS
+    delete process.env.AIDE_FAKE_STREAM_TOOL_EVERY
+    delete process.env.AIDE_FAKE_STREAM_TOOL_MIX
+    await manager.closeAll()
+  })
+
   it('builds structured approval requests for Claude bash and edit tools', () => {
     expect(
       buildToolApprovalRequest('Bash', {

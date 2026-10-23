@@ -8,3 +8,7 @@ test-results/
 .env
 .env.local
 .env.*.local
+
+# scripts/perf-baseline.mjs output
+perf-baseline.json
+perf-baseline.json.png
