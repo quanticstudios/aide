@@ -593,8 +593,8 @@ export default function ManagedAgentPane({
 
     return () => {
       cancelFrameFlush()
-      // why: a queued update can be the one that ends a turn, so a session switch applies it instead of dropping it.
-      flushDeferredUpdates()
+      // why: queued updates belong to the old session; the next mount fetches a fresh snapshot that already includes them.
+      deferredUpdatesRef.current = []
       flushDeferredUpdatesRef.current = () => undefined
       unsubscribe()
     }
