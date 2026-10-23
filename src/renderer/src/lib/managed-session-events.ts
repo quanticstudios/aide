@@ -5,6 +5,7 @@ import type {
 } from '../../../shared/managed-session'
 import {
   applyDelta,
+  type SessionDelta,
   SessionDeltaResyncError,
   type SessionDeltaState,
 } from '../../../shared/session-delta'
@@ -26,7 +27,8 @@ interface ManagedSessionEventSource {
 interface SessionEntry {
   readonly listeners: Set<Listener>
   state: SessionDeltaState | null
-  syncing: boolean
+  /** The outstanding snapshot request and the deltas that arrived while it was in flight. */
+  sync: { readonly buffered: SessionDelta[] } | null
 }
 
 interface Hub {
@@ -80,23 +82,56 @@ function publish(
   }
 }
 
+function apply(
+  source: ManagedSessionEventSource,
+  hub: Hub,
+  sessionId: string,
+  entry: SessionEntry,
+  base: SessionDeltaState | null,
+  deltas: readonly SessionDelta[],
+  replacedBase: boolean,
+): void {
+  let state = base
+  let replaced = replacedBase
+  try {
+    for (const delta of deltas) {
+      if (state && delta.seq <= state.seq) continue
+      state = applyDelta(state, delta)
+      if (delta.type === 'snapshot') replaced = true
+    }
+  } catch (error) {
+    if (!(error instanceof SessionDeltaResyncError)) throw error
+    resync(source, hub, sessionId, entry)
+    return
+  }
+  if (state && state !== entry.state) publish(entry, state, replaced)
+}
+
 function resync(
   source: ManagedSessionEventSource,
   hub: Hub,
   sessionId: string,
   entry: SessionEntry,
 ): void {
-  if (entry.syncing) return
-  entry.syncing = true
+  if (entry.sync) return
+  const sync = { buffered: [] as SessionDelta[] }
+  entry.sync = sync
   void source
     .syncManagedSession(sessionId)
     .catch(() => null)
-    .then((state) => {
-      if (hub.sessions.get(sessionId) !== entry) return
-      entry.syncing = false
-      if (state && state.seq > (entry.state?.seq ?? 0)) {
-        publish(entry, state, true)
-      }
+    .then((reply) => {
+      if (hub.sessions.get(sessionId) !== entry || entry.sync !== sync) return
+      entry.sync = null
+      const fresher = reply !== null && reply.seq > (entry.state?.seq ?? 0)
+      apply(
+        source,
+        hub,
+        sessionId,
+        entry,
+        fresher ? reply : entry.state,
+        sync.buffered,
+        fresher,
+      )
     })
 }
 
@@ -109,29 +144,20 @@ function dispatch(
   if (!entry) return
   if (event.type === 'removed') {
     entry.state = null
+    entry.sync = null
     for (const listener of entry.listeners) listener({ type: 'removed' })
     return
   }
-
-  let state = entry.state
-  let replaced = false
-  try {
-    for (const delta of event.deltas) {
-      if (state && delta.seq <= state.seq) continue
-      state = applyDelta(state, delta)
-      if (delta.type === 'snapshot') replaced = true
-    }
-  } catch (error) {
-    if (!(error instanceof SessionDeltaResyncError)) throw error
-    resync(source, hub, event.sessionId, entry)
+  if (entry.sync) {
+    entry.sync.buffered.push(...event.deltas)
     return
   }
-  if (state && state !== entry.state) publish(entry, state, replaced)
+  apply(source, hub, event.sessionId, entry, entry.state, event.deltas, false)
 }
 
 /**
  * Subscribes `listener` to one session's snapshots, rebuilt from deltas over a single shared IPC subscription.
- * @remarks The first listener for a session fetches a snapshot from main; a seq gap fetches a fresh one.
+ * @remarks The first listener for a session fetches a snapshot from main, and a seq gap fetches a fresh one; deltas that arrive meanwhile apply on top of it.
  */
 export function subscribeManagedSession(
   source: ManagedSessionEventSource,
@@ -144,7 +170,7 @@ export function subscribeManagedSession(
   )
   let entry = hub.sessions.get(sessionId)
   if (!entry) {
-    entry = { listeners: new Set(), state: null, syncing: false }
+    entry = { listeners: new Set(), state: null, sync: null }
     hub.sessions.set(sessionId, entry)
     resync(source, hub, sessionId, entry)
   }

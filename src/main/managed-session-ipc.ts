@@ -12,7 +12,7 @@ import {
   toSessionDeltaStatus,
 } from '../shared/session-delta'
 
-/** One frame at 60 Hz; each session sends at most one IPC message per frame. */
+/** How long the broadcaster waits to coalesce a session's updates, one frame at 60 Hz. */
 export const MANAGED_SESSION_IPC_FRAME_MS = 16
 
 type DeltaChange = SessionDelta extends infer Delta
@@ -265,7 +265,10 @@ interface BroadcasterOptions {
   clearTimer?: (timer: unknown) => void
 }
 
-/** Coalesces managed-session snapshots into one delta message per session per frame and serves resync snapshots. */
+/**
+ * Coalesces managed-session snapshots into one delta message per session per frame and serves resync snapshots.
+ * @remarks `sync` flushes the session's pending changes at once, so a frame with a sync can carry a second message.
+ */
 export class ManagedSessionIpcBroadcaster {
   private readonly sent = new Map<string, SessionDeltaState>()
   private readonly pending = new Map<string, ManagedSessionSnapshot>()

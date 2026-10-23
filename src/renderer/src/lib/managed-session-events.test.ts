@@ -194,7 +194,7 @@ describe('subscribeManagedSession', () => {
     emit(main.next(snapshot('one', 3, [item('a', 'Hello'), item('b', '!')])))
 
     expect(source.syncManagedSession).toHaveBeenCalledTimes(1)
-    expect(received.map(text)).toEqual(['Hel', 'Hello', 'Hello|!'])
+    expect(received.map(text)).toEqual(['Hello', 'Hello|!'])
     stop()
   })
 
@@ -219,6 +219,46 @@ describe('subscribeManagedSession', () => {
       'one two three',
       'one two three four',
     ])
+    stop()
+  })
+
+  it('applies deltas that arrive while a snapshot request is in flight', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'Hel')]))
+    let answer: (state: SessionDeltaState | null) => void = () => undefined
+    const { emit, source } = createSource(
+      () => new Promise((resolve) => (answer = resolve)) as never,
+    )
+    const received: ManagedSessionUpdate[] = []
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+    const synced = main.state
+
+    emit(main.next(snapshot('one', 2, [item('a', 'Hello')])))
+    answer(synced)
+    await vi.waitFor(() => expect(received).toHaveLength(1))
+
+    expect(received.map(text)).toEqual(['Hello'])
+    expect(source.syncManagedSession).toHaveBeenCalledTimes(1)
+    stop()
+  })
+
+  it('drops a snapshot reply for a session removed while it was in flight', async () => {
+    const main = createMain(snapshot('one', 1, [item('a', 'x')]))
+    let answer: (state: SessionDeltaState | null) => void = () => undefined
+    const { emit, source } = createSource(
+      () => new Promise((resolve) => (answer = resolve)) as never,
+    )
+    const received: ManagedSessionUpdate[] = []
+    const stop = subscribeManagedSession(source, 'one', (update) =>
+      received.push(update),
+    )
+
+    emit({ revision: 2, sessionId: 'one', type: 'removed' })
+    answer(main.state)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(received).toEqual([{ type: 'removed' }])
     stop()
   })
 
