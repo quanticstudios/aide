@@ -1,11 +1,4 @@
-import {
-  Bot,
-  Eye,
-  GitBranch,
-  MessageSquareText,
-  SquarePen,
-  SquareTerminal,
-} from 'lucide-react'
+import { Bot, Eye, GitBranch, SquareTerminal } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import type { PaneType } from '../../../shared/domain'
@@ -15,12 +8,10 @@ import type { TerminalLaunchMode } from '../../../shared/terminal'
 type PaneAccent = 'amber' | 'blue' | 'emerald' | 'rose' | 'violet'
 export type PaneTemplateId =
   | 'agent'
-  | 'chat'
   | 'terminal'
   | 'terminal-claude'
   | 'terminal-codex'
   | 'git'
-  | 'editor'
   | 'preview'
 
 export interface PaneDefaultMetadata {
@@ -57,19 +48,6 @@ const paneCatalogEntries = [
     icon: Bot,
     terminalMode: 'agent',
     type: 'terminal',
-  },
-  {
-    createDescription: 'Task steering, notes, and AI coordination.',
-    defaultMetadata: {
-      accent: 'blue',
-      description: 'Task and coordination surface.',
-      label: 'Chat task thread',
-      type: 'Chat',
-    },
-    hidden: true,
-    id: 'chat',
-    icon: MessageSquareText,
-    type: 'chat',
   },
   {
     createDescription: 'Plain shell execution and verification loops.',
@@ -125,19 +103,6 @@ const paneCatalogEntries = [
     type: 'git',
   },
   {
-    createDescription: 'File inspection and edit validation.',
-    defaultMetadata: {
-      accent: 'violet',
-      description: 'File inspection and edit validation surface.',
-      label: 'Editor inspect',
-      type: 'Editor',
-    },
-    hidden: true,
-    id: 'editor',
-    icon: SquarePen,
-    type: 'editor',
-  },
-  {
     createDescription: 'Preview the running app or docs surface.',
     defaultMetadata: {
       accent: 'rose',
@@ -155,13 +120,18 @@ const paneCatalogById = Object.fromEntries(
   paneCatalogEntries.map((entry) => [entry.id, entry]),
 ) as Record<PaneTemplateId, PaneCatalogEntry>
 
-const paneCatalogByType = {
-  chat: paneCatalogById.chat,
+const paneCatalogByType: Partial<Record<PaneType, PaneCatalogEntry>> = {
   terminal: paneCatalogById.terminal,
   git: paneCatalogById.git,
-  editor: paneCatalogById.editor,
   preview: paneCatalogById.preview,
-} as Record<PaneType, PaneCatalogEntry>
+}
+
+const unavailablePaneMetadata: PaneDefaultMetadata = {
+  accent: 'blue',
+  description: 'This pane type is no longer available.',
+  label: 'Unavailable pane',
+  type: 'Unavailable',
+}
 
 const displayTypeToPaneType = Object.fromEntries(
   paneCatalogEntries.map((entry) => [
@@ -184,8 +154,10 @@ export function listCreatablePaneCatalogEntries(
   )
 }
 
-export function getPaneCatalogEntry(paneType: PaneType): PaneCatalogEntry {
-  return paneCatalogByType[paneType]
+export function getPaneCatalogEntry(
+  paneType: PaneType,
+): PaneCatalogEntry | null {
+  return paneCatalogByType[paneType] ?? null
 }
 
 export function getPaneCatalogEntryForTemplate(
@@ -197,10 +169,12 @@ export function getPaneCatalogEntryForTemplate(
 export function createDefaultPaneMetadata(
   paneTemplateId: string,
 ): PaneDefaultMetadata {
+  const paneType = resolvePaneType(paneTemplateId)
+
   return (
     getPaneCatalogEntryForTemplate(paneTemplateId)?.defaultMetadata ??
-    getPaneCatalogEntry(resolvePaneType(paneTemplateId) ?? 'chat')
-      .defaultMetadata
+    (paneType ? getPaneCatalogEntry(paneType)?.defaultMetadata : null) ??
+    unavailablePaneMetadata
   )
 }
 
@@ -223,8 +197,7 @@ export function createFallbackPaneMetadata(paneId: string): {
   const templateId = getPaneTemplateId(paneId)
   const entry = getPaneCatalogEntryForTemplate(templateId)
   const resolvedType = entry?.type ?? null
-  const metadata =
-    entry?.defaultMetadata ?? paneCatalogByType.chat.defaultMetadata
+  const metadata = entry?.defaultMetadata ?? unavailablePaneMetadata
 
   return { metadata, resolvedType }
 }
