@@ -58,7 +58,7 @@ interface SessionDeltaEnvelope {
   seq: number
   /** The snapshot `revision` once this delta is applied. */
   revision: number
-  /** The snapshot `updatedAt` once applied, also stamped on any item the delta touches. */
+  /** The snapshot `updatedAt` once applied. */
   updatedAt: string
 }
 
@@ -67,7 +67,12 @@ export type SessionDelta = SessionDeltaEnvelope &
   (
     | { type: 'snapshot'; snapshot: ManagedSessionSnapshot }
     | { type: 'item.add'; item: ManagedSessionContentItem }
-    | { type: 'item.text.append'; itemId: string; text: string }
+    | {
+        type: 'item.text.append'
+        itemId: string
+        text: string
+        itemUpdatedAt: string
+      }
     | {
         type: 'item.patch'
         itemId: string
@@ -77,17 +82,33 @@ export type SessionDelta = SessionDeltaEnvelope &
         type: 'tool.start'
         item: ManagedSessionContentItem & { tool: ManagedSessionToolCall }
       }
-    | { type: 'tool.output.append'; itemId: string; text: string }
+    | {
+        type: 'tool.output.append'
+        itemId: string
+        text: string
+        itemUpdatedAt: string
+      }
     | {
         type: 'tool.end'
         itemId: string
         status: 'completed' | 'failed'
         exitCode?: number
         startedAt: string
+        /** Also the item's `updatedAt`. */
         endedAt: string
       }
-    | { type: 'reasoning.append'; itemId: string; text: string }
-    | { type: 'plan.update'; itemId: string; tasks: ManagedSessionTask[] }
+    | {
+        type: 'reasoning.append'
+        itemId: string
+        text: string
+        itemUpdatedAt: string
+      }
+    | {
+        type: 'plan.update'
+        itemId: string
+        tasks: ManagedSessionTask[]
+        itemUpdatedAt: string
+      }
     | { type: 'approval.add'; approval: ManagedSessionPendingApproval }
     | { type: 'approval.resolve'; requestId: string }
     | { type: 'input.add'; input: ManagedSessionPendingUserInput }
@@ -201,16 +222,14 @@ export function applyDelta(
         `Delta ${delta.seq} names unknown item ${itemId}.`,
       )
     }
-    const next = {
-      ...update(previous.content[index]),
-      updatedAt: delta.updatedAt,
-    }
+    const next = update(previous.content[index])
     snapshot.content = previous.content.map((item, at) =>
       at === index ? next : item,
     )
   }
   const updateTool = (
     itemId: string,
+    updatedAt: string,
     update: (tool: ManagedSessionToolCall) => ManagedSessionToolCall,
   ): void =>
     updateItem(itemId, (item) => {
@@ -220,7 +239,7 @@ export function applyDelta(
           `Delta ${delta.seq} names item ${itemId}, which has no tool call.`,
         )
       }
-      return { ...item, tool: update(item.tool) }
+      return { ...item, tool: update(item.tool), updatedAt }
     })
 
   switch (delta.type) {
@@ -233,26 +252,30 @@ export function applyDelta(
       updateItem(delta.itemId, (item) => ({
         ...item,
         text: item.text + delta.text,
+        updatedAt: delta.itemUpdatedAt,
       }))
       break
     case 'item.patch':
       updateItem(delta.itemId, (item) => ({ ...item, ...delta.patch }))
       break
     case 'tool.output.append':
-      updateTool(delta.itemId, (tool) => ({
+      updateTool(delta.itemId, delta.itemUpdatedAt, (tool) => ({
         ...tool,
         output: (tool.output ?? '') + delta.text,
       }))
       break
     case 'tool.end':
-      updateTool(delta.itemId, (tool) => ({
+      updateTool(delta.itemId, delta.endedAt, (tool) => ({
         ...tool,
         ...(delta.exitCode === undefined ? {} : { exitCode: delta.exitCode }),
         status: delta.status,
       }))
       break
     case 'plan.update':
-      updateTool(delta.itemId, (tool) => ({ ...tool, tasks: delta.tasks }))
+      updateTool(delta.itemId, delta.itemUpdatedAt, (tool) => ({
+        ...tool,
+        tasks: delta.tasks,
+      }))
       break
     case 'approval.add':
       snapshot.pendingApprovals = [...previous.pendingApprovals, delta.approval]
