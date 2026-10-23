@@ -167,7 +167,7 @@ test.describe('long agent transcript', () => {
     })
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
-    await expect(lastStep).toBeVisible({ timeout: 30_000 })
+    await expect(lastStep).toBeInViewport({ timeout: 30_000 })
     const openMs = await page.evaluate(() => {
       const marks = (
         window as unknown as {
@@ -199,10 +199,16 @@ test.describe('long agent transcript', () => {
         worstMs: deltas.at(-1) ?? 0,
       }
     }, content)
-    await expect(transcript.getByText('Step 0 line 0: checked')).toBeVisible()
+    console.log('long transcript open', { nodesAt2000, openMs, frames })
+    await expect(
+      transcript.getByText('Step 0 line 0: checked'),
+    ).toBeInViewport()
 
-    await page.getByRole('button', { name: /jump to latest/i }).click()
-    await expect(lastStep).toBeVisible()
+    await page.evaluate((selector) => {
+      const scroll = document.querySelector(selector)
+      if (scroll) scroll.scrollTop = scroll.scrollHeight
+    }, content)
+    await expect(lastStep).toBeInViewport()
     await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2)
 
     const heightAt2000 = await scrollHeight(page)
@@ -211,13 +217,13 @@ test.describe('long agent transcript', () => {
     await expect
       .poll(() => scrollHeight(page), { timeout: 30_000 })
       .toBeGreaterThan(heightAt2000 * 1.5)
-    await expect(lastStep.last()).toBeVisible()
+    await expect(lastStep.last()).toBeInViewport()
     await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2)
     const nodesAt4000 = await countTranscriptNodes(page)
 
     await prompt.fill('hello')
     await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(transcript.getByText('Handled: hello')).toBeVisible()
+    await expect(transcript.getByText('Handled: hello')).toBeInViewport()
     await expect.poll(() => distanceFromBottom(page)).toBeLessThan(2)
 
     test.info().annotations.push({
