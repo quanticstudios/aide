@@ -113,7 +113,7 @@ test('rejects an unpinned security override or a lockfile that did not resolve i
   }).join('\n')
 
   assert.match(errors, /overrides.hono must be exactly 4\.12\.25/)
-  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.6/)
+  assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.8/)
 })
 
 test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
@@ -128,6 +128,6 @@ test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
     lockfile,
   }).join('\n')
 
-  assert.match(errors, /devDependencies\.wrangler must be exactly 4\.120\.0/)
-  assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.120\.0/)
+  assert.match(errors, /devDependencies\.wrangler must be exactly 4\.151\.1/)
+  assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.151\.1/)
 })
