@@ -50,20 +50,17 @@ describe('applyDelta', () => {
     expect(reduce(fixture.deltas)?.snapshot).toEqual(fixture.snapshot)
   })
 
-  it('does not mutate the state it is given', () => {
-    const [fixture] = fixtures
-    const states: SessionDeltaState[] = []
+  it.each(
+    fixtures,
+  )('does not mutate the state or delta in $name', (fixture) => {
     let state: SessionDeltaState | null = null
     for (const delta of fixture.deltas) {
-      state = applyDelta(state, delta)
-      states.push(structuredClone(state))
-    }
-    let replayed: SessionDeltaState | null = null
-    for (const [index, delta] of fixture.deltas.entries()) {
-      const before = replayed && structuredClone(replayed)
-      replayed = applyDelta(replayed, delta)
-      expect(replayed).toEqual(states[index])
-      if (index > 0) expect(states[index - 1]).toEqual(before)
+      const input = state
+      const inputBefore = structuredClone(input)
+      const deltaBefore = structuredClone(delta)
+      state = applyDelta(input, delta)
+      expect(input).toEqual(inputBefore)
+      expect(delta).toEqual(deltaBefore)
     }
   })
 
