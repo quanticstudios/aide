@@ -57,6 +57,18 @@ export function releasePin(pin: PinState, content: SpacedContent | null): void {
 }
 
 /**
+ * Scrolls to the real bottom of the transcript, dropping any pin and its trailing space first.
+ */
+export function jumpToLatest(
+  pin: PinState,
+  content: SpacedContent | null,
+  scroll: { scrollTop: number; readonly scrollHeight: number },
+): void {
+  releasePin(pin, content)
+  scroll.scrollTop = scroll.scrollHeight
+}
+
+/**
  * Keeps a transcript at the bottom while the reader stays near it, even as one item's text grows.
  */
 export function useTranscriptFollow({
@@ -232,8 +244,7 @@ export function useTranscriptFollow({
     const scroll = scrollRef.current
     if (!scroll) return
     followingRef.current = true
-    releasePin(pinRef.current, contentRef.current)
-    scroll.scrollTop = scroll.scrollHeight
+    jumpToLatest(pinRef.current, contentRef.current, scroll)
     updateJumpButton(scroll)
   }, [contentRef, scrollRef, updateJumpButton])
 

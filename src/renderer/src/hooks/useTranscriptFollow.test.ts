@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { pinSpacerHeight, releasePin } from './useTranscriptFollow'
+import {
+  jumpToLatest,
+  pinSpacerHeight,
+  releasePin,
+} from './useTranscriptFollow'
 
 describe('pinSpacerHeight', () => {
   it('adds the trailing space a short message needs to reach the top', () => {
@@ -28,5 +32,19 @@ describe('releasePin', () => {
 
     expect(pin).toEqual({ active: false, pending: null, spacer: 0 })
     expect(content.style.paddingBottom).toBe('')
+  })
+})
+
+describe('jumpToLatest', () => {
+  it('drops an active pin and its trailing space before scrolling to the bottom', () => {
+    const pin = { active: true, pending: { previous: null }, spacer: 320 }
+    const content = { style: { paddingBottom: '320px' } }
+    const scroll = { scrollHeight: 2400, scrollTop: 1100 }
+
+    jumpToLatest(pin, content, scroll)
+
+    expect(pin).toEqual({ active: false, pending: null, spacer: 0 })
+    expect(content.style.paddingBottom).toBe('')
+    expect(scroll.scrollTop).toBe(2400)
   })
 })
