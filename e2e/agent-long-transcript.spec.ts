@@ -57,7 +57,8 @@ function scrollHeight(page: Page): Promise<number> {
 function offsetFromTop(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
     const scroll = element.closest('[data-testid="managed-session-content"]')
-    if (!scroll) throw new Error('Transcript unavailable.')
+    // why: a row can remount between locating the prompt and reading it, so a detached match reports no position and the poll retries.
+    if (!scroll) return Number.POSITIVE_INFINITY
     return (
       element.getBoundingClientRect().top - scroll.getBoundingClientRect().top
     )
