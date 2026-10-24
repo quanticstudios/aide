@@ -173,20 +173,23 @@ Renderer memory grew the same way, from 384 MB at 20 seconds to 561 MB.
 ## M1 before and after
 
 Every column is the `Perf budget` job: five agents, 60 s, an `ubuntu-24.04`
-runner, three runs each, shown as the range across the runs. Before is main at
-`b3a2d44` with the perf script. M1 is main at `0555441`, with every M1 ticket
-merged except ENG-2658 and ENG-2661. ENG-2724 is main at `22dd444`, which adds
-ENG-2658 and ENG-2724. ENG-2661 is main at `35c0b4b`, which adds the
-virtualized transcript.
+runner, three runs each, shown as the range across the runs. Each column is
+main at the commit named:
 
-| Metric | Before | M1 | ENG-2724 | ENG-2661 |
-| --- | --- | --- | --- | --- |
-| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms | 20.2 to 22 ms | 23.6 to 26.3 ms |
-| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms | 16.6 to 16.7 ms | 16.7 to 16.9 ms |
-| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms | 15.3 to 22.2 ms | 23.1 to 57.2 ms |
-| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s | 37.6 to 38.5 KB/s | 37 to 37.5 KB/s |
-| React commits | 50.3 to 124/s | 129 to 139.6/s | 41.1 to 43.1/s | 75.5 to 77.4/s |
-| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s | 73.9 to 75.7/s | 72.6 to 73.6/s |
+- Before, `b3a2d44`: the perf script and nothing else from M1.
+- M1, `0555441`: every M1 ticket except ENG-2658 and ENG-2661.
+- ENG-2724, `22dd444`: adds ENG-2658 and ENG-2724.
+- ENG-2661, `35c0b4b`: adds the virtualized transcript.
+- ENG-2813, `f11a881`: stops the transcript list committing on its own.
+
+| Metric | Before | M1 | ENG-2724 | ENG-2661 | ENG-2813 |
+| --- | --- | --- | --- | --- | --- |
+| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms | 20.2 to 22 ms | 23.6 to 26.3 ms | 20.3 to 21.3 ms |
+| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms | 16.6 to 16.7 ms | 16.7 to 16.9 ms | 16.5 to 16.6 ms |
+| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms | 15.3 to 22.2 ms | 23.1 to 57.2 ms | 19.7 to 26.3 ms |
+| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s | 37.6 to 38.5 KB/s | 37 to 37.5 KB/s | 38 to 44.7 KB/s |
+| React commits | 50.3 to 124/s | 129 to 139.6/s | 41.1 to 43.1/s | 75.5 to 77.4/s | 24 to 29.1/s |
+| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s | 73.9 to 75.7/s | 72.6 to 73.6/s | 61.9 to 75.2/s |
 
 Session deltas (ENG-2656) cut IPC about tenfold, and ENG-2724 cut it four
 times more by no longer sending a workspace activity event on every token.
@@ -196,12 +199,12 @@ second is about 2.2 per frame, and the frame flush makes only one of them.
 ENG-2724 traced the rest to that activity event and to the fleet drawer
 committing while closed, which brought commits to about 0.7 per frame.
 
-The virtualized transcript (ENG-2661) put commits back up to about 76 a
-second and frame time p95 up by 3 to 4 ms. `reactCommitsByComponent` credits
-`TranscriptList` with 38.7 commits a second; ENG-2813 tracks the fix.
+The virtualized transcript (ENG-2661) put commits back up to about 76 a second
+and failed this budget. `reactCommitsByComponent` credited `TranscriptList`
+with 38.7 a second, and ENG-2813 brought commits down to 24 to 29 a second.
 
 `scripts/perf-budget.json` sets the IPC and commit ceilings at 1.5x the
-highest ENG-2724 run: 57,800 bytes/s and 65 commits/s. The commit ceiling
-fails on main until ENG-2813 lands. The frame time p95 ceiling is 36.6 ms,
-1.5x the median ENG-2661 run, because the 2-vCPU runner never reaches the
-ticket's 20 ms: it was at 25.7 to 29.1 ms before M1 and 20.2 ms at best since.
+highest ENG-2724 run: 57,800 bytes/s and 65 commits/s. The frame time p95
+ceiling is 30.5 ms, 1.5x the median ENG-2813 run, because the 2-vCPU runner
+never reaches the ticket's 20 ms: it was at 25.7 to 29.1 ms before M1 and
+20.2 ms at best since.
