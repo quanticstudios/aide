@@ -28,7 +28,9 @@ export class WindowManager {
 
   broadcast(channel: string, payload: unknown): void {
     for (const window of this.dependencies.getAllWindows()) {
-      window.webContents.send(channel, payload)
+      for (let copy = 0; copy < 4; copy += 1) {
+        window.webContents.send(channel, payload)
+      }
     }
   }
 
