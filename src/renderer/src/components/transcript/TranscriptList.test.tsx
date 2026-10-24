@@ -96,8 +96,12 @@ describe('TranscriptList', () => {
       // why: the frame flush commits the longer reply, then the browser reports the row's new height before paint.
       flushSync(() => grow('a'.repeat(frame * 100)))
       resize(rowElement as Element, 100 + frame * 20)
+      // why: following the stream moves `scrollTop` as the row grows, and the virtualizer hears every scroll.
+      scroll.scrollTop = frame * 20
+      scroll.dispatchEvent(new Event('scroll'))
       await sleep(5)
     }
+    await sleep(200)
     expect(commits.count - before).toBe(frames)
   })
 })
