@@ -34,17 +34,28 @@ export default function TranscriptList({
     virtualizerRef.current = virtualizer
   }, [virtualizer, virtualizerRef])
 
-  // why: a reader opening a session waits for its newest row, so the open measure ends on the frame that row first paints.
+  // why: a reader opening a session waits for its newest row, so the open measure ends once the frame that first shows that row has painted.
   useLayoutEffect(() => {
     if (isOpenMeasuredRef.current || lastMountedIndex !== rows.length - 1)
       return
-    isOpenMeasuredRef.current = true
     const start = `transcript-open-start:${sessionId}`
-    if (performance.getEntriesByName(start).length === 0) return
-    requestAnimationFrame(() => {
-      performance.measure(`transcript-open:${sessionId}`, start)
-      performance.clearMarks(start)
+    if (performance.getEntriesByName(start).length === 0) {
+      isOpenMeasuredRef.current = true
+      return
+    }
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    // why: a frame callback runs before that frame paints, so the timeout it schedules runs after the paint.
+    const frame = requestAnimationFrame(() => {
+      timeout = setTimeout(() => {
+        isOpenMeasuredRef.current = true
+        performance.measure(`transcript-open:${sessionId}`, start)
+        performance.clearMarks(start)
+      })
     })
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timeout)
+    }
   }, [lastMountedIndex, rows.length, sessionId])
 
   return (

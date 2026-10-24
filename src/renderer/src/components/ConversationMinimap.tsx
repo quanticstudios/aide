@@ -1,4 +1,12 @@
-import { type RefObject, useId, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import { onUserScrollIntent } from '../lib/user-scroll-intent'
 import type { TranscriptVirtualizer } from './transcript/TranscriptList'
 
 const tickSpacing = 12
@@ -54,7 +62,7 @@ export function ConversationMinimap({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const railRef = useRef<HTMLElement>(null)
   const anchorsRef = useRef(anchors)
-  const settleRef = useRef(0)
+  const cancelSettleRef = useRef(() => {})
   const labels = anchors.map((_, index) => `${index + 1}. Your message`)
   const [position, setPosition] = useState({
     active: 0,
@@ -65,6 +73,8 @@ export function ConversationMinimap({
   useLayoutEffect(() => {
     anchorsRef.current = anchors
   }, [anchors])
+
+  useEffect(() => () => cancelSettleRef.current(), [])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new anchor changes the set of offsets to measure
   useLayoutEffect(() => {
@@ -131,7 +141,7 @@ export function ConversationMinimap({
     const prefersReducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches
-    cancelAnimationFrame(settleRef.current)
+    cancelSettleRef.current()
     scroll.scrollTo({
       top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
       behavior: isKeyboard || prefersReducedMotion ? 'instant' : 'smooth',
@@ -139,6 +149,7 @@ export function ConversationMinimap({
     // why: an off-screen prompt's row mounts only once the scroll reaches it, and row measurements can cut a smooth scroll short, so the jump re-aims each time scrolling settles.
     let lastTop = Number.NaN
     let frames = 0
+    let frame = 0
     const settle = () => {
       const isSettled = scroll.scrollTop === lastTop
       lastTop = scroll.scrollTop
@@ -150,20 +161,28 @@ export function ConversationMinimap({
             scroll.scrollHeight - scroll.clientHeight,
           ),
         )
-        if (findPrompt(scroll, anchor) && Math.abs(scroll.scrollTop - top) < 1)
+        if (
+          findPrompt(scroll, anchor) &&
+          Math.abs(scroll.scrollTop - top) < 1
+        ) {
+          cancelSettleRef.current()
           return
+        }
         scroll.scrollTo({ top, behavior: 'instant' })
         lastTop = Number.NaN
       }
       frames += 1
-      if (frames < 120) settleRef.current = requestAnimationFrame(settle)
+      if (frames < 120) frame = requestAnimationFrame(settle)
+      else cancelSettleRef.current()
     }
-    settleRef.current = requestAnimationFrame(settle)
-    scroll.addEventListener(
-      'wheel',
-      () => cancelAnimationFrame(settleRef.current),
-      { once: true, passive: true },
+    frame = requestAnimationFrame(settle)
+    const stopListening = onUserScrollIntent(scroll, () =>
+      cancelSettleRef.current(),
     )
+    cancelSettleRef.current = () => {
+      cancelAnimationFrame(frame)
+      stopListening()
+    }
     if (isKeyboard)
       railRef.current
         ?.querySelectorAll('button')
