@@ -18,8 +18,7 @@ export default function TranscriptList({
   readonly sessionId: string
   readonly virtualizerRef: RefObject<TranscriptVirtualizer | null>
 }) {
-  // why: a streaming row re-measures and scrolls every frame, so sizes and offsets go to the DOM and only a changed visible range re-renders.
-  // see: patches/@tanstack%2Freact-virtual@3.14.20.patch — the patch that stops `isScrolling` flips from re-rendering.
+  // why: a growing row re-measures every frame, so sizes and offsets go straight to the DOM and only a changed visible range re-renders.
   const virtualizer = useVirtualizer({
     count: rows.length,
     directDomUpdates: true,

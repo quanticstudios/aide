@@ -162,8 +162,5 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true
     }
-  },
-  "patchedDependencies": {
-    "@tanstack/react-virtual@3.14.20": "patches/@tanstack%2Freact-virtual@3.14.20.patch"
   }
 }

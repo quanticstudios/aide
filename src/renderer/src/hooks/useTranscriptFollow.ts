@@ -95,22 +95,33 @@ export function useTranscriptFollow({
   const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinRef = useRef<PinState>({ active: false, pending: null, spacer: 0 })
   const sessionIdRef = useRef(sessionId)
+  const showScrollToLatestRef = useRef(false)
 
-  const updateJumpButton = useCallback((scroll: HTMLElement) => {
-    if (distanceFromBottom(scroll) <= FOLLOW_THRESHOLD_PX) {
-      if (jumpTimerRef.current !== null) clearTimeout(jumpTimerRef.current)
-      jumpTimerRef.current = null
-      setShowScrollToLatest(false)
-      return
-    }
-    if (jumpTimerRef.current !== null) return
-    jumpTimerRef.current = setTimeout(() => {
-      jumpTimerRef.current = null
-      if (distanceFromBottom(scroll) > FOLLOW_THRESHOLD_PX) {
-        setShowScrollToLatest(true)
-      }
-    }, JUMP_BUTTON_DELAY_MS)
+  // why: React renders the pane once to bail out of a same-value update right after a commit, and this runs on every scroll and resize.
+  const setJumpButton = useCallback((show: boolean) => {
+    if (showScrollToLatestRef.current === show) return
+    showScrollToLatestRef.current = show
+    setShowScrollToLatest(show)
   }, [])
+
+  const updateJumpButton = useCallback(
+    (scroll: HTMLElement) => {
+      if (distanceFromBottom(scroll) <= FOLLOW_THRESHOLD_PX) {
+        if (jumpTimerRef.current !== null) clearTimeout(jumpTimerRef.current)
+        jumpTimerRef.current = null
+        setJumpButton(false)
+        return
+      }
+      if (jumpTimerRef.current !== null) return
+      jumpTimerRef.current = setTimeout(() => {
+        jumpTimerRef.current = null
+        if (distanceFromBottom(scroll) > FOLLOW_THRESHOLD_PX) {
+          setJumpButton(true)
+        }
+      }, JUMP_BUTTON_DELAY_MS)
+    },
+    [setJumpButton],
+  )
 
   // why: the content element mounts and unmounts with the empty state, so the observer tracks whichever element the ref holds.
   useEffect(() => {
