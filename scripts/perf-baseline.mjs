@@ -31,25 +31,34 @@ const reactHook = () => {
   const componentTags = new Set([0, 1, 11, 14, 15])
   const performedWork = 1
   const nameOf = ({ type }) =>
-    type?.displayName ??
-    type?.name ??
-    type?.render?.name ??
-    type?.type?.displayName ??
-    type?.type?.name ??
-    'Anonymous'
+    type?.displayName ||
+    type?.name ||
+    type?.render?.name ||
+    type?.type?.displayName ||
+    type?.type?.name ||
+    ''
   // why: mirrors React DevTools' commit walk; a subtree whose child pointer did not change took no work in this commit.
-  const collect = (fiber, names) => {
+  const collect = (fiber, names, owner, insideRender) => {
     const previous = fiber.alternate
+    let rendered = insideRender
     if (componentTags.has(fiber.tag)) {
+      const name = nameOf(fiber)
+      const label = name || `(anonymous in ${owner})`
       if (!previous || fiber.flags & performedWork) {
-        names.add(nameOf(fiber))
-      } else if (fiber.memoizedState !== previous.memoizedState) {
-        names.add(`${nameOf(fiber)} (bailed out)`)
+        // why: only the topmost component that rendered names the commit; its descendants rendered because it did.
+        if (!insideRender) names.add(label)
+        rendered = true
+      } else if (
+        !insideRender &&
+        fiber.memoizedState !== previous.memoizedState
+      ) {
+        names.add(`${label} (bailed out)`)
       }
+      owner = name || owner
     }
     if (previous && fiber.child === previous.child) return
     for (let child = fiber.child; child; child = child.sibling) {
-      collect(child, names)
+      collect(child, names, owner, rendered)
     }
   }
   window.__perfReact = stats
@@ -63,7 +72,7 @@ const reactHook = () => {
     onCommitFiberRoot(_rendererId, root) {
       stats.commits += 1
       const names = new Set()
-      collect(root.current, names)
+      collect(root.current, names, 'root', false)
       if (names.size === 0) names.add('(no component)')
       for (const name of names) {
         stats.components[name] = (stats.components[name] ?? 0) + 1
