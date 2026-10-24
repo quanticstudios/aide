@@ -42,6 +42,7 @@ import {
   subscribeManagedSession,
 } from '../lib/managed-session-events'
 import { groupContentByTurn } from '../lib/managed-session-grouping'
+import { buildTranscriptRows } from '../lib/transcript-rows'
 import {
   canChangeManagedSessionSelection,
   composerProviderSelectionInput,
@@ -52,10 +53,13 @@ import {
 } from '../lib/managed-session-selection'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
-import { ConversationMinimap } from './ConversationMinimap'
+import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
+import TranscriptList, {
+  type TranscriptVirtualizer,
+} from './transcript/TranscriptList'
 import TurnGroupBlock from './transcript/TurnGroupBlock'
 
 interface ManagedAgentPaneProps {
@@ -246,6 +250,7 @@ export default function ManagedAgentPane({
   const paneRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const virtualizerRef = useRef<TranscriptVirtualizer | null>(null)
   const { pinNextMessage, scrollToLatest, showScrollToLatest } =
     useTranscriptFollow({
       contentRef: transcriptRef,
@@ -253,6 +258,11 @@ export default function ManagedAgentPane({
       scrollRef,
       sessionId,
     })
+
+  // why: the open measure starts when the pane picks up its session, before the snapshot arrives, so loading it counts.
+  useLayoutEffect(() => {
+    performance.mark(`transcript-open-start:${sessionId}`)
+  }, [sessionId])
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
   const workingProviderLabel =
@@ -608,8 +618,6 @@ export default function ManagedAgentPane({
     }
   }, [isUnifiedPane, sessionId, terminalMode])
 
-  const contentLength = snapshot?.content.length ?? 0
-
   const sendPromptText = useCallback(
     async (
       text: string,
@@ -632,6 +640,18 @@ export default function ManagedAgentPane({
             return false
           }
         }
+        const virtualizer = virtualizerRef.current
+        if (
+          virtualizer &&
+          (virtualizer.getVirtualItems().at(-1)?.index ?? -1) <
+            virtualizer.options.count - 1
+        ) {
+          // why: the follow hook pins the newest prompt it finds in the DOM, so the newest rows have to be mounted before the send.
+          scrollToLatest()
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          )
+        }
         pinNextMessage()
         await api.sendManagedSessionInput(
           sessionId,
@@ -651,7 +671,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [ensureSession, pinNextMessage, sessionId],
+    [ensureSession, pinNextMessage, scrollToLatest, sessionId],
   )
 
   const handleRetryTurn = useCallback(
@@ -867,6 +887,25 @@ export default function ManagedAgentPane({
 
     return [...turnGroups, ...emptyOpinionGroups]
   }, [snapshot?.turns, turnGroups])
+  const transcriptRows = useMemo(
+    () => buildTranscriptRows(visibleTurnGroups),
+    [visibleTurnGroups],
+  )
+  const minimapAnchors = useMemo(
+    () =>
+      transcriptRows.flatMap((row, index): MinimapAnchor[] => {
+        const reply = row.group.items.reduce(
+          (last, item) => (item.kind === 'assistant-text' ? item.text : last),
+          '',
+        )
+        return row.items.flatMap((item) =>
+          item.kind === 'user-prompt'
+            ? [{ id: item.id, prompt: item.text, reply, row: index }]
+            : [],
+        )
+      }),
+    [transcriptRows],
+  )
 
   const runningTurnId = useMemo(
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
@@ -932,43 +971,48 @@ export default function ManagedAgentPane({
           data-testid="managed-session-content"
           ref={scrollRef}
         >
-          {visibleTurnGroups.length > 0 ? (
-            <div className="mx-auto max-w-3xl space-y-8" ref={transcriptRef}>
-              {visibleTurnGroups.map((group) => {
-                const turn = snapshot?.turns.find(
-                  (candidate) => candidate.id === group.turnId,
-                ) as RecipientTurnSummary | undefined
+          {transcriptRows.length > 0 ? (
+            <div ref={transcriptRef}>
+              <TranscriptList
+                renderRow={(row) => {
+                  const turn = snapshot?.turns.find(
+                    (candidate) => candidate.id === row.group.turnId,
+                  ) as RecipientTurnSummary | undefined
 
-                return (
-                  <TurnGroupBlock
-                    canBranch={turn?.state === 'completed'}
-                    checkpointId={turn?.checkpointId ?? null}
-                    group={group}
-                    isFailed={turn?.state === 'failed'}
-                    isRunning={turn?.state === 'running'}
-                    key={group.turnId ?? `system-${group.items[0]?.id}`}
-                    onBranch={handleTurnBranch}
-                    onEditFromHere={handleTurnEditFromHere}
-                    onInterrupt={handleInterruptRecipient}
-                    onRetry={handleTurnRetry}
-                    providerLabel={
-                      turn?.provider === 'claude'
-                        ? 'Claude'
-                        : turn?.provider === 'codex'
-                          ? 'Codex'
-                          : workingProviderLabel
-                    }
-                    recipientAlias={turn?.recipientAlias ?? null}
-                    requestText={turn?.requestText ?? null}
-                    rewindDisabledReason={rewindDisabledReason}
-                    sessionId={sessionId}
-                  />
-                )
-              })}
+                  return (
+                    <TurnGroupBlock
+                      canBranch={turn?.state === 'completed'}
+                      checkpointId={turn?.checkpointId ?? null}
+                      isFailed={turn?.state === 'failed'}
+                      isRunning={turn?.state === 'running'}
+                      onBranch={handleTurnBranch}
+                      onEditFromHere={handleTurnEditFromHere}
+                      onInterrupt={handleInterruptRecipient}
+                      onRetry={handleTurnRetry}
+                      providerLabel={
+                        turn?.provider === 'claude'
+                          ? 'Claude'
+                          : turn?.provider === 'codex'
+                            ? 'Codex'
+                            : workingProviderLabel
+                      }
+                      recipientAlias={turn?.recipientAlias ?? null}
+                      requestText={turn?.requestText ?? null}
+                      rewindDisabledReason={rewindDisabledReason}
+                      row={row}
+                      sessionId={sessionId}
+                    />
+                  )
+                }}
+                rows={transcriptRows}
+                scrollRef={scrollRef}
+                sessionId={sessionId}
+                virtualizerRef={virtualizerRef}
+              />
 
               {snapshot?.sessionState === 'running' &&
               runningTurnId === null ? (
-                <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
+                <div className="mx-auto flex max-w-3xl items-center gap-2 px-1 text-[13px] text-muted-foreground">
                   <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
                   {workingProviderLabel} is working...
                 </div>
@@ -995,9 +1039,10 @@ export default function ManagedAgentPane({
         </div>
 
         <ConversationMinimap
+          anchors={minimapAnchors}
           key={sessionId}
           scrollRef={scrollRef}
-          contentLength={contentLength}
+          virtualizerRef={virtualizerRef}
         />
       </div>
 

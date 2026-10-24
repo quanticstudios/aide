@@ -4,7 +4,7 @@ import { Fragment, memo, Suspense, useEffect, useState } from 'react'
 import type { TurnCheckpointDiff } from '../../../../shared/checkpoints'
 import type { AideApi } from '../../../../shared/ipc'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
-import type { TurnGroup } from '../../lib/managed-session-grouping'
+import type { TranscriptRow } from '../../lib/transcript-rows'
 import { cn } from '../../lib/utils'
 import IconTooltip from '../ui/icon-tooltip'
 import ContentItemBlock from './ContentItemBlock'
@@ -24,27 +24,36 @@ function getAideApi(): AideApi | null {
 
 type TurnGroupBlockProps = Parameters<typeof TurnGroupBlockContent>[0]
 
-// why: groups are rebuilt on every snapshot, so equality compares the shared item objects instead.
+function haveSameItems(
+  previous: readonly ManagedSessionContentItem[],
+  next: readonly ManagedSessionContentItem[],
+): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((item, index) => item === next[index])
+  )
+}
+
+// why: rows are rebuilt on every snapshot, so equality compares the shared item objects instead.
 function areTurnGroupPropsEqual(
   previous: TurnGroupBlockProps,
   next: TurnGroupBlockProps,
 ): boolean {
   for (const key of Object.keys(next) as (keyof TurnGroupBlockProps)[]) {
-    if (key !== 'group' && previous[key] !== next[key]) return false
+    if (key !== 'row' && previous[key] !== next[key]) return false
   }
   return (
-    previous.group.turnId === next.group.turnId &&
-    previous.group.items.length === next.group.items.length &&
-    previous.group.items.every(
-      (item, index) => item === next.group.items[index],
-    )
+    previous.row.key === next.row.key &&
+    previous.row.isLast === next.row.isLast &&
+    haveSameItems(previous.row.items, next.row.items) &&
+    haveSameItems(previous.row.group.items, next.row.group.items)
   )
 }
 
 const TurnGroupBlock = memo(TurnGroupBlockContent, areTurnGroupPropsEqual)
 
 function TurnGroupBlockContent({
-  group,
+  row,
   canBranch,
   checkpointId,
   isFailed,
@@ -59,7 +68,7 @@ function TurnGroupBlockContent({
   rewindDisabledReason,
   sessionId,
 }: {
-  readonly group: TurnGroup
+  readonly row: TranscriptRow
   readonly canBranch: boolean
   readonly checkpointId: string | null
   readonly isFailed: boolean
@@ -79,11 +88,13 @@ function TurnGroupBlockContent({
 }) {
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
   const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
+  const { group, isLast } = row
   const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   // why: the checklist renders once per turn, so its tool row drops out of the timeline.
-  const tasks = group.items.filter((item) => item.tool?.tasks).at(-1)
-    ?.tool?.tasks
-  const items = group.items.filter((item) => !item.tool?.tasks)
+  const tasks = row.isFirst
+    ? group.items.filter((item) => item.tool?.tasks).at(-1)?.tool?.tasks
+    : undefined
+  const items = row.items.filter((item) => !item.tool?.tasks)
   // why: the checklist describes the reply, so it sits after the prompt bubble.
   const taskListIndex = items.findIndex((item) => item.kind !== 'user-prompt')
   const responseItem = group.items
@@ -94,7 +105,7 @@ function TurnGroupBlockContent({
   const responseContentItemId = responseItem?.id
 
   useEffect(() => {
-    if (!checkpointId || isRunning) return
+    if (!checkpointId || isRunning || !isLast) return
     let cancelled = false
     void getAideApi()
       ?.getTurnCheckpointDiff(sessionId, checkpointId)
@@ -107,7 +118,7 @@ function TurnGroupBlockContent({
     return () => {
       cancelled = true
     }
-  }, [checkpointId, isRunning, sessionId])
+  }, [checkpointId, isLast, isRunning, sessionId])
 
   return (
     <div className={cn('chat-turn relative space-y-3', isRunning && 'turn')}>
@@ -158,7 +169,7 @@ function TurnGroupBlockContent({
       {tasks && taskListIndex === -1 ? (
         <TaskListBlock isRunning={isRunning} tasks={tasks} />
       ) : null}
-      {isRunning ? (
+      {isRunning && isLast ? (
         <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
           {providerLabel} is working...
@@ -173,7 +184,7 @@ function TurnGroupBlockContent({
           ) : null}
         </div>
       ) : null}
-      {!isRunning && (canRetry || responseItem) ? (
+      {isLast && !isRunning && (canRetry || responseItem) ? (
         <div
           className="response-actions flex items-center gap-1 px-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="response-actions"

@@ -40,7 +40,7 @@ export default memo(function ContentItemBlock({
       <div className="flex justify-end">
         <div
           className="group/user-message flex max-w-[85%] flex-col items-end"
-          data-minimap-message="Your message"
+          data-message-id={item.id}
           data-testid={`managed-content-${item.kind}`}
         >
           <div
@@ -181,9 +181,6 @@ export default memo(function ContentItemBlock({
         'px-1',
         item.kind === 'assistant-text' && 'assistant-message',
       )}
-      data-minimap-message={
-        item.kind === 'assistant-text' ? 'Agent response' : undefined
-      }
       data-testid={`managed-content-${item.kind}`}
     >
       {item.kind === 'assistant-text' && item.provider && showProvider ? (

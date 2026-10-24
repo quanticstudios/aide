@@ -84,6 +84,26 @@ describe('ManagedSessionManager', () => {
     process.env.AIDE_CODEX_COMMAND = undefined
   })
 
+  it('generates a 2,000-item transcript for the long transcript prompt', async () => {
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'long transcript')
+    await vi.waitFor(() =>
+      expect(
+        manager
+          .getSnapshots()
+          [config.sessionId]?.content.filter(
+            (item) => item.kind !== 'user-prompt',
+          ),
+      ).toHaveLength(2000),
+    )
+    await manager.closeAll()
+  })
+
   it('persists fleet tools and separates completion from acceptance', async () => {
     const store = createMemoryStore()
     const options = {

@@ -1,49 +1,86 @@
-import { type RefObject, useId, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type RefObject,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import { onUserScrollIntent } from '../lib/user-scroll-intent'
+import type { TranscriptVirtualizer } from './transcript/TranscriptList'
 
 const tickSpacing = 12
-const minimapMessageSelector = '[data-minimap-message="Your message"]'
 
-// why: turns skip layout off screen, and reading a rect inside one forces it; the turn box itself stays measurable.
-function anchorOf(message: HTMLElement): HTMLElement {
-  const turn = message.closest<HTMLElement>('.chat-turn')
-  // why: a steered follow-up sits lower in its turn, so only the turn's first prompt can stand in for it.
-  return turn?.querySelector(minimapMessageSelector) === message
-    ? turn
-    : message
+/** A user prompt the minimap can jump to, located by its transcript row. */
+export interface MinimapAnchor {
+  readonly id: string
+  readonly prompt: string
+  readonly reply: string
+  readonly row: number
+}
+
+function findPrompt(
+  scroll: HTMLElement,
+  anchor: MinimapAnchor,
+): HTMLElement | null {
+  return scroll.querySelector<HTMLElement>(
+    `[data-message-id="${CSS.escape(anchor.id)}"]`,
+  )
+}
+
+// why: off-screen rows are not mounted, so an unmounted prompt falls back to its row's measured or estimated start.
+function offsetOf(
+  scroll: HTMLElement,
+  virtualizer: TranscriptVirtualizer | null,
+  anchor: MinimapAnchor | undefined,
+): number {
+  const prompt = anchor && findPrompt(scroll, anchor)
+  if (prompt) {
+    return (
+      prompt.getBoundingClientRect().top -
+      scroll.getBoundingClientRect().top +
+      scroll.scrollTop
+    )
+  }
+  const list = scroll.firstElementChild
+  const start = anchor && virtualizer?.measurementsCache[anchor.row]?.start
+  return list instanceof HTMLElement && start !== undefined
+    ? list.offsetTop + start
+    : 0
 }
 
 export function ConversationMinimap({
+  anchors,
   scrollRef,
-  contentLength,
+  virtualizerRef,
 }: {
+  readonly anchors: readonly MinimapAnchor[]
   readonly scrollRef: RefObject<HTMLDivElement | null>
-  readonly contentLength: number
+  readonly virtualizerRef: RefObject<TranscriptVirtualizer | null>
 }) {
   const previewId = useId()
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const railRef = useRef<HTMLElement>(null)
-  const messagesRef = useRef<HTMLElement[]>([])
-  const [labels, setLabels] = useState<string[]>([])
+  const anchorsRef = useRef(anchors)
+  const cancelSettleRef = useRef(() => {})
+  const labels = anchors.map((_, index) => `${index + 1}. Your message`)
   const [position, setPosition] = useState({
     active: 0,
     height: 0,
     hasOverflow: false,
   })
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: new content changes the set of message anchors
+  useLayoutEffect(() => {
+    anchorsRef.current = anchors
+  }, [anchors])
+
+  useEffect(() => () => cancelSettleRef.current(), [])
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new anchor changes the set of offsets to measure
   useLayoutEffect(() => {
     const scroll = scrollRef.current
     const rail = railRef.current
     if (!scroll || !rail) return
-    const messages = Array.from(
-      scroll.querySelectorAll<HTMLElement>(minimapMessageSelector),
-    )
-    messagesRef.current = messages
-    setLabels(
-      messages.map(
-        (message, index) => `${index + 1}. ${message.dataset.minimapMessage}`,
-      ),
-    )
     let offsets: number[] = []
     let frame = 0
     const update = () => {
@@ -54,7 +91,7 @@ export function ConversationMinimap({
         if (offsets[index] <= scroll.scrollTop + 80) active = index
         else break
       }
-      if (isAtBottom) active = Math.max(0, messages.length - 1)
+      if (isAtBottom) active = Math.max(0, anchorsRef.current.length - 1)
       const height = rail.clientHeight
       const hasOverflow = scroll.scrollHeight > scroll.clientHeight + 1
       setPosition((current) =>
@@ -66,12 +103,8 @@ export function ConversationMinimap({
       )
     }
     const measure = () => {
-      const top = scroll.getBoundingClientRect().top
-      offsets = messages.map(
-        (message) =>
-          anchorOf(message).getBoundingClientRect().top -
-          top +
-          scroll.scrollTop,
+      offsets = anchorsRef.current.map((anchor) =>
+        offsetOf(scroll, virtualizerRef.current, anchor),
       )
       update()
     }
@@ -95,12 +128,12 @@ export function ConversationMinimap({
       scroll.removeEventListener('pointerdown', enableMotion)
       cancelAnimationFrame(frame)
     }
-  }, [scrollRef, contentLength])
+  }, [scrollRef, virtualizerRef, anchors.length])
 
   const navigate = (index: number, isKeyboard: boolean) => {
     const scroll = scrollRef.current
-    const message = messagesRef.current[index]
-    if (!scroll || !message) return
+    const anchor = anchors[index]
+    if (!scroll || !anchor) return
     railRef.current?.setAttribute(
       'data-keyboard-navigation',
       String(isKeyboard),
@@ -108,14 +141,48 @@ export function ConversationMinimap({
     const prefersReducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches
+    cancelSettleRef.current()
     scroll.scrollTo({
-      top:
-        anchorOf(message).getBoundingClientRect().top -
-        scroll.getBoundingClientRect().top +
-        scroll.scrollTop -
-        16,
+      top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
       behavior: isKeyboard || prefersReducedMotion ? 'instant' : 'smooth',
     })
+    // why: an off-screen prompt's row mounts only once the scroll reaches it, and row measurements can cut a smooth scroll short, so the jump re-aims each time scrolling settles.
+    let lastTop = Number.NaN
+    let frames = 0
+    let frame = 0
+    const settle = () => {
+      const isSettled = scroll.scrollTop === lastTop
+      lastTop = scroll.scrollTop
+      if (isSettled) {
+        const top = Math.max(
+          0,
+          Math.min(
+            offsetOf(scroll, virtualizerRef.current, anchor) - 16,
+            scroll.scrollHeight - scroll.clientHeight,
+          ),
+        )
+        if (
+          findPrompt(scroll, anchor) &&
+          Math.abs(scroll.scrollTop - top) < 1
+        ) {
+          cancelSettleRef.current()
+          return
+        }
+        scroll.scrollTo({ top, behavior: 'instant' })
+        lastTop = Number.NaN
+      }
+      frames += 1
+      if (frames < 120) frame = requestAnimationFrame(settle)
+      else cancelSettleRef.current()
+    }
+    frame = requestAnimationFrame(settle)
+    const stopListening = onUserScrollIntent(scroll, () =>
+      cancelSettleRef.current(),
+    )
+    cancelSettleRef.current = () => {
+      cancelAnimationFrame(frame)
+      stopListening()
+    }
     if (isKeyboard)
       railRef.current
         ?.querySelectorAll('button')
@@ -133,19 +200,10 @@ export function ConversationMinimap({
   )
   const highlightedIndex = hoveredIndex ?? position.active
   const isVisible = position.hasOverflow && labels.length > 1
-  const readPreview = (message: HTMLElement | undefined) =>
-    (
-      message?.querySelector<HTMLElement>('pre, .prose')?.innerText ??
-      message?.innerText ??
-      ''
-    ).trim()
-  const prompt =
-    hoveredIndex === null ? undefined : messagesRef.current[hoveredIndex]
-  const previewPrompt = readPreview(prompt)
-  const reply = prompt
-    ?.closest('.chat-turn')
-    ?.querySelectorAll<HTMLElement>('[data-minimap-message="Agent response"]')
-  const previewReply = readPreview(reply?.[reply.length - 1])
+  const hoveredAnchor =
+    hoveredIndex === null ? undefined : anchors[hoveredIndex]
+  const previewPrompt = hoveredAnchor?.prompt.trim() ?? ''
+  const previewReply = hoveredAnchor?.reply.trim() ?? ''
 
   return (
     <nav
