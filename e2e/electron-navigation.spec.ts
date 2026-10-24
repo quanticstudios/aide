@@ -1867,6 +1867,8 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-pane-name')).toHaveText(
       'Workspace terminal',
     )
+    // why: Close pane warns only once the shell reports running, so wait until its prompt has drawn.
+    await expect(page.locator('.terminal-pane .xterm-rows')).not.toHaveText('')
 
     await runPaletteCommand(page, 'Close pane')
     await expect(
