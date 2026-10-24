@@ -1,3 +1,4 @@
+import { isEqualValue } from '../renderer/src/lib/deep-equal'
 import type { ManagedSessionSnapshot } from '../shared/managed-session'
 import type { TerminalEvent, TerminalSessionConfig } from '../shared/terminal'
 import {
@@ -46,6 +47,15 @@ function createActivity(input: {
     updatedAt: input.updatedAt,
     workspaceId: input.workspaceId,
   }
+}
+
+/** Returns `activities` without `updatedAt`, ordered by session, so lists that differ only in recency compare equal. */
+function describeActivities(
+  activities: readonly WorkspaceActivitySnapshot[],
+): Omit<WorkspaceActivitySnapshot, 'updatedAt'>[] {
+  return activities
+    .map(({ updatedAt: _updatedAt, ...activity }) => activity)
+    .sort((left, right) => left.sessionId.localeCompare(right.sessionId))
 }
 
 function deriveManagedActivity(
@@ -347,10 +357,17 @@ export class WorkspaceActivityService {
           }),
         ),
     ])
+    const previous = this.activitiesByWorkspace.get(workspaceId) ?? []
     if (activities.length === 0) {
       this.activitiesByWorkspace.delete(workspaceId)
     } else {
       this.activitiesByWorkspace.set(workspaceId, activities)
+    }
+    // why: a streaming agent moves updatedAt on every token, and each event re-renders the whole renderer app.
+    if (
+      isEqualValue(describeActivities(previous), describeActivities(activities))
+    ) {
+      return
     }
     this.revision += 1
     this.options.onUpdate({

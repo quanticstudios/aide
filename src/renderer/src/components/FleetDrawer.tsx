@@ -43,7 +43,10 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Fleet action failed.'
 }
 
-function useFleetSnapshot(sessionId: string | null): {
+function useFleetSnapshot(
+  sessionId: string | null,
+  isOpen: boolean,
+): {
   error: string | null
   snapshot: ManagedSessionSnapshot | null
 } {
@@ -57,8 +60,9 @@ function useFleetSnapshot(sessionId: string | null): {
   } | null>(null)
   const revisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
 
+  // why: a closed drawer keeps its last snapshot for the slide-out, and skips the per-token commits of a streaming session.
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || !isOpen) return
     const api = getAideApi()
     if (!api) return
     let isCurrent = true
@@ -115,7 +119,7 @@ function useFleetSnapshot(sessionId: string | null): {
       isCurrent = false
       unsubscribe()
     }
-  }, [sessionId])
+  }, [isOpen, sessionId])
 
   return {
     error: loadError?.sessionId === sessionId ? loadError.message : null,
@@ -506,7 +510,7 @@ export default function FleetDrawer({
   sessionId,
 }: FleetDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const { error: loadError, snapshot } = useFleetSnapshot(sessionId)
+  const { error: loadError, snapshot } = useFleetSnapshot(sessionId, isOpen)
   const fleet = snapshot?.fleet ?? null
   const [actionError, setActionError] = useState<{
     message: string

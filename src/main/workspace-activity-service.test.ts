@@ -199,6 +199,41 @@ describe('WorkspaceActivityService', () => {
     expect(service.getSnapshot().revision).toBe(2)
   })
 
+  it('publishes a streaming agent once, not on every token', () => {
+    const events: unknown[] = []
+    const service = new WorkspaceActivityService({
+      onUpdate: (event) => events.push(event),
+    })
+
+    for (let revision = 1; revision <= 20; revision += 1) {
+      service.handleManagedSessionSnapshot(
+        snapshot({
+          revision,
+          sessionState: 'running',
+          updatedAt: `2026-04-06T12:00:${String(revision).padStart(2, '0')}.000Z`,
+        }),
+      )
+    }
+    service.handleManagedSessionSnapshot(
+      snapshot({
+        pendingApprovals: [
+          {
+            detail: 'Approve the command',
+            id: 'approval-1',
+            requestType: 'command-execution-approval',
+          },
+        ],
+        revision: 21,
+        sessionState: 'running',
+      }),
+    )
+
+    expect(events).toMatchObject([
+      { activities: [{ state: 'working' }], revision: 1 },
+      { activities: [{ state: 'pending-approval' }], revision: 2 },
+    ])
+  })
+
   it('acknowledges terminal activity emitted while a workspace is visible', () => {
     const persisted = vi.fn()
     const service = new WorkspaceActivityService({
