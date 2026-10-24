@@ -66,6 +66,16 @@ rates below cover the steady stream, not pane setup.
 | `reactCommitsPerSecond`                     | React commits across the window, counted through a stub `__REACT_DEVTOOLS_GLOBAL_HOOK__` installed before React loads                                                         |
 | `chatPaneRendersPerSecond`                  | Commits that re-rendered a chat pane's `managed-session-content` element, summed over all panes                                                                               |
 
+`reactCommitsByComponent` lists the 15 components that took part in the most
+commits, with commits per second over the same window. On each commit the hook
+walks the fiber tree the way React DevTools does, skipping subtrees that took no
+work, and counts a component once per commit if it rendered. A component whose
+state update React threw away after rendering it shows as `Name (bailed out)`; a
+commit with neither shows as `(no component)`. A commit counts once for every
+component in it, so the rates add up to more than `reactCommitsPerSecond`. The
+CI job builds with `AIDE_KEEP_NAMES=1` so esbuild keeps function names; a local
+build without it shows minified names.
+
 The software renderer under Xvfb sets the frame numbers, so compare them only
 with runs on the same kind of machine. A desktop GPU draws faster.
 
@@ -109,7 +119,8 @@ or removing one, or changing a unit, needs a new `schemaVersion`.
     "ipcMessagesPerSecond": 0,
     "reactCommitsPerSecond": 0,
     "chatPaneRendersPerSecond": 0
-  }
+  },
+  "reactCommitsByComponent": [{ "component": "ManagedAgentPane", "commitsPerSecond": 0 }]
 }
 ```
 
