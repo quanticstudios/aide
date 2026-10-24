@@ -182,10 +182,16 @@ ticket merged except ENG-2658 and ENG-2661.
 | Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms |
 | IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s |
 | React commits | 50.3 to 124/s | 129 to 139.6/s |
+| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s |
 
 Session deltas (ENG-2656) cut IPC about tenfold. Frame time p95 dropped but
-stays over 20 ms on the 2-vCPU runner, and React commits rose, most likely
-because a less busy renderer batches fewer updates into each commit.
+stays over 20 ms on the 2-vCPU runner, which was already at 25.6 ms before M1.
+
+React commits did not fall. At 60 frames a second, 129 to 140 commits is about
+2.2 per frame. The frame flush from ENG-2657 makes one of them; the source of
+the rest is not identified yet. `useManagedSessionState` sets an unchanged
+state, which React skips, the task library listener is debounced to 200 ms,
+and the fleet drawer subscribes only while open. Chat pane renders stayed flat.
 
 `scripts/perf-budget.json` sets each ceiling at 1.5x the highest After run:
 266,000 bytes/s for IPC and 210 commits/s. IPC and commits vary up to 2x
