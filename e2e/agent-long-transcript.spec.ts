@@ -7,6 +7,7 @@ import {
   type ElectronApplication,
   _electron as electron,
   expect,
+  type Locator,
   type Page,
   test,
 } from '@playwright/test'
@@ -51,6 +52,16 @@ function scrollHeight(page: Page): Promise<number> {
     (selector) => document.querySelector(selector)?.scrollHeight ?? 0,
     content,
   )
+}
+
+function offsetFromTop(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const scroll = element.closest('[data-testid="managed-session-content"]')
+    if (!scroll) throw new Error('Transcript unavailable.')
+    return (
+      element.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+    )
+  })
 }
 
 function distanceFromBottom(page: Page): Promise<number> {
@@ -143,56 +154,28 @@ test.describe('long agent transcript', () => {
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     const transcript = page.getByTestId('managed-session-content')
     const lastStep = transcript.getByText('Step 999 line 3: checked')
-    await prompt.fill('open baseline')
-    await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(transcript.getByText('Handled: open baseline')).toBeVisible()
-
-    // why: session data now arrives with the pane, so the transcript's open cost is its load time minus a one-message session's on the same runner.
-    await page.addInitScript(() => {
-      const text = sessionStorage.getItem('aide-e2e-open-text')
-      if (!text) return
-      const poll = () => {
-        const scroll = document.querySelector(
-          '[data-testid="managed-session-content"]',
-        )
-        if (scroll?.textContent?.includes(text)) {
-          Object.assign(window, { __transcriptOpenMs: performance.now() })
-          return
-        }
-        requestAnimationFrame(poll)
-      }
-      requestAnimationFrame(poll)
-    })
-    const medianLoadMs = async (text: string) => {
-      const samples: number[] = []
-      for (let run = 0; run < 3; run++) {
-        await page.evaluate(
-          (value) => sessionStorage.setItem('aide-e2e-open-text', value),
-          text,
-        )
-        await page.reload()
-        await page.waitForLoadState('domcontentloaded')
-        await expect(transcript.getByText(text)).toBeInViewport({
-          timeout: 30_000,
-        })
-        samples.push(
-          await page.evaluate(
-            () =>
-              (window as unknown as { __transcriptOpenMs: number })
-                .__transcriptOpenMs,
-          ),
-        )
-      }
-      return samples.sort((a, b) => a - b)[1] ?? 0
-    }
-    const baselineMs = await medianLoadMs('Handled: open baseline')
-
     await prompt.fill('long transcript')
     await page.getByRole('button', { name: /send prompt/i }).click()
     await expect(lastStep).toBeVisible({ timeout: 30_000 })
     const nodesAt2000 = await countTranscriptNodes(page)
-    const loadMs = await medianLoadMs('Step 999 line 3: checked')
-    const openMs = loadMs - baselineMs
+
+    const openSamples: number[] = []
+    for (let run = 0; run < 3; run++) {
+      await page.reload()
+      await page.waitForLoadState('domcontentloaded')
+      await expect(lastStep).toBeInViewport({ timeout: 30_000 })
+      const measure = await page.waitForFunction(
+        () =>
+          performance
+            .getEntriesByType('measure')
+            .find((entry) => entry.name.startsWith('transcript-open:'))
+            ?.duration,
+        undefined,
+        { timeout: 10_000 },
+      )
+      openSamples.push(Number(await measure.jsonValue()))
+    }
+    const openMs = openSamples.sort((a, b) => a - b)[1] ?? 0
 
     const frames = await page.evaluate(async (selector) => {
       const scroll = document.querySelector(selector)
@@ -217,11 +200,10 @@ test.describe('long agent transcript', () => {
       }
     }, content)
     console.log('long transcript open', {
-      baselineMs,
       frames,
-      loadMs,
       nodesAt2000,
       openMs,
+      openSamples,
     })
     await expect(
       transcript.getByText('Step 0 line 0: checked'),
@@ -272,45 +254,53 @@ test.describe('long agent transcript', () => {
     }, content)
     await page
       .getByRole('navigation', { name: 'Conversation minimap' })
-      .getByRole('button', { name: 'Go to message 6. Your message' })
+      .getByRole('button', { name: 'Go to message 5. Your message' })
       .click()
     const steered = transcript
       .getByTestId('managed-content-user-prompt')
       .filter({ hasText: 'steer here' })
     await expect(steered).toBeInViewport()
+    await expect.poll(() => offsetFromTop(steered)).toBeLessThan(48)
+
+    // why: from the top of a long history the newest rows are unmounted, so the send has to mount them before the hook can pin the prompt.
+    await page.evaluate((selector) => {
+      const scroll = document.querySelector(selector)
+      if (scroll) scroll.scrollTop = 0
+    }, content)
+    await prompt.fill('pin me')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    const pinned = transcript
+      .getByTestId('managed-content-user-prompt')
+      .filter({ hasText: 'pin me' })
+    await expect(pinned).toBeInViewport()
+    await expect.poll(() => offsetFromTop(pinned)).toBeLessThan(48)
     await expect
       .poll(() =>
-        steered.evaluate((element) => {
-          const scroll = element.closest(
-            '[data-testid="managed-session-content"]',
-          )
-          if (!scroll) throw new Error('Transcript unavailable.')
-          return (
-            element.getBoundingClientRect().top -
-            scroll.getBoundingClientRect().top
-          )
-        }),
+        page.evaluate((selector) => {
+          const wrapper = document.querySelector(selector)?.firstElementChild
+          return wrapper
+            ? Number.parseFloat(getComputedStyle(wrapper).paddingBottom)
+            : 0
+        }, content),
       )
-      .toBeLessThan(48)
+      .toBeGreaterThan(0)
 
     test.info().annotations.push({
       type: 'long-transcript',
       description: JSON.stringify({
-        baselineMs,
         frames,
-        loadMs,
         nodesAt2000,
         nodesAt4000,
         openMs,
+        openSamples,
       }),
     })
     console.log('long transcript', {
-      baselineMs,
       frames,
-      loadMs,
       nodesAt2000,
       nodesAt4000,
       openMs,
+      openSamples,
     })
     expect(openMs).toBeLessThan(300)
     expect(frames.medianMs).toBeLessThan(1000 / 50)

@@ -259,6 +259,11 @@ export default function ManagedAgentPane({
       sessionId,
     })
 
+  // why: the open measure starts when the pane picks up its session, before the snapshot arrives, so loading it counts.
+  useLayoutEffect(() => {
+    performance.mark(`transcript-open-start:${sessionId}`)
+  }, [sessionId])
+
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
   const workingProviderLabel =
     snapshot?.provider === 'claude'
@@ -635,6 +640,18 @@ export default function ManagedAgentPane({
             return false
           }
         }
+        const virtualizer = virtualizerRef.current
+        if (
+          virtualizer &&
+          (virtualizer.getVirtualItems().at(-1)?.index ?? -1) <
+            virtualizer.options.count - 1
+        ) {
+          // why: the follow hook pins the newest prompt it finds in the DOM, so the newest rows have to be mounted before the send.
+          scrollToLatest()
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          )
+        }
         pinNextMessage()
         await api.sendManagedSessionInput(
           sessionId,
@@ -654,7 +671,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [ensureSession, pinNextMessage, sessionId],
+    [ensureSession, pinNextMessage, scrollToLatest, sessionId],
   )
 
   const handleRetryTurn = useCallback(
@@ -989,6 +1006,7 @@ export default function ManagedAgentPane({
                 }}
                 rows={transcriptRows}
                 scrollRef={scrollRef}
+                sessionId={sessionId}
                 virtualizerRef={virtualizerRef}
               />
 
