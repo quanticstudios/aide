@@ -6,7 +6,7 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react'
-import { lazy, Suspense, useState } from 'react'
+import { lazy, memo, Suspense, useState } from 'react'
 import type { ManagedSessionToolCall } from '../../../../shared/managed-session'
 
 export const LazyGitDiffView = lazy(async () => ({
@@ -51,7 +51,7 @@ function toolCallStatusLabel(tool: ManagedSessionToolCall): string {
   return tool.exitCode === undefined ? 'done' : `exit ${tool.exitCode}`
 }
 
-export default function ToolCallBlock({
+export default memo(function ToolCallBlock({
   tool,
 }: {
   readonly tool: ManagedSessionToolCall
@@ -155,4 +155,4 @@ export default function ToolCallBlock({
       ) : null}
     </div>
   )
-}
+})

@@ -144,11 +144,8 @@ function TurnGroupBlockContent({
             <ContentItemBlock
               editFromHereDisabledReason={rewindDisabledReason}
               item={item}
-              onEditFromHere={
-                checkpointId && item.kind === 'user-prompt'
-                  ? () => onEditFromHere(checkpointId, item)
-                  : undefined
-              }
+              checkpointId={item.kind === 'user-prompt' ? checkpointId : null}
+              onEditFromHere={onEditFromHere}
               showProvider={
                 previous?.kind !== 'assistant-text' ||
                 previous.provider !== item.provider ||
