@@ -1,5 +1,11 @@
 import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual'
-import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
+import {
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+} from 'react'
 import type { TranscriptRow } from '../../lib/transcript-rows'
 
 export type TranscriptVirtualizer = Virtualizer<HTMLDivElement, Element>
@@ -18,17 +24,32 @@ export default function TranscriptList({
   readonly sessionId: string
   readonly virtualizerRef: RefObject<TranscriptVirtualizer | null>
 }) {
+  const [, rerender] = useReducer((count: number) => count + 1, 0)
+  const mountedRangeRef = useRef<readonly [number?, number?]>([])
+  // why: a streaming row re-measures and scrolls every frame, so sizes and offsets go to the DOM and only a changed visible range re-renders.
+  // see: patches/@tanstack%2Freact-virtual@3.14.20.patch — stops `isScrolling` flips from re-rendering.
   const virtualizer = useVirtualizer({
     count: rows.length,
+    directDomUpdates: true,
     estimateSize: (index) => 80 + 40 * (rows[index]?.items.length ?? 0),
     getItemKey: (index) => rows[index]?.key ?? index,
     getScrollElement: () => scrollRef.current,
+    // why: the library compares against the range it last notified, which a parent render can leave behind the mounted rows.
+    onChange: (instance) => {
+      const items = instance.getVirtualItems()
+      const [first, last] = mountedRangeRef.current
+      if (items[0]?.index !== first || items.at(-1)?.index !== last) rerender()
+    },
     overscan: 3,
   })
-  const totalSize = virtualizer.getTotalSize()
   const virtualRows = virtualizer.getVirtualItems()
+  const firstMountedIndex = virtualRows[0]?.index
   const lastMountedIndex = virtualRows.at(-1)?.index
   const isOpenMeasuredRef = useRef(false)
+
+  useLayoutEffect(() => {
+    mountedRangeRef.current = [firstMountedIndex, lastMountedIndex]
+  })
 
   useLayoutEffect(() => {
     virtualizerRef.current = virtualizer
@@ -59,7 +80,7 @@ export default function TranscriptList({
   }, [lastMountedIndex, rows.length, sessionId])
 
   return (
-    <div className="relative mx-auto max-w-3xl" style={{ height: totalSize }}>
+    <div className="relative mx-auto max-w-3xl" ref={virtualizer.containerRef}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index]
         return row ? (
@@ -68,7 +89,6 @@ export default function TranscriptList({
             data-index={virtualRow.index}
             key={virtualRow.key}
             ref={virtualizer.measureElement}
-            style={{ transform: `translateY(${virtualRow.start}px)` }}
           >
             {renderRow(row)}
           </div>
