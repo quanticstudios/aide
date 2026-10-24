@@ -25,8 +25,42 @@ const warmupSeconds = 10
 const longTaskMicros = 100_000
 
 const reactHook = () => {
-  const stats = { chatPaneRenders: 0, commits: 0 }
+  const stats = { chatPaneRenders: 0, commits: 0, components: {} }
   const lastProps = new WeakMap()
+  // FunctionComponent, ClassComponent, ForwardRef, MemoComponent, SimpleMemoComponent
+  const componentTags = new Set([0, 1, 11, 14, 15])
+  const performedWork = 1
+  const nameOf = ({ type }) =>
+    type?.displayName ||
+    type?.name ||
+    type?.render?.name ||
+    type?.type?.displayName ||
+    type?.type?.name ||
+    ''
+  // why: mirrors React DevTools' commit walk; a subtree whose child pointer did not change took no work in this commit.
+  const collect = (fiber, names, owner, insideRender) => {
+    const previous = fiber.alternate
+    let rendered = insideRender
+    if (componentTags.has(fiber.tag)) {
+      const name = nameOf(fiber)
+      const label = name || `(anonymous in ${owner})`
+      if (!previous || fiber.flags & performedWork) {
+        // why: only the topmost component that rendered names the commit; its descendants rendered because it did.
+        if (!insideRender) names.add(label)
+        rendered = true
+      } else if (
+        !insideRender &&
+        fiber.memoizedState !== previous.memoizedState
+      ) {
+        names.add(`${label} (bailed out)`)
+      }
+      owner = name || owner
+    }
+    if (previous && fiber.child === previous.child) return
+    for (let child = fiber.child; child; child = child.sibling) {
+      collect(child, names, owner, rendered)
+    }
+  }
   window.__perfReact = stats
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     checkDCE() {},
@@ -35,8 +69,14 @@ const reactHook = () => {
       return this.renderers.size
     },
     isDisabled: false,
-    onCommitFiberRoot() {
+    onCommitFiberRoot(_rendererId, root) {
       stats.commits += 1
+      const names = new Set()
+      collect(root.current, names, 'root', false)
+      if (names.size === 0) names.add('(no component)')
+      for (const name of names) {
+        stats.components[name] = (stats.components[name] ?? 0) + 1
+      }
       // why: React 19 swaps a host node's __reactProps$ object exactly when it re-renders that node.
       for (const node of document.querySelectorAll(
         '[data-testid="managed-session-content"]',
@@ -245,7 +285,7 @@ try {
   const readCounters = () =>
     Promise.all([
       app.evaluate(() => ({ ...globalThis.__perfIpc })),
-      page.evaluate(() => ({ ...window.__perfReact })),
+      page.evaluate(() => structuredClone(window.__perfReact)),
     ])
   const [ipcStart, reactStart] = await readCounters()
   const countersAt = performance.now()
@@ -320,12 +360,29 @@ try {
         (reactEnd.chatPaneRenders - reactStart.chatPaneRenders) / seconds,
       ),
     },
+    reactCommitsByComponent: Object.entries(reactEnd.components)
+      .map(([component, count]) => ({
+        component,
+        commitsPerSecond: round(
+          (count - (reactStart.components[component] ?? 0)) / seconds,
+        ),
+      }))
+      .filter(({ commitsPerSecond }) => commitsPerSecond > 0)
+      .sort((left, right) => right.commitsPerSecond - left.commitsPerSecond)
+      .slice(0, 15),
   }
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`)
 
   console.log('| Metric | Value |\n| --- | --- |')
   for (const [name, value] of Object.entries(result.metrics)) {
     console.log(`| ${name} | ${value} |`)
+  }
+  console.log('\n| Component | Commits/s |\n| --- | --- |')
+  for (const {
+    component,
+    commitsPerSecond,
+  } of result.reactCommitsByComponent) {
+    console.log(`| ${component} | ${commitsPerSecond} |`)
   }
   console.log(`\nWrote ${output}`)
 } finally {

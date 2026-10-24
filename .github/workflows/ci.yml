@@ -103,6 +103,8 @@ jobs:
 
       - name: Build
         run: bun run build
+        env:
+          AIDE_KEEP_NAMES: '1'
 
       - name: Rebuild native dependencies for Electron
         run: bun run rebuild:native

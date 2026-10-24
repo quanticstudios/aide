@@ -36,6 +36,8 @@ export default defineConfig({
   },
   renderer: {
     build: { minify: 'esbuild' },
+    // why: the perf baseline names the components in each React commit, which minified names would hide.
+    esbuild: { keepNames: process.env.AIDE_KEEP_NAMES === '1' },
     resolve: {
       alias: {
         '@': resolve(root, 'src/renderer/src'),
