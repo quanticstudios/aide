@@ -167,3 +167,27 @@ IPC is the number to watch. Every snapshot carries the whole transcript, about
 At 20 seconds into a trial run the rate was 1.13 MB/s; at two minutes it is
 3.73 MB/s, so it grows with transcript length and a long session will cost more.
 Renderer memory grew the same way, from 384 MB at 20 seconds to 561 MB.
+
+## M1 before and after
+
+Both columns are the `Perf budget` job: five agents, 60 s, an `ubuntu-24.04`
+runner, three runs each, shown as the range across the runs. Before is main at
+`b3a2d44` with the perf script. After is main at `0555441`, with every M1
+ticket merged except ENG-2658 and ENG-2661.
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms |
+| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms |
+| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms |
+| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s |
+| React commits | 50.3 to 124/s | 129 to 139.6/s |
+
+Session deltas (ENG-2656) cut IPC about tenfold. Frame time p95 dropped but
+stays over 20 ms on the 2-vCPU runner, and React commits rose, most likely
+because a less busy renderer batches fewer updates into each commit.
+
+`scripts/perf-budget.json` sets each ceiling at 1.5x the highest After run:
+266,000 bytes/s for IPC and 210 commits/s. IPC and commits vary up to 2x
+between identical runs, which is why the ceilings use the highest run, not one
+run.

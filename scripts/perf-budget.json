@@ -1,5 +1,5 @@
 {
   "metrics.frameTimeP95Ms": 20,
-  "metrics.ipcBytesPerSecond": 5600000,
-  "metrics.reactCommitsPerSecond": 277
+  "metrics.ipcBytesPerSecond": 266000,
+  "metrics.reactCommitsPerSecond": 210
 }
