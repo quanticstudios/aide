@@ -175,28 +175,33 @@ Renderer memory grew the same way, from 384 MB at 20 seconds to 561 MB.
 Every column is the `Perf budget` job: five agents, 60 s, an `ubuntu-24.04`
 runner, three runs each, shown as the range across the runs. Before is main at
 `b3a2d44` with the perf script. M1 is main at `0555441`, with every M1 ticket
-merged except ENG-2658 and ENG-2661. After is main at `22dd444`, which adds
-ENG-2658 and ENG-2724.
+merged except ENG-2658 and ENG-2661. ENG-2724 is main at `22dd444`, which adds
+ENG-2658 and ENG-2724. ENG-2661 is main at `35c0b4b`, which adds the
+virtualized transcript.
 
-| Metric | Before | M1 | After |
-| --- | --- | --- | --- |
-| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms | 20.2 to 22 ms |
-| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms | 16.6 to 16.7 ms |
-| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms | 15.3 to 22.2 ms |
-| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s | 37.6 to 38.5 KB/s |
-| React commits | 50.3 to 124/s | 129 to 139.6/s | 41.1 to 43.1/s |
-| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s | 73.9 to 75.7/s |
+| Metric | Before | M1 | ENG-2724 | ENG-2661 |
+| --- | --- | --- | --- | --- |
+| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms | 20.2 to 22 ms | 23.6 to 26.3 ms |
+| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms | 16.6 to 16.7 ms | 16.7 to 16.9 ms |
+| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms | 15.3 to 22.2 ms | 23.1 to 57.2 ms |
+| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s | 37.6 to 38.5 KB/s | 37 to 37.5 KB/s |
+| React commits | 50.3 to 124/s | 129 to 139.6/s | 41.1 to 43.1/s | 75.5 to 77.4/s |
+| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s | 73.9 to 75.7/s | 72.6 to 73.6/s |
 
 Session deltas (ENG-2656) cut IPC about tenfold, and ENG-2724 cut it four
 times more by no longer sending a workspace activity event on every token.
-Frame time p95 dropped but stays just over 20 ms on the 2-vCPU runner, which
-was already at 25.6 ms before M1.
 
 React commits did not fall with ENG-2657: 129 to 140 a second at 60 frames a
 second is about 2.2 per frame, and the frame flush makes only one of them.
 ENG-2724 traced the rest to that activity event and to the fleet drawer
 committing while closed, which brought commits to about 0.7 per frame.
 
-`scripts/perf-budget.json` sets each ceiling at 1.5x the highest After run:
-57,800 bytes/s for IPC and 65 commits/s. Frame time p95 stays at 20 ms until
-ENG-2661 lands and CI measures it again.
+The virtualized transcript (ENG-2661) put commits back up to about 76 a
+second and frame time p95 up by 3 to 4 ms. `reactCommitsByComponent` credits
+`TranscriptList` with 38.7 commits a second; ENG-2813 tracks the fix.
+
+`scripts/perf-budget.json` sets the IPC and commit ceilings at 1.5x the
+highest ENG-2724 run: 57,800 bytes/s and 65 commits/s. The commit ceiling
+fails on main until ENG-2813 lands. The frame time p95 ceiling is 36.6 ms,
+1.5x the median ENG-2661 run, because the 2-vCPU runner never reaches the
+ticket's 20 ms: it was at 25.7 to 29.1 ms before M1 and 20.2 ms at best since.
