@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/session-delta'
 import { shareSnapshotContent } from '../../lib/managed-session-events'
 import { groupContentByTurn } from '../../lib/managed-session-grouping'
+import { buildTranscriptRows } from '../../lib/transcript-rows'
 import TurnGroupBlock from './TurnGroupBlock'
 
 const rowUpdates = vi.hoisted(() => [] as string[])
@@ -84,14 +85,13 @@ function Transcript({
 }: {
   readonly content: readonly ManagedSessionContentItem[]
 }) {
-  return groupContentByTurn(content).map((group) => (
+  return buildTranscriptRows(groupContentByTurn(content)).map((row) => (
     <TurnGroupBlock
       canBranch={false}
       checkpointId="checkpoint"
-      group={group}
       isFailed={false}
-      isRunning={group.turnId === 'turn-2'}
-      key={group.turnId}
+      isRunning={row.group.turnId === 'turn-2'}
+      key={row.key}
       onBranch={noop}
       onEditFromHere={noop}
       onInterrupt={noop}
@@ -100,6 +100,7 @@ function Transcript({
       recipientAlias={null}
       requestText={null}
       rewindDisabledReason={null}
+      row={row}
       sessionId="session"
     />
   ))

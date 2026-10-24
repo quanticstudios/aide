@@ -73,7 +73,7 @@ test.describe('long agent transcript', () => {
   })
 
   test('opens, scrolls and follows a 2,000-item transcript', async () => {
-    test.setTimeout(120_000)
+    test.setTimeout(180_000)
     repository = createRepository()
     dataDirectory = mkdtempSync(
       path.join(tmpdir(), 'aide-long-transcript-e2e-data-'),
@@ -143,39 +143,56 @@ test.describe('long agent transcript', () => {
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     const transcript = page.getByTestId('managed-session-content')
     const lastStep = transcript.getByText('Step 999 line 3: checked')
-    await prompt.fill('long transcript')
+    await prompt.fill('open baseline')
     await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(lastStep).toBeVisible({ timeout: 30_000 })
-    const nodesAt2000 = await countTranscriptNodes(page)
+    await expect(transcript.getByText('Handled: open baseline')).toBeVisible()
 
-    // why: the open clock starts when the pane's scroll container mounts, so app boot stays out of it.
+    // why: session data now arrives with the pane, so the transcript's open cost is its load time minus a one-message session's on the same runner.
     await page.addInitScript(() => {
-      const marks: { start?: number; end?: number } = {}
-      Object.assign(window, { __transcriptOpen: marks })
+      const text = sessionStorage.getItem('aide-e2e-open-text')
+      if (!text) return
       const poll = () => {
         const scroll = document.querySelector(
           '[data-testid="managed-session-content"]',
         )
-        if (scroll && marks.start === undefined) marks.start = performance.now()
-        if (scroll?.textContent?.includes('Step 999 line 3: checked')) {
-          marks.end = performance.now()
+        if (scroll?.textContent?.includes(text)) {
+          Object.assign(window, { __transcriptOpenMs: performance.now() })
           return
         }
         requestAnimationFrame(poll)
       }
       requestAnimationFrame(poll)
     })
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
-    await expect(lastStep).toBeInViewport({ timeout: 30_000 })
-    const openMs = await page.evaluate(() => {
-      const marks = (
-        window as unknown as {
-          __transcriptOpen: { start: number; end: number }
-        }
-      ).__transcriptOpen
-      return marks.end - marks.start
-    })
+    const medianLoadMs = async (text: string) => {
+      const samples: number[] = []
+      for (let run = 0; run < 3; run++) {
+        await page.evaluate(
+          (value) => sessionStorage.setItem('aide-e2e-open-text', value),
+          text,
+        )
+        await page.reload()
+        await page.waitForLoadState('domcontentloaded')
+        await expect(transcript.getByText(text)).toBeInViewport({
+          timeout: 30_000,
+        })
+        samples.push(
+          await page.evaluate(
+            () =>
+              (window as unknown as { __transcriptOpenMs: number })
+                .__transcriptOpenMs,
+          ),
+        )
+      }
+      return samples.sort((a, b) => a - b)[1] ?? 0
+    }
+    const baselineMs = await medianLoadMs('Handled: open baseline')
+
+    await prompt.fill('long transcript')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(lastStep).toBeVisible({ timeout: 30_000 })
+    const nodesAt2000 = await countTranscriptNodes(page)
+    const loadMs = await medianLoadMs('Step 999 line 3: checked')
+    const openMs = loadMs - baselineMs
 
     const frames = await page.evaluate(async (selector) => {
       const scroll = document.querySelector(selector)
@@ -199,7 +216,13 @@ test.describe('long agent transcript', () => {
         worstMs: deltas.at(-1) ?? 0,
       }
     }, content)
-    console.log('long transcript open', { nodesAt2000, openMs, frames })
+    console.log('long transcript open', {
+      baselineMs,
+      frames,
+      loadMs,
+      nodesAt2000,
+      openMs,
+    })
     await expect(
       transcript.getByText('Step 0 line 0: checked'),
     ).toBeInViewport()
@@ -249,7 +272,7 @@ test.describe('long agent transcript', () => {
     }, content)
     await page
       .getByRole('navigation', { name: 'Conversation minimap' })
-      .getByRole('button', { name: 'Go to message 5. Your message' })
+      .getByRole('button', { name: 'Go to message 6. Your message' })
       .click()
     const steered = transcript
       .getByTestId('managed-content-user-prompt')
@@ -272,9 +295,23 @@ test.describe('long agent transcript', () => {
 
     test.info().annotations.push({
       type: 'long-transcript',
-      description: JSON.stringify({ openMs, frames, nodesAt2000, nodesAt4000 }),
+      description: JSON.stringify({
+        baselineMs,
+        frames,
+        loadMs,
+        nodesAt2000,
+        nodesAt4000,
+        openMs,
+      }),
     })
-    console.log('long transcript', { openMs, frames, nodesAt2000, nodesAt4000 })
+    console.log('long transcript', {
+      baselineMs,
+      frames,
+      loadMs,
+      nodesAt2000,
+      nodesAt4000,
+      openMs,
+    })
     expect(openMs).toBeLessThan(300)
     expect(frames.medianMs).toBeLessThan(1000 / 50)
     expect(nodesAt4000).toBeLessThan(nodesAt2000 * 1.5)

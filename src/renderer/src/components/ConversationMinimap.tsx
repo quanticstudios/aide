@@ -54,7 +54,7 @@ export function ConversationMinimap({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const railRef = useRef<HTMLElement>(null)
   const anchorsRef = useRef(anchors)
-  const settleRef = useRef<AbortController | null>(null)
+  const settleRef = useRef(0)
   const labels = anchors.map((_, index) => `${index + 1}. Your message`)
   const [position, setPosition] = useState({
     active: 0,
@@ -131,28 +131,39 @@ export function ConversationMinimap({
     const prefersReducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
     ).matches
-    const isMounted = findPrompt(scroll, anchor) !== null
-    settleRef.current?.abort()
+    cancelAnimationFrame(settleRef.current)
     scroll.scrollTo({
       top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
       behavior: isKeyboard || prefersReducedMotion ? 'instant' : 'smooth',
     })
-    if (!isMounted) {
-      // why: the row mounts only once the scroll reaches it, and a steered prompt can sit far below its row's start.
-      const settle = new AbortController()
-      settleRef.current = settle
-      scroll.addEventListener(
-        'scrollend',
-        () => {
-          settle.abort()
-          scroll.scrollTo({
-            top: offsetOf(scroll, virtualizerRef.current, anchor) - 16,
-            behavior: 'instant',
-          })
-        },
-        { signal: settle.signal },
-      )
+    // why: an off-screen prompt's row mounts only once the scroll reaches it, and row measurements can cut a smooth scroll short, so the jump re-aims each time scrolling settles.
+    let lastTop = Number.NaN
+    let frames = 0
+    const settle = () => {
+      const isSettled = scroll.scrollTop === lastTop
+      lastTop = scroll.scrollTop
+      if (isSettled) {
+        const top = Math.max(
+          0,
+          Math.min(
+            offsetOf(scroll, virtualizerRef.current, anchor) - 16,
+            scroll.scrollHeight - scroll.clientHeight,
+          ),
+        )
+        if (findPrompt(scroll, anchor) && Math.abs(scroll.scrollTop - top) < 1)
+          return
+        scroll.scrollTo({ top, behavior: 'instant' })
+        lastTop = Number.NaN
+      }
+      frames += 1
+      if (frames < 120) settleRef.current = requestAnimationFrame(settle)
     }
+    settleRef.current = requestAnimationFrame(settle)
+    scroll.addEventListener(
+      'wheel',
+      () => cancelAnimationFrame(settleRef.current),
+      { once: true, passive: true },
+    )
     if (isKeyboard)
       railRef.current
         ?.querySelectorAll('button')
