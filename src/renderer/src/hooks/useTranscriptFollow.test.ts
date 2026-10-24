@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pinSpacerHeight } from './useTranscriptFollow'
+import { pinSpacerHeight, releasePin } from './useTranscriptFollow'
 
 describe('pinSpacerHeight', () => {
   it('adds the trailing space a short message needs to reach the top', () => {
@@ -16,5 +16,17 @@ describe('pinSpacerHeight', () => {
     expect(
       pinSpacerHeight({ clientHeight: 600, contentEnd: 2400, pinTop: 1100 }),
     ).toBe(0)
+  })
+})
+
+describe('releasePin', () => {
+  it('clears a pending and an active pin and removes the trailing space', () => {
+    const pin = { active: true, pending: { previous: null }, spacer: 320 }
+    const content = { style: { paddingBottom: '320px' } }
+
+    releasePin(pin, content)
+
+    expect(pin).toEqual({ active: false, pending: null, spacer: 0 })
+    expect(content.style.paddingBottom).toBe('')
   })
 })

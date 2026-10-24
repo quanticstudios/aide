@@ -28,6 +28,34 @@ export function pinSpacerHeight({
   return Math.max(0, Math.ceil(pinTop + clientHeight - contentEnd))
 }
 
+interface PinState {
+  active: boolean
+  pending: { readonly previous: Element | null } | null
+  spacer: number
+}
+
+interface SpacedContent {
+  readonly style: { paddingBottom: string }
+}
+
+function setTrailingSpace(
+  pin: PinState,
+  content: SpacedContent,
+  height: number,
+): void {
+  pin.spacer = height
+  content.style.paddingBottom = height > 0 ? `${height}px` : ''
+}
+
+/**
+ * Drops a pending or active pin and removes the trailing space it added.
+ */
+export function releasePin(pin: PinState, content: SpacedContent | null): void {
+  pin.pending = null
+  pin.active = false
+  if (content) setTrailingSpace(pin, content, 0)
+}
+
 /**
  * Keeps a transcript at the bottom while the reader stays near it, even as one item's text grows.
  */
@@ -53,17 +81,8 @@ export function useTranscriptFollow({
   const followingRef = useRef(true)
   const lastScrollTopRef = useRef(0)
   const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingPinRef = useRef<{ readonly previous: Element | null } | null>(
-    null,
-  )
-  const pinActiveRef = useRef(false)
-  const spacerRef = useRef(0)
+  const pinRef = useRef<PinState>({ active: false, pending: null, spacer: 0 })
   const sessionIdRef = useRef(sessionId)
-
-  const setSpacer = useCallback((content: HTMLElement, height: number) => {
-    spacerRef.current = height
-    content.style.paddingBottom = height > 0 ? `${height}px` : ''
-  }, [])
 
   const updateJumpButton = useCallback((scroll: HTMLElement) => {
     if (distanceFromBottom(scroll) <= FOLLOW_THRESHOLD_PX) {
@@ -92,34 +111,33 @@ export function useTranscriptFollow({
     if (sessionIdRef.current === sessionId) return
     sessionIdRef.current = sessionId
     followingRef.current = true
-    pendingPinRef.current = null
-    pinActiveRef.current = false
-    if (contentRef.current) setSpacer(contentRef.current, 0)
+    releasePin(pinRef.current, contentRef.current)
     const scroll = scrollRef.current
     if (scroll) {
       scroll.scrollTop = scroll.scrollHeight
       updateJumpButton(scroll)
     }
-  }, [contentRef, scrollRef, sessionId, setSpacer, updateJumpButton])
+  }, [contentRef, scrollRef, sessionId, updateJumpButton])
 
   useEffect(() => {
     const scroll = scrollRef.current
     if (!scroll) return
 
+    const pin = pinRef.current
     const settle = () => {
-      const pending = pendingPinRef.current
+      const pending = pin.pending
       // why: a turn's group remounts when it gets its turn id, so the pinned message is looked up again on every pass.
       const latest =
-        (pending || pinActiveRef.current) && observedContent
+        (pending || pin.active) && observedContent
           ? lastMatch(observedContent, pinSelector)
           : null
       if (pending && latest && latest !== pending.previous) {
-        pendingPinRef.current = null
-        pinActiveRef.current = true
+        pin.pending = null
+        pin.active = true
         followingRef.current = true
       }
 
-      if (pinActiveRef.current && observedContent) {
+      if (pin.active && observedContent) {
         let spacer = 0
         if (latest) {
           const scrollTop = scroll.scrollTop
@@ -133,23 +151,20 @@ export function useTranscriptFollow({
             observedContent.getBoundingClientRect().bottom -
             scrollRect.top +
             scrollTop -
-            spacerRef.current +
+            pin.spacer +
             Number.parseFloat(getComputedStyle(scroll).paddingBottom)
           spacer = pinSpacerHeight({
             clientHeight: scroll.clientHeight,
             contentEnd,
             pinTop,
           })
-          setSpacer(observedContent, spacer)
+          setTrailingSpace(pin, observedContent, spacer)
           if (spacer > 0 && followingRef.current) scroll.scrollTop = pinTop
         }
-        if (spacer === 0) {
-          pinActiveRef.current = false
-          setSpacer(observedContent, 0)
-        }
+        if (spacer === 0) releasePin(pin, observedContent)
       }
 
-      if (!pinActiveRef.current && followingRef.current) {
+      if (!pin.active && followingRef.current) {
         scroll.scrollTop = scroll.scrollHeight
       }
       updateJumpButton(scroll)
@@ -157,7 +172,7 @@ export function useTranscriptFollow({
 
     const unfollow = () => {
       followingRef.current = false
-      pendingPinRef.current = null
+      releasePin(pin, observedContent)
     }
     const handleScroll = () => {
       const movedUp = scroll.scrollTop < lastScrollTopRef.current
@@ -197,7 +212,7 @@ export function useTranscriptFollow({
       scroll.removeEventListener('keydown', handleKeyDown)
       scroll.removeEventListener('pointerdown', handlePointerDown)
     }
-  }, [observedContent, pinSelector, scrollRef, setSpacer, updateJumpButton])
+  }, [observedContent, pinSelector, scrollRef, updateJumpButton])
 
   useEffect(
     () => () => {
@@ -208,7 +223,7 @@ export function useTranscriptFollow({
 
   const pinNextMessage = useCallback(() => {
     const content = contentRef.current
-    pendingPinRef.current = {
+    pinRef.current.pending = {
       previous: content ? lastMatch(content, pinSelector) : null,
     }
   }, [contentRef, pinSelector])
@@ -217,9 +232,10 @@ export function useTranscriptFollow({
     const scroll = scrollRef.current
     if (!scroll) return
     followingRef.current = true
+    releasePin(pinRef.current, contentRef.current)
     scroll.scrollTop = scroll.scrollHeight
     updateJumpButton(scroll)
-  }, [scrollRef, updateJumpButton])
+  }, [contentRef, scrollRef, updateJumpButton])
 
   return { pinNextMessage, scrollToLatest, showScrollToLatest }
 }

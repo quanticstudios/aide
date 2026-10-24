@@ -152,6 +152,21 @@ test.describe('transcript follow', () => {
       )
     await expect.poll(questionOffset).toBeLessThanOrEqual(40)
     expect(await questionOffset()).toBeGreaterThanOrEqual(0)
+    const trailingSpace = () =>
+      content.evaluate(
+        (el) =>
+          (el.firstElementChild as HTMLElement | null)?.style.paddingBottom,
+      )
+    expect(await trailingSpace()).toMatch(/px$/)
+
+    const jump = page.getByRole('button', { name: /jump to latest/i })
+    await content.hover()
+    await page.mouse.wheel(0, -600)
+    await expect.poll(trailingSpace).toBe('')
+    await expect(jump).toBeVisible()
+    await jump.click()
+    await expect.poll(() => distanceFromBottom(page)).toBeLessThanOrEqual(40)
+    expect(await trailingSpace()).toBe('')
 
     await prompt.fill('stream-lines')
     await page.getByRole('button', { name: /send prompt/i }).click()
@@ -161,7 +176,6 @@ test.describe('transcript follow', () => {
     await expect(replies.nth(2)).toContainText('line 299')
     expect(await distanceFromBottom(page)).toBeGreaterThan(400)
 
-    const jump = page.getByRole('button', { name: /jump to latest/i })
     await expect(jump).toBeVisible()
     await jump.click()
     await expect.poll(() => distanceFromBottom(page)).toBeLessThanOrEqual(40)
