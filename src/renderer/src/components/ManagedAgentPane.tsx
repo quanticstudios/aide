@@ -33,6 +33,7 @@ import {
 } from '../../../shared/provider-capabilities'
 import type { ProviderSkill } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { useTranscriptFollow } from '../hooks/useTranscriptFollow'
 import { isEqualValue } from '../lib/deep-equal'
 import { requestFrameFlush } from '../lib/frame-flush'
 import { saveManagedDraft } from '../lib/managed-draft-storage'
@@ -244,7 +245,14 @@ export default function ManagedAgentPane({
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
   const paneRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [isAtBottom, setIsAtBottom] = useState(true)
+  const transcriptRef = useRef<HTMLDivElement>(null)
+  const { pinNextMessage, scrollToLatest, showScrollToLatest } =
+    useTranscriptFollow({
+      contentRef: transcriptRef,
+      pinSelector: '[data-testid="managed-content-user-prompt"]',
+      scrollRef,
+      sessionId,
+    })
 
   const providerLabel = selectedProvider === 'claude' ? 'Claude' : 'Codex'
   const workingProviderLabel =
@@ -601,35 +609,6 @@ export default function ManagedAgentPane({
   }, [isUnifiedPane, sessionId, terminalMode])
 
   const contentLength = snapshot?.content.length ?? 0
-  const pendingApprovalCount = snapshot?.pendingApprovals.length ?? 0
-  const pendingUserInputCount = snapshot?.pendingUserInputs.length ?? 0
-  // biome-ignore lint/correctness/useExhaustiveDependencies: counts are scroll triggers; effect intentionally re-runs when any of them change even though the body doesn't read them
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-
-    if (el && isAtBottom) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [contentLength, pendingApprovalCount, pendingUserInputCount, isAtBottom])
-
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-
-    if (!el) {
-      return
-    }
-
-    setIsAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 50)
-  }, [])
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current
-
-    if (el) {
-      el.scrollTop = el.scrollHeight
-      setIsAtBottom(true)
-    }
-  }, [])
 
   const sendPromptText = useCallback(
     async (
@@ -653,6 +632,7 @@ export default function ManagedAgentPane({
             return false
           }
         }
+        pinNextMessage()
         await api.sendManagedSessionInput(
           sessionId,
           trimmed,
@@ -671,7 +651,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [ensureSession, sessionId],
+    [ensureSession, pinNextMessage, sessionId],
   )
 
   const handleRetryTurn = useCallback(
@@ -950,11 +930,10 @@ export default function ManagedAgentPane({
         <div
           className="relative h-full overflow-y-auto pl-12 pr-4 py-4"
           data-testid="managed-session-content"
-          onScroll={handleScroll}
           ref={scrollRef}
         >
           {visibleTurnGroups.length > 0 ? (
-            <div className="mx-auto max-w-3xl space-y-8">
+            <div className="mx-auto max-w-3xl space-y-8" ref={transcriptRef}>
               {visibleTurnGroups.map((group) => {
                 const turn = snapshot?.turns.find(
                   (candidate) => candidate.id === group.turnId,
@@ -1003,10 +982,10 @@ export default function ManagedAgentPane({
             </div>
           )}
 
-          {!isAtBottom ? (
+          {showScrollToLatest ? (
             <button
               className="sticky bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full border border-border/60 bg-surface-secondary px-3 py-1.5 text-xs text-muted-foreground shadow-md transition-colors hover:bg-surface-tertiary hover:text-foreground"
-              onClick={scrollToBottom}
+              onClick={scrollToLatest}
               type="button"
             >
               <ArrowDown className="mr-1 inline size-3" />

@@ -2758,6 +2758,23 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     if (trimmed === 'edit readme') {
       await appendFile(path.join(this.cwd, 'README.md'), 'edited by the turn\n')
     }
+    if (trimmed === 'stream-lines') {
+      const itemId = randomUUID()
+      for (let index = 0; index < 300; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 15))
+        if (this.activeTurnId !== turnId) return
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId,
+          kind: 'assistant-text',
+          provider: this.provider,
+          text: `line ${index.toString().padStart(3, '0')}\n\n`,
+          type: 'content.delta',
+        })
+      }
+      this.finishTurn('completed')
+      return
+    }
     if (trimmed === 'stream-codex' && this.provider === 'codex') {
       const itemId = randomUUID()
       for (let index = 0; index < 120; index += 1) {
