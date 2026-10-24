@@ -77,7 +77,9 @@ state update React threw away after rendering it shows as `Name (bailed out)`,
 an anonymous one as `(anonymous in Owner)` after its nearest named ancestor, and
 a commit with neither as `(no component)`. A commit counts once for every
 component it names, so the rates can add up to more than
-`reactCommitsPerSecond`. The CI job builds with `AIDE_KEEP_NAMES=1` so esbuild
+`reactCommitsPerSecond`. A descendant that re-renders from its own state update,
+batched into an ancestor's commit, is credited to the ancestor, so the
+attribution is a lead, not proof. The CI job builds with `AIDE_KEEP_NAMES=1` so esbuild
 keeps function names; a local build without it shows minified names.
 
 The software renderer under Xvfb sets the frame numbers, so compare them only
@@ -170,30 +172,31 @@ Renderer memory grew the same way, from 384 MB at 20 seconds to 561 MB.
 
 ## M1 before and after
 
-Both columns are the `Perf budget` job: five agents, 60 s, an `ubuntu-24.04`
+Every column is the `Perf budget` job: five agents, 60 s, an `ubuntu-24.04`
 runner, three runs each, shown as the range across the runs. Before is main at
-`b3a2d44` with the perf script. After is main at `0555441`, with every M1
-ticket merged except ENG-2658 and ENG-2661.
+`b3a2d44` with the perf script. M1 is main at `0555441`, with every M1 ticket
+merged except ENG-2658 and ENG-2661. After is main at `22dd444`, which adds
+ENG-2658 and ENG-2724.
 
-| Metric | Before | After |
-| --- | --- | --- |
-| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms |
-| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms |
-| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms |
-| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s |
-| React commits | 50.3 to 124/s | 129 to 139.6/s |
-| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s |
+| Metric | Before | M1 | After |
+| --- | --- | --- | --- |
+| Frame time p95 | 25.7 to 29.1 ms | 20.8 to 25.7 ms | 20.2 to 22 ms |
+| Frame time p50 | 16.7 to 16.8 ms | 16.7 to 16.8 ms | 16.6 to 16.7 ms |
+| Longest renderer task | 39.9 to 119.7 ms | 21 to 49 ms | 15.3 to 22.2 ms |
+| IPC main to renderer | 1.22 to 2.02 MB/s | 166 to 177 KB/s | 37.6 to 38.5 KB/s |
+| React commits | 50.3 to 124/s | 129 to 139.6/s | 41.1 to 43.1/s |
+| Chat pane renders, all five panes | 49.2 to 73.1/s | 72 to 76.5/s | 73.9 to 75.7/s |
 
-Session deltas (ENG-2656) cut IPC about tenfold. Frame time p95 dropped but
-stays over 20 ms on the 2-vCPU runner, which was already at 25.6 ms before M1.
+Session deltas (ENG-2656) cut IPC about tenfold, and ENG-2724 cut it four
+times more by no longer sending a workspace activity event on every token.
+Frame time p95 dropped but stays just over 20 ms on the 2-vCPU runner, which
+was already at 25.6 ms before M1.
 
-React commits did not fall. At 60 frames a second, 129 to 140 commits is about
-2.2 per frame. The frame flush from ENG-2657 makes one of them; the source of
-the rest is not identified yet. `useManagedSessionState` sets an unchanged
-state, which React skips, the task library listener is debounced to 200 ms,
-and the fleet drawer subscribes only while open. Chat pane renders stayed flat.
+React commits did not fall with ENG-2657: 129 to 140 a second at 60 frames a
+second is about 2.2 per frame, and the frame flush makes only one of them.
+ENG-2724 traced the rest to that activity event and to the fleet drawer
+committing while closed, which brought commits to about 0.7 per frame.
 
 `scripts/perf-budget.json` sets each ceiling at 1.5x the highest After run:
-266,000 bytes/s for IPC and 210 commits/s. IPC and commits vary up to 2x
-between identical runs, which is why the ceilings use the highest run, not one
-run.
+57,800 bytes/s for IPC and 65 commits/s. Frame time p95 stays at 20 ms until
+ENG-2661 lands and CI measures it again.
