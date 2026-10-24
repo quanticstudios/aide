@@ -18,14 +18,15 @@ export default function TranscriptList({
   readonly sessionId: string
   readonly virtualizerRef: RefObject<TranscriptVirtualizer | null>
 }) {
+  // why: a growing row re-measures every frame, so sizes and offsets go straight to the DOM and only a changed visible range re-renders.
   const virtualizer = useVirtualizer({
     count: rows.length,
+    directDomUpdates: true,
     estimateSize: (index) => 80 + 40 * (rows[index]?.items.length ?? 0),
     getItemKey: (index) => rows[index]?.key ?? index,
     getScrollElement: () => scrollRef.current,
     overscan: 3,
   })
-  const totalSize = virtualizer.getTotalSize()
   const virtualRows = virtualizer.getVirtualItems()
   const lastMountedIndex = virtualRows.at(-1)?.index
   const isOpenMeasuredRef = useRef(false)
@@ -59,7 +60,7 @@ export default function TranscriptList({
   }, [lastMountedIndex, rows.length, sessionId])
 
   return (
-    <div className="relative mx-auto max-w-3xl" style={{ height: totalSize }}>
+    <div className="relative mx-auto max-w-3xl" ref={virtualizer.containerRef}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index]
         return row ? (
@@ -68,7 +69,6 @@ export default function TranscriptList({
             data-index={virtualRow.index}
             key={virtualRow.key}
             ref={virtualizer.measureElement}
-            style={{ transform: `translateY(${virtualRow.start}px)` }}
           >
             {renderRow(row)}
           </div>
