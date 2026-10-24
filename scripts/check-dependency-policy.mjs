@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import TOML from '@iarna/toml'
 
 export const REQUIRED_OVERRIDES = Object.freeze({
+  'body-parser': '2.4.0',
   'fast-uri': '3.1.8',
   hono: '4.12.25',
   'ip-address': '10.3.1',
@@ -12,6 +13,8 @@ export const REQUIRED_OVERRIDES = Object.freeze({
   postcss: '8.5.19',
   sharp: '0.35.5',
   tar: '7.5.21',
+  undici: '7.30.1',
+  zod: '4.6.7',
 })
 
 export const REQUIRED_DEV_DEPENDENCIES = Object.freeze({
@@ -23,6 +26,10 @@ const EXACT_SEMVER =
 const MINIMUM_RELEASE_AGE = 604800
 export const MINIMUM_RELEASE_AGE_EXCLUDES = Object.freeze([
   'fast-uri',
+  // workaround(until 2026-10-29): the exact-pinned security fixes for electron, happy-dom and body-parser are inside the seven-day window until then.
+  'electron',
+  'happy-dom',
+  'body-parser',
   // workaround(until 2026-10-01): the exact-pinned claude-agent-sdk 0.3.282 is inside the seven-day window until then.
   '@anthropic-ai/claude-agent-sdk',
   '@anthropic-ai/claude-agent-sdk-darwin-arm64',
