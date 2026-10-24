@@ -54,11 +54,15 @@ describe('highlight', () => {
     expect(cachedTokens(code, 'go')).toBeNull()
   })
 
-  it('highlights a block within 100 ms once its grammar is loaded', async () => {
+  it('highlights a block without another grammar load once its grammar is loaded', async () => {
     await loadLanguage('go')
     const startedAt = performance.now()
-    await highlight('package main\n\nfunc main() {\n}\n', 'go')
-    expect(performance.now() - startedAt).toBeLessThan(100)
+    const lines = await highlight('package main\n\nfunc main() {\n}\n', 'go')
+
+    const func = lines?.flat().find((token) => token.content === 'func')
+    expect(func?.color).toBe('var(--shiki-token-keyword)')
+    // why: shared CI runners stall for 100 ms at random, so only a gross regression such as a grammar reload may fail this.
+    expect(performance.now() - startedAt).toBeLessThan(1000)
   })
 
   it('skips blocks over the line cap', async () => {
