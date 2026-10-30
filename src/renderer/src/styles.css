@@ -97,7 +97,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Always-dark Electron shell — Apple grammar in dark mode (see DESIGN.md). */
+/* Always-dark Electron shell. DESIGN.md documents every token below. */
 :root {
   color-scheme: dark;
   --radius: 0.5rem;
@@ -136,7 +136,7 @@
   --overlay: #101111;
   --overlay-foreground: #f4f4f6;
 
-  /* Primary = Action Blue pill (Apple DESIGN.md) */
+  /* Primary: the one interactive color (DESIGN.md §Interactive color) */
   --primary: #0066cc;
   --primary-foreground: #ffffff;
   --primary-focus: #0071e3;
@@ -392,7 +392,7 @@
   --radius-pill: 9999px;
 }
 
-/* ── Overlay radius grammar (DESIGN.md §Border Radius Scale) ──────────── */
+/* ── Overlay radius grammar (DESIGN.md §Radii) ──────────────────────── */
 
 /* why: HeroUI rounds overlay containers to 24px and their rows to 16px from Tailwind's
    default scale, which this file never redefines; one rule per role keeps every menu on
@@ -417,7 +417,7 @@
   color: var(--muted-foreground);
 }
 
-/* ── Utility classes (DESIGN.md primitives) ──────── */
+/* ── Utility classes (DESIGN.md §Components) ──────── */
 
 .keycap {
   display: inline-flex;
@@ -451,7 +451,7 @@
   border: 1px solid var(--border-strong);
 }
 
-/* Apple primary CTA pill — Action Blue capsule. DESIGN.md §button-primary. */
+/* Primary CTA pill. DESIGN.md §Pill. */
 .cta-pill {
   display: inline-flex;
   align-items: center;

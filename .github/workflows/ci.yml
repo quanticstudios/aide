@@ -40,6 +40,9 @@ jobs:
       - name: Test dependency policy
         run: bun run test:dependency-policy
 
+      - name: Check DESIGN.md tokens against styles.css
+        run: bun run test:design-tokens
+
       - name: Test desktop packaging configuration
         run: bun run test:packaging
 
