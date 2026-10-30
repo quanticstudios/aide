@@ -2,8 +2,8 @@ import { Button } from '@heroui/react'
 import { ChevronRight, GitBranch, LoaderCircle, RefreshCw } from 'lucide-react'
 import { Fragment, memo, Suspense, useEffect, useState } from 'react'
 import type { TurnCheckpointDiff } from '../../../../shared/checkpoints'
-import type { AideApi } from '../../../../shared/ipc'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
+import { getSessionTransport } from '../../lib/session-transport'
 import type { TranscriptRow } from '../../lib/transcript-rows'
 import { cn } from '../../lib/utils'
 import IconTooltip from '../ui/icon-tooltip'
@@ -13,14 +13,6 @@ import MessageCopyButton from './MessageCopyButton'
 import TaskListBlock from './TaskListBlock'
 import { LazyGitDiffView } from './ToolCallBlock'
 import ToolCallGroup from './ToolCallGroup'
-
-function getAideApi(): AideApi | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return window.aide ?? null
-}
 
 type TurnGroupBlockProps = Parameters<typeof TurnGroupBlockContent>[0]
 
@@ -107,8 +99,8 @@ function TurnGroupBlockContent({
   useEffect(() => {
     if (!checkpointId || isRunning || !isLast) return
     let cancelled = false
-    void getAideApi()
-      ?.getTurnCheckpointDiff(sessionId, checkpointId)
+    void getSessionTransport()
+      ?.getCheckpointDiff(sessionId, checkpointId)
       .then(
         (diff) => {
           if (!cancelled) setTurnDiff(diff)

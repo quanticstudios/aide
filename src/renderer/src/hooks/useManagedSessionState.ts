@@ -1,16 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import type { AideApi } from '../../../shared/ipc'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
-import { subscribeManagedSession } from '../lib/managed-session-events'
-
-function getAideApi(): AideApi | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return window.aide ?? null
-}
+import { getSessionTransport } from '../lib/session-transport'
 
 export function useManagedSessionState(
   sessionId: string | null,
@@ -23,8 +14,8 @@ export function useManagedSessionState(
   useEffect(() => {
     if (!sessionId) return
 
-    const api = getAideApi()
-    if (!api) return
+    const transport = getSessionTransport()
+    if (!transport) return
 
     const applySnapshot = (snapshot: {
       revision: number
@@ -46,7 +37,7 @@ export function useManagedSessionState(
       setState(snapshot.sessionState)
     }
 
-    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+    const unsubscribe = transport.subscribeSession(sessionId, (update) => {
       if (update.type === 'removed') {
         revisionRef.current = { revision: -1, runtimeGeneration: -1 }
         setState(null)
@@ -56,7 +47,7 @@ export function useManagedSessionState(
       applySnapshot(update.snapshot)
     })
 
-    void api.getManagedSessionSnapshots().then((snapshots) => {
+    void transport.getSessions().then((snapshots) => {
       const existing = snapshots[sessionId]
       if (existing) {
         applySnapshot(existing)

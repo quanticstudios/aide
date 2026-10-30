@@ -68,6 +68,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { isMac } from '../lib/platform'
+import { getSessionTransport } from '../lib/session-transport'
 import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
 import {
@@ -636,18 +637,15 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         return
       }
 
-      const api = getAideApi()
+      const transport = getSessionTransport()
 
-      if (!api) {
+      if (!transport) {
         setError('Managed provider bridge did not load.')
         return
       }
 
       try {
-        const updated = await api.configureManagedSessionAgents(
-          sessionId,
-          agents,
-        )
+        const updated = await transport.setAgents(sessionId, agents)
         setSnapshot(updated)
         setError(null)
       } catch (configurationError) {
@@ -665,15 +663,15 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         return
       }
 
-      const api = getAideApi()
+      const transport = getSessionTransport()
 
-      if (!api) {
+      if (!transport) {
         setError('Managed provider bridge did not load.')
         return
       }
 
       try {
-        const updated = await api.configureManagedSessionPermissionMode(
+        const updated = await transport.setPermissionMode(
           sessionId,
           nextPermissionMode,
         )
@@ -693,19 +691,16 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         return
       }
 
-      const api = getAideApi()
+      const transport = getSessionTransport()
 
-      if (!api) {
+      if (!transport) {
         setError('Managed provider bridge did not load.')
         return
       }
 
       setIsSubmitting(true)
       try {
-        const updated = await api.configureManagedSessionMode(
-          sessionId,
-          interactionMode,
-        )
+        const updated = await transport.setMode(sessionId, interactionMode)
         setSnapshot(updated)
         setAgentMode(updated.interactionMode)
         setError(null)
@@ -790,12 +785,12 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
 
   const handleResolveUserInput = useCallback(
     async (requestId: string) => {
-      const api = getAideApi()
+      const transport = getSessionTransport()
       const request = snapshot?.pendingUserInputs.find(
         (entry) => entry.id === requestId,
       )
 
-      if (!api || !request) {
+      if (!transport || !request) {
         return
       }
 
@@ -813,7 +808,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       }
 
       try {
-        await api.resolveManagedSessionUserInput(sessionId, requestId, answers)
+        await transport.resolveInput(sessionId, requestId, answers)
         setDraftAnswers((current) => {
           const next = { ...current }
           delete next[requestId]
@@ -946,9 +941,9 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         }
       },
       interrupt: () => {
-        const api = getAideApi()
-        if (api) {
-          void api.interruptManagedSession(sessionId)
+        const transport = getSessionTransport()
+        if (transport) {
+          void transport.interrupt(sessionId)
         }
       },
       sessionState: snapshot?.sessionState,
@@ -1705,9 +1700,9 @@ export default function ManagedComposer({
 
           if (hotkey === 'interrupt') {
             event.preventDefault()
-            const api = getAideApi()
-            if (api) {
-              void api.interruptManagedSession(sessionId)
+            const transport = getSessionTransport()
+            if (transport) {
+              void transport.interrupt(sessionId)
             }
             return
           }

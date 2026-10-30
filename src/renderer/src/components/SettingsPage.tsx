@@ -18,6 +18,7 @@ import {
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
+import { getSessionTransport } from '../lib/session-transport'
 import {
   getThemePreference,
   setThemePreference,
@@ -188,13 +189,13 @@ export default function SettingsPage({
 
   useEffect(() => {
     searchRef.current?.focus()
-    const api = window.aide
-    if (!api) return
+    const transport = getSessionTransport()
+    if (!transport) return
     let isDisposed = false
 
     const loadNotifications = () => {
-      void api
-        .getTaskLibrary()
+      void transport
+        .listSessions()
         .then((snapshot) => {
           if (!isDisposed) {
             setNotificationsEnabled(snapshot.notificationsEnabled)
@@ -207,7 +208,7 @@ export default function SettingsPage({
         })
     }
 
-    const unsubscribe = api.onTaskLibraryChanged(loadNotifications)
+    const unsubscribe = transport.subscribeSessionList(loadNotifications)
     loadNotifications()
 
     return () => {

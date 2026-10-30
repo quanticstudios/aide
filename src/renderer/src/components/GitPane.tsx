@@ -44,6 +44,7 @@ import {
   isCurrentWorkspaceDiff,
   isCurrentWorkspaceRequest,
 } from '../lib/prop-change-state'
+import { getSessionTransport } from '../lib/session-transport'
 import { cn } from '../lib/utils'
 
 import { GitDiffView, type DiffLayout } from './GitDiffView'
@@ -458,11 +459,11 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   }, [selectedFile, workspace.id])
 
   useEffect(() => {
-    const api = getAideApi()
-    if (!api) return
+    const transport = getSessionTransport()
+    if (!transport) return
 
     let cancelled = false
-    void api.getManagedSessionSnapshots().then((snapshots) => {
+    void transport.getSessions().then((snapshots) => {
       if (cancelled) return
       const sessions = Object.values(snapshots).filter(
         (session) =>
@@ -518,10 +519,10 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
   )
 
   const sendReviewFeedback = useCallback(async () => {
-    const api = getAideApi()
+    const transport = getSessionTransport()
     const line = Number.parseInt(reviewLine, 10)
     if (
-      !api ||
+      !transport ||
       !selectedFile ||
       !reviewFeedback.trim() ||
       !Number.isSafeInteger(line) ||
@@ -533,9 +534,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
     setIsMutating(true)
     try {
-      const sessions = Object.values(
-        await api.getManagedSessionSnapshots(),
-      ).filter(
+      const sessions = Object.values(await transport.getSessions()).filter(
         (session) =>
           session.workspaceId === workspace.id && isAgentPaneId(session.paneId),
       )
@@ -548,7 +547,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
         )
         return
       }
-      await api.sendManagedSessionInput(
+      await transport.send(
         session.sessionId,
         formatReviewFeedback(selectedFile.path, reviewLine, reviewFeedback),
       )
