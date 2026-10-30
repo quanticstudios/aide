@@ -7,17 +7,13 @@ import type {
   TurnCheckpointPreview,
   TurnCheckpointRestoreResult,
 } from '../../../shared/checkpoints'
-import type { AideApi } from '../../../shared/ipc'
+import { getSessionTransport } from '../lib/session-transport'
 
 interface ManagedRewindDialogProps {
   readonly checkpointId: string
   readonly onClose: () => void
   readonly onRestored: (result: TurnCheckpointRestoreResult) => Promise<void>
   readonly sessionId: string
-}
-
-function getAideApi(): AideApi | null {
-  return typeof window === 'undefined' ? null : (window.aide ?? null)
 }
 
 function getErrorMessage(error: unknown): string {
@@ -140,10 +136,10 @@ export default function ManagedRewindDialog({
 
   useEffect(() => {
     let isCurrent = true
-    const api = getAideApi()
-    if (!api) return
-    api
-      .previewTurnCheckpointRestore(sessionId, checkpointId)
+    const transport = getSessionTransport()
+    if (!transport) return
+    transport
+      .previewRewind(sessionId, checkpointId)
       .then((nextPreview) => {
         if (isCurrent) setPreview(nextPreview)
       })
@@ -156,15 +152,15 @@ export default function ManagedRewindDialog({
   }, [checkpointId, sessionId])
 
   async function restore(): Promise<void> {
-    const api = getAideApi()
-    if (!api || !preview) return
+    const transport = getSessionTransport()
+    if (!transport || !preview) return
     setError(null)
     setIsRestoring(true)
     try {
       // invariant: one preview restores at most once, so a retry reuses its result.
       const result =
         restoredResultRef.current ??
-        (await api.restoreTurnCheckpoint(preview.previewId, mode))
+        (await transport.rewind(preview.previewId, mode))
       restoredResultRef.current = result
       await onRestored(result)
       onClose()

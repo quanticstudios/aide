@@ -2,11 +2,10 @@ import { Check, Network, RotateCcw, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import type { FleetPlanNode, FleetState } from '../../../shared/fleet'
-import type { AideApi } from '../../../shared/ipc'
 import type { JevGateSettings } from '../../../shared/jev-gates'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import { summarizeManagedUsage } from '../../../shared/managed-usage'
-import { subscribeManagedSession } from '../lib/managed-session-events'
+import { getSessionTransport } from '../lib/session-transport'
 import { cn } from '../lib/utils'
 import { LiveFleetFlowchart, PlanDependencyFlow } from './FleetFlowchart'
 
@@ -35,10 +34,6 @@ const nodeStatusClasses = {
 } as const
 const fleetTabs = ['plan', 'live'] as const
 
-function getAideApi(): AideApi | null {
-  return typeof window === 'undefined' ? null : window.aide
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Fleet action failed.'
 }
@@ -63,8 +58,8 @@ function useFleetSnapshot(
   // why: a closed drawer keeps its last snapshot for the slide-out, and skips the per-token commits of a streaming session.
   useEffect(() => {
     if (!sessionId || !isOpen) return
-    const api = getAideApi()
-    if (!api) return
+    const transport = getSessionTransport()
+    if (!transport) return
     let isCurrent = true
     let eventSequence = 0
     revisionRef.current = { revision: -1, runtimeGeneration: -1 }
@@ -87,7 +82,7 @@ function useFleetSnapshot(
       setEntry({ sessionId, snapshot })
     }
 
-    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+    const unsubscribe = transport.subscribeSession(sessionId, (update) => {
       if (update.type === 'snapshot') {
         eventSequence += 1
         applySnapshot(update.snapshot)
@@ -100,12 +95,12 @@ function useFleetSnapshot(
       }
     })
     const initialEventSequence = eventSequence
-    void api
-      .getManagedSessionSnapshots()
+    void transport
+      .getSessions()
       .then(async (snapshots) => {
         const live = snapshots[sessionId]
         if (live) return live
-        return api.getTaskTranscript(sessionId)
+        return transport.getSavedSession(sessionId)
       })
       .then((snapshot) => {
         if (eventSequence !== initialEventSequence || !snapshot) return
@@ -532,12 +527,12 @@ export default function FleetDrawer({
   }, [isOpen, onClose])
 
   async function acceptNode(nodeId: string, accepted: boolean): Promise<void> {
-    const api = getAideApi()
-    if (!api || !sessionId) return
+    const transport = getSessionTransport()
+    if (!transport || !sessionId) return
     setActionError(null)
     setAcceptingSessionId(sessionId)
     try {
-      await api.acceptManagedFleetNode({ accepted, nodeId, sessionId })
+      await transport.acceptFleetNode({ accepted, nodeId, sessionId })
     } catch (acceptError) {
       setActionError({
         message: getErrorMessage(acceptError),

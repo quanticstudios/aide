@@ -7,6 +7,7 @@ import type {
   TaskLibrarySnapshot,
   TaskMetadataUpdate,
 } from '../../../shared/task-library'
+import { getSessionTransport } from '../lib/session-transport'
 import IconTooltip from './ui/icon-tooltip'
 
 const STATUS_LABELS: Record<SavedTask['status'], string> = {
@@ -38,18 +39,19 @@ export default function TaskLibraryControl({
   const [title, setTitle] = useState('')
 
   const refresh = useCallback(async () => {
-    if (!window.aide) return
-    setLibrary(await window.aide.getTaskLibrary())
+    const transport = getSessionTransport()
+    if (!transport) return
+    setLibrary(await transport.listSessions())
   }, [])
 
   useEffect(() => {
-    const api = window.aide
-    if (!api) return
+    const transport = getSessionTransport()
+    if (!transport) return
     let disposed = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = () => {
-      void api
-        .getTaskLibrary()
+      void transport
+        .listSessions()
         .then((snapshot) => {
           if (!disposed) setLibrary(snapshot)
         })
@@ -57,7 +59,7 @@ export default function TaskLibraryControl({
           if (!disposed) setError('Could not load saved tasks.')
         })
     }
-    const unsubscribe = api.onTaskLibraryChanged(() => {
+    const unsubscribe = transport.subscribeSessionList(() => {
       if (timer) return
       timer = setTimeout(() => {
         timer = undefined
@@ -77,10 +79,11 @@ export default function TaskLibraryControl({
       setMatches(null)
       return
     }
+    const transport = getSessionTransport()
     let disposed = false
     const search = () => {
-      void window.aide
-        ?.getTaskLibrary(query)
+      void transport
+        ?.listSessions(query)
         .then((snapshot) => {
           if (!disposed) setMatches(snapshot.tasks)
         })
@@ -89,7 +92,7 @@ export default function TaskLibraryControl({
         })
     }
     let timer = setTimeout(search, 150)
-    const unsubscribe = window.aide?.onTaskLibraryChanged(() => {
+    const unsubscribe = transport?.subscribeSessionList(() => {
       clearTimeout(timer)
       timer = setTimeout(search, 150)
     })
@@ -106,7 +109,7 @@ export default function TaskLibraryControl({
       setError(null)
       try {
         await onOpenTask(task)
-        await window.aide?.updateTaskMetadata(task.sessionId, {
+        await getSessionTransport()?.updateSession(task.sessionId, {
           readActivityKey: task.activityKey,
           archived: false,
         })
@@ -128,8 +131,8 @@ export default function TaskLibraryControl({
   useEffect(
     () =>
       window.aide?.onTaskOpen((sessionId) => {
-        void window.aide
-          .getTaskLibrary()
+        void getSessionTransport()
+          ?.listSessions()
           .then((snapshot) => {
             const task = snapshot.tasks.find(
               (item) => item.sessionId === sessionId,
@@ -150,10 +153,12 @@ export default function TaskLibraryControl({
   )
 
   async function update(task: SavedTask, input: TaskMetadataUpdate) {
+    const transport = getSessionTransport()
+    if (!transport) return
     setBusy(true)
     setError(null)
     try {
-      setLibrary(await window.aide.updateTaskMetadata(task.sessionId, input))
+      setLibrary(await transport.updateSession(task.sessionId, input))
       setRenaming(null)
     } catch (failure) {
       setError(

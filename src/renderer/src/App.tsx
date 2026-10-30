@@ -68,6 +68,7 @@ import {
   resolvePaneCloseConfirmation,
 } from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
+import { getSessionTransport } from './lib/session-transport'
 import {
   readGlobalSidebarOpen,
   resolveSidebarOpen,
@@ -1302,8 +1303,9 @@ function WorkspaceApp() {
         nextLayout: WorkspaceLayoutRecord | null,
       ) => {
         const api = getAideApi()
+        const transport = getSessionTransport()
 
-        if (!api) {
+        if (!api || !transport) {
           return
         }
 
@@ -1321,7 +1323,7 @@ function WorkspaceApp() {
         await Promise.all(
           removedPaneIds.map(async (paneId) => {
             const sessionId = `${workspaceId}:${paneId}`
-            await api.closeManagedSession(sessionId)
+            await transport.close(sessionId)
             if (
               getPaneCatalogEntryForTemplate(getPaneTemplateId(paneId))
                 ?.type === 'terminal'
@@ -1473,8 +1475,8 @@ function WorkspaceApp() {
           shouldRestoreClosedAgent &&
           getPaneTemplateId(templatePaneId) === 'agent'
         ) {
-          const api = getAideApi()
-          if (!api) {
+          const transport = getSessionTransport()
+          if (!transport) {
             throw new Error(
               'Desktop bridge did not load. Reload the app window.',
             )
@@ -1493,7 +1495,7 @@ function WorkspaceApp() {
               },
             ),
           )
-          const closedAgentTask = (await api.getTaskLibrary()).tasks.find(
+          const closedAgentTask = (await transport.listSessions()).tasks.find(
             (task) =>
               !task.archived &&
               task.workspaceId === workspaceId &&

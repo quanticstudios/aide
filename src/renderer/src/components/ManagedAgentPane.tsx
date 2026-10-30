@@ -37,11 +37,9 @@ import { useTranscriptFollow } from '../hooks/useTranscriptFollow'
 import { isEqualValue } from '../lib/deep-equal'
 import { requestFrameFlush } from '../lib/frame-flush'
 import { saveManagedDraft } from '../lib/managed-draft-storage'
-import {
-  type ManagedSessionUpdate,
-  subscribeManagedSession,
-} from '../lib/managed-session-events'
+import type { ManagedSessionUpdate } from '../lib/managed-session-events'
 import { groupContentByTurn } from '../lib/managed-session-grouping'
+import { getSessionTransport } from '../lib/session-transport'
 import { buildTranscriptRows } from '../lib/transcript-rows'
 import {
   canChangeManagedSessionSelection,
@@ -419,15 +417,15 @@ export default function ManagedAgentPane({
   const ensureSession = useCallback(async () => {
     if (startedSessionRef.current) return true
 
-    const api = getAideApi()
+    const transport = getSessionTransport()
 
-    if (!api || terminalMode === 'shell') {
+    if (!transport || terminalMode === 'shell') {
       setError('Managed provider bridge did not load.')
       return false
     }
 
     try {
-      const snapshots = await api.getManagedSessionSnapshots()
+      const snapshots = await transport.getSessions()
       const existing = snapshots[sessionId] ?? null
 
       if (existing) {
@@ -458,7 +456,7 @@ export default function ManagedAgentPane({
         )
       }
 
-      const created = await api.createManagedSession({
+      const created = await transport.start({
         agents: configuredAgents,
         contextWindow,
         cwd: workspace.worktreePath || '~',
@@ -522,9 +520,9 @@ export default function ManagedAgentPane({
   }, [isWorkspaceVisible])
 
   useEffect(() => {
-    const api = getAideApi()
+    const transport = getSessionTransport()
 
-    if (!api || terminalMode === 'shell') {
+    if (!transport || terminalMode === 'shell') {
       return
     }
 
@@ -578,7 +576,7 @@ export default function ManagedAgentPane({
       for (const update of deferred) handleUpdate(update)
     }
     let cancelFrameFlush = () => {}
-    const unsubscribe = subscribeManagedSession(api, sessionId, (update) => {
+    const unsubscribe = transport.subscribeSession(sessionId, (update) => {
       const deferred = deferredUpdatesRef.current
       if (update.type === 'snapshot' && deferred.at(-1)?.type === 'snapshot') {
         deferred[deferred.length - 1] = update
@@ -592,18 +590,13 @@ export default function ManagedAgentPane({
     })
     flushDeferredUpdatesRef.current = flushDeferredUpdates
 
-    void api.getManagedSessionSnapshots().then(async (snapshots) => {
+    void transport.getSessions().then(async (snapshots) => {
       const existing = snapshots[sessionId]
       if (existing) {
         applySnapshot(existing)
         return
       }
-      const transcriptApi = api as AideApi & {
-        getTaskTranscript?: (
-          requestedSessionId: string,
-        ) => Promise<ManagedSessionSnapshot | null>
-      }
-      const transcript = await transcriptApi.getTaskTranscript?.(sessionId)
+      const transcript = await transport.getSavedSession(sessionId)
       if (transcript) {
         setSnapshot(transcript)
       }
@@ -625,10 +618,10 @@ export default function ManagedAgentPane({
       promptAttachments: readonly ManagedSessionAttachment[] = [],
       providerSkill?: ProviderSkill,
     ) => {
-      const api = getAideApi()
+      const transport = getSessionTransport()
       const trimmed = text.trim()
 
-      if (!api || !trimmed) {
+      if (!transport || !trimmed) {
         return false
       }
 
@@ -653,7 +646,7 @@ export default function ManagedAgentPane({
           )
         }
         pinNextMessage()
-        await api.sendManagedSessionInput(
+        await transport.send(
           sessionId,
           trimmed,
           recipients,
@@ -699,13 +692,13 @@ export default function ManagedAgentPane({
 
   const handleBranchConversation = useCallback(
     async (responseContentItemId: string) => {
-      const api = getAideApi()
-      if (!api) {
+      const transport = getSessionTransport()
+      if (!transport) {
         setError('Managed provider bridge did not load.')
         return
       }
       try {
-        await api.branchManagedSession(sessionId, responseContentItemId)
+        await transport.fork(sessionId, responseContentItemId)
       } catch (branchError) {
         setError(getErrorMessage(branchError))
       }
@@ -715,9 +708,9 @@ export default function ManagedAgentPane({
 
   const handleInterruptRecipient = useCallback(
     (recipientAlias: string) => {
-      const api = getAideApi()
-      if (api) {
-        void api.interruptManagedSession(sessionId, recipientAlias)
+      const transport = getSessionTransport()
+      if (transport) {
+        void transport.interrupt(sessionId, recipientAlias)
       }
     },
     [sessionId],
@@ -786,17 +779,14 @@ export default function ManagedAgentPane({
         return true
       }
 
-      const api = getAideApi()
-      if (!api) {
+      const transport = getSessionTransport()
+      if (!transport) {
         setError('Managed provider bridge did not load.')
         return false
       }
 
       try {
-        const updated = await api.switchManagedSessionProvider(
-          sessionId,
-          change.selection,
-        )
+        const updated = await transport.setModel(sessionId, change.selection)
         setSnapshot(updated)
         const composerSelection = getComposerProviderSelection(updated)
         setSelectedModel(composerSelection.model)
@@ -854,14 +844,14 @@ export default function ManagedAgentPane({
       requestId: string,
       decision: 'accept' | 'accept-for-session' | 'deny',
     ) => {
-      const api = getAideApi()
+      const transport = getSessionTransport()
 
-      if (!api) {
+      if (!transport) {
         return
       }
 
       try {
-        await api.resolveManagedSessionRequest(sessionId, requestId, decision)
+        await transport.resolveApproval(sessionId, requestId, decision)
       } catch (resolveError) {
         setError(getErrorMessage(resolveError))
       }
