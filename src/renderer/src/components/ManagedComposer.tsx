@@ -1860,7 +1860,9 @@ export default function ManagedComposer({
             type="button"
           >
             <X className="size-3.5" />
-            Deny with this feedback
+            {snapshot.pendingApprovals[0].requestType === 'plan-approval'
+              ? 'Refine the plan'
+              : 'Deny with this feedback'}
           </button>
         ) : (
           <button

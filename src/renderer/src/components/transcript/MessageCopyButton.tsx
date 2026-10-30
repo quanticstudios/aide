@@ -8,7 +8,7 @@ export default function MessageCopyButton({
   kind,
 }: {
   readonly text: string
-  readonly kind: 'message' | 'response'
+  readonly kind: 'message' | 'plan' | 'response'
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)

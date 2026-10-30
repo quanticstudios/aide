@@ -106,6 +106,14 @@ const aideApi: AideApi = {
       sessionId,
       responseContentItemId,
     ),
+  implementManagedSessionPlanInNewThread: (sessionId, requestId) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionImplementPlanInNewThread,
+      sessionId,
+      requestId,
+    ),
+  saveManagedSessionPlan: (workspaceId, plan) =>
+    ipcRenderer.invoke(IPC_CHANNELS.managedSessionSavePlan, workspaceId, plan),
   acceptManagedFleetNode: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedFleetAcceptNode, input),
   configureManagedSessionJevGates: (sessionId: string, overrides) =>

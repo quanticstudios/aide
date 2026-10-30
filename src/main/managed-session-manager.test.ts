@@ -822,6 +822,70 @@ createInterface({ input: process.stdin }).on('line', line => {
     expect(uiEvents.at(-1)).toMatchObject({ revision: pending.revision })
   })
 
+  it('leaves plan mode when a plan is implemented and keeps it when refined', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = { ...createConfig(), interactionMode: 'plan' as const }
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'plan approval')
+    const refined = manager.getSnapshots()[config.sessionId]
+    await manager.resolveRequest(
+      config.sessionId,
+      refined.pendingApprovals[0]?.id ?? '',
+      'deny',
+      'Split step two.',
+    )
+    expect(manager.getSnapshots()[config.sessionId].interactionMode).toBe(
+      'plan',
+    )
+
+    await manager.sendInput(config.sessionId, 'plan approval')
+    const pending = manager.getSnapshots()[config.sessionId]
+    await manager.resolveRequest(
+      config.sessionId,
+      pending.pendingApprovals[0]?.id ?? '',
+      'accept',
+    )
+    const implemented = manager.getSnapshots()[config.sessionId]
+    expect(implemented.interactionMode).toBe('build')
+    expect(implemented.pendingApprovals).toEqual([])
+  })
+
+  it('implements a plan in a new build-mode thread and stops the planning one', async () => {
+    const manager = new ManagedSessionManager({
+      getNow: () => '2026-04-11T10:00:00.000Z',
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = { ...createConfig(), interactionMode: 'plan' as const }
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'plan approval')
+    const requestId =
+      manager.getSnapshots()[config.sessionId].pendingApprovals[0]?.id ?? ''
+    const threadId = await manager.implementPlanInNewThread(
+      config.sessionId,
+      requestId,
+    )
+
+    const thread = manager.getSnapshots()[threadId]
+    expect(thread.workspaceId).toBe(config.workspaceId)
+    expect(thread.interactionMode).toBe('build')
+    expect(
+      thread.content.find((item) => item.kind === 'user-prompt')?.text,
+    ).toMatch(/^Implement this plan:\n\n# Rename the greeting/)
+    const source = manager.getSnapshots()[config.sessionId]
+    expect(source.interactionMode).toBe('plan')
+    expect(source.pendingApprovals).toEqual([])
+    await expect(
+      manager.implementPlanInNewThread(config.sessionId, requestId),
+    ).rejects.toThrow('The plan is no longer pending.')
+  })
+
   it('increments runtime generation when switching providers', async () => {
     const manager = new ManagedSessionManager({
       getNow: () => '2026-04-11T10:00:00.000Z',
