@@ -18,6 +18,11 @@ import {
   getAnimationPreference,
   setAnimationPreference,
 } from '../lib/animation-preference'
+import {
+  getSendWhileRunning,
+  type SendWhileRunning,
+  setSendWhileRunning,
+} from '../lib/send-while-running'
 import { getSessionTransport } from '../lib/session-transport'
 import {
   getThemePreference,
@@ -74,6 +79,11 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
       { keys: ['@'], label: 'Add agents, files, or skills' },
       { keys: ['Enter'], label: 'Send message or submit answers' },
       { keys: ['Shift', 'Enter'], label: 'Add a new line' },
+      {
+        keys: ['Ctrl/Cmd', 'Enter'],
+        label:
+          'While the agent works, queue or steer, whichever Enter does not',
+      },
       {
         description: 'When the composer is empty and a choice is pending',
         keys: ['1–9'],
@@ -187,6 +197,8 @@ export default function SettingsPage({
     useState<AnimationPreference>(getAnimationPreference)
   const [selectedTheme, setSelectedTheme] =
     useState<ThemePreference>(getThemePreference)
+  const [sendWhileRunning, setSendWhileRunningState] =
+    useState<SendWhileRunning>(getSendWhileRunning)
 
   useEffect(() => {
     searchRef.current?.focus()
@@ -294,6 +306,8 @@ export default function SettingsPage({
         'Background task notifications',
         'Show a desktop notification when a background task needs attention',
         'Notification sounds',
+        'Queue messages while the agent works',
+        'steer',
       ),
       showKeyboard: normalizedQuery
         ? shortcutGroups.length > 0
@@ -506,6 +520,17 @@ export default function SettingsPage({
                   }
                   label="Notification sounds"
                   onChange={(isEnabled) => void saveSounds(isEnabled)}
+                />
+                <PreferenceRow
+                  checked={sendWhileRunning === 'queue'}
+                  description="Enter holds a message until the running turn ends, and Ctrl/Cmd+Enter steers it instead. Off swaps the two."
+                  disabled={false}
+                  label="Queue messages while the agent works"
+                  onChange={(isQueue) => {
+                    const preference = isQueue ? 'queue' : 'steer'
+                    setSendWhileRunning(preference)
+                    setSendWhileRunningState(preference)
+                  }}
                 />
               </div>
             </section>

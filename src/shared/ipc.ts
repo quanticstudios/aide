@@ -52,6 +52,7 @@ import type {
   ManagedSessionInteractionMode,
   ManagedSessionPermissionMode,
   ManagedSessionProviderSelection,
+  ManagedSessionQueueAction,
   ManagedSessionSnapshot,
 } from './managed-session'
 import type {
@@ -213,7 +214,9 @@ export const IPC_CHANNELS = {
   managedSessionSearchFiles: 'managed-session:search-files',
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
+  managedSessionQueueInput: 'managed-session:queue-input',
   managedSessionSendInput: 'managed-session:send-input',
+  managedSessionUpdateQueue: 'managed-session:update-queue',
   managedSessionSwitchProvider: 'managed-session:switch-provider',
   turnCheckpointDiff: 'turn-checkpoint:diff',
   turnCheckpointList: 'turn-checkpoint:list',
@@ -543,6 +546,11 @@ export interface AideApi {
     recipients?: readonly string[],
     attachments?: readonly ManagedSessionAttachment[],
     selectedSkill?: ProviderSkillSelection,
+  ) => Promise<void>
+  queueManagedSessionInput: AideApi['sendManagedSessionInput']
+  updateManagedSessionQueue: (
+    sessionId: string,
+    action: ManagedSessionQueueAction,
   ) => Promise<void>
   getTurnCheckpointDiff: (
     sessionId: string,

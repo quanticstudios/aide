@@ -6,7 +6,7 @@ import {
 
 /**
  * Everything the renderer asks of the session backend: the session list, one session's snapshots, and every session command.
- * @remarks Command names are the web protocol's (ENG-2693). Steer and queue have no command of their own: the backend picks start, steer or refuse for each `send`.
+ * @remarks Command names are the web protocol's (ENG-2693). The backend picks start, steer or refuse for each `send`; `queue` holds a message until the running turn ends.
  */
 export interface SessionTransport {
   /** Saved sessions, optionally filtered by a search query. */
@@ -26,6 +26,9 @@ export interface SessionTransport {
   getSavedSession: AideApi['getTaskTranscript']
   start: AideApi['createManagedSession']
   send: AideApi['sendManagedSessionInput']
+  queue: AideApi['queueManagedSessionInput']
+  /** Edits, reorders, deletes, resumes, or promotes to steer the queued messages. */
+  updateQueue: AideApi['updateManagedSessionQueue']
   interrupt: AideApi['interruptManagedSession']
   resolveApproval: AideApi['resolveManagedSessionRequest']
   resolveInput: AideApi['resolveManagedSessionUserInput']
@@ -54,6 +57,8 @@ export function createIpcTransport(api: AideApi): SessionTransport {
     getSavedSession: (...args) => api.getTaskTranscript(...args),
     start: (...args) => api.createManagedSession(...args),
     send: (...args) => api.sendManagedSessionInput(...args),
+    queue: (...args) => api.queueManagedSessionInput(...args),
+    updateQueue: (...args) => api.updateManagedSessionQueue(...args),
     interrupt: (...args) => api.interruptManagedSession(...args),
     resolveApproval: (...args) => api.resolveManagedSessionRequest(...args),
     resolveInput: (...args) => api.resolveManagedSessionUserInput(...args),

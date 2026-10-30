@@ -41,6 +41,8 @@ import type {
   ManagedSessionPreparationResult,
   ManagedSessionProviderImage,
   ManagedSessionProviderSelection,
+  ManagedSessionQueueAction,
+  ManagedSessionQueuedInput,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
@@ -204,6 +206,9 @@ interface ManagedSessionMutableState {
   pendingUserPromptItemId: string | null
   pendingCheckpointId: string | null
   inputDispatch: Promise<void> | null
+  queueDraining: boolean
+  queuePaused: boolean
+  queuedInputs: ManagedSessionQueuedInput[]
   steeredPromptKeys: string[]
   persistenceTimer: ReturnType<typeof setTimeout> | null
   streamSnapshotTimer: ReturnType<typeof setTimeout> | null
@@ -2887,7 +2892,8 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (trimmed === 'perf-stream') {
-      await this.streamPerfReply(turnId)
+      // why: real providers return once the turn starts, so steers and queued sends can land mid-stream.
+      void this.streamPerfReply(turnId)
       return
     }
 
@@ -3420,6 +3426,9 @@ export class ManagedSessionManager {
       pendingUserPromptText: null,
       pendingUserPromptItemId: null,
       inputDispatch: null,
+      queueDraining: false,
+      queuePaused: false,
+      queuedInputs: [],
       steeredPromptKeys: [],
       persistenceTimer: null,
       streamSnapshotTimer: null,
@@ -3563,6 +3572,11 @@ export class ManagedSessionManager {
     }
     for (const controller of state?.agentRuns.values() ?? []) controller.abort()
     state?.preparationAbortController?.abort()
+    // why: Stop means stop, so the next queued message must not start the moment this turn ends.
+    if (state && state.queuedInputs.length > 0 && !state.queuePaused) {
+      state.queuePaused = true
+      this.publishSnapshot(state, this.getNow())
+    }
     await state?.backend.interrupt()
   }
 
@@ -3651,6 +3665,138 @@ export class ManagedSessionManager {
     await this.routeInput(state, input)
   }
 
+  /** Holds a message until the running turn ends; sends it at once when nothing runs. */
+  public async queueInput(
+    sessionId: string,
+    text: string,
+    recipients: readonly string[] = [],
+    attachments: readonly ManagedSessionAttachment[] = [],
+    skill?: ResolvedProviderSkill,
+  ): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state) return
+    if (this.quiescing || state.closing) {
+      throw new Error('Managed sessions are unavailable while Aide restarts.')
+    }
+    this.resolveRecipientAgents(state, recipients)
+    if (skill && recipients.length > 0) {
+      throw new Error('A provider skill cannot target read-only agents.')
+    }
+    state.queuedInputs.push({
+      attachments: attachments.map((attachment) => ({ ...attachment })),
+      createdAt: this.getNow(),
+      id: randomUUID(),
+      recipients: recipients.map((alias) => alias.toLowerCase()),
+      ...(skill ? { skill: { ...skill } } : {}),
+      text,
+    })
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    await this.drainQueuedInputs(state)
+  }
+
+  public async updateQueue(
+    sessionId: string,
+    action: ManagedSessionQueueAction,
+  ): Promise<void> {
+    const state = this.sessions.get(sessionId)
+    if (!state) return
+    if (action.type === 'resume') {
+      state.queuePaused = false
+      for (const input of state.queuedInputs) delete input.lastError
+    } else {
+      const index = state.queuedInputs.findIndex(
+        (input) => input.id === action.id,
+      )
+      const input = state.queuedInputs[index]
+      if (!input) throw new Error('That queued message was already sent.')
+      if (action.type === 'edit') {
+        state.queuedInputs[index] = { ...input, text: action.text }
+        delete state.queuedInputs[index].lastError
+      } else if (action.type === 'move') {
+        state.queuedInputs.splice(index, 1)
+        state.queuedInputs.splice(
+          Math.max(0, Math.min(action.index, state.queuedInputs.length)),
+          0,
+          input,
+        )
+      } else {
+        state.queuedInputs.splice(index, 1)
+        if (state.queuedInputs.length === 0) state.queuePaused = false
+      }
+      if (action.type === 'steer') {
+        this.publishSnapshot(state, this.getNow())
+        this.persistSession(state)
+        try {
+          await this.sendInput(
+            sessionId,
+            input.text,
+            input.recipients,
+            input.attachments,
+            input.skill,
+          )
+        } catch (error) {
+          // why: a refused steer must not lose the message, so it goes back where it was.
+          state.queuedInputs.splice(index, 0, input)
+          this.publishSnapshot(state, this.getNow())
+          this.persistSession(state)
+          throw error
+        }
+        return
+      }
+    }
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    await this.drainQueuedInputs(state)
+  }
+
+  /** Sends the first queued message once the session is idle; the turn it starts drains the next. */
+  private async drainQueuedInputs(
+    state: ManagedSessionMutableState,
+  ): Promise<void> {
+    const next = state.queuedInputs[0]
+    if (
+      !next ||
+      state.queuePaused ||
+      state.queueDraining ||
+      state.closed ||
+      state.closing ||
+      this.quiescing ||
+      state.pendingProviderSelection ||
+      state.inputDispatch ||
+      this.isInputBusy(state)
+    ) {
+      return
+    }
+    state.queueDraining = true
+    state.queuedInputs.shift()
+    this.publishSnapshot(state, this.getNow())
+    this.persistSession(state)
+    try {
+      await this.sendInput(
+        state.config.sessionId,
+        next.text,
+        next.recipients,
+        next.attachments,
+        next.skill,
+      )
+    } catch (error) {
+      state.queuedInputs.unshift({
+        ...next,
+        lastError:
+          error instanceof Error ? error.message : 'Queued message failed.',
+      })
+      state.queuePaused = true
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+      return
+    } finally {
+      state.queueDraining = false
+    }
+    // why: a fast turn can end inside sendInput, while this drain still held the flag.
+    await this.drainQueuedInputs(state)
+  }
+
   private async routeInput(
     state: ManagedSessionMutableState,
     input: ManagedSessionInput,
@@ -3680,6 +3826,8 @@ export class ManagedSessionManager {
         steered = await steer
       } finally {
         if (state.inputDispatch === dispatch) state.inputDispatch = null
+        // why: a turn that ended while this held the slot skipped its queue drain.
+        void this.drainQueuedInputs(state)
       }
       if (!steered) {
         await this.routeInput(state, input)
@@ -3705,6 +3853,8 @@ export class ManagedSessionManager {
       await dispatch
     } finally {
       if (state.inputDispatch === dispatch) state.inputDispatch = null
+      // why: a turn that ended while this held the slot skipped its queue drain.
+      void this.drainQueuedInputs(state)
     }
   }
 
@@ -5190,7 +5340,9 @@ export class ManagedSessionManager {
       return state.snapshot
     } finally {
       state.switchInProgress = false
-      void this.applyPendingProviderSelection(state)
+      void this.applyPendingProviderSelection(state).then(() =>
+        this.drainQueuedInputs(state),
+      )
     }
   }
 
@@ -5696,6 +5848,13 @@ export class ManagedSessionManager {
         event.type === 'user-input.resolved')
     ) {
       void this.applyPendingProviderSelection(state)
+    } else if (
+      event.type === 'turn.completed' ||
+      event.type === 'session.state.changed' ||
+      event.type === 'request.resolved' ||
+      event.type === 'user-input.resolved'
+    ) {
+      void this.drainQueuedInputs(state)
     }
   }
 
@@ -5714,6 +5873,7 @@ export class ManagedSessionManager {
     }
 
     await this.applyPendingProviderSelection(state)
+    await this.drainQueuedInputs(state)
   }
 
   private getSafeHistory(
@@ -5819,6 +5979,12 @@ export class ManagedSessionManager {
           } satisfies ManagedSessionPlanApproval)
         : null,
       provider: state.config.mode,
+      ...(state.queuedInputs.length > 0
+        ? {
+            queuePaused: state.queuePaused,
+            queuedInputs: state.queuedInputs.map((input) => ({ ...input })),
+          }
+        : {}),
       running:
         runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
       sessionId: state.config.sessionId,

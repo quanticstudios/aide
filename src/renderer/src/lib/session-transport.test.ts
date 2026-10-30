@@ -32,12 +32,14 @@ const SESSION_BRIDGE_METHODS = [
   'onManagedSessionEvent',
   'onTaskLibraryChanged',
   'previewTurnCheckpointRestore',
+  'queueManagedSessionInput',
   'resolveManagedSessionRequest',
   'resolveManagedSessionUserInput',
   'restoreTurnCheckpoint',
   'sendManagedSessionInput',
   'switchManagedSessionProvider',
   'syncManagedSession',
+  'updateManagedSessionQueue',
   'updateTaskMetadata',
 ]
 

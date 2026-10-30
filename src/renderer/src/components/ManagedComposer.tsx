@@ -74,6 +74,7 @@ import {
   type SlashCommandContext,
 } from '../lib/managed-slash-commands'
 import { isMac } from '../lib/platform'
+import { getSendWhileRunning, shouldQueueSend } from '../lib/send-while-running'
 import { getSessionTransport } from '../lib/session-transport'
 import { useClickOutside } from '../lib/use-click-outside'
 import { cn } from '../lib/utils'
@@ -257,6 +258,7 @@ interface ManagedComposerPaneState {
     recipients?: readonly string[],
     promptAttachments?: readonly ManagedSessionAttachment[],
     providerSkill?: ProviderSkill,
+    queue?: boolean,
   ) => Promise<boolean>
   readonly serviceTier: string | null
   readonly sessionId: string
@@ -306,6 +308,8 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   const composerStorageKey = `aide:managed-composer:${sessionId}`
   const [draftInput, setDraftInput] = useState('')
   const draftInputRef = useRef('')
+  // why: Enter's keydown sets this so the send knows whether Mod was held.
+  const isModSendRef = useRef(false)
   const [attachments, setAttachments] = useState<
     readonly ManagedSessionAttachment[]
   >([])
@@ -475,6 +479,8 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   ])
 
   const handleSendInput = useCallback(async () => {
+    const isModSend = isModSendRef.current
+    isModSendRef.current = false
     const submittedDraft = draftInput
     const pendingApproval = snapshot?.pendingApprovals[0]
     if (pendingApproval) {
@@ -555,6 +561,11 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       recipients,
       submittedAttachments,
       submittedSkill ?? undefined,
+      shouldQueueSend(
+        getSendWhileRunning(),
+        snapshot?.sessionState === 'running',
+        isModSend,
+      ),
     )
 
     if (sent) composerHistory.recordSentPrompt(submittedDraft)
@@ -1273,6 +1284,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     handleServiceTierChange,
     hydrateManagedDraft,
     isDraftHydrated,
+    isModSendRef,
     isProviderSkillsLoading,
     isWorkspaceFileSearchLoading,
     loadProviderSkills,
@@ -1338,6 +1350,7 @@ export default function ManagedComposer({
   handleSendInput,
   handleServiceTierChange,
   isDraftHydrated,
+  isModSendRef,
   isProviderSkillsLoading,
   isSelectionHydrated,
   isSubmitting,
@@ -1825,6 +1838,7 @@ export default function ManagedComposer({
             if (!startedSessionRef.current && !isSelectionHydrated) {
               return
             }
+            isModSendRef.current = isMac() ? event.metaKey : event.ctrlKey
             void handleSendInput()
           }
         }}
