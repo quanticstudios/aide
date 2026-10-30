@@ -59,8 +59,8 @@ function packageVersion(lockfile, name) {
 export function validateDependencyPolicy({ packageJson, bunfig, lockfile }) {
   const errors = []
 
-  if (packageJson.packageManager !== 'bun@1.3.14') {
-    errors.push(policyError('packageManager must be exactly bun@1.3.14'))
+  if (packageJson.packageManager !== 'bun@1.4.4') {
+    errors.push(policyError('packageManager must be exactly bun@1.4.4'))
   }
 
   for (const section of ['dependencies', 'devDependencies']) {
