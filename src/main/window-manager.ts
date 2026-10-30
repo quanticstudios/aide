@@ -19,6 +19,8 @@ export interface WindowManagerDependencies {
   getAllWindows: () => BrowserWindow[]
   loadRendererUrl?: string
   mainPreloadPath: string
+  /** Opens allowed URLs in the system browser; validates on its own. */
+  openExternal: (url: string) => void
   rendererHtmlPath: string
   setTimeout: typeof setTimeout
 }
@@ -52,7 +54,10 @@ export class WindowManager {
       },
     })
 
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      this.dependencies.openExternal(url)
+      return { action: 'deny' }
+    })
     window.webContents.session.setPermissionRequestHandler(
       (webContents, permission, callback) =>
         callback(
@@ -63,21 +68,22 @@ export class WindowManager {
             }),
         ),
     )
-    const preventUntrustedNavigation = (
-      event: { preventDefault: () => void },
-      url: string,
-    ) => {
-      if (
-        !isTrustedRendererUrl(url, {
-          loadRendererUrl: this.dependencies.loadRendererUrl,
-          rendererHtmlPath: this.dependencies.rendererHtmlPath,
-        })
-      ) {
+    const isTrusted = (url: string) =>
+      isTrustedRendererUrl(url, {
+        loadRendererUrl: this.dependencies.loadRendererUrl,
+        rendererHtmlPath: this.dependencies.rendererHtmlPath,
+      })
+    window.webContents.on('will-navigate', (event, url) => {
+      if (!isTrusted(url)) {
+        event.preventDefault()
+        this.dependencies.openExternal(url)
+      }
+    })
+    window.webContents.on('will-redirect', (event, url) => {
+      if (!isTrusted(url)) {
         event.preventDefault()
       }
-    }
-    window.webContents.on('will-navigate', preventUntrustedNavigation)
-    window.webContents.on('will-redirect', preventUntrustedNavigation)
+    })
 
     window.webContents.on(
       'will-attach-webview',

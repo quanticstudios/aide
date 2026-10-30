@@ -6,6 +6,8 @@ import type { ThemedToken } from 'shiki/core'
 
 import { cachedTokens, highlight, resolveLanguage } from '../lib/highlighter'
 import { splitMarkdownBlocks } from '../lib/markdown-blocks'
+import { remarkWorkspaceFileLinks } from '../lib/markdown-file-paths'
+import { MarkdownImage, MarkdownLink } from './MarkdownLink'
 
 interface MarkdownContentProps {
   readonly text: string
@@ -126,9 +128,17 @@ function CodeBlock({ children, node }: ComponentProps<'pre'> & ExtraProps) {
   return <HighlightedCode code={text} lang={lang} />
 }
 
-const components: Components = { pre: CodeBlock }
-const remarkPlugins = [remarkGfm]
-const remarkPluginsWithLabels = [remarkGfm, remarkFormatSessionLabels]
+const components: Components = {
+  a: MarkdownLink,
+  img: MarkdownImage,
+  pre: CodeBlock,
+}
+const remarkPlugins = [remarkGfm, remarkWorkspaceFileLinks]
+const remarkPluginsWithLabels = [
+  remarkGfm,
+  remarkFormatSessionLabels,
+  remarkWorkspaceFileLinks,
+]
 
 // why: a block's props are its text plus stable plugin and component references, so finished blocks skip re-parsing while the tail streams.
 const MemoizedMarkdown = memo(ReactMarkdown)

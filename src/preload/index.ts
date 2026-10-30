@@ -204,6 +204,14 @@ const aideApi: AideApi = {
   launchEditor: (editorId: string, cwd: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.editorLaunch, editorId, cwd),
   listAvailableEditors: () => ipcRenderer.invoke(IPC_CHANNELS.editorList),
+  openWorkspaceFile: (workspaceId, relativePath, line) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.editorOpenFile,
+      workspaceId,
+      relativePath,
+      line,
+    ),
+  openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   listProjectRefs: (projectId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.listProjectRefs, projectId),
   getWorkspaceGitStatus: (workspaceId: string) =>

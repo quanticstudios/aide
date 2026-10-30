@@ -18,4 +18,20 @@ describe('renderer security policy', () => {
     expect(rendererHtml).toContain("object-src 'none'")
     expect(rendererHtml).toContain('ws://127.0.0.1:*')
   })
+
+  it('lets remote https images in without opening scripts or plain http images', () => {
+    const policy = Object.fromEntries(
+      (
+        /Content-Security-Policy"\s+content="([^"]+)"/.exec(
+          rendererHtml,
+        )?.[1] ?? ''
+      )
+        .split(';')
+        .map((directive) => directive.trim().split(/\s+/))
+        .map(([name = '', ...sources]) => [name, sources]),
+    )
+    expect(policy['script-src']).toEqual(["'self'"])
+    expect(policy['img-src']).toEqual(["'self'", 'data:', 'https:'])
+    expect(policy['default-src']).toEqual(["'self'"])
+  })
 })
