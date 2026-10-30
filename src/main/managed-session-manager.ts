@@ -197,6 +197,7 @@ interface ManagedSessionMutableState {
   queuePaused: boolean
   queuedInputInProgressId: string | null
   queuedInputCommittedId: string | null
+  queuedInputShownAsPromptId: string | null
   queuedInputs: ManagedSessionQueuedInput[]
   persistenceTimer: ReturnType<typeof setTimeout> | null
   streamSnapshotTimer: ReturnType<typeof setTimeout> | null
@@ -3050,6 +3051,7 @@ export class ManagedSessionManager {
       queuePaused: (persisted?.snapshot.queuedInputs?.length ?? 0) > 0,
       queuedInputInProgressId: null,
       queuedInputCommittedId: null,
+      queuedInputShownAsPromptId: null,
       queuedInputs: (persisted?.snapshot.queuedInputs ?? []).map((input) => ({
         ...input,
         attachments: input.attachments.map((attachment) => ({ ...attachment })),
@@ -3292,6 +3294,12 @@ export class ManagedSessionManager {
       ...(skill ? { skill: { ...skill } } : {}),
       text,
     }
+    const dispatchesImmediately =
+      !state.queueDraining &&
+      !state.queuePaused &&
+      state.queuedInputs.length === 0 &&
+      !state.pendingProviderSelection &&
+      !this.isInputBusy(state)
     const canSteerImmediately =
       state.config.mode === 'codex' &&
       state.activeTurnId !== null &&
@@ -3334,8 +3342,15 @@ export class ManagedSessionManager {
       }
       return
     }
-    this.publishSnapshot(state, this.getNow())
-    this.persistSession(state)
+    if (dispatchesImmediately) {
+      this.persistSession(state, {
+        ...state.snapshot,
+        queuedInputs: state.queuedInputs.map((input) => ({ ...input })),
+      })
+    } else {
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+    }
     await this.drainQueuedInputs(state)
   }
 
@@ -3564,6 +3579,7 @@ export class ManagedSessionManager {
         } finally {
           state.queuedInputInProgressId = null
           state.queuedInputCommittedId = null
+          state.queuedInputShownAsPromptId = null
         }
       }
     } finally {
@@ -3581,16 +3597,8 @@ export class ManagedSessionManager {
     ) {
       throw new Error('Selected provider skill does not match this session.')
     }
-    if (!queuedInput.checkpointId) {
-      const checkpoint = await this.options.beforeInput?.({
-        config: state.config,
-        snapshot: state.snapshot,
-        text: queuedInput.text,
-      })
-      queuedInput.checkpointId = checkpoint?.checkpointId
-    }
-
     const agents = this.resolveRecipientAgents(state, queuedInput.recipients)
+    const snapshotBeforePrompt = state.snapshot
     const promptItemId = `user-prompt:${randomUUID()}`
     const promptKey = createContentKey('user-prompt', promptItemId)
     state.contentByKey.set(promptKey, {
@@ -3605,10 +3613,19 @@ export class ManagedSessionManager {
       updatedAt: this.getNow(),
     })
     state.orderedContentKeys.push(promptKey)
+    state.queuedInputShownAsPromptId = queuedInput.id
     this.publishSnapshot(state, this.getNow())
     this.persistSession(state)
 
     try {
+      if (!queuedInput.checkpointId) {
+        const checkpoint = await this.options.beforeInput?.({
+          config: state.config,
+          snapshot: snapshotBeforePrompt,
+          text: queuedInput.text,
+        })
+        queuedInput.checkpointId = checkpoint?.checkpointId
+      }
       if (agents.length > 0) {
         const history = this.getSafeHistory(state, promptItemId)
         if (state.cancelledQueuedInputIds.has(queuedInput.id)) {
@@ -3721,6 +3738,7 @@ export class ManagedSessionManager {
         state.pendingUserPromptText = null
       }
       if (state.queuedInputCommittedId !== queuedInput.id) {
+        state.queuedInputShownAsPromptId = null
         state.contentByKey.delete(promptKey)
         state.orderedContentKeys = state.orderedContentKeys.filter(
           (key) => key !== promptKey,
@@ -5518,11 +5536,15 @@ export class ManagedSessionManager {
         : null,
       provider: state.config.mode,
       queuePaused: state.queuePaused,
-      queuedInputs: state.queuedInputs.map((input) => ({
-        ...input,
-        attachments: input.attachments.map((attachment) => ({ ...attachment })),
-        recipients: [...input.recipients],
-      })),
+      queuedInputs: state.queuedInputs
+        .filter((input) => input.id !== state.queuedInputShownAsPromptId)
+        .map((input) => ({
+          ...input,
+          attachments: input.attachments.map((attachment) => ({
+            ...attachment,
+          })),
+          recipients: [...input.recipients],
+        })),
       running:
         runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
       sessionId: state.config.sessionId,
@@ -5596,7 +5618,11 @@ export class ManagedSessionManager {
     }
     const persisted = this.options.store?.saveManagedSession({
       config: state.config,
-      snapshot: { ...snapshotForPersistence, preparingActivityId: undefined },
+      snapshot: {
+        ...snapshotForPersistence,
+        preparingActivityId: undefined,
+        queuedInputs: state.queuedInputs.map((input) => ({ ...input })),
+      },
     })
     if (persisted) {
       this.persistedSessions.set(persisted.config.sessionId, persisted)

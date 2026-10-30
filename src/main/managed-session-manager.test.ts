@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   ManagedSessionConfig,
   ManagedSessionEvent,
+  ManagedSessionSnapshot,
   PersistedManagedSession,
 } from '../shared/managed-session'
 import type { ManagedProviderRuntimeEvent } from '../shared/provider-runtime'
@@ -1738,6 +1739,61 @@ createInterface({ input: process.stdin }).on('line', line => {
         }),
       ],
     })
+  })
+
+  it('shows an idle send as a prompt, never as a queued message', async () => {
+    const checkpoint = createDeferred()
+    const published: ManagedSessionSnapshot[] = []
+    let saved: ManagedSessionSnapshot | undefined
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => undefined,
+        start: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: config.mode,
+            state: 'ready',
+            type: 'session.state.changed',
+          })
+        },
+      }),
+      beforeInput: async () => {
+        await checkpoint.promise
+        return undefined
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: (update) => {
+        if (update.type === 'snapshot') published.push(update.snapshot)
+      },
+      store: {
+        reconcileInterruptedManagedSessions: () => [],
+        saveManagedSession: (entry) => {
+          saved = entry.snapshot
+          return entry
+        },
+      },
+    })
+    const config = createConfig()
+    await manager.createSession(config)
+
+    const sending = manager.sendInput(config.sessionId, 'idle prompt')
+    await Promise.resolve()
+    expect(manager.getSnapshots()[config.sessionId]?.content).toEqual([
+      expect.objectContaining({ kind: 'user-prompt', text: 'idle prompt' }),
+    ])
+    expect(saved?.queuedInputs).toEqual([
+      expect.objectContaining({ text: 'idle prompt' }),
+    ])
+    checkpoint.resolve()
+    await sending
+
+    expect(
+      published.some((snapshot) => (snapshot.queuedInputs ?? []).length > 0),
+    ).toBe(false)
   })
 
   it('delivers queued prompts in order and supports cancellation', async () => {
