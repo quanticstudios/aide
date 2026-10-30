@@ -557,6 +557,7 @@ const persistedToolCall = z.object({
   callId: persistedIdentifier,
   command: persistedText.optional(),
   diff: persistedText.optional(),
+  endedAt: persistedTimestamp.optional(),
   exitCode: z.number().finite().int().optional(),
   files: z
     .array(
@@ -570,7 +571,9 @@ const persistedToolCall = z.object({
   input: z.unknown(),
   output: persistedText.optional(),
   progress: z.string().max(500).optional(),
+  startedAt: persistedTimestamp.optional(),
   status: z.enum(['running', 'completed', 'failed']),
+  subagentTools: z.array(z.string().min(1).max(200)).max(1_000).optional(),
   tasks: z
     .array(
       z.object({

@@ -139,7 +139,8 @@ test.describe('agent tasks', () => {
     await expect(page.getByTestId('managed-session-content')).toContainText(
       'The subagent finished exploring.',
     )
-    await expect(subagentRow).toContainText('done')
+    await expect(subagentRow).toHaveAttribute('data-status', 'completed')
+    await expect(subagentRow.getByTestId('tool-call-duration')).toHaveText(/s$/)
     await expect(page.getByTestId('tool-call-output')).toHaveCount(0)
 
     await page.getByTestId('managed-tool-call-group').locator('summary').click()

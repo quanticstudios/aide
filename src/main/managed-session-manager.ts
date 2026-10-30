@@ -558,6 +558,18 @@ function describeClaudeToolInput(
   }
 }
 
+/** Stamps when main first and last saw a tool call, since no provider reports either. */
+function withToolTimes(
+  tool: ManagedProviderRuntimeToolCall,
+  previous: ManagedProviderRuntimeToolCall | undefined,
+  at: string,
+): ManagedProviderRuntimeToolCall {
+  const startedAt = previous?.startedAt ?? at
+  return tool.status === 'running'
+    ? { ...tool, startedAt }
+    : { ...tool, endedAt: previous?.endedAt ?? at, startedAt }
+}
+
 function classifyToolRequestType(
   toolName: string,
 ): ManagedProviderRuntimeRequestType {
@@ -1272,6 +1284,21 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
             this.emitToolCall(call)
           }
         }
+      } else {
+        const parent = this.toolCalls.get(parentToolUseId)
+        const names = content.flatMap((block) =>
+          block &&
+          typeof block === 'object' &&
+          'type' in block &&
+          block.type === 'tool_use' &&
+          typeof block.name === 'string'
+            ? [block.name]
+            : [],
+        )
+        if (parent && names.length > 0) {
+          parent.subagentTools = [...(parent.subagentTools ?? []), ...names]
+          this.emitToolCall(parent)
+        }
       }
 
       if (this.streamedMessageIds.has(message.message.id)) {
@@ -1330,9 +1357,15 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
         }
 
         const output = readToolResultText(block.content)
+        // shortcut: Claude reports a failed Bash exit code only as an "Exit code N" first line; read a structured field if the SDK adds one.
+        const exitCode =
+          block.is_error === true && call.command
+            ? /^Exit code (\d+)/.exec(output)?.[1]
+            : undefined
         this.toolCalls.delete(call.callId)
         this.emitToolCall({
           ...call,
+          ...(exitCode ? { exitCode: Number(exitCode) } : {}),
           ...(output ? { output: `${call.output ?? ''}${output}` } : {}),
           status: block.is_error === true ? 'failed' : 'completed',
         })
@@ -1480,6 +1513,61 @@ interface CodexPendingApproval {
 interface CodexPendingUserInput {
   jsonRpcId: string | number
 }
+
+/** One call of each tool kind the transcript draws, for the fake provider's `tool kinds` prompt. */
+const FAKE_TOOL_KINDS: ManagedProviderRuntimeToolCall[] = [
+  {
+    callId: 'fake-fail',
+    command: 'bun run lint',
+    exitCode: 1,
+    input: { command: 'bun run lint' },
+    output: '\u001b[31merror\u001b[0m README.md: missing title',
+    status: 'failed',
+    toolName: 'Bash',
+  },
+  {
+    callId: 'fake-grep',
+    input: { path: '.', pattern: 'before' },
+    output: 'README.md:1:before',
+    status: 'completed',
+    toolName: 'Grep',
+  },
+  {
+    callId: 'fake-web',
+    input: { query: 'electron releases' },
+    output:
+      'Web search results for query: "electron releases"\n\nLinks: [{"title":"Electron releases","url":"https://releases.electronjs.org/"}]',
+    status: 'completed',
+    toolName: 'WebSearch',
+  },
+  {
+    callId: 'fake-task',
+    input: {
+      description: 'Explore the repo',
+      prompt: 'Explore',
+      subagent_type: 'Explore',
+    },
+    output: 'Found the README.',
+    status: 'completed',
+    subagentTools: ['Read', 'Grep'],
+    toolName: 'Task',
+  },
+  {
+    callId: 'fake-mcp',
+    input: { id: 'ENG-1' },
+    output: 'ENG-1: Example issue',
+    status: 'completed',
+    toolName: 'mcp__linear__get_issue',
+  },
+  {
+    callId: 'fake-sleep',
+    command: 'sleep 2',
+    exitCode: 0,
+    input: { command: 'sleep 2' },
+    status: 'completed',
+    toolName: 'Bash',
+  },
+]
 
 const CODEX_TOOL_ITEM_NAMES: Record<string, string> = {
   commandExecution: 'Shell',
@@ -2702,8 +2790,8 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
-    if (trimmed === 'tools') {
-      const calls: ManagedProviderRuntimeToolCall[] = [
+    if (trimmed === 'tools' || trimmed === 'tool kinds') {
+      const threeCalls: ManagedProviderRuntimeToolCall[] = [
         {
           callId: 'fake-bash',
           command: 'echo hello',
@@ -2735,6 +2823,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
           toolName: 'Read',
         },
       ]
+      const calls = trimmed === 'tools' ? threeCalls : FAKE_TOOL_KINDS
 
       for (const call of calls) {
         const started: ManagedProviderRuntimeToolCall = {
@@ -2755,7 +2844,10 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
             tool,
             type: 'content.delta',
           })
-          await new Promise((resolve) => setTimeout(resolve, 100))
+          // why: the last kinds call stays running long enough for its timer to tick.
+          await new Promise((resolve) =>
+            setTimeout(resolve, call.callId === 'fake-sleep' ? 2_500 : 100),
+          )
           if (this.activeTurnId !== turnId) return
         }
       }
@@ -2765,7 +2857,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
         itemId: randomUUID(),
         kind: 'assistant-text',
         provider: this.provider,
-        text: 'Ran three tools.',
+        text: trimmed === 'tools' ? 'Ran three tools.' : 'Ran every tool kind.',
         type: 'content.delta',
       })
       this.finishTurn('completed')
@@ -5695,7 +5787,12 @@ export class ManagedSessionManager {
 
       if (existing) {
         if (event.phase) existing.phase = event.phase
-        if (event.tool) existing.tool = event.tool
+        if (event.tool)
+          existing.tool = withToolTimes(
+            event.tool,
+            existing.tool,
+            event.createdAt,
+          )
         existing.text = `${existing.text}${event.text}`
         existing.updatedAt = event.createdAt
       } else {
@@ -5707,7 +5804,9 @@ export class ManagedSessionManager {
           model: event.model ?? state.config.model,
           provider: state.config.mode,
           text: event.text,
-          ...(event.tool ? { tool: event.tool } : {}),
+          ...(event.tool
+            ? { tool: withToolTimes(event.tool, undefined, event.createdAt) }
+            : {}),
           turnId: state.activeTurnId,
           updatedAt: event.createdAt,
         })

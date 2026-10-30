@@ -1064,6 +1064,12 @@ export default function ManagedAgentPane({
                         rewindDisabledReason={rewindDisabledReason}
                         row={row}
                         sessionId={sessionId}
+                        workedForMs={
+                          turn?.completedAt
+                            ? Date.parse(turn.completedAt) -
+                              Date.parse(turn.startedAt)
+                            : null
+                        }
                       />
                     )
                   }}

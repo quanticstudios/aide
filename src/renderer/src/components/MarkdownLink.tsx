@@ -15,7 +15,8 @@ import {
 import { cn } from '../lib/utils'
 import { WorkspaceIdContext } from '../lib/workspace-id'
 
-function FileChip({
+/** A workspace file that opens in the editor at its line when clicked. */
+export function FileChip({
   children,
   file,
   workspaceId,

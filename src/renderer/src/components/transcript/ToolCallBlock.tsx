@@ -1,54 +1,53 @@
-import {
-  ChevronDown,
-  FileCode,
-  FileText,
-  LoaderCircle,
-  Terminal,
-  Wrench,
-} from 'lucide-react'
-import { lazy, memo, Suspense, useState } from 'react'
+import { ChevronDown, LoaderCircle } from 'lucide-react'
+import { memo, useState } from 'react'
 import type { ManagedSessionToolCall } from '../../../../shared/managed-session'
+import ElapsedTime from './ElapsedTime'
+import { formatThinkingDuration } from './format-thinking-duration'
+import { toolRenderer } from './tools'
 
-export const LazyGitDiffView = lazy(async () => ({
-  default: (await import('../GitDiffView')).GitDiffView,
-}))
+export { LazyGitDiffView } from './tools/EditTool'
 
-function toolCallIcon(tool: ManagedSessionToolCall) {
-  if (tool.command) {
-    return Terminal
+function ToolCallStatus({ tool }: { readonly tool: ManagedSessionToolCall }) {
+  if (tool.status === 'running') {
+    return (
+      <>
+        <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
+        {tool.startedAt ? (
+          <span data-testid="tool-call-elapsed">
+            <ElapsedTime since={tool.startedAt} />
+          </span>
+        ) : null}
+      </>
+    )
   }
 
-  if (tool.diff) {
-    return FileCode
-  }
-
-  if (tool.files?.some((file) => file.status === 'read')) {
-    return FileText
-  }
-
-  return Wrench
-}
-
-function toolCallSummary(tool: ManagedSessionToolCall): string {
-  const input =
-    tool.input && typeof tool.input === 'object'
-      ? (tool.input as Record<string, unknown>)
-      : {}
+  const failed =
+    tool.status === 'failed' ||
+    (tool.exitCode !== undefined && tool.exitCode !== 0)
+  const duration =
+    tool.startedAt && tool.endedAt
+      ? formatThinkingDuration(
+          Date.parse(tool.endedAt) - Date.parse(tool.startedAt),
+        )
+      : null
 
   return (
-    tool.command ??
-    (typeof input.description === 'string' ? input.description : undefined) ??
-    tool.files?.[0]?.path ??
-    JSON.stringify(tool.input ?? {}).slice(0, 80)
+    <>
+      {duration ? (
+        <span data-testid="tool-call-duration">{duration}</span>
+      ) : null}
+      {tool.exitCode !== undefined || failed ? (
+        <span
+          className={failed ? 'font-semibold text-accent-red' : undefined}
+          data-testid="tool-call-exit-code"
+        >
+          {tool.exitCode === undefined ? 'failed' : `exit ${tool.exitCode}`}
+        </span>
+      ) : duration ? null : (
+        'done'
+      )}
+    </>
   )
-}
-
-function toolCallStatusLabel(tool: ManagedSessionToolCall): string {
-  if (tool.status === 'failed') {
-    return 'failed'
-  }
-
-  return tool.exitCode === undefined ? 'done' : `exit ${tool.exitCode}`
 }
 
 export default memo(function ToolCallBlock({
@@ -57,18 +56,17 @@ export default memo(function ToolCallBlock({
   readonly tool: ManagedSessionToolCall
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [isOutputExpanded, setIsOutputExpanded] = useState(false)
-  const Icon = toolCallIcon(tool)
-  const output = tool.output ?? ''
-  const lines = output.split('\n')
-  const isLongOutput = lines.length > 20
+  const renderer = toolRenderer(tool)
+  const Icon = renderer.icon
 
   return (
     <div
       className="overflow-hidden rounded-lg border border-[var(--border-soft)] bg-surface-1"
+      data-status={tool.status}
       data-testid="managed-content-tool-call"
     >
       <button
+        aria-expanded={isExpanded}
         className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-2"
         data-testid={`tool-call-${tool.toolName}`}
         onClick={() => setIsExpanded((prev) => !prev)}
@@ -79,7 +77,7 @@ export default memo(function ToolCallBlock({
           {tool.toolName}
         </span>
         <span className="truncate font-mono text-[12px] text-muted-foreground">
-          {toolCallSummary(tool)}
+          {renderer.summary(tool)}
         </span>
         {tool.progress && tool.status === 'running' ? (
           <span
@@ -89,12 +87,8 @@ export default memo(function ToolCallBlock({
             {tool.progress}
           </span>
         ) : null}
-        <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
-          {tool.status === 'running' ? (
-            <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
-          ) : (
-            toolCallStatusLabel(tool)
-          )}
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
+          <ToolCallStatus tool={tool} />
         </span>
         <ChevronDown
           className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
@@ -102,55 +96,7 @@ export default memo(function ToolCallBlock({
       </button>
       {isExpanded ? (
         <div className="space-y-2 border-t border-[var(--border-soft)] px-3 py-2">
-          {tool.command ? (
-            <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-foreground">
-              {tool.command}
-            </pre>
-          ) : null}
-          {tool.files && tool.files.length > 0 ? (
-            <ul className="space-y-0.5 font-mono text-[12px] text-muted-foreground">
-              {tool.files.map((file) => (
-                <li key={`${file.status}:${file.path}`}>
-                  {file.status} {file.path}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {tool.diff ? (
-            <div
-              className="overflow-auto rounded-md border border-border"
-              data-testid="tool-call-diff"
-            >
-              <Suspense fallback={null}>
-                <LazyGitDiffView
-                  filePath={tool.files?.[0]?.path ?? 'file'}
-                  outputFormat="line-by-line"
-                  patch={tool.diff}
-                />
-              </Suspense>
-            </div>
-          ) : null}
-          {output ? (
-            <pre
-              className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body"
-              data-testid="tool-call-output"
-            >
-              {isLongOutput && !isOutputExpanded
-                ? lines.slice(0, 20).join('\n')
-                : output}
-            </pre>
-          ) : null}
-          {isLongOutput ? (
-            <button
-              className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => setIsOutputExpanded((prev) => !prev)}
-              type="button"
-            >
-              {isOutputExpanded
-                ? 'Show less'
-                : `Show ${lines.length - 20} more lines`}
-            </button>
-          ) : null}
+          <renderer.Body tool={tool} />
         </div>
       ) : null}
     </div>

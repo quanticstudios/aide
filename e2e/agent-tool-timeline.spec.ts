@@ -7,6 +7,7 @@ import {
   type ElectronApplication,
   _electron as electron,
   expect,
+  type Page,
   test,
 } from '@playwright/test'
 
@@ -46,7 +47,7 @@ test.describe('agent tool timeline', () => {
     if (repository) rmSync(repository, { force: true, recursive: true })
   })
 
-  test('shows one expandable row per tool call and keeps it after a reload', async () => {
+  async function openAgentPane(): Promise<Page> {
     repository = createRepository()
     dataDirectory = mkdtempSync(
       path.join(tmpdir(), 'aide-tool-timeline-e2e-data-'),
@@ -113,6 +114,11 @@ test.describe('agent tool timeline', () => {
       })
     })
 
+    return page
+  }
+
+  test('shows one expandable row per tool call and keeps it after a reload', async () => {
+    const page = await openAgentPane()
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('tools')
     await page.getByRole('button', { name: /send prompt/i }).click()
@@ -130,7 +136,12 @@ test.describe('agent tool timeline', () => {
 
     const group = page.getByTestId('managed-tool-call-group')
     await expect(group).toHaveCount(1)
-    await expect(group).toContainText('3 tool calls')
+    await expect(group).toContainText(
+      'Ran 1 command, edited 1 file, read 1 file',
+    )
+    await expect(page.getByTestId('turn-worked-for')).toContainText(
+      /^Worked for /,
+    )
     await group.locator('summary').click()
     await page.getByTestId('tool-call-Bash').click()
     await expect(page.getByTestId('tool-call-output')).toHaveText('hello')
@@ -151,6 +162,59 @@ test.describe('agent tool timeline', () => {
     const reloadedRows = page.getByTestId('managed-content-tool-call')
     await expect(reloadedRows).toHaveCount(3)
     await expect(reloadedRows.nth(0)).toContainText('exit 0')
+    await expect(page.getByTestId('tool-call-duration')).toHaveCount(3)
     await expect(page.getByTestId('tool-call-output')).toHaveCount(0)
+  })
+
+  test('draws each tool kind, ticks a running tool and marks a failed exit code red', async () => {
+    const page = await openAgentPane()
+    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+    await prompt.fill('tool kinds')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+
+    const group = page.getByTestId('managed-tool-call-group')
+    await group.locator('summary').click()
+    await expect(page.getByTestId('tool-call-elapsed')).toHaveText(/^[1-9]s$/)
+
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Ran every tool kind.',
+    )
+    await expect(group.locator('summary')).toContainText(
+      'Ran 2 commands, ran 1 search, ran 1 web search, ran 1 subagent, called 1 MCP tool',
+    )
+    const rows = page.getByTestId('managed-content-tool-call')
+    await expect(rows).toHaveCount(6)
+    await expect(page.getByTestId('tool-call-duration')).toHaveCount(6)
+    for (const header of await page
+      .locator('[data-testid^="tool-call-"][aria-expanded]')
+      .all()) {
+      await expect(header).not.toContainText('{')
+    }
+
+    const exitCode = rows.nth(0).getByTestId('tool-call-exit-code')
+    await expect(exitCode).toHaveText('exit 1')
+    await expect(exitCode).toHaveClass(/text-accent-red/)
+    await rows.nth(0).getByRole('button').first().click()
+    const output = rows.nth(0).getByTestId('tool-call-output')
+    await expect(output).toHaveText('error README.md: missing title')
+    await expect(output.locator('.text-accent-red')).toHaveText('error')
+
+    await page.getByTestId('tool-call-Grep').click()
+    await expect(
+      rows.nth(1).getByRole('button', { name: 'README.md:1' }),
+    ).toBeVisible()
+    await page.getByTestId('tool-call-WebSearch').click()
+    await expect(
+      rows.nth(2).getByRole('link', { name: 'Electron releases' }),
+    ).toBeVisible()
+    await page.getByTestId('tool-call-Task').click()
+    await expect(
+      rows.nth(3).getByTestId('tool-call-subagent-summary'),
+    ).toHaveText('Explore · 2 tool calls: Read 1 file, ran 1 search')
+    await page.getByTestId('tool-call-mcp__linear__get_issue').click()
+    await expect(rows.nth(4)).toContainText('linear · get_issue')
+    await expect(rows.nth(4).getByTestId('tool-call-arguments')).toHaveText(
+      '{\n  "id": "ENG-1"\n}',
+    )
   })
 })
