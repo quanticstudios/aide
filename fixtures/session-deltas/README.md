@@ -46,9 +46,14 @@ A delta that names an item looks it up by `content[].id`. An unknown id means th
 | `status`             | `status`, `sessionState`, `running`, `detail`, `lastCompletedAt`   | Sets the last four. `status` is a coarse label and does not touch the snapshot.                                               |
 | `usage`              | `usage`                                                            | Sets `usage`.                                                                                                                 |
 | `usage.reports`      | `usageReports`, `usageSummary`                                     | Sets both.                                                                                                                    |
-| `error`              | `lastError`, `lastErrorAt`                                         | Sets both.                                                                                                                    |
+| `limit`              | `limit`                                                            | Sets `usageLimit` to `limit`, or deletes `usageLimit` when `limit` is `null`.                                                 |
+| `error`              | `lastError`, `lastErrorAt`, `lastErrorKind?`                       | Sets the first two. Sets `lastErrorKind` when present and deletes it when absent.                                             |
 | `session.patch`      | `set`, `unset?`                                                    | Shallow-merges `set` into the snapshot and deletes each key in `unset`. An empty `set` only moves `revision` and `updatedAt`. |
 
 `planApproval` is the first pending approval whose `requestType` is `plan-approval`, as `{ detail, id }`, or `null`.
 
 `status` maps from `sessionState`: `connecting` and `running` are `working`, `waiting` is `waiting`, `ready` is `done`, `stopped` is `interrupted`, `error` is `error`.
+
+`usageLimit` is `{ provider, limitId, label, resetsAt }`: the reached limit, the provider's own id for it (`five_hour`, a Codex `limitId`), what to call it, and the ISO reset time or `null` when the provider did not say. Main drops it when a turn completes or the provider reports usage allowed again.
+
+`lastErrorKind` is `auth`, `executable` or `network` when the error has a known fix, and absent otherwise.

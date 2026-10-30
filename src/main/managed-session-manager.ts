@@ -45,6 +45,7 @@ import type {
   ManagedSessionThinkingBudget,
   ManagedSessionTurnSummary,
   ManagedSessionUsage,
+  ManagedSessionUsageLimit,
   ManagedSessionUserQuestion,
   PersistedManagedSession,
 } from '../shared/managed-session'
@@ -63,6 +64,7 @@ import type {
   ManagedProviderRuntimeToolRequest,
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
+import { classifyProviderError } from '../shared/provider-errors'
 import type { ResolvedProviderSkill } from '../shared/provider-skills'
 import { mapCodexPlanUpdate } from './codex-plan'
 import { parseCodexUsage } from './codex-usage'
@@ -80,6 +82,7 @@ import {
   FleetDispatchError,
   type OrchestratorTools,
 } from './orchestrator-tools'
+import { mapClaudeRateLimit, mapCodexRateLimits } from './provider-limits'
 import { createRtkHooks } from './rtk-hook'
 import { ManagedTerminalProviderProjector } from './terminal-provider-runtime'
 import { resolveTerminalWorkingDirectory } from './terminal-shell'
@@ -214,6 +217,7 @@ interface ManagedSessionMutableState {
   switchInProgress: boolean
   turns: Map<string, ManagedSessionTurnSummary>
   usage: ManagedSessionUsage | null
+  usageLimit: ManagedSessionUsageLimit | null
   usageReports: Map<string, ManagedUsageReport>
 }
 
@@ -1185,6 +1189,16 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   }
 
   private handleMessage(message: SDKMessage): void {
+    if (message.type === 'rate_limit_event') {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        limit: mapClaudeRateLimit(message.rate_limit_info),
+        provider: 'claude',
+        type: 'session.limit.updated',
+      })
+      return
+    }
+
     if (message.type === 'system' && message.subtype === 'init') {
       this.contextModel = message.model
       this.emitRuntimeEvent({
@@ -1522,6 +1536,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
   private providerThreadId: string | null = null
   private providerModel: string | null = null
   private readOnlyPolicy: ReadOnlyCodexRuntimePolicy<never> | null = null
+  private reportedLimit = 'null'
 
   public constructor(
     private readonly config: ManagedSessionConfig,
@@ -1800,6 +1815,11 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (notification.method === 'account/rateLimits/updated') {
+      this.emitLimit(mapCodexRateLimits(this.readObject(params, 'rateLimits')))
+      return
+    }
+
     if (notification.method === 'thread/status/changed') {
       const status = this.readObject(params, 'status')
       const type = this.readString(status, 'type')
@@ -1852,10 +1872,14 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       const turnId =
         this.readString(turn, 'id') ?? this.activeTurnId ?? randomUUID()
       const status = this.readString(turn, 'status')
-      const errorMessage = this.readString(
-        this.readObject(turn, 'error'),
-        'message',
-      )
+      const turnError = this.readObject(turn, 'error')
+      const errorMessage = this.readString(turnError, 'message')
+      if (turnError?.codexErrorInfo === 'usageLimitExceeded') {
+        void this.readUsageLimit()
+      } else if (status !== 'failed') {
+        // invariant: the manager drops the limit on a completed turn, so the next one must emit again.
+        this.reportedLimit = 'null'
+      }
       this.activeTurnId = null
       this.activeContentItemIds.clear()
       this.assistantPhases.clear()
@@ -1959,9 +1983,12 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (notification.method === 'error') {
+      const error = this.readObject(params, 'error')
       const message =
-        this.readString(this.readObject(params, 'error'), 'message') ??
-        'Codex session failed.'
+        this.readString(error, 'message') ?? 'Codex session failed.'
+      if (error?.codexErrorInfo === 'usageLimitExceeded') {
+        void this.readUsageLimit()
+      }
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
         message,
@@ -2391,6 +2418,29 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
     }
   }
 
+  private emitLimit(limit: ManagedSessionUsageLimit | null): void {
+    // why: Codex sends a rolling update after most turns, and only a change belongs in the snapshot.
+    const reported = JSON.stringify(limit)
+    if (reported === this.reportedLimit) return
+    this.reportedLimit = reported
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      limit,
+      provider: 'codex',
+      type: 'session.limit.updated',
+    })
+  }
+
+  /** Reads the reset time after a turn failed on the usage limit, since the error does not carry it. */
+  private async readUsageLimit(): Promise<void> {
+    let limit: ManagedSessionUsageLimit | null = null
+    try {
+      const response = await this.sendRequest('account/rateLimits/read', {})
+      limit = mapCodexRateLimits(this.readObject(response, 'rateLimits'), true)
+    } catch {}
+    this.emitLimit(limit ?? mapCodexRateLimits(null, true))
+  }
+
   private readObject(
     value: unknown,
     key?: string,
@@ -2449,6 +2499,11 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
   public async start(): Promise<void> {
     if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start') {
       throw new Error('Fake managed provider failed to start')
+    }
+    if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'missing-cli') {
+      throw new Error(
+        `Configured executable "${this.provider}" was not found in PATH.`,
+      )
     }
 
     this.emitRuntimeEvent({
@@ -2868,6 +2923,38 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       this.finishTurn('completed')
       return
     }
+    if (trimmed.startsWith('usage limit ')) {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        limit: {
+          label: '5-hour limit',
+          limitId: 'five_hour',
+          provider: this.provider,
+          resetsAt: new Date(
+            Number(trimmed.slice('usage limit '.length)) * 1000,
+          ).toISOString(),
+        },
+        provider: this.provider,
+        type: 'session.limit.updated',
+      })
+    }
+    const failure = trimmed.startsWith('usage limit ')
+      ? "You've hit your usage limit."
+      : trimmed === 'auth error'
+        ? 'Not logged in · Please run /login'
+        : null
+    if (failure) {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        errorMessage: failure,
+        provider: this.provider,
+        turnId,
+        state: 'failed',
+        type: 'turn.completed',
+      })
+      this.activeTurnId = null
+      return
+    }
     if (trimmed === `fail-${this.provider}`) {
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
@@ -3229,8 +3316,10 @@ export class ManagedSessionManager {
     })
     const {
       fleet: _fleet,
+      lastErrorKind: _lastErrorKind,
       preparingActivityId: _preparingActivityId,
       usage: _usage,
+      usageLimit: _usageLimit,
       usageReports: _usageReports,
       usageSummary: _usageSummary,
       ...sourceSnapshot
@@ -3347,6 +3436,7 @@ export class ManagedSessionManager {
         (persisted?.snapshot.turns ?? []).map((turn) => [turn.id, { ...turn }]),
       ),
       usage: persisted?.snapshot.usage ?? null,
+      usageLimit: persisted?.snapshot.usageLimit ?? null,
       usageReports: new Map(
         (persisted?.snapshot.usageReports ?? []).map((report) => [
           JSON.stringify([
@@ -4986,6 +5076,7 @@ export class ManagedSessionManager {
         state.pendingUserPromptText = null
         state.projector = new ManagedTerminalProviderProjector(config.mode)
         state.usage = null
+        state.usageLimit = null
         const emitRuntimeEvent = this.createRuntimeEventEmitter(
           state,
           state.runtimeGeneration,
@@ -5198,7 +5289,8 @@ export class ManagedSessionManager {
         )
     if (
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
-      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start' ||
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'missing-cli'
     ) {
       return new FakeManagedSessionBackend(
         config.mode,
@@ -5422,6 +5514,12 @@ export class ManagedSessionManager {
       }
 
       state.activeTurnId = null
+      // why: a turn that completes proves the limit lifted, even when the provider sent no update saying so.
+      if (event.state === 'completed') state.usageLimit = null
+    }
+
+    if (event.type === 'session.limit.updated') {
+      state.usageLimit = event.limit
     }
 
     if (event.type === 'content.delta') {
@@ -5674,6 +5772,7 @@ export class ManagedSessionManager {
     updatedAt: string,
   ): void {
     const runtime = state.projector.getSnapshot()
+    const lastErrorKind = classifyProviderError(runtime.lastError)
     state.revision += 1
     const planApproval = [...state.pendingApprovals.values()].find(
       (approval) => approval.requestType === 'plan-approval',
@@ -5704,6 +5803,7 @@ export class ManagedSessionManager {
       lastCompletedAt: runtime.lastCompletedAt,
       lastError: runtime.lastError,
       lastErrorAt: runtime.lastErrorAt,
+      ...(lastErrorKind ? { lastErrorKind } : {}),
       model: state.config.model ?? null,
       ...(state.config.orchestratorSelection
         ? { orchestratorSelection: state.config.orchestratorSelection }
@@ -5726,6 +5826,7 @@ export class ManagedSessionManager {
       turns: [...state.turns.values()],
       updatedAt,
       ...(state.usage !== null ? { usage: state.usage } : {}),
+      ...(state.usageLimit ? { usageLimit: state.usageLimit } : {}),
       ...(state.usageReports.size > 0
         ? {
             usageReports: [...state.usageReports.values()],

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ManagedSessionManager } from './managed-session-manager'
 
 const { results } = vi.hoisted(() => ({
-  results: [] as Record<string, unknown>[],
+  results: [] as (Record<string, unknown> | Record<string, unknown>[])[],
 }))
 
 vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
@@ -14,7 +14,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
     async *[Symbol.asyncIterator]() {
       yield { type: 'system', subtype: 'init' }
       for await (const _message of prompt) {
-        yield results.shift()
+        const next = results.shift()
+        yield* Array.isArray(next) ? next : [next]
       }
     },
   })),
@@ -99,6 +100,57 @@ describe('managed provider accounting', () => {
     expect(
       manager.getSnapshots()[config.sessionId].usageSummary?.models[0]?.model,
     ).toBe('actual-claude-model')
+    await manager.closeAll()
+  })
+
+  it('keeps a rejected Claude rate limit until a turn completes', async () => {
+    vi.stubEnv('AIDE_FAKE_MANAGED_PROVIDERS', '')
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => {},
+      onUpdate: () => {},
+    })
+    const sessionId = 'limit-session'
+    await manager.createSession({
+      cwd: process.cwd(),
+      mode: 'claude',
+      paneId: 'pane',
+      sessionId,
+      workspaceId: 'workspace',
+    })
+    results.push([
+      {
+        rate_limit_info: {
+          rateLimitType: 'five_hour',
+          resetsAt: 1_792_767_600,
+          status: 'rejected',
+        },
+        session_id: 'native-query',
+        type: 'rate_limit_event',
+        uuid: 'limit',
+      },
+      createResult('limited', 0, 'error_during_execution'),
+    ])
+    await manager.sendInput(sessionId, 'first question')
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots()[sessionId].turns.at(-1)?.state).toBe(
+        'failed',
+      ),
+    )
+    expect(manager.getSnapshots()[sessionId].usageLimit).toEqual({
+      label: '5-hour limit',
+      limitId: 'five_hour',
+      provider: 'claude',
+      resetsAt: '2026-10-23T15:00:00.000Z',
+    })
+
+    results.push(createResult('resumed', 0.1))
+    await manager.sendInput(sessionId, 'continue')
+    await vi.waitFor(() =>
+      expect(manager.getSnapshots()[sessionId].turns.at(-1)?.state).toBe(
+        'completed',
+      ),
+    )
+    expect(manager.getSnapshots()[sessionId]).not.toHaveProperty('usageLimit')
     await manager.closeAll()
   })
 })

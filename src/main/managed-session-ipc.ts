@@ -27,6 +27,7 @@ const OWN_DELTA_KEYS = new Set<string>([
   'lastCompletedAt',
   'lastError',
   'lastErrorAt',
+  'lastErrorKind',
   'pendingApprovals',
   'pendingUserInputs',
   'planApproval',
@@ -37,6 +38,7 @@ const OWN_DELTA_KEYS = new Set<string>([
   'turns',
   'updatedAt',
   'usage',
+  'usageLimit',
   'usageReports',
   'usageSummary',
 ] satisfies (keyof ManagedSessionSnapshot)[])
@@ -191,13 +193,18 @@ function diffSnapshotFields(
       usageSummary: next.usageSummary,
     })
   }
+  if (!isEqualValue(previous.usageLimit, next.usageLimit)) {
+    changes.push({ limit: next.usageLimit ?? null, type: 'limit' })
+  }
   if (
     previous.lastError !== next.lastError ||
-    previous.lastErrorAt !== next.lastErrorAt
+    previous.lastErrorAt !== next.lastErrorAt ||
+    previous.lastErrorKind !== next.lastErrorKind
   ) {
     changes.push({
       lastError: next.lastError,
       lastErrorAt: next.lastErrorAt,
+      ...(next.lastErrorKind ? { lastErrorKind: next.lastErrorKind } : {}),
       type: 'error',
     })
   }

@@ -595,7 +595,8 @@ export class ProviderCapabilityService {
   public constructor(options: ProviderCapabilityServiceOptions = {}) {
     const useFakeProviders =
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1' ||
-      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start' ||
+      process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'missing-cli'
     this.listClaudeModels =
       options.listClaudeModels ??
       (useFakeProviders

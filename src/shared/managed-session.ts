@@ -215,6 +215,20 @@ export interface ManagedSessionUsage {
   outputTokens: number
 }
 
+/** A provider usage limit that was reached, and when it lifts. */
+export interface ManagedSessionUsageLimit {
+  provider: ManagedSessionProvider
+  /** The provider's own name for the limit, such as `five_hour` or a Codex `limitId`. */
+  limitId: string
+  /** What the banner calls it, such as `5-hour limit`. */
+  label: string
+  /** When the limit resets, or null when the provider did not say. */
+  resetsAt: string | null
+}
+
+/** Provider failures the thread can name a fix for. */
+export type ManagedSessionErrorKind = 'auth' | 'executable' | 'network'
+
 export interface ManagedSessionSnapshot {
   pendingProviderSelection?: ManagedSessionProviderSelection
   preparingActivityId?: string
@@ -228,6 +242,7 @@ export interface ManagedSessionSnapshot {
   lastCompletedAt: string | null
   lastError: string | null
   lastErrorAt: string | null
+  lastErrorKind?: ManagedSessionErrorKind
   model: string | null
   orchestratorSelection?: ManagedSessionProviderSelection
   paneId: string
@@ -246,6 +261,7 @@ export interface ManagedSessionSnapshot {
   turns: ManagedSessionTurnSummary[]
   updatedAt: string
   usage?: ManagedSessionUsage
+  usageLimit?: ManagedSessionUsageLimit
   usageReports?: ManagedUsageReport[]
   usageSummary?: ManagedUsageSummary
   workspaceId: string
