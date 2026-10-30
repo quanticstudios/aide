@@ -192,6 +192,9 @@ test.describe('long agent transcript', () => {
         deltas.push(now - previous)
         previous = now
       }
+      // why: rows mounted by the last step are measured a frame later, and that correction writes scrollTop from the offset before this jump.
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
       scroll.scrollTop = 0
       deltas.sort((a, b) => a - b)
       return {
