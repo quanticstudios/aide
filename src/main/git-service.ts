@@ -1,6 +1,22 @@
-import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import {
+  type ChildProcessWithoutNullStreams,
+  execFile,
+  spawn,
+} from 'node:child_process'
+import { existsSync, constants as fsConstants } from 'node:fs'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -19,6 +35,7 @@ import type {
   WorktreeBranchStats,
   WorktreeBranchStatsResult,
 } from '../shared/git'
+import type { ManagedSessionConfig } from '../shared/managed-session'
 import type {
   CreateProjectInput,
   CreateWorkspaceInput,
@@ -29,9 +46,103 @@ import type {
   WorkspaceRecord,
 } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
+import type {
+  ManagedTurnPatchCapture,
+  ManagedTurnPatchRecorder,
+} from './managed-session-manager'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
+
+/**
+ * Maximum retained patch body for one completed turn (256 KiB). Oversized
+ * patches keep their summary but no partial body, so the renderer never
+ * receives an invalid unified diff.
+ */
+export const MAX_MANAGED_TURN_PATCH_BYTES = 256 * 1024
+
+/**
+ * Turn snapshots deliberately have lower limits than a whole repository. A
+ * patch only needs enough source to attribute one agent action, and bounded
+ * snapshots keep one unusual workspace from exhausting the main process.
+ */
+export const MAX_MANAGED_TURN_SNAPSHOT_FILES = 10_000
+export const MAX_MANAGED_TURN_SNAPSHOT_BYTES = 64 * 1024 * 1024
+
+const MAX_MANAGED_TURN_GIT_LIST_BYTES = 1024 * 1024
+const MAX_MANAGED_TURN_NAME_STATUS_BYTES = 1024 * 1024
+const MANAGED_TURN_GIT_TIMEOUT_MS = 10_000
+const MANAGED_TURN_SNAPSHOT_TIMEOUT_MS = 15_000
+const MANAGED_TURN_RENAME_LIMIT = 1_000
+
+interface ManagedTurnPatchBaseline {
+  disposed: boolean
+  gitlinkCount: number
+  snapshotDirectory: string
+  worktreePath: string
+  workspaceId: string
+}
+
+interface ManagedTurnSnapshotCopy {
+  gitlinkCount: number
+}
+
+interface ManagedTurnSnapshotEntry {
+  mode: number
+  size: number
+  source: Awaited<ReturnType<typeof open>> | null
+  symbolicLinkTarget: string | null
+}
+
+class ManagedTurnSnapshotLimitError extends Error {}
+
+class ManagedTurnSnapshotTimeoutError extends Error {}
+
+function throwIfManagedTurnSnapshotAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return
+  }
+
+  throw new ManagedTurnSnapshotTimeoutError(
+    signal.reason instanceof Error
+      ? signal.reason.message
+      : 'Managed turn snapshot capture was cancelled.',
+  )
+}
+
+function createManagedTurnSnapshotSignal(parent?: AbortSignal): {
+  dispose: () => void
+  signal: AbortSignal
+} {
+  const controller = new AbortController()
+  const onAbort = () => controller.abort(parent?.reason)
+  parent?.addEventListener('abort', onAbort, { once: true })
+  const timeout = setTimeout(() => {
+    controller.abort(
+      new ManagedTurnSnapshotTimeoutError(
+        'Managed turn snapshot capture timed out.',
+      ),
+    )
+  }, MANAGED_TURN_SNAPSHOT_TIMEOUT_MS)
+
+  return {
+    dispose: () => {
+      clearTimeout(timeout)
+      parent?.removeEventListener('abort', onAbort)
+    },
+    signal: controller.signal,
+  }
+}
+
+/**
+ * Narrow test seams for forcing pathname swaps after the snapshot root or an
+ * intermediate directory is pinned. Production callers never supply these;
+ * they exist to prove the containment boundary against real races.
+ */
+export interface ManagedTurnSnapshotHooks {
+  afterRootOpen?: () => Promise<void>
+  beforeLeafOpen?: (filePath: string) => Promise<void>
+}
 
 interface RepositoryMetadata {
   currentBranchLabel: string
@@ -264,10 +375,415 @@ function buildUntrackedPatch(filePath: string, content: string): string {
     .join('\n')
 }
 
-export class GitWorkspaceService {
+function isManagedTurnPatchBaseline(
+  value: unknown,
+): value is ManagedTurnPatchBaseline {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.disposed === 'boolean' &&
+    typeof candidate.gitlinkCount === 'number' &&
+    typeof candidate.snapshotDirectory === 'string' &&
+    typeof candidate.worktreePath === 'string' &&
+    typeof candidate.workspaceId === 'string'
+  )
+}
+
+function isSafeGitRelativePath(filePath: string): boolean {
+  const components = filePath.split(/[\\/]/)
+
+  return (
+    filePath.length > 0 &&
+    !filePath.includes('\0') &&
+    !path.isAbsolute(filePath) &&
+    !path.win32.isAbsolute(filePath) &&
+    !components.some(
+      (component) =>
+        component.length === 0 ||
+        component === '.' ||
+        component === '..' ||
+        component.toLowerCase() === '.git',
+    )
+  )
+}
+
+/**
+ * Git patch syntax always uses forward slashes, even when the process that
+ * produced the patch received Windows path strings. Keep this conversion
+ * isolated to recognized metadata lines: source text can legitimately contain
+ * a snapshot path and must never be rewritten.
+ */
+function managedTurnGitPathPrefixes(
+  prefix: 'a' | 'b' | null,
+  snapshotDirectory: string,
+): string[] {
+  const slashDirectory = snapshotDirectory.replaceAll('\\', '/')
+  const directoryVariants = [
+    slashDirectory,
+    snapshotDirectory,
+    snapshotDirectory.replaceAll('\\', '\\\\'),
+  ]
+  const prefixes = directoryVariants.map((directory) =>
+    prefix === null
+      ? directory
+      : directory.startsWith('/')
+        ? `${prefix}${directory}`
+        : `${prefix}/${directory}`,
+  )
+
+  return [
+    ...new Set(
+      prefixes.flatMap((directory) => [
+        `${directory}/`,
+        `${directory}\\\\`,
+        `${directory}\\`,
+      ]),
+    ),
+  ]
+}
+
+function normalizeManagedTurnMetadataPath(
+  metadataPath: string,
+  prefix: 'a' | 'b' | null,
+  snapshotDirectories: string[],
+): string {
+  for (const snapshotDirectory of snapshotDirectories) {
+    for (const directoryPrefix of managedTurnGitPathPrefixes(
+      prefix,
+      snapshotDirectory,
+    )) {
+      if (metadataPath.startsWith(directoryPrefix)) {
+        const outputPrefix = prefix === null ? '' : `${prefix}/`
+        return `${outputPrefix}${metadataPath.slice(directoryPrefix.length)}`
+      }
+
+      const quotedDirectoryPrefix = `"${directoryPrefix}`
+      if (metadataPath.startsWith(quotedDirectoryPrefix)) {
+        const outputPrefix = prefix === null ? '' : `${prefix}/`
+        return `"${outputPrefix}${metadataPath.slice(
+          quotedDirectoryPrefix.length,
+        )}`
+      }
+    }
+  }
+
+  return metadataPath
+}
+
+function normalizeManagedTurnMetadataPathInHeader(
+  header: string,
+  prefix: 'a' | 'b',
+  snapshotDirectories: string[],
+): string {
+  for (const snapshotDirectory of snapshotDirectories) {
+    for (const directoryPrefix of managedTurnGitPathPrefixes(
+      prefix,
+      snapshotDirectory,
+    )) {
+      if (header.includes(directoryPrefix)) {
+        return header.replace(directoryPrefix, `${prefix}/`)
+      }
+
+      const quotedDirectoryPrefix = `"${directoryPrefix}`
+      if (header.includes(quotedDirectoryPrefix)) {
+        return header.replace(quotedDirectoryPrefix, `"${prefix}/`)
+      }
+    }
+  }
+
+  return header
+}
+
+/** Exported for focused metadata portability tests. */
+export function normalizeManagedTurnPatchPaths(
+  patch: string,
+  beforeDirectory: string,
+  afterDirectory: string,
+): string {
+  const snapshotDirectories = [beforeDirectory, afterDirectory]
+
+  return patch
+    .split('\n')
+    .map((line) => {
+      if (line.startsWith('diff --git ')) {
+        const header = line.slice('diff --git '.length)
+        const before = normalizeManagedTurnMetadataPathInHeader(
+          header,
+          'a',
+          snapshotDirectories,
+        )
+        const after = normalizeManagedTurnMetadataPathInHeader(
+          before,
+          'b',
+          snapshotDirectories,
+        )
+        return `diff --git ${after}`
+      }
+
+      if (line.startsWith('--- ')) {
+        return `--- ${normalizeManagedTurnMetadataPath(
+          line.slice('--- '.length),
+          'a',
+          snapshotDirectories,
+        )}`
+      }
+
+      if (line.startsWith('+++ ')) {
+        return `+++ ${normalizeManagedTurnMetadataPath(
+          line.slice('+++ '.length),
+          'b',
+          snapshotDirectories,
+        )}`
+      }
+
+      if (
+        line.startsWith('rename from ') ||
+        line.startsWith('rename to ') ||
+        line.startsWith('copy from ') ||
+        line.startsWith('copy to ')
+      ) {
+        const metadataPrefix = [
+          'rename from ',
+          'rename to ',
+          'copy from ',
+          'copy to ',
+        ].find((prefix) => line.startsWith(prefix))
+
+        if (!metadataPrefix) {
+          return line
+        }
+
+        return `${metadataPrefix}${normalizeManagedTurnMetadataPath(
+          line.slice(metadataPrefix.length),
+          null,
+          snapshotDirectories,
+        )}`
+      }
+
+      if (line.startsWith('Binary files ')) {
+        return `Binary files ${normalizeManagedTurnMetadataPathInHeader(
+          normalizeManagedTurnMetadataPathInHeader(
+            line.slice('Binary files '.length),
+            'a',
+            snapshotDirectories,
+          ),
+          'b',
+          snapshotDirectories,
+        )}`
+      }
+
+      return line
+    })
+    .join('\n')
+}
+
+function containsBinaryPatch(patch: string): boolean {
+  return patch.includes('GIT binary patch') || patch.includes('Binary files ')
+}
+
+export class GitWorkspaceService implements ManagedTurnPatchRecorder {
   private gitPathPromise: Promise<string> | null = null
 
-  public constructor(private readonly store: GitWorkspaceStore) {}
+  public constructor(
+    private readonly store: GitWorkspaceStore,
+    private readonly managedTurnSnapshotHooks: ManagedTurnSnapshotHooks = {},
+  ) {}
+
+  public async validateManagedSessionWorkspace(
+    config: ManagedSessionConfig,
+  ): Promise<void> {
+    await this.resolveManagedSessionWorktree(config)
+  }
+
+  /**
+   * Snapshot only Git-visible files into a temporary directory. The managed
+   * session's declared cwd must be exactly its persisted workspace worktree;
+   * this prevents a renderer from attributing another worktree's changes.
+   */
+  public async captureBaseline(
+    config: ManagedSessionConfig,
+    signal?: AbortSignal,
+  ): Promise<ManagedTurnPatchBaseline> {
+    const capture = createManagedTurnSnapshotSignal(signal)
+    let snapshotDirectory: string | null = null
+
+    try {
+      throwIfManagedTurnSnapshotAborted(capture.signal)
+      const worktreePath = await this.resolveManagedSessionWorktree(config)
+      snapshotDirectory = await mkdtemp(
+        path.join(tmpdir(), 'aide-managed-turn-'),
+      )
+      const snapshot = await this.copyGitVisibleFiles(
+        worktreePath,
+        snapshotDirectory,
+        capture.signal,
+      )
+      return {
+        disposed: false,
+        gitlinkCount: snapshot.gitlinkCount,
+        snapshotDirectory,
+        worktreePath,
+        workspaceId: config.workspaceId,
+      }
+    } catch (error) {
+      if (snapshotDirectory) {
+        await rm(snapshotDirectory, { force: true, recursive: true })
+      }
+      throw error
+    } finally {
+      capture.dispose()
+    }
+  }
+
+  /**
+   * Baselines can be abandoned before a provider ever starts a turn. This is
+   * intentionally idempotent because manager shutdown, terminalization, and
+   * `capturePatch` can race to clean up the same prepared snapshot.
+   */
+  public async disposeBaseline(baseline: unknown): Promise<void> {
+    if (!isManagedTurnPatchBaseline(baseline) || baseline.disposed) {
+      return
+    }
+
+    baseline.disposed = true
+    await rm(baseline.snapshotDirectory, { force: true, recursive: true })
+  }
+
+  public async capturePatch(
+    config: ManagedSessionConfig,
+    baseline: unknown,
+    signal?: AbortSignal,
+  ): Promise<ManagedTurnPatchCapture> {
+    let afterDirectory: string | null = null
+    const capture = createManagedTurnSnapshotSignal(signal)
+
+    try {
+      throwIfManagedTurnSnapshotAborted(capture.signal)
+      if (!isManagedTurnPatchBaseline(baseline) || baseline.disposed) {
+        throw new Error('Managed turn Git baseline is invalid.')
+      }
+
+      const worktreePath = await this.resolveManagedSessionWorktree(config)
+
+      if (
+        baseline.workspaceId !== config.workspaceId ||
+        baseline.worktreePath !== worktreePath
+      ) {
+        throw new Error(
+          'Managed turn Git baseline belongs to another workspace.',
+        )
+      }
+
+      afterDirectory = await mkdtemp(path.join(tmpdir(), 'aide-managed-turn-'))
+      const afterSnapshot = await this.copyGitVisibleFiles(
+        worktreePath,
+        afterDirectory,
+        capture.signal,
+      )
+
+      if (baseline.gitlinkCount > 0 || afterSnapshot.gitlinkCount > 0) {
+        return {
+          binaryChanges: 'unknown',
+          changedFileCount: 0,
+          message:
+            'Gitlink or submodule entries were skipped because turn snapshots cannot represent them. The change summary is unknown; open Git review for the complete worktree diff.',
+          patch: null,
+          patchByteLength: 0,
+          status: 'truncated',
+        }
+      }
+
+      const metadata = await this.inspectManagedTurnChanges(
+        baseline.snapshotDirectory,
+        afterDirectory,
+        capture.signal,
+      )
+
+      if (metadata.truncated) {
+        return {
+          binaryChanges: 'unknown',
+          changedFileCount: 0,
+          message:
+            'The turn change summary exceeded its limit, so the changed-file count is unknown. Open Git review for the complete worktree diff.',
+          patch: null,
+          patchByteLength: 0,
+          status: 'truncated',
+        }
+      }
+
+      if (metadata.changedFileCount === 0) {
+        return {
+          binaryChanges: 'none',
+          changedFileCount: 0,
+          message: 'No Git-visible changes were made during this turn.',
+          patch: null,
+          patchByteLength: 0,
+          status: 'empty',
+        }
+      }
+
+      const diff = await this.captureManagedTurnDiff(
+        baseline.snapshotDirectory,
+        afterDirectory,
+        capture.signal,
+      )
+
+      if (diff.truncated) {
+        return {
+          binaryChanges: 'unknown',
+          changedFileCount: metadata.changedFileCount,
+          message: `Patch exceeded the ${MAX_MANAGED_TURN_PATCH_BYTES / 1024} KiB per-turn limit. Open Git review for the complete worktree diff.`,
+          patch: null,
+          patchByteLength: 0,
+          status: 'truncated',
+        }
+      }
+
+      const patch = normalizeManagedTurnPatchPaths(
+        diff.output,
+        baseline.snapshotDirectory,
+        afterDirectory,
+      )
+      const patchByteLength = Buffer.byteLength(patch)
+
+      return {
+        binaryChanges: containsBinaryPatch(patch) ? 'present' : 'none',
+        changedFileCount: metadata.changedFileCount,
+        message: null,
+        patch,
+        patchByteLength,
+        status: 'ready',
+      }
+    } catch (error) {
+      if (
+        error instanceof ManagedTurnSnapshotLimitError ||
+        error instanceof ManagedTurnSnapshotTimeoutError
+      ) {
+        return {
+          binaryChanges: 'unknown',
+          changedFileCount: 0,
+          message:
+            'The turn snapshot exceeded its file or byte limit, so the change summary is unknown. Open Git review for the complete worktree diff.',
+          patch: null,
+          patchByteLength: 0,
+          status: 'truncated',
+        }
+      }
+
+      throw error
+    } finally {
+      capture.dispose()
+      await Promise.all([
+        this.disposeBaseline(baseline),
+        ...(afterDirectory
+          ? [rm(afterDirectory, { force: true, recursive: true })]
+          : []),
+      ])
+    }
+  }
 
   public async getWorkspaceStatus(
     workspaceId: string,
@@ -1002,6 +1518,593 @@ export class GitWorkspaceService {
     } catch {
       return null
     }
+  }
+
+  private async resolveManagedSessionWorktree(
+    config: ManagedSessionConfig,
+  ): Promise<string> {
+    const workspace = this.store.getWorkspace(config.workspaceId)
+
+    if (!workspace) {
+      throw new Error('Managed session workspace does not exist.')
+    }
+
+    let worktreePath: string
+    let configuredCwd: string
+
+    try {
+      ;[worktreePath, configuredCwd] = await Promise.all([
+        realpath(workspace.worktreePath),
+        realpath(config.cwd),
+      ])
+    } catch {
+      throw new Error(
+        'Managed session working directory does not resolve to its workspace worktree.',
+      )
+    }
+
+    if (configuredCwd !== worktreePath) {
+      throw new Error(
+        'Managed session working directory does not match its workspace worktree.',
+      )
+    }
+
+    return worktreePath
+  }
+
+  private async copyGitVisibleFiles(
+    worktreePath: string,
+    destination: string,
+    signal?: AbortSignal,
+  ): Promise<ManagedTurnSnapshotCopy> {
+    const root = await this.openManagedTurnSnapshotRoot(worktreePath, signal)
+
+    try {
+      await this.managedTurnSnapshotHooks.afterRootOpen?.()
+      throwIfManagedTurnSnapshotAborted(signal)
+      const output = await this.runGitRaw(
+        ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+        worktreePath,
+        MAX_MANAGED_TURN_GIT_LIST_BYTES,
+        signal,
+        root.fd,
+      )
+      const files = output.split('\0').filter(Boolean)
+      const gitlinks = await this.getGitlinkPaths(worktreePath, signal, root.fd)
+
+      if (files.length > MAX_MANAGED_TURN_SNAPSHOT_FILES) {
+        throw new ManagedTurnSnapshotLimitError(
+          `Managed turn snapshot exceeds the ${MAX_MANAGED_TURN_SNAPSHOT_FILES.toLocaleString()} Git-visible file limit.`,
+        )
+      }
+
+      let snapshotBytes = 0
+      let gitlinkCount = 0
+
+      for (const filePath of files) {
+        throwIfManagedTurnSnapshotAborted(signal)
+        if (!isSafeGitRelativePath(filePath)) {
+          throw new Error('Git returned a path outside the managed worktree.')
+        }
+
+        if (gitlinks.has(filePath)) {
+          gitlinkCount += 1
+          continue
+        }
+
+        const target = path.resolve(destination, filePath)
+        const relativeTarget = path.relative(destination, target)
+
+        if (
+          relativeTarget === '' ||
+          relativeTarget.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(relativeTarget)
+        ) {
+          throw new Error('Git returned a path outside the turn snapshot.')
+        }
+
+        const entry = await this.openManagedTurnSnapshotEntry(
+          root,
+          filePath,
+          signal,
+        )
+
+        if (!entry) {
+          // A file deleted before this turn is absent from its baseline, so a
+          // later restoration is correctly attributed as an addition.
+          continue
+        }
+
+        try {
+          snapshotBytes += entry.size
+          if (snapshotBytes > MAX_MANAGED_TURN_SNAPSHOT_BYTES) {
+            throw new ManagedTurnSnapshotLimitError(
+              `Managed turn snapshot exceeds the ${MAX_MANAGED_TURN_SNAPSHOT_BYTES / (1024 * 1024)} MiB aggregate byte limit.`,
+            )
+          }
+
+          await mkdir(path.dirname(target), { recursive: true })
+
+          if (entry.symbolicLinkTarget !== null) {
+            await symlink(entry.symbolicLinkTarget, target)
+          } else if (entry.source) {
+            const copiedBytes = await this.copyManagedTurnRegularFile(
+              entry.source,
+              entry.mode,
+              target,
+              MAX_MANAGED_TURN_SNAPSHOT_BYTES - (snapshotBytes - entry.size),
+              signal,
+            )
+            snapshotBytes += copiedBytes - entry.size
+          } else {
+            throw new Error(
+              'Managed turn snapshot entry has no readable source.',
+            )
+          }
+        } finally {
+          await entry.source?.close().catch(() => undefined)
+        }
+      }
+
+      return { gitlinkCount }
+    } finally {
+      await root.close().catch(() => undefined)
+    }
+  }
+
+  private async copyManagedTurnRegularFile(
+    source: Awaited<ReturnType<typeof open>>,
+    mode: number,
+    target: string,
+    availableBytes: number,
+    signal?: AbortSignal,
+  ): Promise<number> {
+    let destination: Awaited<ReturnType<typeof open>> | null = null
+    let copiedBytes = 0
+    let copiedSuccessfully = false
+    const abort = () => {
+      void source.close().catch(() => undefined)
+      void destination?.close().catch(() => undefined)
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+
+    try {
+      throwIfManagedTurnSnapshotAborted(signal)
+      destination = await open(
+        target,
+        fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL,
+        mode,
+      )
+      const chunk = Buffer.allocUnsafe(64 * 1024)
+
+      for (;;) {
+        throwIfManagedTurnSnapshotAborted(signal)
+        const { bytesRead } = await source.read(chunk, 0, chunk.length, null)
+        throwIfManagedTurnSnapshotAborted(signal)
+        if (bytesRead === 0) {
+          break
+        }
+
+        copiedBytes += bytesRead
+        if (copiedBytes > availableBytes) {
+          throw new ManagedTurnSnapshotLimitError(
+            `Managed turn snapshot exceeds the ${MAX_MANAGED_TURN_SNAPSHOT_BYTES / (1024 * 1024)} MiB aggregate byte limit.`,
+          )
+        }
+
+        let writtenBytes = 0
+        while (writtenBytes < bytesRead) {
+          throwIfManagedTurnSnapshotAborted(signal)
+          const { bytesWritten } = await destination.write(
+            chunk,
+            writtenBytes,
+            bytesRead - writtenBytes,
+            null,
+          )
+          if (bytesWritten === 0) {
+            throw new Error('Unable to write managed turn snapshot.')
+          }
+          writtenBytes += bytesWritten
+        }
+      }
+      await chmod(target, mode)
+      throwIfManagedTurnSnapshotAborted(signal)
+      copiedSuccessfully = true
+      return copiedBytes
+    } finally {
+      signal?.removeEventListener('abort', abort)
+      await destination?.close().catch(() => undefined)
+      if (!copiedSuccessfully) {
+        await rm(target, { force: true })
+      }
+    }
+  }
+
+  private async getGitlinkPaths(
+    worktreePath: string,
+    signal?: AbortSignal,
+    workingDirectoryFd?: number,
+  ): Promise<Set<string>> {
+    const output = await this.runGitRaw(
+      ['ls-files', '--cached', '--stage', '-z'],
+      worktreePath,
+      MAX_MANAGED_TURN_GIT_LIST_BYTES,
+      signal,
+      workingDirectoryFd,
+    )
+    const gitlinks = new Set<string>()
+
+    for (const entry of output.split('\0')) {
+      const separator = entry.indexOf('\t')
+      if (separator < 0) {
+        continue
+      }
+
+      const metadata = entry.slice(0, separator).split(' ')
+      const filePath = entry.slice(separator + 1)
+
+      if (metadata[0] === '160000') {
+        if (!isSafeGitRelativePath(filePath)) {
+          throw new Error('Git returned a path outside the managed worktree.')
+        }
+        gitlinks.add(filePath)
+      }
+    }
+
+    return gitlinks
+  }
+
+  /**
+   * Node does not expose openat(2), so pathname rechecks followed by a normal
+   * open cannot close an intermediate-directory TOCTOU window. Linux exposes
+   * descriptor-relative paths through /proc/self/fd; traverse one component at
+   * a time with O_NOFOLLOW, then open the leaf through the pinned parent
+   * descriptor. Other platforms deliberately fail closed rather than claim a
+   * snapshot whose contents might have escaped the configured worktree.
+   */
+  private async openManagedTurnSnapshotRoot(
+    worktreePath: string,
+    signal?: AbortSignal,
+  ): Promise<Awaited<ReturnType<typeof open>>> {
+    throwIfManagedTurnSnapshotAborted(signal)
+    if (process.platform !== 'linux') {
+      throw new Error(
+        'Managed turn snapshot capture requires Linux descriptor-relative filesystem support.',
+      )
+    }
+
+    const root = await open(
+      worktreePath,
+      fsConstants.O_RDONLY |
+        fsConstants.O_DIRECTORY |
+        fsConstants.O_NOFOLLOW |
+        fsConstants.O_NONBLOCK,
+    )
+
+    try {
+      const openedWorktreePath = await realpath(`/proc/self/fd/${root.fd}`)
+      if (openedWorktreePath !== worktreePath) {
+        throw new Error(
+          'Managed session working directory changed while preparing the turn snapshot.',
+        )
+      }
+      return root
+    } catch (error) {
+      await root.close().catch(() => undefined)
+      throw error
+    }
+  }
+
+  private async openManagedTurnSnapshotEntry(
+    root: Awaited<ReturnType<typeof open>>,
+    filePath: string,
+    signal?: AbortSignal,
+  ): Promise<ManagedTurnSnapshotEntry | null> {
+    throwIfManagedTurnSnapshotAborted(signal)
+    const components = filePath.split(/[\\/]/)
+    let parent = root
+
+    try {
+      for (const component of components.slice(0, -1)) {
+        throwIfManagedTurnSnapshotAborted(signal)
+        try {
+          const child = await open(
+            `/proc/self/fd/${parent.fd}/${component}`,
+            fsConstants.O_RDONLY |
+              fsConstants.O_DIRECTORY |
+              fsConstants.O_NOFOLLOW |
+              fsConstants.O_NONBLOCK,
+          )
+          if (parent !== root) {
+            await parent.close()
+          }
+          parent = child
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return null
+          }
+          throw new Error(
+            'Git-visible path contains an intermediate symlink or non-directory component.',
+            { cause: error },
+          )
+        }
+      }
+
+      const leaf = components.at(-1)
+      if (!leaf) {
+        throw new Error('Git returned an empty managed turn snapshot path.')
+      }
+      const anchoredLeafPath = `/proc/self/fd/${parent.fd}/${leaf}`
+
+      let stat: Awaited<ReturnType<typeof lstat>>
+      try {
+        stat = await lstat(anchoredLeafPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return null
+        }
+        throw error
+      }
+
+      await this.managedTurnSnapshotHooks.beforeLeafOpen?.(filePath)
+      throwIfManagedTurnSnapshotAborted(signal)
+
+      if (stat.isSymbolicLink()) {
+        const symbolicLinkTarget = await readlink(anchoredLeafPath)
+        return {
+          mode: stat.mode,
+          size: Buffer.byteLength(symbolicLinkTarget),
+          source: null,
+          symbolicLinkTarget,
+        }
+      }
+
+      if (!stat.isFile()) {
+        throw new Error('Git-visible path is not a regular file or symlink.')
+      }
+
+      let source: Awaited<ReturnType<typeof open>>
+      try {
+        source = await open(
+          anchoredLeafPath,
+          fsConstants.O_RDONLY |
+            fsConstants.O_NOFOLLOW |
+            fsConstants.O_NONBLOCK,
+        )
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return null
+        }
+        throw new Error('Git-visible path changed before it could be opened.', {
+          cause: error,
+        })
+      }
+
+      try {
+        const sourceStat = await source.stat()
+        if (!sourceStat.isFile()) {
+          throw new Error('Git-visible path changed before it could be copied.')
+        }
+
+        return {
+          mode: sourceStat.mode,
+          size: sourceStat.size,
+          source,
+          symbolicLinkTarget: null,
+        }
+      } catch (error) {
+        await source.close()
+        throw error
+      }
+    } finally {
+      if (parent !== root) {
+        await parent.close()
+      }
+    }
+  }
+
+  private async inspectManagedTurnChanges(
+    beforeDirectory: string,
+    afterDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<{ changedFileCount: number; truncated: boolean }> {
+    const result = await this.runGitDiff(
+      [
+        'diff',
+        '--no-index',
+        '--find-renames',
+        `-l${MANAGED_TURN_RENAME_LIMIT}`,
+        '--name-status',
+        '-z',
+        '--',
+        beforeDirectory,
+        afterDirectory,
+      ],
+      beforeDirectory,
+      MAX_MANAGED_TURN_NAME_STATUS_BYTES,
+      signal,
+    )
+
+    if (result.truncated || result.timedOut) {
+      return { changedFileCount: 0, truncated: true }
+    }
+
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      throw new Error(result.stderr || 'Unable to inspect turn Git changes.')
+    }
+
+    const fields = result.stdout.split('\0')
+    let changedFileCount = 0
+
+    for (let index = 0; index < fields.length; ) {
+      const status = fields[index++]
+
+      if (!status) {
+        continue
+      }
+
+      changedFileCount += 1
+      index += status.startsWith('R') || status.startsWith('C') ? 2 : 1
+    }
+
+    return { changedFileCount, truncated: false }
+  }
+
+  private async captureManagedTurnDiff(
+    beforeDirectory: string,
+    afterDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<{ output: string; truncated: boolean }> {
+    const result = await this.runGitDiff(
+      [
+        'diff',
+        '--no-index',
+        '--no-ext-diff',
+        '--binary',
+        '--full-index',
+        '--find-renames',
+        `-l${MANAGED_TURN_RENAME_LIMIT}`,
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--',
+        beforeDirectory,
+        afterDirectory,
+      ],
+      beforeDirectory,
+      MAX_MANAGED_TURN_PATCH_BYTES,
+      signal,
+    )
+
+    if (result.timedOut || result.truncated) {
+      return { output: result.stdout, truncated: true }
+    }
+
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      throw new Error(result.stderr || 'Unable to capture turn Git patch.')
+    }
+
+    return { output: result.stdout, truncated: result.truncated }
+  }
+
+  private async runGitRaw(
+    args: string[],
+    cwd: string,
+    maxOutputBytes: number,
+    signal?: AbortSignal,
+    workingDirectoryFd?: number,
+  ): Promise<string> {
+    const result = await this.runGitDiff(
+      args,
+      cwd,
+      maxOutputBytes,
+      signal,
+      workingDirectoryFd,
+    )
+
+    throwIfManagedTurnSnapshotAborted(signal)
+    if (result.timedOut) {
+      throw new Error(
+        'Git command timed out while preparing the turn snapshot.',
+      )
+    }
+    if (result.truncated) {
+      throw new ManagedTurnSnapshotLimitError(
+        'Git-visible file list exceeded its output limit.',
+      )
+    }
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || 'Unable to list Git-visible files.')
+    }
+
+    return result.stdout
+  }
+
+  private async runGitDiff(
+    args: string[],
+    cwd: string,
+    maxOutputBytes = 1024 * 1024,
+    signal?: AbortSignal,
+    workingDirectoryFd?: number,
+  ): Promise<{
+    exitCode: number | null
+    stderr: string
+    stdout: string
+    timedOut: boolean
+    truncated: boolean
+  }> {
+    throwIfManagedTurnSnapshotAborted(signal)
+    const gitPath = await this.resolveGitPath()
+
+    return new Promise((resolve, reject) => {
+      const child = spawn(gitPath, args, {
+        cwd:
+          workingDirectoryFd === undefined ? cwd : '/proc/self/fd/3',
+        env: process.env,
+        stdio:
+          workingDirectoryFd === undefined
+            ? ['ignore', 'pipe', 'pipe']
+            : ['ignore', 'pipe', 'pipe', workingDirectoryFd],
+      }) as ChildProcessWithoutNullStreams
+      const stdout: Buffer[] = []
+      const stderr: Buffer[] = []
+      let stdoutBytes = 0
+      let stderrBytes = 0
+      let timedOut = false
+      let truncated = false
+      let cancelled = false
+      const abort = () => {
+        cancelled = true
+        child.kill()
+      }
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) {
+        abort()
+      }
+      const timeout = setTimeout(() => {
+        timedOut = true
+        child.kill()
+      }, MANAGED_TURN_GIT_TIMEOUT_MS)
+
+      child.once('error', (error) => {
+        signal?.removeEventListener('abort', abort)
+        clearTimeout(timeout)
+        reject(error)
+      })
+      child.stdout.on('data', (chunk: Buffer) => {
+        if (truncated) {
+          return
+        }
+
+        stdoutBytes += chunk.length
+        if (stdoutBytes > maxOutputBytes) {
+          truncated = true
+          child.kill()
+          return
+        }
+
+        stdout.push(chunk)
+      })
+      child.stderr.on('data', (chunk: Buffer) => {
+        if (stderrBytes >= 16 * 1024) {
+          return
+        }
+
+        const remaining = 16 * 1024 - stderrBytes
+        stderr.push(chunk.subarray(0, remaining))
+        stderrBytes += Math.min(chunk.length, remaining)
+      })
+      child.once('close', (exitCode) => {
+        signal?.removeEventListener('abort', abort)
+        clearTimeout(timeout)
+        resolve({
+          exitCode,
+          stderr: Buffer.concat(stderr).toString('utf8').trim(),
+          stdout: Buffer.concat(stdout).toString('utf8'),
+          timedOut: timedOut || cancelled,
+          truncated,
+        })
+      })
+    })
   }
 
   private async runGit(args: string[], cwd: string): Promise<string> {

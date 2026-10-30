@@ -35,6 +35,7 @@ import type {
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
+  ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
@@ -61,6 +62,7 @@ import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { cn } from '../lib/utils'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import ManagedTurnDiff from './ManagedTurnDiff'
 import MarkdownContent from './MarkdownContent'
 import ModelSelector from './ModelSelector'
 import OpenInEditorButton from './OpenInEditorButton'
@@ -437,12 +439,16 @@ function TurnGroupBlock({
   isRunning,
   onRetry,
   providerLabel,
+  sessionId,
+  turn,
 }: {
   readonly group: TurnGroup
   readonly isRetryReady: boolean
   readonly isRunning: boolean
   readonly onRetry: (text: string) => void
   readonly providerLabel: string
+  readonly sessionId: string
+  readonly turn: ManagedSessionTurnSummary | undefined
 }) {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
@@ -489,6 +495,7 @@ function TurnGroupBlock({
       {group.items.map((item) => (
         <ContentItemBlock item={item} key={`${item.kind}:${item.id}`} />
       ))}
+      {turn ? <ManagedTurnDiff sessionId={sessionId} turn={turn} /> : null}
       {isRunning ? (
         <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
           <LoaderCircle className="size-3 animate-spin text-primary" />
@@ -1151,6 +1158,10 @@ export default function ManagedAgentPane({
     () => snapshot?.turns.find((turn) => turn.state === 'running')?.id ?? null,
     [snapshot?.turns],
   )
+  const turnsById = useMemo(
+    () => new Map((snapshot?.turns ?? []).map((turn) => [turn.id, turn])),
+    [snapshot?.turns],
+  )
   const canChangeProviderSelection = canChangeManagedSessionSelection(snapshot)
 
   return (
@@ -1218,6 +1229,8 @@ export default function ManagedAgentPane({
                 key={group.turnId ?? `system-${group.items[0]?.id}`}
                 onRetry={(text) => void handleRetryTurn(text)}
                 providerLabel={providerLabel}
+                sessionId={sessionId}
+                turn={group.turnId ? turnsById.get(group.turnId) : undefined}
               />
             ))}
 

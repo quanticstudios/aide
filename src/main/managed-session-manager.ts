@@ -1,5 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import readline from 'node:readline'
 
 import {
@@ -7,9 +9,9 @@ import {
   type ModelUsage,
   type PermissionResult,
   type PermissionUpdate,
+  query,
   type SDKMessage,
   type SDKUserMessage,
-  query,
 } from '@anthropic-ai/claude-agent-sdk'
 
 import type {
@@ -23,6 +25,8 @@ import type {
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
   ManagedSessionThinkingBudget,
+  ManagedSessionTurnDiffSummary,
+  ManagedSessionTurnPatch,
   ManagedSessionTurnSummary,
   ManagedSessionUsage,
   ManagedSessionUserQuestion,
@@ -72,11 +76,62 @@ interface ManagedSessionManagerOptions {
     event: ManagedProviderRuntimeEvent,
   ) => void
   onUpdate: (event: ManagedSessionEvent) => void
+  turnPatchRecorder?: ManagedTurnPatchRecorder
+}
+
+/**
+ * The manager owns patch retention while the Git-aware implementation owns
+ * worktree validation and filesystem snapshots. `baseline` is deliberately
+ * opaque so it cannot cross the managed-session boundary.
+ */
+export interface ManagedTurnPatchRecorder {
+  captureBaseline(
+    config: ManagedSessionConfig,
+    signal?: AbortSignal,
+  ): Promise<unknown>
+  capturePatch(
+    config: ManagedSessionConfig,
+    baseline: unknown,
+    signal?: AbortSignal,
+  ): Promise<ManagedTurnPatchCapture>
+  disposeBaseline(baseline: unknown): Promise<void>
+}
+
+export interface ManagedTurnPatchCapture {
+  binaryChanges: 'none' | 'present' | 'unknown'
+  changedFileCount: number
+  message: string | null
+  patch: string | null
+  patchByteLength: number
+  status: Exclude<ManagedSessionTurnDiffSummary['status'], 'capturing'>
+}
+
+interface WorkspaceMutationLease {
+  released: boolean
+  release: () => void
+  tail: Promise<void>
+  workspaceId: string
+}
+
+interface ManagedTurnPatchBaseline {
+  abortController: AbortController
+  baseline: unknown | null
+  baselineError: string | null
+  capture: Promise<void>
+  config: ManagedSessionConfig
+  disposal: Promise<void> | null
+  generation: number
+  hasBaseline: boolean
+  lease: WorkspaceMutationLease
+  patchCapture: Promise<ManagedTurnPatchCapture | null> | null
 }
 
 interface ManagedSessionMutableState {
   activeTurnId: string | null
+  activeProviderTurnId: string | null
+  awaitingProviderTurnStart: boolean
   backend: ManagedSessionBackend
+  closing: boolean
   config: ManagedSessionConfig
   contentByKey: Map<string, ManagedSessionContentItem>
   emitRuntimeEvent: (event: ManagedProviderRuntimeEvent) => void
@@ -84,17 +139,43 @@ interface ManagedSessionMutableState {
   pendingApprovals: Map<string, ManagedSessionPendingApproval>
   pendingUserInputs: Map<string, ManagedSessionPendingUserInput>
   pendingUserPromptText: string | null
+  preparedTurnPatch: ManagedTurnPatchBaseline | null
   projector: ManagedTerminalProviderProjector
   revision: number
   runtimeGeneration: number
   snapshot: ManagedSessionSnapshot
   switchInProgress: boolean
   turns: Map<string, ManagedSessionTurnSummary>
+  turnPatchBaselines: Map<string, ManagedTurnPatchBaseline>
+  turnPatches: Map<string, string>
+  turnRecoveryTimer: ReturnType<typeof setTimeout> | null
+  turnSequence: number
   usage: ManagedSessionUsage | null
 }
 
+const MAX_MANAGED_TURN_HISTORY = 50
+const MANAGED_TURN_CAPTURE_TIMEOUT_MS = 15_000
+const MANAGED_TURN_RECOVERY_TIMEOUT_MS = 5_000
+
+function createTurnDiffSummary(
+  status: ManagedSessionTurnDiffSummary['status'] = 'capturing',
+  message: string | null = null,
+): ManagedSessionTurnDiffSummary {
+  return {
+    binaryChanges:
+      status === 'capturing' || status === 'error' ? 'unknown' : 'none',
+    changedFileCount: 0,
+    message,
+    patchByteLength: 0,
+    status,
+  }
+}
+
 interface ManagedSessionBackend {
+  /** Resolves only once this backend can no longer mutate its working tree. */
   close(): Promise<void>
+  /** Escalates shutdown when graceful close misses its bounded recovery window. */
+  forceClose?(): Promise<void>
   interrupt(): Promise<void>
   sendInput(text: string): Promise<void>
   resolveRequest(
@@ -318,6 +399,7 @@ function normalizeClaudeQuestions(
 
 class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   private activeTurnId: string | null = null
+  private consumption: Promise<void> | null = null
   private readonly promptQueue = new AsyncQueue<SDKUserMessage>()
   private queryRuntime: ReturnType<typeof query> | null = null
   private readonly streamedMessageUuids = new Set<string>()
@@ -469,7 +551,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
       prompt: this.promptQueue,
     })
 
-    void this.consumeQuery()
+    this.consumption = this.consumeQuery()
   }
 
   public async sendInput(text: string): Promise<void> {
@@ -558,6 +640,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   public async close(): Promise<void> {
     this.promptQueue.end()
     this.queryRuntime?.close()
+    await this.consumption
   }
 
   private async consumeQuery(): Promise<void> {
@@ -831,7 +914,10 @@ interface CodexPendingUserInput {
 class CodexManagedSessionBackend implements ManagedSessionBackend {
   private activeTurnId: string | null = null
   private child: ChildProcessWithoutNullStreams | null = null
+  private exitPromise: Promise<void> | null = null
+  private resolveExit: (() => void) | null = null
   private nextRequestId = 1
+  private nextStderrItemId = 1
   private readonly pendingApprovals = new Map<string, CodexPendingApproval>()
   private readonly pendingRequests = new Map<
     string,
@@ -870,6 +956,9 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
     })
 
     this.child = child
+    this.exitPromise = new Promise<void>((resolve) => {
+      this.resolveExit = resolve
+    })
     this.output = readline.createInterface({ input: child.stdout })
 
     this.output.on('line', (line) => {
@@ -885,17 +974,23 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
 
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
-        message,
+        itemId: `codex-stderr:${this.nextStderrItemId++}`,
+        kind: 'system',
         provider: 'codex',
-        type: 'runtime.error',
+        text: `Codex diagnostic: ${message}`,
+        type: 'content.delta',
       })
     })
 
     child.on('error', (error) => {
       this.rejectPendingRequests(error)
+      this.resolveExit?.()
+      this.resolveExit = null
     })
 
     child.on('exit', (code) => {
+      this.resolveExit?.()
+      this.resolveExit = null
       this.rejectPendingRequests(
         new Error(
           code === null
@@ -1025,12 +1120,22 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
   }
 
   public async close(): Promise<void> {
+    await this.stopChild('SIGTERM')
+  }
+
+  public async forceClose(): Promise<void> {
+    await this.stopChild('SIGKILL')
+  }
+
+  private async stopChild(signal: NodeJS.Signals): Promise<void> {
     this.output?.close()
     this.rejectPendingRequests(new Error('Codex app-server session closed.'))
 
     if (this.child && !this.child.killed) {
-      this.child.kill()
+      this.child.kill(signal)
     }
+
+    await this.exitPromise
   }
 
   private handleStdoutLine(line: string): void {
@@ -1469,14 +1574,20 @@ class CodexManagedSessionBackend implements ManagedSessionBackend {
 
 class FakeManagedSessionBackend implements ManagedSessionBackend {
   private activeRequestId: string | null = null
+  private activeTurnId: string | null = null
+  private turnSequence = 0
 
   public constructor(
-    private readonly provider: ManagedProviderRuntimeProvider,
+    private readonly config: ManagedSessionConfig,
     private readonly emitRuntimeEvent: (
       event: ManagedProviderRuntimeEvent,
     ) => void,
     private readonly getNow: () => string,
   ) {}
+
+  private get provider(): ManagedProviderRuntimeProvider {
+    return this.config.mode
+  }
 
   public async start(): Promise<void> {
     if (process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start') {
@@ -1499,6 +1610,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (trimmed === 'approval') {
+      this.startSyntheticTurn()
       this.activeRequestId = randomUUID()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
@@ -1512,6 +1624,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (trimmed === 'plan approval') {
+      this.startSyntheticTurn()
       this.activeRequestId = randomUUID()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
@@ -1525,6 +1638,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (trimmed === 'input') {
+      this.startSyntheticTurn()
       this.activeRequestId = randomUUID()
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
@@ -1557,6 +1671,16 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       turnId,
       type: 'turn.started',
     })
+    if (process.env.AIDE_FAKE_MANAGED_GIT_CHANGES === '1') {
+      // `ManagedSessionManager.sendInput` awaits the baseline before this
+      // backend is dispatched, so this mutation is deterministic without a
+      // scheduling delay.
+      this.turnSequence += 1
+      await writeFile(
+        path.join(this.config.cwd, `aide-fake-turn-${this.turnSequence}.txt`),
+        `Managed fake turn: ${trimmed}\n`,
+      )
+    }
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       itemId: randomUUID(),
@@ -1586,6 +1710,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       type: 'request.resolved',
     })
     this.activeRequestId = null
+    this.completeSyntheticTurn()
   }
 
   public async resolveUserInput(): Promise<void> {
@@ -1600,6 +1725,7 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       type: 'user-input.resolved',
     })
     this.activeRequestId = null
+    this.completeSyntheticTurn()
   }
 
   public async interrupt(): Promise<void> {}
@@ -1612,11 +1738,43 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       type: 'session.exited',
     })
   }
+
+  private startSyntheticTurn(): void {
+    this.activeTurnId = randomUUID()
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      turnId: this.activeTurnId,
+      type: 'turn.started',
+    })
+  }
+
+  private completeSyntheticTurn(): void {
+    if (!this.activeTurnId) {
+      return
+    }
+
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      state: 'completed',
+      turnId: this.activeTurnId,
+      type: 'turn.completed',
+    })
+    this.emitRuntimeEvent({
+      createdAt: this.getNow(),
+      provider: this.provider,
+      state: 'ready',
+      type: 'session.state.changed',
+    })
+    this.activeTurnId = null
+  }
 }
 
 export class ManagedSessionManager {
   private readonly getNow: () => string
   private readonly sessions = new Map<string, ManagedSessionMutableState>()
+  private readonly workspaceLeaseTails = new Map<string, Promise<void>>()
 
   public constructor(private readonly options: ManagedSessionManagerOptions) {
     this.getNow = options.getNow ?? (() => new Date().toISOString())
@@ -1631,6 +1789,33 @@ export class ManagedSessionManager {
     )
   }
 
+  public getTurnPatch(
+    sessionId: string,
+    turnId: string,
+  ): ManagedSessionTurnPatch | null {
+    if (
+      sessionId.trim().length === 0 ||
+      turnId.trim().length === 0 ||
+      sessionId.length > 256 ||
+      turnId.length > 256
+    ) {
+      return null
+    }
+
+    const state = this.sessions.get(sessionId)
+    const turn = state?.turns.get(turnId)
+
+    if (!state || !turn) {
+      return null
+    }
+
+    return {
+      ...turn.diff,
+      patch: state.turnPatches.get(turnId) ?? null,
+      turnId,
+    }
+  }
+
   public async createSession(
     config: ManagedSessionConfig,
   ): Promise<ManagedSessionSnapshot> {
@@ -1643,7 +1828,10 @@ export class ManagedSessionManager {
     const updatedAt = this.getNow()
     const state: ManagedSessionMutableState = {
       activeTurnId: null,
+      activeProviderTurnId: null,
+      awaitingProviderTurnStart: false,
       backend: null as never,
+      closing: false,
       config,
       contentByKey: new Map(),
       emitRuntimeEvent: null as never,
@@ -1651,12 +1839,17 @@ export class ManagedSessionManager {
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
       pendingUserPromptText: null,
+      preparedTurnPatch: null,
       projector: new ManagedTerminalProviderProjector(config.mode),
       revision: 0,
       runtimeGeneration: 1,
       snapshot: buildEmptySnapshot(config, updatedAt),
       switchInProgress: false,
       turns: new Map(),
+      turnPatchBaselines: new Map(),
+      turnPatches: new Map(),
+      turnRecoveryTimer: null,
+      turnSequence: 0,
       usage: null,
     }
 
@@ -1727,29 +1920,111 @@ export class ManagedSessionManager {
       return
     }
 
-    await state.backend.close()
-    this.sessions.delete(sessionId)
+    state.closing = true
+
+    try {
+      await state.backend.close()
+    } catch (error) {
+      // Before provider work is dispatched there is no mutation to contain, so
+      // a failed interrupt/close may safely discard the prepared baseline.
+      if (!state.awaitingProviderTurnStart && !state.activeTurnId) {
+        this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+      } else {
+        // A rejected graceful close is not evidence that the backend stopped.
+        // Retain the lease and enter bounded recovery until a terminal event
+        // or confirmed shutdown proves the provider cannot still mutate.
+        this.scheduleTurnRecovery(state, 'interrupted')
+      }
+      throw error
+    }
+
+    this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+    if (this.sessions.get(sessionId) === state) {
+      this.sessions.delete(sessionId)
+    }
     state.revision += 1
     this.options.onUpdate({
       revision: state.revision,
       sessionId,
       type: 'removed',
     })
+    void this.disposeStateTurnPatches(state, true)
   }
 
   public async interruptSession(sessionId: string): Promise<void> {
-    await this.sessions.get(sessionId)?.backend.interrupt()
-  }
-
-  public async sendInput(sessionId: string, text: string): Promise<void> {
     const state = this.sessions.get(sessionId)
 
     if (!state) {
       return
     }
 
+    try {
+      await state.backend.interrupt()
+    } catch (error) {
+      if (!state.awaitingProviderTurnStart && !state.activeTurnId) {
+        this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+      } else {
+        this.scheduleTurnRecovery(state, 'failed')
+      }
+      throw error
+    }
+
+    if (!state.awaitingProviderTurnStart && !state.activeTurnId) {
+      this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+      return
+    }
+
+    this.scheduleTurnRecovery(state, 'interrupted')
+  }
+
+  public async sendInput(sessionId: string, text: string): Promise<void> {
+    const state = this.sessions.get(sessionId)
+
+    if (!state || !text.trim()) {
+      return
+    }
+
+    if (
+      state.closing ||
+      state.activeTurnId ||
+      state.preparedTurnPatch ||
+      state.awaitingProviderTurnStart
+    ) {
+      throw new Error('Cannot send input while a managed turn is in progress.')
+    }
+
+    const prepared = await this.prepareTurnPatch(state)
+
+    if (this.sessions.get(sessionId) !== state || state.closing) {
+      if (prepared) {
+        await this.disposeTurnPatchBaseline(prepared)
+      }
+      return
+    }
+
+    if (prepared) {
+      if (
+        this.sessions.get(sessionId) !== state ||
+        state.runtimeGeneration !== prepared.generation ||
+        state.preparedTurnPatch !== prepared
+      ) {
+        await this.disposeTurnPatchBaseline(prepared)
+        return
+      }
+    }
+
     state.pendingUserPromptText = text
-    await state.backend.sendInput(text)
+    state.awaitingProviderTurnStart = true
+    try {
+      await state.backend.sendInput(text)
+    } catch (error) {
+      this.scheduleTurnRecovery(state, 'failed')
+      throw error
+    }
+
+    if (state.awaitingProviderTurnStart) {
+      this.scheduleTurnRecovery(state, 'failed')
+    }
   }
 
   public async resolveRequest(
@@ -1773,24 +2048,44 @@ export class ManagedSessionManager {
   }
 
   public async closeAll(timeoutMs = 2_000): Promise<void> {
+    let gracefulCloseFailed = false
     const close = Promise.allSettled(
       [...this.sessions.keys()].map((sessionId) =>
         this.closeSession(sessionId),
       ),
-    ).then(() => undefined)
+    ).then((results) => {
+      gracefulCloseFailed = results.some(
+        (result) => result.status === 'rejected',
+      )
+    })
 
     let timeout: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
     await Promise.race([
       close,
       new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, timeoutMs)
+        timeout = setTimeout(() => {
+          timedOut = true
+          resolve()
+        }, timeoutMs)
       }),
     ])
     if (timeout) {
       clearTimeout(timeout)
     }
 
-    this.sessions.clear()
+    if (timedOut || gracefulCloseFailed) {
+      void Promise.allSettled(
+        [...this.sessions.values()].map((state) =>
+          this.forceCloseSession(state),
+        ),
+      )
+    }
+
+    // A close that exceeded the caller's shutdown budget may still own a
+    // workspace lease. Its closeSession continuation removes its own state
+    // only after the backend confirms it has stopped, so do not clear the map
+    // here and accidentally allow a same-workspace replacement to overlap it.
   }
 
   public async reapSessions(
@@ -1825,6 +2120,7 @@ export class ManagedSessionManager {
 
     if (
       state.activeTurnId !== null ||
+      state.preparedTurnPatch !== null ||
       state.pendingApprovals.size > 0 ||
       state.pendingUserInputs.size > 0 ||
       state.pendingUserPromptText !== null
@@ -1856,6 +2152,7 @@ export class ManagedSessionManager {
         serviceTier: selection.serviceTier,
       }
 
+      void this.disposeStateTurnPatches(state)
       await state.backend.close()
 
       state.runtimeGeneration += 1
@@ -1902,6 +2199,7 @@ export class ManagedSessionManager {
         includeSwitchNotice: boolean,
       ) => {
         state.activeTurnId = null
+        state.activeProviderTurnId = null
         state.backend = backend
         state.config = config
         state.pendingApprovals.clear()
@@ -2043,7 +2341,7 @@ export class ManagedSessionManager {
       process.env.AIDE_FAKE_MANAGED_PROVIDERS === 'fail-start'
     ) {
       return new FakeManagedSessionBackend(
-        config.mode,
+        config,
         emitRuntimeEvent,
         this.getNow,
       )
@@ -2081,24 +2379,521 @@ export class ManagedSessionManager {
     }
   }
 
+  private async acquireWorkspaceLease(
+    workspaceId: string,
+  ): Promise<WorkspaceMutationLease> {
+    const previous =
+      this.workspaceLeaseTails.get(workspaceId) ?? Promise.resolve()
+    let releaseCurrent: (() => void) | undefined
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve
+    })
+    const tail = previous.then(() => current)
+    this.workspaceLeaseTails.set(workspaceId, tail)
+
+    await previous
+
+    const lease: WorkspaceMutationLease = {
+      released: false,
+      release: () => {
+        if (lease.released) {
+          return
+        }
+
+        lease.released = true
+        releaseCurrent?.()
+        void tail.then(() => {
+          if (this.workspaceLeaseTails.get(workspaceId) === tail) {
+            this.workspaceLeaseTails.delete(workspaceId)
+          }
+        })
+      },
+      tail,
+      workspaceId,
+    }
+    return lease
+  }
+
+  private async prepareTurnPatch(
+    state: ManagedSessionMutableState,
+  ): Promise<ManagedTurnPatchBaseline | null> {
+    const recorder = this.options.turnPatchRecorder
+
+    if (!recorder) {
+      return null
+    }
+
+    const lease = await this.acquireWorkspaceLease(state.config.workspaceId)
+    if (this.sessions.get(state.config.sessionId) !== state) {
+      lease.release()
+      return null
+    }
+    const prepared: ManagedTurnPatchBaseline = {
+      abortController: new AbortController(),
+      baseline: null,
+      baselineError: null,
+      capture: Promise.resolve(),
+      config: state.config,
+      disposal: null,
+      generation: state.runtimeGeneration,
+      hasBaseline: false,
+      lease,
+      patchCapture: null,
+    }
+    state.preparedTurnPatch = prepared
+
+    const rawCapture = recorder.captureBaseline(
+      prepared.config,
+      prepared.abortController.signal,
+    )
+    void rawCapture.then(
+      (baseline) => {
+        if (prepared.abortController.signal.aborted) {
+          void recorder.disposeBaseline(baseline).catch(() => undefined)
+        }
+      },
+      () => undefined,
+    )
+    prepared.capture = this
+      .awaitBoundedRecorderCapture(prepared, rawCapture)
+      .then(
+      (baseline) => {
+        prepared.baseline = baseline
+        prepared.hasBaseline = true
+      },
+      (error: unknown) => {
+        prepared.baselineError =
+          error instanceof Error
+            ? error.message
+            : 'Unable to prepare the Git baseline for this turn.'
+      },
+    )
+    await prepared.capture
+    return prepared
+  }
+
+  private async awaitBoundedRecorderCapture<T>(
+    baseline: ManagedTurnPatchBaseline,
+    capture: Promise<T>,
+  ): Promise<T> {
+    return await new Promise<T>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        baseline.abortController.abort()
+        reject(new Error('Managed turn Git capture timed out.'))
+      }, MANAGED_TURN_CAPTURE_TIMEOUT_MS)
+
+      void capture.then(
+        (value) => {
+          clearTimeout(timeout)
+          resolve(value)
+        },
+        (error: unknown) => {
+          clearTimeout(timeout)
+          reject(error)
+        },
+      )
+    })
+  }
+
+  private disposeTurnPatchBaseline(
+    baseline: ManagedTurnPatchBaseline,
+    cancel = false,
+  ): Promise<void> {
+    if (baseline.disposal) {
+      return baseline.disposal
+    }
+
+    const recorder = this.options.turnPatchRecorder
+    if (cancel) {
+      baseline.abortController.abort()
+    }
+    baseline.disposal = baseline.capture
+      .then(() => baseline.patchCapture)
+      .then(async (capture) => {
+        await capture
+        if (baseline.hasBaseline && recorder) {
+          await recorder.disposeBaseline(baseline.baseline)
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        baseline.lease.release()
+      })
+
+    return baseline.disposal
+  }
+
+  private disposePreparedTurnPatch(
+    state: ManagedSessionMutableState,
+    baseline: ManagedTurnPatchBaseline,
+  ): Promise<void> {
+    if (state.preparedTurnPatch === baseline) {
+      state.preparedTurnPatch = null
+    }
+
+    return this.disposeTurnPatchBaseline(baseline)
+  }
+
+  private disposeStateTurnPatches(
+    state: ManagedSessionMutableState,
+    cancel = false,
+  ): Promise<void> {
+    const baselines = [
+      ...(state.preparedTurnPatch ? [state.preparedTurnPatch] : []),
+      ...state.turnPatchBaselines.values(),
+    ]
+    state.preparedTurnPatch = null
+    state.turnPatchBaselines.clear()
+
+    return Promise.allSettled(
+      baselines.map((baseline) =>
+        this.disposeTurnPatchBaseline(baseline, cancel),
+      ),
+    ).then(() => undefined)
+  }
+
+  private clearTurnRecovery(state: ManagedSessionMutableState): void {
+    if (state.turnRecoveryTimer) {
+      clearTimeout(state.turnRecoveryTimer)
+      state.turnRecoveryTimer = null
+    }
+  }
+
+  private scheduleTurnRecovery(
+    state: ManagedSessionMutableState,
+    turnState: 'failed' | 'interrupted',
+  ): void {
+    if (state.turnRecoveryTimer) {
+      return
+    }
+
+    const generation = state.runtimeGeneration
+    state.turnRecoveryTimer = setTimeout(() => {
+      state.turnRecoveryTimer = null
+      void this.recoverUnresolvedTurn(state, generation, turnState)
+    }, MANAGED_TURN_RECOVERY_TIMEOUT_MS)
+  }
+
+  private async recoverUnresolvedTurn(
+    state: ManagedSessionMutableState,
+    generation: number,
+    turnState: 'failed' | 'interrupted',
+  ): Promise<void> {
+    if (
+      this.sessions.get(state.config.sessionId) !== state ||
+      state.runtimeGeneration !== generation ||
+      (!state.awaitingProviderTurnStart && !state.activeTurnId)
+    ) {
+      return
+    }
+
+    try {
+      await this.closeBackendWithBoundedRecovery(state.backend)
+    } catch {
+      // A failed shutdown is not proof that the old provider stopped. Retain
+      // its workspace lease and retry bounded recovery instead of allowing a
+      // same-workspace peer to overlap potentially late writes.
+      this.scheduleTurnRecovery(state, turnState)
+      return
+    }
+
+    if (
+      this.sessions.get(state.config.sessionId) === state &&
+      state.runtimeGeneration === generation
+    ) {
+      this.terminalizeRuntimeState(state, this.getNow(), turnState)
+      this.publishSnapshot(state, this.getNow())
+    }
+  }
+
+  private async closeBackendWithBoundedRecovery(
+    backend: ManagedSessionBackend,
+  ): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+    await Promise.race([
+      backend.close(),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(() => {
+          timedOut = true
+          resolve()
+        }, MANAGED_TURN_RECOVERY_TIMEOUT_MS)
+      }),
+    ])
+    if (timeout) {
+      clearTimeout(timeout)
+    }
+
+    if (!timedOut) {
+      return
+    }
+    if (!backend.forceClose) {
+      throw new Error('Managed provider did not confirm shutdown.')
+    }
+
+    await backend.forceClose()
+  }
+
+  private async forceCloseSession(
+    state: ManagedSessionMutableState,
+  ): Promise<void> {
+    if (!state.backend.forceClose) {
+      return
+    }
+
+    try {
+      await state.backend.forceClose()
+    } catch {
+      return
+    }
+
+    if (this.sessions.get(state.config.sessionId) !== state) {
+      return
+    }
+
+    this.terminalizeRuntimeState(state, this.getNow(), 'interrupted')
+    this.sessions.delete(state.config.sessionId)
+    state.revision += 1
+    this.options.onUpdate({
+      revision: state.revision,
+      sessionId: state.config.sessionId,
+      type: 'removed',
+    })
+    void this.disposeStateTurnPatches(state, true)
+  }
+
+  private completePreparedTurnWithoutStart(
+    state: ManagedSessionMutableState,
+    completedAt: string,
+    turnState: 'failed' | 'interrupted' | 'completed' | 'cancelled',
+  ): void {
+    if (!state.preparedTurnPatch) {
+      return
+    }
+
+    const turnId = randomUUID()
+    state.turnSequence += 1
+    state.turns.set(turnId, {
+      completedAt,
+      diff: this.beginTurnPatchCapture(state, turnId),
+      id: turnId,
+      provider: state.config.mode,
+      sequence: state.turnSequence,
+      startedAt: completedAt,
+      state: turnState,
+    })
+    this.captureCompletedTurnPatch(state, turnId)
+    this.trimTurnHistory(state)
+  }
+
   private terminalizeRuntimeState(
     state: ManagedSessionMutableState,
     completedAt: string,
     turnState: 'failed' | 'interrupted',
   ): void {
+    this.clearTurnRecovery(state)
+
     if (state.activeTurnId) {
       const turn = state.turns.get(state.activeTurnId)
 
       if (turn?.state === 'running') {
         turn.completedAt = completedAt
         turn.state = turnState
+        this.captureCompletedTurnPatch(state, turn.id)
       }
+    } else if (state.awaitingProviderTurnStart && state.preparedTurnPatch) {
+      this.completePreparedTurnWithoutStart(state, completedAt, turnState)
+    } else if (state.preparedTurnPatch) {
+      void this.disposePreparedTurnPatch(state, state.preparedTurnPatch)
     }
 
     state.activeTurnId = null
+    state.activeProviderTurnId = null
+    state.awaitingProviderTurnStart = false
     state.pendingApprovals.clear()
     state.pendingUserInputs.clear()
     state.pendingUserPromptText = null
+  }
+
+  private beginTurnPatchCapture(
+    state: ManagedSessionMutableState,
+    turnId: string,
+  ): ManagedSessionTurnDiffSummary {
+    const baseline = state.preparedTurnPatch
+    state.preparedTurnPatch = null
+
+    if (!baseline) {
+      return createTurnDiffSummary(
+        'error',
+        'Provider turn started without a prepared Git baseline; changes cannot be attributed safely.',
+      )
+    }
+
+    if (baseline.generation !== state.runtimeGeneration) {
+      void this.disposeTurnPatchBaseline(baseline)
+      return createTurnDiffSummary(
+        'error',
+        'Provider turn belongs to a stale runtime generation; changes cannot be attributed safely.',
+      )
+    }
+
+    state.turnPatchBaselines.set(turnId, baseline)
+
+    if (baseline.baselineError) {
+      return createTurnDiffSummary('error', baseline.baselineError)
+    }
+
+    return createTurnDiffSummary()
+  }
+
+  private captureCompletedTurnPatch(
+    state: ManagedSessionMutableState,
+    turnId: string,
+  ): void {
+    const baseline = state.turnPatchBaselines.get(turnId)
+    const recorder = this.options.turnPatchRecorder
+
+    if (!baseline) {
+      return
+    }
+
+    void (async () => {
+      let capture: ManagedTurnPatchCapture | null = null
+      let captureError: string | null = baseline.baselineError
+
+      try {
+        baseline.patchCapture ??= (async () => {
+          await baseline.capture
+          if (baseline.baselineError !== null) {
+            return null
+          }
+          if (!recorder || !baseline.hasBaseline) {
+            throw new Error(
+              'Git patch capture is unavailable for this managed session.',
+            )
+          }
+          return await this.awaitBoundedRecorderCapture(
+            baseline,
+            recorder.capturePatch(
+              baseline.config,
+              baseline.baseline,
+              baseline.abortController.signal,
+            ),
+          )
+        })()
+        capture = await baseline.patchCapture
+      } catch (error) {
+        captureError =
+          error instanceof Error
+            ? error.message
+            : 'Unable to capture the Git patch for this turn.'
+      } finally {
+        if (state.turnPatchBaselines.get(turnId) === baseline) {
+          state.turnPatchBaselines.delete(turnId)
+        }
+        await this.disposeTurnPatchBaseline(baseline, captureError !== null)
+      }
+
+      if (this.sessions.get(state.config.sessionId) !== state) {
+        return
+      }
+
+      const turn = state.turns.get(turnId)
+      if (!turn || turn.state === 'running') {
+        return
+      }
+
+      if (captureError !== null || capture === null) {
+        turn.diff = createTurnDiffSummary('error', captureError)
+        state.turnPatches.delete(turnId)
+      } else {
+        turn.diff = {
+          binaryChanges: capture.binaryChanges,
+          changedFileCount: capture.changedFileCount,
+          message: capture.message,
+          patchByteLength: capture.patchByteLength,
+          status: capture.status,
+        }
+        if (capture.patch !== null) {
+          state.turnPatches.set(turnId, capture.patch)
+        } else {
+          state.turnPatches.delete(turnId)
+        }
+      }
+      this.publishSnapshot(state, this.getNow())
+    })()
+  }
+
+  private trimTurnHistory(state: ManagedSessionMutableState): void {
+    while (state.turns.size > MAX_MANAGED_TURN_HISTORY) {
+      const oldestTurnId = state.turns.keys().next().value as string | undefined
+
+      if (!oldestTurnId) {
+        return
+      }
+
+      const baseline = state.turnPatchBaselines.get(oldestTurnId)
+      state.turns.delete(oldestTurnId)
+      state.turnPatchBaselines.delete(oldestTurnId)
+      state.turnPatches.delete(oldestTurnId)
+      if (baseline) {
+        void this.disposeTurnPatchBaseline(baseline)
+      }
+    }
+  }
+
+  private publishSnapshot(
+    state: ManagedSessionMutableState,
+    updatedAt: string,
+  ): void {
+    const runtime = state.projector.getSnapshot()
+
+    state.revision += 1
+    const planApproval = [...state.pendingApprovals.values()].find(
+      (approval) => approval.requestType === 'plan-approval',
+    )
+    state.snapshot = {
+      content: state.orderedContentKeys
+        .map((key) => state.contentByKey.get(key) ?? null)
+        .filter((item): item is ManagedSessionContentItem => item !== null),
+      detail: runtime.detail,
+      effort: state.config.effort ?? null,
+      interactionMode:
+        state.config.interactionMode ??
+        (state.config.permissionMode === 'plan' ? 'plan' : 'build'),
+      lastCompletedAt: runtime.lastCompletedAt,
+      lastError: runtime.lastError,
+      lastErrorAt: runtime.lastErrorAt,
+      model: state.config.model ?? null,
+      paneId: state.config.paneId,
+      pendingApprovals: [...state.pendingApprovals.values()],
+      pendingUserInputs: [...state.pendingUserInputs.values()],
+      planApproval: planApproval
+        ? ({
+            detail: planApproval.detail,
+            id: planApproval.id,
+          } satisfies ManagedSessionPlanApproval)
+        : null,
+      provider: state.config.mode,
+      running:
+        runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
+      sessionId: state.config.sessionId,
+      sessionState: runtime.sessionState,
+      turns: [...state.turns.values()],
+      updatedAt,
+      ...(state.usage !== null ? { usage: state.usage } : {}),
+      workspaceId: state.config.workspaceId,
+      revision: state.revision,
+      runtimeGeneration: state.runtimeGeneration,
+      selectionNotice: state.config.selectionNotice ?? null,
+      serviceTier: state.config.serviceTier ?? null,
+    }
+
+    this.options.onUpdate({
+      revision: state.snapshot.revision,
+      snapshot: state.snapshot,
+      type: 'snapshot',
+    })
   }
 
   private applyRuntimeEvent(
@@ -2108,34 +2903,51 @@ export class ManagedSessionManager {
     state.projector.apply([event])
 
     const terminalTurnState =
-      event.type === 'runtime.error' ||
-      (event.type === 'session.state.changed' && event.state === 'error') ||
-      (event.type === 'session.exited' &&
-        event.exitCode !== null &&
-        event.exitCode !== 0)
-        ? 'failed'
-        : event.type === 'session.exited' ||
-            (event.type === 'session.state.changed' &&
-              event.state === 'stopped')
+      event.type === 'session.exited'
+        ? event.exitCode !== null && event.exitCode !== 0
+          ? 'failed'
+          : 'interrupted'
+        : event.type === 'session.state.changed' && event.state === 'stopped'
           ? 'interrupted'
           : null
 
     if (terminalTurnState) {
       this.terminalizeRuntimeState(state, event.createdAt, terminalTurnState)
+    } else if (
+      event.type === 'runtime.error' ||
+      (event.type === 'session.state.changed' && event.state === 'error')
+    ) {
+      // Diagnostics and error states do not prove a provider process stopped.
+      // Keep the turn's lease until a terminal event or confirmed close.
+      this.scheduleTurnRecovery(state, 'failed')
     }
 
     if (event.type === 'turn.started') {
-      state.activeTurnId = event.turnId
-      state.turns.set(event.turnId, {
+      if (state.activeTurnId) {
+        this.scheduleTurnRecovery(state, 'failed')
+        this.publishSnapshot(state, event.createdAt)
+        return
+      }
+
+      state.awaitingProviderTurnStart = false
+      this.clearTurnRecovery(state)
+      const turnId = randomUUID()
+      state.activeTurnId = turnId
+      state.activeProviderTurnId = event.turnId
+      state.turnSequence += 1
+      state.turns.set(turnId, {
         completedAt: null,
-        id: event.turnId,
+        diff: this.beginTurnPatchCapture(state, turnId),
+        id: turnId,
         provider: state.config.mode,
+        sequence: state.turnSequence,
         startedAt: event.createdAt,
         state: 'running',
       })
+      this.trimTurnHistory(state)
 
       if (state.pendingUserPromptText !== null) {
-        const userItemId = `user-prompt:${event.turnId}`
+        const userItemId = `user-prompt:${turnId}`
         const userKey = createContentKey('user-prompt', userItemId)
 
         state.contentByKey.set(userKey, {
@@ -2143,7 +2955,7 @@ export class ManagedSessionManager {
           kind: 'user-prompt',
           provider: null,
           text: state.pendingUserPromptText,
-          turnId: event.turnId,
+          turnId,
           updatedAt: event.createdAt,
         })
         state.orderedContentKeys.push(userKey)
@@ -2152,14 +2964,44 @@ export class ManagedSessionManager {
     }
 
     if (event.type === 'turn.completed') {
-      const turn = state.turns.get(event.turnId)
+      const turn =
+        state.activeProviderTurnId === event.turnId && state.activeTurnId
+          ? state.turns.get(state.activeTurnId)
+          : undefined
 
       if (turn) {
         turn.completedAt = event.createdAt
         turn.state = event.state
+        this.captureCompletedTurnPatch(state, turn.id)
+        state.activeTurnId = null
+        state.activeProviderTurnId = null
+        state.awaitingProviderTurnStart = false
+        this.clearTurnRecovery(state)
+      } else if (state.awaitingProviderTurnStart && state.preparedTurnPatch) {
+        // The provider's terminal event is sufficient proof that no mutation
+        // remains, even if its start notification was lost or reordered.
+        this.completePreparedTurnWithoutStart(
+          state,
+          event.createdAt,
+          event.state,
+        )
+        state.awaitingProviderTurnStart = false
+        this.clearTurnRecovery(state)
       }
+    }
 
-      state.activeTurnId = null
+    if (
+      event.type === 'session.state.changed' &&
+      event.state === 'ready' &&
+      state.awaitingProviderTurnStart &&
+      state.preparedTurnPatch
+    ) {
+      // A ready transition is the provider's assertion that no turn remains.
+      // Preserve the snapshot window as a failed synthetic turn instead of
+      // retaining a baseline forever when turn.started was dropped.
+      this.completePreparedTurnWithoutStart(state, event.createdAt, 'failed')
+      state.awaitingProviderTurnStart = false
+      this.clearTurnRecovery(state)
     }
 
     if (event.type === 'content.delta') {
@@ -2228,53 +3070,6 @@ export class ManagedSessionManager {
       state.usage = nextUsage
     }
 
-    const runtime = state.projector.getSnapshot()
-
-    state.revision += 1
-    const planApproval = [...state.pendingApprovals.values()].find(
-      (approval) => approval.requestType === 'plan-approval',
-    )
-    state.snapshot = {
-      content: state.orderedContentKeys
-        .map((key) => state.contentByKey.get(key) ?? null)
-        .filter((item): item is ManagedSessionContentItem => item !== null),
-      detail: runtime.detail,
-      effort: state.config.effort ?? null,
-      interactionMode:
-        state.config.interactionMode ??
-        (state.config.permissionMode === 'plan' ? 'plan' : 'build'),
-      lastCompletedAt: runtime.lastCompletedAt,
-      lastError: runtime.lastError,
-      lastErrorAt: runtime.lastErrorAt,
-      model: state.config.model ?? null,
-      paneId: state.config.paneId,
-      pendingApprovals: [...state.pendingApprovals.values()],
-      pendingUserInputs: [...state.pendingUserInputs.values()],
-      planApproval: planApproval
-        ? ({
-            detail: planApproval.detail,
-            id: planApproval.id,
-          } satisfies ManagedSessionPlanApproval)
-        : null,
-      provider: state.config.mode,
-      running:
-        runtime.sessionState !== 'stopped' && runtime.sessionState !== 'error',
-      sessionId: state.config.sessionId,
-      sessionState: runtime.sessionState,
-      turns: [...state.turns.values()],
-      updatedAt: event.createdAt,
-      ...(state.usage !== null ? { usage: state.usage } : {}),
-      workspaceId: state.config.workspaceId,
-      revision: state.revision,
-      runtimeGeneration: state.runtimeGeneration,
-      selectionNotice: state.config.selectionNotice ?? null,
-      serviceTier: state.config.serviceTier ?? null,
-    }
-
-    this.options.onUpdate({
-      revision: state.snapshot.revision,
-      snapshot: state.snapshot,
-      type: 'snapshot',
-    })
+    this.publishSnapshot(state, event.createdAt)
   }
 }

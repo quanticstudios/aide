@@ -35,6 +35,12 @@ const aideApi: AideApi = {
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
+  getManagedSessionTurnPatch: (sessionId: string, turnId: string) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionGetTurnPatch,
+      sessionId,
+      turnId,
+    ),
   getProviderCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getProviderCapabilities),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>

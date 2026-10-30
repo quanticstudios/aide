@@ -568,6 +568,47 @@ test.describe('electron spatial navigation', () => {
     )
   })
 
+  test('keeps deterministic fake-provider Git patches with their individual managed turns', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_FAKE_MANAGED_GIT_CHANGES: '1',
+      AIDE_FAKE_MANAGED_PROVIDERS: '1',
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+
+    await importProject(page)
+    await addPane(page, /^agent\b/i)
+
+    const promptInput = page.getByRole('textbox', { name: /claude prompt/i })
+    await promptInput.fill('first patch')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(page.getByText('Turn 1 changes')).toBeVisible()
+    await expect(page.getByText('1 file changed')).toBeVisible()
+
+    await page.getByText('Turn 1 changes').click()
+    await expect(page.getByText('aide-fake-turn-1.txt')).toBeVisible()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'Managed fake turn: first patch',
+    )
+
+    await promptInput.fill('second patch')
+    await page.getByRole('button', { name: /send prompt/i }).click()
+    await expect(page.getByText('Turn 2 changes')).toBeVisible()
+    await expect(page.getByText('1 file changed')).toHaveCount(2)
+
+    await page.reload()
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByText('Turn 1 changes')).toBeVisible()
+    await expect(page.getByText('Turn 2 changes')).toBeVisible()
+    await page.getByText('Turn 2 changes').click()
+    await expect(page.getByText('aide-fake-turn-2.txt')).toBeVisible()
+  })
+
   test('renders a real git pane and updates the review surface on file selection', async () => {
     const chosenProjectRoot = createGitRepository()
     const readmePath = path.join(chosenProjectRoot, 'README.md')

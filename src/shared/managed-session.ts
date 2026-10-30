@@ -92,10 +92,39 @@ export type ManagedSessionTurnState =
   | 'cancelled'
   | 'interrupted'
 
+/**
+ * Patch capture deliberately remains in the main process. Snapshots carry only
+ * this small summary; the renderer requests the patch body when the user opens
+ * a completed turn.
+ */
+export type ManagedSessionTurnDiffStatus =
+  | 'capturing'
+  | 'empty'
+  | 'error'
+  | 'ready'
+  | 'truncated'
+
+export type ManagedSessionTurnBinaryChanges = 'none' | 'present' | 'unknown'
+
+export interface ManagedSessionTurnDiffSummary {
+  binaryChanges: ManagedSessionTurnBinaryChanges
+  changedFileCount: number
+  message: string | null
+  patchByteLength: number
+  status: ManagedSessionTurnDiffStatus
+}
+
+export interface ManagedSessionTurnPatch extends ManagedSessionTurnDiffSummary {
+  patch: string | null
+  turnId: string
+}
+
 export interface ManagedSessionTurnSummary {
   completedAt: string | null
+  diff: ManagedSessionTurnDiffSummary
   id: string
   provider: ManagedSessionProvider
+  sequence: number
   startedAt: string
   state: ManagedSessionTurnState
 }

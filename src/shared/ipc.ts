@@ -20,6 +20,7 @@ import type {
   ManagedSessionEvent,
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
+  ManagedSessionTurnPatch,
 } from './managed-session'
 import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
@@ -80,6 +81,7 @@ export const IPC_CHANNELS = {
   managedSessionClose: 'managed-session:close',
   managedSessionEvent: 'managed-session:event',
   managedSessionInterrupt: 'managed-session:interrupt',
+  managedSessionGetTurnPatch: 'managed-session:get-turn-patch',
   managedSessionResolveRequest: 'managed-session:resolve-request',
   managedSessionResolveUserInput: 'managed-session:resolve-user-input',
   managedSessionSendInput: 'managed-session:send-input',
@@ -141,6 +143,10 @@ export interface AideApi {
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>
   >
+  getManagedSessionTurnPatch: (
+    sessionId: string,
+    turnId: string,
+  ) => Promise<ManagedSessionTurnPatch | null>
   getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron'
 
 import type {
   AttachWorkspaceRequest,
@@ -19,8 +19,8 @@ import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
-import { ApplicationRuntime } from './application-runtime'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
+import { ApplicationRuntime } from './application-runtime'
 import { createAideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
@@ -29,17 +29,17 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
-import { ProviderCapabilityService } from './provider-capability-service'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
+import { ProviderCapabilityService } from './provider-capability-service'
 import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
-import { WorkspaceActivityService } from './workspace-activity-service'
 import { WindowManager } from './window-manager'
+import { WorkspaceActivityService } from './workspace-activity-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let database: ReturnType<typeof createAideDatabase>
@@ -84,6 +84,7 @@ function initializeServices(): void {
       }
       windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
     },
+    turnPatchRecorder: gitWorkspaceService,
   })
   providerCapabilityService = new ProviderCapabilityService()
   previewManager = new PreviewManager(database, {
@@ -150,6 +151,21 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
     managedSessionManager.getSnapshots(),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionGetTurnPatch,
+    (_event, sessionId: unknown, turnId: unknown) => {
+      if (
+        typeof sessionId !== 'string' ||
+        typeof turnId !== 'string' ||
+        sessionId.trim().length === 0 ||
+        turnId.trim().length === 0
+      ) {
+        throw new Error('Invalid managed turn patch identifier.')
+      }
+
+      return managedSessionManager.getTurnPatch(sessionId, turnId)
+    },
   )
   ipcMain.handle(IPC_CHANNELS.getProviderCapabilities, () =>
     providerCapabilityService.getSnapshot(),
@@ -352,6 +368,7 @@ function registerIpcHandlers(): void {
     async (_event, input: unknown) => {
       const config =
         await providerCapabilityService.resolveManagedSessionConfig(input)
+      await gitWorkspaceService.validateManagedSessionWorkspace(config)
       return managedSessionManager.createSession(config)
     },
   )
