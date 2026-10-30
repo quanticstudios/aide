@@ -6,7 +6,7 @@ install and before every test or build step.
 
 ## Repository Controls
 
-- `packageManager` pins Bun to `1.3.14`; CI also pins Node to `24.17.0`.
+- `packageManager` pins Bun to `1.4.4`; CI also pins Node to `26.13.0`.
 - Every direct runtime and development dependency must be an exact SemVer
   version. Ranges, tags, Git URLs, and local paths fail the policy check.
 - `bun.lock` is committed and all local/CI installs use

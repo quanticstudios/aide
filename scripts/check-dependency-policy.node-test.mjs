@@ -10,7 +10,7 @@ import {
 
 function createPackageJson(overrides = REQUIRED_OVERRIDES) {
   return {
-    packageManager: 'bun@1.3.14',
+    packageManager: 'bun@1.4.4',
     dependencies: {
       'example-runtime': '1.2.3',
     },
