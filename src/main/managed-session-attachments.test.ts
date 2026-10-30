@@ -95,6 +95,38 @@ describe('managed session attachments', () => {
     ])
   })
 
+  it('delivers the full text of a large paste as quoted evidence', async () => {
+    const text = `${'x'.repeat(79)}\n`.repeat(256)
+    const [attachment] = validateManagedSessionAttachments([
+      { id: 'paste', kind: 'pasted-text', name: 'pasted-text-1.txt', text },
+    ])
+    expect(attachment).toEqual({
+      id: 'paste',
+      kind: 'pasted-text',
+      name: 'pasted-text-1.txt',
+      text,
+    })
+    const prepared = await prepareManagedSessionAttachments(
+      '/unused',
+      attachment ? [attachment] : [],
+      new AbortController().signal,
+    )
+    expect(prepared.evidence).toEqual([
+      { content: text, kind: 'pasted-text', path: 'pasted-text-1.txt' },
+    ])
+    expect(prepared.candidates[0]?.content).toHaveLength(20 * 1024)
+    expect(() =>
+      validateManagedSessionAttachments([
+        {
+          id: 'paste',
+          kind: 'pasted-text',
+          name: 'big.txt',
+          text: 'x'.repeat(256 * 1024 + 1),
+        },
+      ]),
+    ).toThrow('256 KB')
+  })
+
   it('rejects traversal and symbolic links', async () => {
     const workspace = mkdtempSync(path.join(tmpdir(), 'aide-attachments-'))
     const outside = mkdtempSync(

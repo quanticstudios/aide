@@ -540,6 +540,15 @@ const persistedManagedAttachment = z.discriminatedUnion('kind', [
   }),
   z.object({
     id: persistedIdentifier,
+    kind: z.literal('pasted-text'),
+    name: z.string().min(1).max(255),
+    text: z
+      .string()
+      .min(1)
+      .max(256 * 1024),
+  }),
+  z.object({
+    id: persistedIdentifier,
     kind: z.literal('workspace-file'),
     path: z.string().min(1).max(4_096),
   }),

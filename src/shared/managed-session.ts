@@ -65,6 +65,7 @@ export type ManagedSessionInteractionMode = 'build' | 'plan'
 export const MANAGED_SESSION_MAX_ATTACHMENTS = 8
 export const MANAGED_SESSION_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 export const MANAGED_SESSION_MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024
+export const MANAGED_SESSION_MAX_PASTED_TEXT_BYTES = 256 * 1024
 
 export type ManagedSessionAttachment =
   | {
@@ -74,6 +75,12 @@ export type ManagedSessionAttachment =
       mimeType: 'image/jpeg' | 'image/png' | 'image/webp'
       name: string
       sizeBytes: number
+    }
+  | {
+      id: string
+      kind: 'pasted-text'
+      name: string
+      text: string
     }
   | {
       id: string
