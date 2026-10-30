@@ -2,6 +2,7 @@ import { ChevronRight, LoaderCircle } from 'lucide-react'
 import { memo } from 'react'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
 import ToolCallBlock from './ToolCallBlock'
+import { summarizeToolGroup } from './tools/tool-kind'
 
 function ToolCallGroup({
   items,
@@ -19,7 +20,7 @@ function ToolCallGroup({
     >
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-semibold text-foreground">
         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tools:rotate-90" />
-        {tools.length === 1 ? '1 tool call' : `${tools.length} tool calls`}
+        {summarizeToolGroup(tools.map((tool) => tool.toolName))}
         <span className="ml-auto text-[11px] font-medium tabular-nums text-muted-foreground">
           {isRunning ? (
             <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />

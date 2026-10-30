@@ -82,8 +82,10 @@ const noop = () => undefined
 
 function Transcript({
   content,
+  workedForMs = null,
 }: {
   readonly content: readonly ManagedSessionContentItem[]
+  readonly workedForMs?: number | null
 }) {
   return buildTranscriptRows(groupContentByTurn(content)).map((row) => (
     <TurnGroupBlock
@@ -104,6 +106,7 @@ function Transcript({
       rewindDisabledReason={null}
       row={row}
       sessionId="session"
+      workedForMs={row.group.turnId === 'turn-2' ? workedForMs : null}
     />
   ))
 }
@@ -241,6 +244,33 @@ describe('TurnGroupBlock reasoning', () => {
     expect(row()?.querySelector('pre')?.textContent).toBe(
       'First idea.\n\nLatest idea.',
     )
+    act(() => root.unmount())
+  })
+})
+
+describe('TurnGroupBlock work summary', () => {
+  it('summarizes a tool run in plain words and says how long a finished turn worked', () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    act(() =>
+      root.render(
+        <Transcript content={initialContent()} workedForMs={134_000} />,
+      ),
+    )
+    const workedFor = container.querySelector('[data-testid="turn-worked-for"]')
+
+    expect(
+      container.querySelector('[data-testid="managed-tool-call-group"] summary')
+        ?.textContent,
+    ).toContain('Read 1 file')
+    expect(workedFor?.textContent).toBe('Worked for 2m 14s')
+    expect(workedFor?.nextElementSibling?.textContent).toContain('Answer')
+
+    act(() => root.render(<Transcript content={initialContent()} />))
+    expect(
+      container.querySelector('[data-testid="turn-worked-for"]'),
+    ).toBeNull()
     act(() => root.unmount())
   })
 })

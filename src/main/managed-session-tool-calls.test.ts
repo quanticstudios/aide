@@ -166,11 +166,65 @@ describe('tool call content items', () => {
     expect(toolCalls[0]?.tool).toEqual({
       callId: 'call-1',
       command: 'echo hello',
+      endedAt: expect.any(String),
       input: { command: 'echo hello', description: 'Greet' },
       output: 'hello',
+      startedAt: expect.any(String),
       status: 'completed',
       toolName: 'Bash',
     })
+
+    await manager.closeAll()
+  })
+
+  it('reads the exit code of a failed Claude Bash call from its result', async () => {
+    query.mockImplementation(({ prompt }) =>
+      createClaudeQuery(prompt, [
+        {
+          message: {
+            id: 'assistant-1',
+            content: [
+              {
+                id: 'call-fail',
+                input: { command: 'false' },
+                name: 'Bash',
+                type: 'tool_use',
+              },
+            ],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: null,
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-event',
+        },
+        {
+          message: {
+            content: [
+              {
+                content: 'Exit code 2\nnope',
+                is_error: true,
+                tool_use_id: 'call-fail',
+                type: 'tool_result',
+              },
+            ],
+            role: 'user',
+          },
+          parent_tool_use_id: null,
+          session_id: 'session',
+          type: 'user',
+          uuid: 'user-event',
+        },
+      ]),
+    )
+    const manager = await startClaudeSession()
+    await manager.sendInput('session', 'fail')
+    const snapshot = await waitForCompletedTurn(manager)
+
+    expect(
+      snapshot.content.find((item) => item.kind === 'tool-call')?.tool,
+    ).toMatchObject({ exitCode: 2, status: 'failed' })
 
     await manager.closeAll()
   })
@@ -338,6 +392,21 @@ describe('tool call content items', () => {
         },
         {
           message: {
+            id: 'assistant-sub-tools',
+            content: [
+              { id: 'sub-read', input: {}, name: 'Read', type: 'tool_use' },
+              { id: 'sub-grep', input: {}, name: 'Grep', type: 'tool_use' },
+            ],
+            model: 'claude-test',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          parent_tool_use_id: 'call-task',
+          session_id: 'session',
+          type: 'assistant',
+          uuid: 'assistant-sub-tools-event',
+        },
+        {
+          message: {
             id: 'assistant-sub-2',
             content: [{ text: ' Found 12 source files.', type: 'text' }],
             model: 'claude-test',
@@ -389,6 +458,7 @@ describe('tool call content items', () => {
     expect(toolCalls[0]?.tool).toMatchObject({
       progress: 'Reading src/main',
       status: 'completed',
+      subagentTools: ['Read', 'Grep'],
       toolName: 'Task',
     })
     expect(toolCalls[0]?.tool?.output).toBe(

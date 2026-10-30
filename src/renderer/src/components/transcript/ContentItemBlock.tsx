@@ -7,29 +7,18 @@ import {
   History,
   Terminal,
 } from 'lucide-react'
-import { memo, useEffect, useState } from 'react'
+import { memo, useState } from 'react'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
 import { cn } from '../../lib/utils'
 import ManagedComposerAttachments from '../ManagedComposerAttachments'
 import MarkdownContent from '../MarkdownContent'
 import IconTooltip from '../ui/icon-tooltip'
 import { AnthropicIcon, OpenAIIcon } from '../ui/provider-icons'
+import ElapsedTime from './ElapsedTime'
 import { formatMessageTime } from './format-message-time'
 import { formatThinkingDuration } from './format-thinking-duration'
 import MessageCopyButton from './MessageCopyButton'
 import ToolCallBlock from './ToolCallBlock'
-
-// why: the ticking clock lives in this leaf so each second re-renders it alone, not the transcript row.
-function ThinkingElapsed({ since }: { readonly since: string }) {
-  const [now, setNow] = useState(Date.now)
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(interval)
-  }, [])
-
-  return formatThinkingDuration(now - Date.parse(since))
-}
 
 export default memo(function ContentItemBlock({
   checkpointId = null,
@@ -202,7 +191,7 @@ export default memo(function ContentItemBlock({
               />
               <span className="thinking-shimmer">Thinking</span>
               <span className="font-normal tabular-nums">
-                <ThinkingElapsed since={startedAt} />
+                <ElapsedTime since={startedAt} />
               </span>
             </>
           ) : item.createdAt ? (

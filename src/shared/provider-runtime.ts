@@ -50,13 +50,19 @@ export interface ManagedProviderRuntimeToolCall {
   callId: string
   command?: string
   diff?: string
+  /** When main saw the call finish. Absent while it runs and on calls persisted before it existed. */
+  endedAt?: string
   exitCode?: number
   files?: { path: string; status: string }[]
   input: unknown
   output?: string
   /** One-line status the provider reports while the call runs. */
   progress?: string
+  /** When main first saw the call. Absent on calls persisted before it existed. */
+  startedAt?: string
   status: 'running' | 'completed' | 'failed'
+  /** Tool names a subagent call ran, in order. Present only on subagent calls such as `Task`. */
+  subagentTools?: string[]
   /** Present only on task-list calls such as `TodoWrite`. */
   tasks?: ManagedProviderRuntimeTask[]
   toolName: string

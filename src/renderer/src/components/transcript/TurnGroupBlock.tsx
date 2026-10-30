@@ -10,6 +10,7 @@ import ChangedFilesTree from '../ChangedFilesTree'
 import IconTooltip from '../ui/icon-tooltip'
 import ContentItemBlock from './ContentItemBlock'
 import { formatMessageTime } from './format-message-time'
+import { formatThinkingDuration } from './format-thinking-duration'
 import MessageCopyButton from './MessageCopyButton'
 import TaskListBlock from './TaskListBlock'
 import { LazyGitDiffView } from './ToolCallBlock'
@@ -62,6 +63,7 @@ function TurnGroupBlockContent({
   requestText,
   rewindDisabledReason,
   sessionId,
+  workedForMs,
 }: {
   readonly row: TranscriptRow
   readonly canBranch: boolean
@@ -82,6 +84,8 @@ function TurnGroupBlockContent({
   readonly requestText: string | null
   readonly rewindDisabledReason: string | null
   readonly sessionId: string
+  /** How long a finished turn ran, or null while it runs. */
+  readonly workedForMs: number | null
 }) {
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
   const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
@@ -100,6 +104,18 @@ function TurnGroupBlockContent({
     )
     .at(-1)
   const responseContentItemId = responseItem?.id
+  const workedFor =
+    workedForMs !== null &&
+    group.items.some((item) => item.kind === 'tool-call') ? (
+      <div
+        className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
+        data-testid="turn-worked-for"
+      >
+        <span className="h-px flex-1 bg-[var(--border-soft)]" />
+        Worked for {formatThinkingDuration(workedForMs)}
+        <span className="h-px flex-1 bg-[var(--border-soft)]" />
+      </div>
+    ) : null
 
   useEffect(() => {
     if (!checkpointId || isRunning || !isLast) return
@@ -149,6 +165,7 @@ function TurnGroupBlockContent({
         return (
           <Fragment key={`${item.kind}:${item.id}`}>
             {taskList}
+            {item === responseItem ? workedFor : null}
             <ContentItemBlock
               editFromHereDisabledReason={rewindDisabledReason}
               isLive={isRunning && isLast && item === group.items.at(-1)}

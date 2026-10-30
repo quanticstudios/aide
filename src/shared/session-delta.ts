@@ -279,6 +279,8 @@ export function applyDelta(
       updateTool(delta.itemId, delta.endedAt, (tool) => ({
         ...tool,
         ...(delta.exitCode === undefined ? {} : { exitCode: delta.exitCode }),
+        endedAt: delta.endedAt,
+        startedAt: delta.startedAt,
         status: delta.status,
       }))
       break
