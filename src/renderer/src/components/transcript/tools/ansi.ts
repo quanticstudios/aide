@@ -10,7 +10,7 @@ const FOREGROUND: Record<number, string> = {
   33: 'text-accent-yellow',
   34: 'text-accent-blue',
   35: 'text-accent-purple',
-  36: 'text-cyan-500',
+  36: 'text-terminal-cyan',
   37: 'text-foreground',
 }
 

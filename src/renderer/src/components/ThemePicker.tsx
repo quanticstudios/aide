@@ -1,8 +1,8 @@
 import { cn } from '../lib/utils'
 import {
+  type Palette,
   THEME_OPTIONS,
   type ThemePreference,
-  type ThemePreview,
 } from '../lib/theme-preference'
 
 interface ThemePickerProps {
@@ -10,40 +10,28 @@ interface ThemePickerProps {
   readonly value: ThemePreference
 }
 
-function ThemeThumbnail({ preview }: { readonly preview: ThemePreview }) {
+// why: data-palette scopes the palette's tokens to the thumbnail, so it paints with the real colors.
+function ThemeThumbnail({ palette }: { readonly palette: Palette }) {
   const bar = (width: string) => (
-    <span
-      className="block h-1 rounded-full"
-      style={{ background: preview.bar, width }}
-    />
+    <span className="block h-1 rounded-full bg-surface-4" style={{ width }} />
   )
   return (
     <div
-      aria-hidden
-      className="flex aspect-[16/10] w-full overflow-hidden rounded-md"
-      style={{ background: preview.canvas }}
+      className="flex h-full min-w-0 flex-1 bg-background"
+      data-palette={palette}
     >
       <div className="flex w-[30%] flex-col gap-1.5 p-2 pt-2.5">
         {bar('70%')}
         {bar('55%')}
         {bar('62%')}
       </div>
-      <div
-        className="flex flex-1 flex-col justify-between p-2"
-        style={{ background: preview.pane }}
-      >
+      <div className="flex flex-1 flex-col justify-between bg-surface-1 p-2">
         <div className="flex flex-col gap-1.5 pt-0.5">
           {bar('60%')}
           {bar('80%')}
         </div>
-        <div
-          className="flex items-center justify-end rounded-sm p-1"
-          style={{ background: preview.card }}
-        >
-          <span
-            className="block size-2 rounded-full"
-            style={{ background: preview.primary }}
-          />
+        <div className="flex items-center justify-end rounded-sm bg-surface-2 p-1">
+          <span className="block size-2 rounded-full bg-primary" />
         </div>
       </div>
     </div>
@@ -54,7 +42,7 @@ export default function ThemePicker({ onChange, value }: ThemePickerProps) {
   return (
     <div
       aria-label="Theme"
-      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
       role="radiogroup"
     >
       {THEME_OPTIONS.map((option) => {
@@ -73,7 +61,19 @@ export default function ThemePicker({ onChange, value }: ThemePickerProps) {
             role="radio"
             type="button"
           >
-            <ThemeThumbnail preview={option.preview} />
+            <div
+              aria-hidden
+              className="flex aspect-[16/10] w-full overflow-hidden rounded-md"
+            >
+              {option.id === 'system' ? (
+                <>
+                  <ThemeThumbnail palette="light" />
+                  <ThemeThumbnail palette="dark" />
+                </>
+              ) : (
+                <ThemeThumbnail palette={option.id} />
+              )}
+            </div>
             <span className="px-1 pb-0.5">
               <span className="block text-[13px] font-medium leading-5 text-foreground">
                 {option.label}

@@ -24,7 +24,7 @@ const flowStatusClasses: Record<FleetFlowStatus, string> = {
   failed: 'border-accent-red/60 bg-accent-red-soft text-accent-red',
   idle: 'border-border bg-surface-secondary text-muted-foreground',
   running:
-    'border-primary bg-surface text-foreground ring-1 ring-primary/35 shadow-[0_0_24px_rgba(41,151,255,0.12)]',
+    'border-primary bg-surface text-foreground ring-1 ring-primary/35 shadow-[0_0_24px_color-mix(in_srgb,var(--primary)_12%,transparent)]',
 }
 
 function flowStatusFromPlan(node: FleetPlanNode): FleetFlowStatus {

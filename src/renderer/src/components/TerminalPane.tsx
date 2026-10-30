@@ -13,7 +13,13 @@ import {
   clearTerminalPaneRunning,
   setTerminalPaneRunning,
 } from '../lib/pane-close-warning'
+import {
+  getFontPreference,
+  subscribeFontPreference,
+} from '../lib/font-preference'
 import { takeTerminalInput } from '../lib/terminal-input'
+import { readTerminalTheme, terminalFont } from '../lib/terminal-theme'
+import { subscribePalette } from '../lib/theme-preference'
 
 interface TerminalPaneProps {
   readonly onShellExit: () => void
@@ -192,32 +198,8 @@ export default function TerminalPane({
       allowTransparency: true,
       convertEol: true,
       cursorBlink: true,
-      fontFamily:
-        'JetBrains Mono, JetBrainsMono Nerd Font, MesloLGS NF, Symbols Nerd Font Mono, monospace',
-      fontSize: 13,
-      theme: {
-        background: 'transparent',
-        black: '#0d0d0d',
-        blue: '#57c1ff',
-        brightBlack: '#242728',
-        brightBlue: '#57c1ff',
-        brightCyan: '#7dcfff',
-        brightGreen: '#59d499',
-        brightMagenta: '#bb9af7',
-        brightRed: '#ff6161',
-        brightWhite: '#ffffff',
-        brightYellow: '#ffc533',
-        cursor: '#ffffff',
-        cursorAccent: '#07080a',
-        cyan: '#7dcfff',
-        foreground: '#f4f4f6',
-        green: '#59d499',
-        magenta: '#bb9af7',
-        red: '#ff6161',
-        selectionBackground: 'rgba(255,255,255,0.16)',
-        white: '#cdcdcd',
-        yellow: '#ffc533',
-      },
+      ...terminalFont(getFontPreference()),
+      theme: readTerminalTheme(getComputedStyle(document.documentElement)),
     })
     const fitAddon = new FitAddon()
 
@@ -236,6 +218,15 @@ export default function TerminalPane({
 
     terminal.loadAddon(fitAddon)
     terminal.open(container)
+    const unsubscribePalette = subscribePalette(() => {
+      terminal.options.theme = readTerminalTheme(
+        getComputedStyle(document.documentElement),
+      )
+    })
+    const unsubscribeFonts = subscribeFontPreference(() => {
+      Object.assign(terminal.options, terminalFont(getFontPreference()))
+      safeFit(fitAddon)
+    })
     const cancelScheduledFocus = scheduleTerminalFocus(terminal, container)
 
     const aideApi = getAideApi()
@@ -249,6 +240,8 @@ export default function TerminalPane({
 
       return () => {
         cancelScheduledFocus()
+        unsubscribePalette()
+        unsubscribeFonts()
         terminal.dispose()
         terminalRef.current = null
         fitAddonRef.current = null
@@ -306,6 +299,8 @@ export default function TerminalPane({
 
     return () => {
       cancelScheduledFocus()
+      unsubscribePalette()
+      unsubscribeFonts()
       resizeObserver.disconnect()
       inputDisposable.dispose()
       resizeDisposable.dispose()

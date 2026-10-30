@@ -6,37 +6,37 @@ export function getProjectColorClassName(color: ProjectColor): string {
     case 'blue':
       return 'text-accent-blue'
     case 'violet':
-      return 'text-violet-400'
+      return 'text-project-violet'
     case 'green':
       return 'text-accent-green'
     case 'amber':
       return 'text-accent-yellow'
     case 'red':
-      return 'text-red-500'
+      return 'text-project-red'
     case 'orange':
-      return 'text-orange-500'
+      return 'text-project-orange'
     case 'yellow':
-      return 'text-yellow-400'
+      return 'text-project-yellow'
     case 'lime':
-      return 'text-lime-500'
+      return 'text-project-lime'
     case 'emerald':
-      return 'text-emerald-500'
+      return 'text-project-emerald'
     case 'teal':
-      return 'text-teal-500'
+      return 'text-project-teal'
     case 'cyan':
-      return 'text-cyan-500'
+      return 'text-project-cyan'
     case 'sky':
-      return 'text-sky-500'
+      return 'text-project-sky'
     case 'indigo':
-      return 'text-indigo-500'
+      return 'text-project-indigo'
     case 'purple':
-      return 'text-purple-500'
+      return 'text-project-purple'
     case 'fuchsia':
-      return 'text-fuchsia-500'
+      return 'text-project-fuchsia'
     case 'pink':
-      return 'text-pink-500'
+      return 'text-project-pink'
     case 'rose':
-      return 'text-rose-500'
+      return 'text-project-rose'
     default:
       return 'text-muted-foreground'
   }

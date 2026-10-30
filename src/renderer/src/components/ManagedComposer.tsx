@@ -1400,7 +1400,7 @@ export default function ManagedComposer({
 }: ManagedComposerProps) {
   return (
     <div
-      className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-2 shadow-[0_1px_2px_rgba(0,0,0,0.5),0_0_0_1px_var(--border)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--primary),0_8px_24px_-12px_rgba(0,0,0,0.8)]"
+      className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-2 shadow-[0_1px_2px_color-mix(in_srgb,var(--shadow-color)_50%,transparent),0_0_0_1px_var(--border)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--primary),0_8px_24px_-12px_color-mix(in_srgb,var(--shadow-color)_80%,transparent)]"
       data-testid="managed-composer"
       onDragOver={(event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault()

@@ -2,12 +2,14 @@ import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
 import '@git-diff-view/react/styles/diff-view-pure.css'
 import { useEffect, useMemo, useState } from 'react'
 
+import { useFontPreference } from '../lib/font-preference'
 import {
   diffHighlighter,
   isLanguageLoaded,
   loadLanguage,
   resolveLanguage,
 } from '../lib/highlighter'
+import { useColorScheme } from '../lib/theme-preference'
 
 /** Which way a diff is laid out: one column of changes or two. */
 export type DiffLayout = 'line-by-line' | 'side-by-side'
@@ -27,6 +29,8 @@ export function GitDiffView({
     return resolveLanguage(name.slice(name.lastIndexOf('.') + 1))
   }, [filePath])
   const [loadedLang, setLoadedLang] = useState<string | null>(null)
+  const colorScheme = useColorScheme()
+  const { codeSize } = useFontPreference()
   const highlight =
     lang !== null && (lang === loadedLang || isLanguageLoaded(lang))
 
@@ -53,7 +57,6 @@ export function GitDiffView({
       newFile: { fileLang: lang ?? 'txt', fileName: filePath },
       oldFile: { fileLang: lang ?? 'txt', fileName: filePath },
     })
-    file.initTheme('dark')
     file.init()
     if (outputFormat === 'side-by-side') {
       file.buildSplitDiffLines()
@@ -66,14 +69,14 @@ export function GitDiffView({
   return (
     <DiffView
       diffFile={diffFile}
-      diffViewFontSize={12}
+      diffViewFontSize={codeSize ?? 12}
       diffViewHighlight={highlight}
       diffViewMode={
         outputFormat === 'side-by-side'
           ? DiffModeEnum.Split
           : DiffModeEnum.Unified
       }
-      diffViewTheme="dark"
+      diffViewTheme={colorScheme}
       diffViewWrap={false}
       registerHighlighter={diffHighlighter}
     />

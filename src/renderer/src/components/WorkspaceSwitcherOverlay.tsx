@@ -65,7 +65,7 @@ export default function WorkspaceSwitcherOverlay({
       {isOverviewMode ? (
         <div
           aria-label="Close overview"
-          className="absolute inset-0 bg-black/50"
+          className="absolute inset-0 bg-scrim"
           onClick={onRequestClose}
           onKeyDown={(event) => {
             if (

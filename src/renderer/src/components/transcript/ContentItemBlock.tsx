@@ -56,7 +56,7 @@ export default memo(function ContentItemBlock({
           data-testid={`managed-content-${item.kind}`}
         >
           <div
-            className="rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.5),0_0_0_1px_var(--border)]"
+            className="rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 shadow-[0_1px_2px_color-mix(in_srgb,var(--shadow-color)_50%,transparent),0_0_0_1px_var(--border)]"
             data-testid="user-message-bubble"
           >
             <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
@@ -127,7 +127,7 @@ export default memo(function ContentItemBlock({
           <Terminal className="size-3.5 text-accent-green" />
           Command output
         </div>
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[length:var(--code-font-size)] leading-[1.6] text-body">
           {displayText}
         </pre>
         {isLong ? (
@@ -153,7 +153,7 @@ export default memo(function ContentItemBlock({
           <FileCode className="size-3.5 text-accent-yellow" />
           File changes
         </div>
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[length:var(--code-font-size)] leading-[1.6] text-body">
           {item.text}
         </pre>
       </div>

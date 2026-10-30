@@ -19,6 +19,13 @@ import {
   setAnimationPreference,
 } from '../lib/animation-preference'
 import {
+  DEFAULT_UI_FONT_SIZE,
+  FONT_SIZE_RANGE,
+  type FontPreference,
+  setFontPreference,
+  useFontPreference,
+} from '../lib/font-preference'
+import {
   getSendWhileRunning,
   type SendWhileRunning,
   setSendWhileRunning,
@@ -31,6 +38,78 @@ import {
 } from '../lib/theme-preference'
 import JevSetup from './JevSetup'
 import ThemePicker from './ThemePicker'
+
+const FONT_ROWS = [
+  {
+    description: 'Menus, labels and transcript text.',
+    familyKey: 'uiFamily',
+    familyPlaceholder: 'Geist',
+    label: 'Interface font',
+    sizeKey: 'uiSize',
+    sizePlaceholder: String(DEFAULT_UI_FONT_SIZE),
+  },
+  {
+    description: 'Code blocks, diffs and terminals.',
+    familyKey: 'codeFamily',
+    familyPlaceholder: 'Geist Mono',
+    label: 'Code font',
+    sizeKey: 'codeSize',
+    sizePlaceholder: 'Default',
+  },
+] as const
+
+function FontSettingRow({
+  fonts,
+  row,
+}: {
+  readonly fonts: FontPreference
+  readonly row: (typeof FONT_ROWS)[number]
+}) {
+  const inputClassName =
+    'h-8 rounded-md border border-border bg-surface-3 px-2 text-[13px] text-foreground placeholder:text-muted-foreground'
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium leading-5">
+          {row.label}
+        </span>
+        <span className="block text-[12px] leading-4 text-muted-foreground">
+          {row.description}
+        </span>
+      </span>
+      <span className="flex shrink-0 gap-2">
+        {/* why: uncontrolled, so a family typed with a trailing space is not trimmed mid-word. */}
+        <input
+          aria-label={`${row.label} family`}
+          className={`${inputClassName} w-40`}
+          defaultValue={fonts[row.familyKey]}
+          onChange={(event) =>
+            setFontPreference({ [row.familyKey]: event.target.value })
+          }
+          placeholder={row.familyPlaceholder}
+          spellCheck={false}
+          type="text"
+        />
+        <input
+          aria-label={`${row.label} size`}
+          className={`${inputClassName} w-20`}
+          defaultValue={fonts[row.sizeKey] ?? ''}
+          max={FONT_SIZE_RANGE.max}
+          min={FONT_SIZE_RANGE.min}
+          onChange={(event) =>
+            setFontPreference({
+              [row.sizeKey]:
+                event.target.value === '' ? null : Number(event.target.value),
+            })
+          }
+          placeholder={row.sizePlaceholder}
+          step={0.5}
+          type="number"
+        />
+      </span>
+    </div>
+  )
+}
 
 export interface SettingsShortcut {
   readonly description?: string
@@ -197,6 +276,7 @@ export default function SettingsPage({
     useState<AnimationPreference>(getAnimationPreference)
   const [selectedTheme, setSelectedTheme] =
     useState<ThemePreference>(getThemePreference)
+  const fonts = useFontPreference()
   const [sendWhileRunning, setSendWhileRunningState] =
     useState<SendWhileRunning>(getSendWhileRunning)
 
@@ -276,9 +356,13 @@ export default function SettingsPage({
         'appearance-settings',
         'Appearance',
         'Theme',
+        'System',
+        'Light',
         'Dark',
         'High contrast',
-        'Both are dark. They differ in how much the panes lift off the chrome',
+        'Follow the OS setting, or pick a palette',
+        'Fonts',
+        ...FONT_ROWS.flatMap((row) => [row.label, row.description]),
         'Animations',
         'System default',
         'On',
@@ -549,7 +633,7 @@ export default function SettingsPage({
                 Appearance
               </h2>
               <p className="mt-1 text-[13px] text-muted-foreground">
-                Theme and motion preferences for the app interface.
+                Theme, font and motion preferences for the app interface.
               </p>
               <div className="mt-4 rounded-lg border border-border bg-surface-2">
                 <div className="border-b border-border px-4 py-3">
@@ -557,8 +641,8 @@ export default function SettingsPage({
                     Theme
                   </span>
                   <span className="mb-3 block text-[12px] leading-4 text-muted-foreground">
-                    Both are dark. They differ in how much the panes lift off
-                    the chrome.
+                    Follow the OS setting, or pick a palette. Switching applies
+                    at once.
                   </span>
                   <ThemePicker
                     onChange={(preference) => {
@@ -568,6 +652,9 @@ export default function SettingsPage({
                     value={selectedTheme}
                   />
                 </div>
+                {FONT_ROWS.map((row) => (
+                  <FontSettingRow fonts={fonts} key={row.label} row={row} />
+                ))}
                 <div className="flex items-center justify-between gap-4 px-4 py-3">
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium leading-5">

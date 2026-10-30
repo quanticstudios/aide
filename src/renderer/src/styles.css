@@ -5,8 +5,8 @@
 
 .recovery-screen {
   align-items: center;
-  background: #18181b;
-  color: #f4f4f5;
+  background: var(--background);
+  color: var(--foreground);
   display: flex;
   justify-content: center;
   min-height: 100vh;
@@ -14,8 +14,8 @@
 }
 
 .recovery-card {
-  background: #27272a;
-  border: 1px solid #52525b;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: 0.75rem;
   max-width: 42rem;
   padding: 2rem;
@@ -33,7 +33,7 @@
 }
 
 .recovery-eyebrow {
-  color: #fbbf24;
+  color: var(--accent-yellow);
   font-size: 0.875rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -41,16 +41,16 @@
 
 .recovery-message,
 .recovery-error {
-  background: #3f3f46;
+  background: var(--surface-3);
   border-radius: 0.375rem;
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.875rem;
   padding: 0.75rem;
   white-space: pre-wrap;
 }
 
 .recovery-error {
-  color: #fecaca;
+  color: var(--accent-red);
 }
 
 .recovery-actions {
@@ -61,8 +61,8 @@
 }
 
 .recovery-card button {
-  background: #3f3f46;
-  border: 1px solid #71717a;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
   border-radius: 0.375rem;
   color: inherit;
   cursor: pointer;
@@ -70,7 +70,7 @@
 }
 
 .recovery-card button:hover:not(:disabled) {
-  background: #52525b;
+  background: var(--surface-4);
 }
 
 .recovery-card button:disabled {
@@ -80,13 +80,13 @@
 
 .recovery-reset-button,
 .recovery-reset-confirm-button {
-  border-color: #b45309;
-  color: #fde68a;
+  border-color: var(--accent-yellow);
+  color: var(--accent-yellow);
   margin-top: 1rem;
 }
 
 .recovery-reset-confirmation {
-  border-top: 1px solid #52525b;
+  border-top: 1px solid var(--border-strong);
   margin-top: 1.25rem;
   padding-top: 0.75rem;
 }
@@ -97,8 +97,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Always-dark Electron shell. DESIGN.md documents every token below. */
-:root {
+/* Palette "contrast", and the base the other palettes override. DESIGN.md
+   documents every token below. Palette selectors carry no :root so a preview
+   element can scope a palette (ThemePicker). */
+:root,
+[data-palette="contrast"] {
   color-scheme: dark;
   --radius: 0.5rem;
 
@@ -112,7 +115,7 @@
   /* Syntax highlighting (Shiki css-variables theme, GitHub dark colors) */
   --shiki-foreground: var(--foreground);
   --shiki-background: transparent;
-  --shiki-token-comment: #6a737d;
+  --shiki-token-comment: #8b949e;
   --shiki-token-constant: #79b8ff;
   --shiki-token-function: #b392f0;
   --shiki-token-keyword: #f97583;
@@ -230,12 +233,49 @@
 
   /* Claude's mark keeps its brand orange; every other provider mark is monochrome. */
   --brand-claude: #d97757;
+
+  /* Shadows mix --shadow-color with transparent, so each palette sets their weight. */
+  --shadow-color: #000000;
+  --edge-highlight: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.5);
+
+  /* ANSI colors the state accents do not cover. TerminalPane reads every terminal color at runtime. */
+  --terminal-black: #0d0d0d;
+  --terminal-bright-black: #242728;
+  --terminal-white: #cdcdcd;
+  --terminal-bright-white: #ffffff;
+  --terminal-cyan: #7dcfff;
+  --terminal-selection: rgba(255, 255, 255, 0.16);
+
+  /* Project colors, picked per project in the sidebar. Tailwind's palette values. */
+  --project-red: oklch(63.7% 0.237 25.331);
+  --project-orange: oklch(70.5% 0.213 47.604);
+  --project-yellow: oklch(85.2% 0.199 91.936);
+  --project-lime: oklch(76.8% 0.233 130.85);
+  --project-emerald: oklch(69.6% 0.17 162.48);
+  --project-teal: oklch(70.4% 0.14 182.503);
+  --project-cyan: oklch(71.5% 0.143 215.221);
+  --project-sky: oklch(68.5% 0.169 237.323);
+  --project-indigo: oklch(58.5% 0.233 277.117);
+  --project-violet: oklch(70.2% 0.183 293.541);
+  --project-purple: oklch(62.7% 0.265 303.9);
+  --project-fuchsia: oklch(66.7% 0.295 322.15);
+  --project-pink: oklch(65.6% 0.241 354.308);
+  --project-rose: oklch(64.5% 0.246 16.439);
+
+  /* Fonts. Settings > Appearance > Fonts overrides these on the root element. */
+  --ui-font-family:
+    "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ui-font-scale: 1;
+  --code-font-family:
+    "Geist Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --code-font-size: 12.5px;
 }
 
 /* Palette "dark": cool near-black chrome, a surface ladder that reads without
    hairlines, Apple's dark-mode blue as the interactive color. The :root block
    above is palette "contrast". Selected in Settings > Appearance > Theme. */
-:root[data-palette="dark"] {
+[data-palette="dark"] {
   --background: #08090c;
   --foreground: #f2f3f5;
 
@@ -310,6 +350,122 @@
   --surface-4: #2f343e;
 }
 
+/* Palette "light": cool gray chrome around white panes, a surface ladder that
+   steps darker inside them, and accents deepened until text in them passes AA.
+   Picked by Theme > Light, or by System when the OS prefers light. */
+[data-palette="light"] {
+  color-scheme: light;
+
+  --background: #eceef2;
+  --foreground: #14161b;
+
+  --shiki-token-comment: #5f6873;
+  --shiki-token-constant: #0550ae;
+  --shiki-token-function: #6639ba;
+  --shiki-token-keyword: #cf222e;
+  --shiki-token-link: #0a3069;
+  --shiki-token-parameter: #953800;
+  --shiki-token-punctuation: #24292f;
+  --shiki-token-string: #0a3069;
+  --shiki-token-string-expression: #116329;
+
+  --card: #ffffff;
+  --card-foreground: #14161b;
+  --popover: #ffffff;
+  --popover-foreground: #14161b;
+  --surface: #ffffff;
+  --surface-foreground: #14161b;
+  --surface-secondary: #e2e5ea;
+  --surface-secondary-foreground: #14161b;
+  --surface-tertiary: #d8dce3;
+  --surface-tertiary-foreground: #14161b;
+  --overlay: #ffffff;
+  --overlay-foreground: #14161b;
+
+  --primary: #0062cc;
+  --primary-foreground: #ffffff;
+  --primary-focus: #0052ad;
+  --primary-on-dark: #0062cc;
+
+  --secondary: #eef0f3;
+  --secondary-foreground: #14161b;
+  --muted: #eef0f3;
+  --muted-foreground: #596070;
+  --accent: #eef0f3;
+  --accent-foreground: #14161b;
+  --accent-soft-foreground: #14161b;
+
+  --body: #2c3038;
+  --body-muted: #2c3038;
+  --charcoal: #2c3038;
+  --ash: #6b7280;
+  --stone: #a1a7b1;
+  --on-dark-mute: rgba(20, 22, 27, 0.72);
+
+  --destructive: #c8222c;
+  --destructive-foreground: #ffffff;
+
+  --accent-blue: #0866c6;
+  --accent-blue-soft: rgba(8, 102, 198, 0.1);
+  --accent-red: #c8222c;
+  --accent-red-soft: rgba(200, 34, 44, 0.1);
+  --accent-green: #157a3a;
+  --accent-green-soft: rgba(21, 122, 58, 0.1);
+  --accent-yellow: #8a5d00;
+  --accent-yellow-soft: rgba(176, 120, 0, 0.12);
+  --accent-purple: #7a45d6;
+  --accent-purple-soft: rgba(122, 69, 214, 0.1);
+  --accent-peach: #b2490f;
+  --accent-peach-soft: rgba(214, 101, 36, 0.12);
+  --accent-ochre: #8a5d00;
+  --accent-ochre-soft: rgba(176, 120, 0, 0.12);
+
+  --border: rgba(20, 22, 27, 0.1);
+  --input: rgba(20, 22, 27, 0.14);
+  --separator: rgba(20, 22, 27, 0.1);
+  --border-soft: rgba(20, 22, 27, 0.07);
+  --border-strong: rgba(20, 22, 27, 0.2);
+
+  --ring: #0071e3;
+  --focus: #0071e3;
+
+  --field-background: #ffffff;
+  --field-foreground: #14161b;
+  --field-placeholder: #636a77;
+  --field-border: rgba(20, 22, 27, 0.14);
+
+  --sidebar: #eceef2;
+  --sidebar-foreground: #14161b;
+  --sidebar-primary: #0062cc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e2e5ea;
+  --sidebar-accent-foreground: #14161b;
+  --sidebar-border: rgba(20, 22, 27, 0.1);
+  --sidebar-ring: #0071e3;
+
+  --key-bg-start: #ffffff;
+  --key-bg-end: #eef0f3;
+
+  --surface-1: #f5f6f8;
+  --surface-2: #eef0f3;
+  --surface-3: #e4e7ec;
+  --surface-4: #d8dce3;
+
+  --shadow-color: rgba(16, 24, 40, 0.24);
+  --edge-highlight: transparent;
+  --scrim: rgba(16, 24, 40, 0.3);
+
+  --terminal-black: #24292f;
+  --terminal-bright-black: #57606a;
+  --terminal-white: #5c6370;
+  --terminal-bright-white: #8c959f;
+  --terminal-cyan: #0f6e85;
+  --terminal-selection: rgba(8, 102, 198, 0.18);
+
+  --project-yellow: oklch(68.1% 0.162 75.834);
+  --project-lime: oklch(64.8% 0.2 131.684);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -378,10 +534,35 @@
 
   --color-brand-claude: var(--brand-claude);
 
-  --font-sans:
-    "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono:
-    "Geist Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --color-scrim: var(--scrim);
+  --color-terminal-cyan: var(--terminal-cyan);
+
+  /* Project color utilities (bg-project-red, text-project-red, ...) */
+  --color-project-red: var(--project-red);
+  --color-project-orange: var(--project-orange);
+  --color-project-yellow: var(--project-yellow);
+  --color-project-lime: var(--project-lime);
+  --color-project-emerald: var(--project-emerald);
+  --color-project-teal: var(--project-teal);
+  --color-project-cyan: var(--project-cyan);
+  --color-project-sky: var(--project-sky);
+  --color-project-indigo: var(--project-indigo);
+  --color-project-violet: var(--project-violet);
+  --color-project-purple: var(--project-purple);
+  --color-project-fuchsia: var(--project-fuchsia);
+  --color-project-pink: var(--project-pink);
+  --color-project-rose: var(--project-rose);
+
+  --font-sans: var(--ui-font-family);
+  --font-mono: var(--code-font-family);
+
+  /* shortcut: text-[Npx] classes and px font sizes in this file ignore the scale; move them to these steps when one needs to follow it. */
+  --text-xs: calc(0.75rem * var(--ui-font-scale));
+  --text-sm: calc(0.875rem * var(--ui-font-scale));
+  --text-base: calc(1rem * var(--ui-font-scale));
+  --text-lg: calc(1.125rem * var(--ui-font-scale));
+  --text-xl: calc(1.25rem * var(--ui-font-scale));
+  --text-2xl: calc(1.5rem * var(--ui-font-scale));
 
   /* Radius scale: Raycast 4/6/8/10/16 + Apple pill 9999 */
   --radius-xs: 4px;
@@ -502,7 +683,7 @@ body {
   overflow: hidden;
   font-family: var(--font-sans);
   font-feature-settings: "calt", "kern", "liga";
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
   line-height: 1.5;
   letter-spacing: -0.01em;
   -webkit-font-smoothing: antialiased;
@@ -517,15 +698,15 @@ body {
   background: var(--popover);
   color: var(--popover-foreground);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 8px 24px -8px rgba(0, 0, 0, 0.7),
+    inset 0 1px 0 var(--edge-highlight),
+    0 8px 24px -8px color-mix(in srgb, var(--shadow-color) 70%, transparent),
     0 0 0 1px var(--border-strong);
 }
 
 /* ── Browser surfaces themed from the palette ─────────────────────────── */
 
 ::selection {
-  background: rgba(87, 193, 255, 0.28);
+  background: color-mix(in srgb, var(--accent-blue) 28%, transparent);
   color: var(--foreground);
 }
 
@@ -544,14 +725,14 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
   background-clip: padding-box;
 }
 
@@ -593,7 +774,8 @@ button:active:not(:disabled),
 }
 
 .terminal-pane .xterm-viewport {
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 16%, transparent)
+    transparent;
   scrollbar-width: thin;
 }
 
@@ -607,14 +789,14 @@ button:active:not(:disabled),
 }
 
 .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
 .terminal-pane .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
   background-clip: padding-box;
 }
 
@@ -639,7 +821,7 @@ button:active:not(:disabled),
 
 .prose {
   color: var(--foreground);
-  font-size: 15px;
+  font-size: calc(15px * var(--ui-font-scale));
   line-height: 1.6;
   letter-spacing: -0.006em;
   font-feature-settings: "calt", "kern", "liga";
@@ -729,7 +911,7 @@ button:active:not(:disabled),
   background: transparent;
   border: 0;
   padding: 0;
-  font-size: 12.5px;
+  font-size: var(--code-font-size);
   line-height: 1.6;
   border-radius: 0;
 }
@@ -764,9 +946,9 @@ button:active:not(:disabled),
   overflow-wrap: anywhere;
 }
 
-/* 30 code lines of 12.5px at line-height 1.6, plus the pre's vertical padding. */
+/* 30 code lines at line-height 1.6, plus the pre's vertical padding. */
 .prose .code-block[data-collapsed] pre {
-  max-height: calc(30 * 1.6 * 12.5px + 1.7rem);
+  max-height: calc(30 * 1.6 * var(--code-font-size) + 1.7rem);
   overflow-y: hidden;
 }
 
@@ -824,7 +1006,11 @@ button:active:not(:disabled),
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-  text-decoration-color: rgba(41, 151, 255, 0.45);
+  text-decoration-color: color-mix(
+    in srgb,
+    var(--primary-on-dark) 45%,
+    transparent
+  );
   transition: text-decoration-color var(--t-fast);
 }
 
@@ -955,7 +1141,7 @@ button:active:not(:disabled),
 }
 
 .composer-tool:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
   color: var(--foreground);
 }
 
@@ -970,12 +1156,12 @@ button:active:not(:disabled),
 
 .composer-tool.is-pill {
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
   padding-inline: 10px;
 }
 
 .composer-tool.is-pill:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
 }
 
 .prose img {
@@ -988,9 +1174,9 @@ button:active:not(:disabled),
   background-image: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.02) 40%,
-    rgba(255, 255, 255, 0.04) 50%,
-    rgba(255, 255, 255, 0.02) 60%,
+    color-mix(in srgb, var(--foreground) 2%, transparent) 40%,
+    color-mix(in srgb, var(--foreground) 4%, transparent) 50%,
+    color-mix(in srgb, var(--foreground) 2%, transparent) 60%,
     transparent 100%
   );
   background-size: 200% 100%;
@@ -1200,6 +1386,13 @@ textarea:focus-visible {
   background-color: var(--surface-2);
 }
 
+/* Set for one task while the palette changes (theme-preference.ts). */
+:root[data-palette-switching] *,
+:root[data-palette-switching] *::before,
+:root[data-palette-switching] *::after {
+  transition: none;
+}
+
 :root[data-motion="reduced"] *,
 :root[data-motion="reduced"] *::before,
 :root[data-motion="reduced"] *::after {
@@ -1352,7 +1545,8 @@ textarea:focus-visible {
   padding: 10px 12px;
   border-radius: 14px;
   background: var(--surface-3);
-  box-shadow: 0 4px 20px #0003;
+  box-shadow: 0 4px 20px
+    color-mix(in srgb, var(--shadow-color) 20%, transparent);
   pointer-events: none;
   font-size: 12px;
   line-height: 1.6;

@@ -22,7 +22,7 @@
     "perf:baseline": "node scripts/perf-baseline.mjs",
     "test:e2e": "bun run build && env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK XDG_SESSION_TYPE=x11 ELECTRON_OZONE_PLATFORM_HINT=x11 OZONE_PLATFORM=x11 xvfb-run -a playwright test --config=playwright.electron.config.ts",
     "test:watch": "vitest",
-    "test:design-tokens": "node --test scripts/check-design-tokens.node-test.mjs",
+    "test:design-tokens": "node --test scripts/check-design-tokens.node-test.mjs scripts/check-color-literals.node-test.mjs scripts/check-contrast.node-test.mjs",
     "test:dependency-policy": "node --test scripts/check-dependency-policy.node-test.mjs",
     "test:packaging": "node --test scripts/audit-dependencies.node-test.mjs scripts/desktop-packaging.node-test.mjs scripts/linux-ota-upgrade-drill.node-test.mjs scripts/release-assembly.node-test.mjs scripts/publish-ota-release.node-test.mjs scripts/release-workflows.node-test.mjs scripts/validate-packaged-update-config.node-test.mjs scripts/write-updater-metadata.node-test.mjs",
     "test:ota-health": "node ./node_modules/vitest/vitest.mjs run --config workers/ota-health/vitest.config.ts && node --test scripts/check-ota-health-gate.node-test.mjs workers/ota-health/migrations/0001_ota_health.node-test.mjs && WRANGLER_SEND_METRICS=false bunx wrangler deploy --dry-run --config workers/ota-health/wrangler.jsonc",
