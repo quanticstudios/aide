@@ -71,6 +71,12 @@ function replay(
 }
 
 describe('diffSnapshots', () => {
+  const limit = {
+    label: '5-hour limit',
+    limitId: 'five_hour',
+    provider: 'claude',
+    resetsAt: '2026-10-23T15:00:00.000Z',
+  } as const
   const base = snapshot(1, {
     content: [item('a', 'Hello'), item('b', '', { kind: 'tool-call' })],
     pendingApprovals: [
@@ -137,6 +143,22 @@ describe('diffSnapshots', () => {
       snapshot(6, { ...base, revision: 6 }),
       ['session.patch'],
     ],
+    [
+      'a reached usage limit',
+      snapshot(7, { ...base, revision: 7, usageLimit: limit }),
+      ['limit'],
+    ],
+    [
+      'an error with a known fix',
+      snapshot(8, {
+        ...base,
+        lastError: 'Not logged in · Please run /login',
+        lastErrorAt: 'now',
+        lastErrorKind: 'auth',
+        revision: 8,
+      }),
+      ['error'],
+    ],
   ])('rebuilds %s exactly', (_label, next, types) => {
     const deltas = diffSnapshots(state, next)
 
@@ -145,6 +167,24 @@ describe('diffSnapshots', () => {
       types.map((_type, index) => state.seq + 1 + index),
     )
     expect(replay(state, deltas)?.snapshot).toEqual(next)
+  })
+
+  it('clears a lifted limit and an error kind', () => {
+    const limited: SessionDeltaState = {
+      seq: 1,
+      snapshot: snapshot(1, {
+        lastError: 'connect ECONNREFUSED',
+        lastErrorAt: 'now',
+        lastErrorKind: 'network',
+        usageLimit: limit,
+      }),
+    }
+    const next = snapshot(2, { lastError: 'Turn failed', lastErrorAt: 'later' })
+    const deltas = diffSnapshots(limited, next)
+
+    expect(deltas.map((delta) => delta.type)).toEqual(['limit', 'error'])
+    expect(deltas[0]).toMatchObject({ limit: null })
+    expect(replay(limited, deltas)?.snapshot).toEqual(next)
   })
 
   it('sends nothing when the snapshot did not change', () => {

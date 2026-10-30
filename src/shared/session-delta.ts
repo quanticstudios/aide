@@ -1,5 +1,6 @@
 import type {
   ManagedSessionContentItem,
+  ManagedSessionErrorKind,
   ManagedSessionPendingApproval,
   ManagedSessionPendingUserInput,
   ManagedSessionPlanApproval,
@@ -8,6 +9,7 @@ import type {
   ManagedSessionToolCall,
   ManagedSessionTurnSummary,
   ManagedSessionUsage,
+  ManagedSessionUsageLimit,
 } from './managed-session'
 import type { ManagedUsageReport, ManagedUsageSummary } from './managed-usage'
 import type { ManagedProviderRuntimeSessionState } from './provider-runtime'
@@ -31,6 +33,7 @@ export type SessionDeltaPatchableKey = Exclude<
   | 'lastCompletedAt'
   | 'lastError'
   | 'lastErrorAt'
+  | 'lastErrorKind'
   | 'pendingApprovals'
   | 'pendingUserInputs'
   | 'planApproval'
@@ -41,6 +44,7 @@ export type SessionDeltaPatchableKey = Exclude<
   | 'turns'
   | 'updatedAt'
   | 'usage'
+  | 'usageLimit'
   | 'usageReports'
   | 'usageSummary'
 >
@@ -128,7 +132,14 @@ export type SessionDelta = SessionDeltaEnvelope &
         usageReports: ManagedUsageReport[]
         usageSummary: ManagedUsageSummary
       }
-    | { type: 'error'; lastError: string | null; lastErrorAt: string | null }
+    | { type: 'limit'; limit: ManagedSessionUsageLimit | null }
+    | {
+        type: 'error'
+        lastError: string | null
+        lastErrorAt: string | null
+        /** Absent when the error has no known fix. */
+        lastErrorKind?: ManagedSessionErrorKind
+      }
     | {
         type: 'session.patch'
         set: Partial<PatchableSnapshot>
@@ -315,9 +326,15 @@ export function applyDelta(
       snapshot.usageReports = delta.usageReports
       snapshot.usageSummary = delta.usageSummary
       break
+    case 'limit':
+      if (delta.limit) snapshot.usageLimit = delta.limit
+      else delete snapshot.usageLimit
+      break
     case 'error':
       snapshot.lastError = delta.lastError
       snapshot.lastErrorAt = delta.lastErrorAt
+      if (delta.lastErrorKind) snapshot.lastErrorKind = delta.lastErrorKind
+      else delete snapshot.lastErrorKind
       break
     case 'session.patch':
       Object.assign(snapshot, delta.set)

@@ -32,6 +32,7 @@ import {
   type ProviderSelectionInput,
   resolveProviderSelection,
 } from '../../../shared/provider-capabilities'
+import { classifyProviderError } from '../../../shared/provider-errors'
 import type { ProviderSkill } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useTranscriptFollow } from '../hooks/useTranscriptFollow'
@@ -60,10 +61,12 @@ import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import DiffPanel from './DiffPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import PlanCard from './PlanCard'
+import ThreadErrorBanner from './ThreadErrorBanner'
 import TranscriptList, {
   type TranscriptVirtualizer,
 } from './transcript/TranscriptList'
 import TurnGroupBlock from './transcript/TurnGroupBlock'
+import UsageLimitBanner from './UsageLimitBanner'
 
 interface ManagedAgentPaneProps {
   readonly isActive: boolean
@@ -949,6 +952,14 @@ export default function ManagedAgentPane({
     runningTurnId !== null || snapshot?.sessionState === 'running'
       ? 'Stop the running task before rewinding.'
       : null
+  // why: a session that failed to start has no snapshot, so its error only reaches the pane as the start call's message.
+  const startErrorKind = snapshot ? null : classifyProviderError(error)
+  const retryLastPrompt = () => {
+    const text = snapshot?.content
+      .filter((item) => item.kind === 'user-prompt')
+      .at(-1)?.text
+    if (text) void sendPromptText(text)
+  }
 
   return (
     <section
@@ -965,7 +976,7 @@ export default function ManagedAgentPane({
         />
       ) : null}
 
-      {error ? (
+      {error && !startErrorKind ? (
         <div className="flex items-center gap-3 border-b border-accent-red bg-accent-red-soft px-4 py-2.5 text-sm text-accent-red">
           <span className="flex-1">{error}</span>
           {error === JEV_CONSENT_REQUIRED_MESSAGE ||
@@ -1098,6 +1109,29 @@ export default function ManagedAgentPane({
       </div>
 
       <div className="flex flex-col gap-2 px-4 pb-3 pt-2">
+        {snapshot?.usageLimit ? (
+          <UsageLimitBanner
+            draftInput={composer.draftInput}
+            key={`${snapshot.usageLimit.limitId}:${snapshot.usageLimit.resetsAt}`}
+            limit={snapshot.usageLimit}
+            onResume={() => void sendPromptText('continue')}
+          />
+        ) : null}
+        {error && startErrorKind ? (
+          <ThreadErrorBanner
+            kind={startErrorKind}
+            message={error}
+            onRetry={() => void ensureSession()}
+            provider={selectedProvider}
+          />
+        ) : snapshot?.lastErrorKind && snapshot.lastError ? (
+          <ThreadErrorBanner
+            kind={snapshot.lastErrorKind}
+            message={snapshot.lastError}
+            onRetry={retryLastPrompt}
+            provider={snapshot.provider}
+          />
+        ) : null}
         {pendingApproval && pendingPlan ? (
           <PlanCard
             key={pendingApproval.id}

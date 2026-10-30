@@ -1,3 +1,4 @@
+import type { ManagedSessionUsageLimit } from './managed-session'
 import type { ManagedUsageReport } from './managed-usage'
 import type { WorkspaceActivityProvider } from './workspace-activity'
 
@@ -149,6 +150,11 @@ export type ManagedProviderRuntimeEvent =
   | (ManagedProviderRuntimeEventBase & {
       message: string
       type: 'runtime.error'
+    })
+  | (ManagedProviderRuntimeEventBase & {
+      /** The reached limit, or null once the provider says usage is allowed again. */
+      limit: ManagedSessionUsageLimit | null
+      type: 'session.limit.updated'
     })
   | (ManagedProviderRuntimeEventBase & {
       cachedInputTokens?: number
