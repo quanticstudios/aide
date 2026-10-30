@@ -1704,6 +1704,11 @@ function registerIpcHandlers(): void {
     (_event, workspaceId: string) =>
       gitWorkspaceService.getWorktreeBranchStats(workspaceId),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.getWorkspaceScopeDiff,
+    (_event, workspaceId: string, scope: 'branch' | 'uncommitted') =>
+      gitWorkspaceService.getWorkspaceScopeDiff(workspaceId, scope),
+  )
 }
 
 const applicationRuntime = new ApplicationRuntime({

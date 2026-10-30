@@ -12,6 +12,7 @@ import type {
   GitChangeKind,
   ImportProjectResult,
   ProjectRefRecord,
+  WorkspaceDiffScope,
   WorkspaceGitCommitInput,
   WorkspaceGitDiffResult,
   WorkspaceGitDiffSection,
@@ -28,6 +29,7 @@ import type {
   WorkspaceGitRevertInput,
   WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
+  WorkspaceScopeDiffResult,
   WorktreeBranchStats,
   WorktreeBranchStatsResult,
 } from '../shared/git'
@@ -42,9 +44,11 @@ import type {
 } from '../shared/persistence'
 import { isLinkedWorktree } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
+import { parseTurnDiffPatch } from './turn-checkpoints'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
+const MAX_GIT_OUTPUT_BYTES = 16 * 1024 * 1024
 const MAX_COMMIT_MESSAGE_LENGTH = 4_096
 const MAX_PULL_REQUEST_BODY_LENGTH = 65_536
 const MAX_PULL_REQUEST_TITLE_LENGTH = 256
@@ -764,6 +768,74 @@ export class GitWorkspaceService {
           mergeStatus: resolvedMergeStatus,
         },
         workspaceId,
+      }
+    } catch (error) {
+      return classifyWorkspaceGitStatusError(error)
+    }
+  }
+
+  /** Changed files with patches for the branch against its base, or for uncommitted work including untracked files. */
+  public async getWorkspaceScopeDiff(
+    workspaceId: string,
+    scope: Exclude<WorkspaceDiffScope, 'turn'>,
+  ): Promise<WorkspaceScopeDiffResult> {
+    if (scope !== 'branch' && scope !== 'uncommitted') {
+      return this.invalidInput('Choose the branch or uncommitted scope.')
+    }
+    const owned = await this.getOwnedWorkspace(workspaceId)
+    if (!owned.ok) return owned
+    const { project, workspace } = owned
+    const patchArgs = [
+      'diff',
+      '--no-color',
+      '--no-ext-diff',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+    ]
+
+    try {
+      let patch = ''
+      if (scope === 'branch') {
+        const baseRef = await this.resolveComparisonBase(
+          workspace.worktreePath,
+          project.defaultBranch,
+        )
+        if (baseRef) {
+          patch = await this.runGit(
+            [...patchArgs, `${baseRef}...HEAD`],
+            workspace.worktreePath,
+          )
+        }
+      } else {
+        const [tracked, untracked] = await Promise.all([
+          this.runGit([...patchArgs, 'HEAD'], workspace.worktreePath),
+          this.runGit(
+            ['ls-files', '--others', '--exclude-standard', '-z'],
+            workspace.worktreePath,
+          ),
+        ])
+        const untrackedPatches = await Promise.all(
+          untracked
+            .split('\0')
+            .filter(Boolean)
+            .map((filePath) =>
+              readUntrackedPatch(workspace.worktreePath, filePath),
+            ),
+        )
+        patch = [tracked, ...untrackedPatches].join('\n')
+      }
+
+      const files = parseTurnDiffPatch(patch).map((file) => ({
+        ...file,
+        patch: truncateDiffOutput(file.patch).patch,
+      }))
+      return {
+        diff: {
+          additions: files.reduce((total, file) => total + file.additions, 0),
+          deletions: files.reduce((total, file) => total + file.deletions, 0),
+          files,
+        },
+        ok: true,
       }
     } catch (error) {
       return classifyWorkspaceGitStatusError(error)
@@ -2167,6 +2239,7 @@ export class GitWorkspaceService {
     const result = await execFileAsync(gitPath, args, {
       cwd,
       env: process.env,
+      maxBuffer: MAX_GIT_OUTPUT_BYTES,
       timeout: 10000,
     })
 

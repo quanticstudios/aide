@@ -57,6 +57,7 @@ import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import DiffPanel from './DiffPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import PlanCard from './PlanCard'
 import TranscriptList, {
@@ -241,6 +242,10 @@ export default function ManagedAgentPane({
   const [composerDefaults, setComposerDefaults] = useState<
     ComposerDefaults | null | undefined
   >(undefined)
+  const [diffPanelTarget, setDiffPanelTarget] = useState<{
+    checkpointId: string
+    path: string | null
+  } | null>(null)
   const [rewindTarget, setRewindTarget] = useState<{
     readonly attachments: readonly ManagedSessionAttachment[]
     readonly checkpointId: string
@@ -729,6 +734,11 @@ export default function ManagedAgentPane({
       void retryTurnRef.current(text, recipientAlias),
     [],
   )
+  const handleOpenDiff = useCallback(
+    (checkpointId: string, path: string | null) =>
+      setDiffPanelTarget({ checkpointId, path }),
+    [],
+  )
   const handleTurnBranch = useCallback(
     (responseContentItemId: string) =>
       void handleBranchConversation(responseContentItemId),
@@ -1014,6 +1024,7 @@ export default function ManagedAgentPane({
                         onBranch={handleTurnBranch}
                         onEditFromHere={handleTurnEditFromHere}
                         onInterrupt={handleInterruptRecipient}
+                        onOpenDiff={handleOpenDiff}
                         onRetry={handleTurnRetry}
                         providerLabel={
                           turn?.provider === 'claude'
@@ -1073,6 +1084,17 @@ export default function ManagedAgentPane({
           scrollRef={scrollRef}
           virtualizerRef={virtualizerRef}
         />
+
+        {diffPanelTarget ? (
+          <DiffPanel
+            checkpointId={diffPanelTarget.checkpointId}
+            initialPath={diffPanelTarget.path}
+            key={`${diffPanelTarget.checkpointId}:${diffPanelTarget.path}`}
+            onClose={() => setDiffPanelTarget(null)}
+            sessionId={sessionId}
+            workspaceId={workspace.id}
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 px-4 pb-3 pt-2">
