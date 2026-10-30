@@ -50,6 +50,7 @@ import {
   providerSelectionHydrationKey,
 } from '../lib/managed-session-selection'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { WorkspaceIdContext } from '../lib/workspace-id'
 import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
@@ -975,43 +976,45 @@ export default function ManagedAgentPane({
         >
           {transcriptRows.length > 0 ? (
             <div ref={transcriptRef}>
-              <TranscriptList
-                renderRow={(row) => {
-                  const turn = snapshot?.turns.find(
-                    (candidate) => candidate.id === row.group.turnId,
-                  ) as RecipientTurnSummary | undefined
+              <WorkspaceIdContext value={workspace.id}>
+                <TranscriptList
+                  renderRow={(row) => {
+                    const turn = snapshot?.turns.find(
+                      (candidate) => candidate.id === row.group.turnId,
+                    ) as RecipientTurnSummary | undefined
 
-                  return (
-                    <TurnGroupBlock
-                      canBranch={turn?.state === 'completed'}
-                      checkpointId={turn?.checkpointId ?? null}
-                      isCompleted={turn?.state === 'completed'}
-                      isFailed={turn?.state === 'failed'}
-                      isRunning={turn?.state === 'running'}
-                      onBranch={handleTurnBranch}
-                      onEditFromHere={handleTurnEditFromHere}
-                      onInterrupt={handleInterruptRecipient}
-                      onRetry={handleTurnRetry}
-                      providerLabel={
-                        turn?.provider === 'claude'
-                          ? 'Claude'
-                          : turn?.provider === 'codex'
-                            ? 'Codex'
-                            : workingProviderLabel
-                      }
-                      recipientAlias={turn?.recipientAlias ?? null}
-                      requestText={turn?.requestText ?? null}
-                      rewindDisabledReason={rewindDisabledReason}
-                      row={row}
-                      sessionId={sessionId}
-                    />
-                  )
-                }}
-                rows={transcriptRows}
-                scrollRef={scrollRef}
-                sessionId={sessionId}
-                virtualizerRef={virtualizerRef}
-              />
+                    return (
+                      <TurnGroupBlock
+                        canBranch={turn?.state === 'completed'}
+                        checkpointId={turn?.checkpointId ?? null}
+                        isCompleted={turn?.state === 'completed'}
+                        isFailed={turn?.state === 'failed'}
+                        isRunning={turn?.state === 'running'}
+                        onBranch={handleTurnBranch}
+                        onEditFromHere={handleTurnEditFromHere}
+                        onInterrupt={handleInterruptRecipient}
+                        onRetry={handleTurnRetry}
+                        providerLabel={
+                          turn?.provider === 'claude'
+                            ? 'Claude'
+                            : turn?.provider === 'codex'
+                              ? 'Codex'
+                              : workingProviderLabel
+                        }
+                        recipientAlias={turn?.recipientAlias ?? null}
+                        requestText={turn?.requestText ?? null}
+                        rewindDisabledReason={rewindDisabledReason}
+                        row={row}
+                        sessionId={sessionId}
+                      />
+                    )
+                  }}
+                  rows={transcriptRows}
+                  scrollRef={scrollRef}
+                  sessionId={sessionId}
+                  virtualizerRef={virtualizerRef}
+                />
+              </WorkspaceIdContext>
 
               {snapshot?.sessionState === 'running' &&
               runningTurnId === null ? (

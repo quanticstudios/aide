@@ -50,11 +50,16 @@ import { ApplicationRuntime } from './application-runtime'
 import { ContextPreparation } from './context-preparation'
 import type { AideDatabase } from './database'
 import { DiagnosticsService } from './diagnostics-service'
-import { launchEditor, listAvailableEditors } from './editor-launcher'
+import {
+  launchEditor,
+  listAvailableEditors,
+  openFileInEditor,
+} from './editor-launcher'
 import {
   probeExecutable,
   validateExecutablePath,
 } from './executable-resolution'
+import { openAllowedExternalUrl } from './external-url'
 import {
   FakeUpdateService,
   isFakeUpdateServiceEnabled,
@@ -650,6 +655,8 @@ const windowManager = new WindowManager({
   getAllWindows: () => BrowserWindow.getAllWindows(),
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
   mainPreloadPath: path.join(import.meta.dirname, '../preload/index.js'),
+  openExternal: (url) =>
+    void openAllowedExternalUrl(url, (allowed) => shell.openExternal(allowed)),
   rendererHtmlPath: rendererLocation.rendererHtmlPath,
   setTimeout,
 })
@@ -1131,6 +1138,24 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.editorLaunch,
     (_event, editorId: string, cwd: string) => launchEditor(editorId, cwd),
   )
+  ipcMain.handle(
+    IPC_CHANNELS.editorOpenFile,
+    (event, workspaceId: unknown, relativePath: unknown, line: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      if (typeof relativePath !== 'string') {
+        throw new Error('Invalid file path.')
+      }
+      return openFileInEditor(
+        workspace.worktreePath,
+        relativePath,
+        Number.isInteger(line) && Number(line) > 0 ? Number(line) : null,
+      )
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.openExternal, (event, url: unknown) => {
+    requireTrustedRenderer(event)
+    return openAllowedExternalUrl(url, (allowed) => shell.openExternal(allowed))
+  })
   ipcMain.handle(
     IPC_CHANNELS.importProject,
     async (event, repoPath: string) => {

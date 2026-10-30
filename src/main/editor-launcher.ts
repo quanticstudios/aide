@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { access } from 'node:fs/promises'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -81,6 +83,56 @@ export async function launchEditor(
   await execFileAsync(editor.command, [cwd], {
     timeout: 10_000,
   })
+}
+
+/** Arguments that open `file` at `line` in `editor`, with `cwd` as the project where the editor takes one. */
+export function editorFileArguments(
+  editorId: string,
+  cwd: string,
+  file: string,
+  line: number | null,
+): string[] {
+  if (editorId === 'idea' || editorId === 'webstorm') {
+    return line ? [cwd, '--line', String(line), file] : [cwd, file]
+  }
+  const target = line ? `${file}:${line}` : file
+  if (editorId === 'vscode' || editorId === 'cursor') {
+    return [cwd, '--goto', target]
+  }
+  return [cwd, target]
+}
+
+/** Opens a workspace-relative file in the first available editor; refuses paths that leave `cwd`. */
+export async function openFileInEditor(
+  cwd: string,
+  relativePath: string,
+  line: number | null,
+): Promise<void> {
+  const file = path.resolve(cwd, relativePath)
+  const relative = path.relative(cwd, file)
+  if (
+    !relative ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error('File is outside the workspace.')
+  }
+  // why: editors create a missing file instead of failing, so a mistyped path would leave an empty buffer.
+  await access(file).catch(() => {
+    throw new Error(`File not found: ${relative}`)
+  })
+
+  const [editor] = await listAvailableEditors()
+  if (!editor) {
+    throw new Error('No supported editor is installed.')
+  }
+
+  await execFileAsync(
+    editor.command,
+    editorFileArguments(editor.id, cwd, file, line),
+    { timeout: 10_000 },
+  )
 }
 
 export function resetEditorCache(): void {

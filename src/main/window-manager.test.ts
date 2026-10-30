@@ -56,6 +56,7 @@ describe('WindowManager', () => {
       getAllWindows: () => [browserWindow],
       loadRendererUrl: 'http://localhost:5173',
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(setTimer),
     })
@@ -84,6 +85,7 @@ describe('WindowManager', () => {
   })
 
   it('denies main-window popups, permissions, and untrusted navigation', () => {
+    const openExternal = vi.fn()
     const created = createWindow()
     const browserWindow = asBrowserWindow(created.window)
     const manager = new WindowManager({
@@ -91,6 +93,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [browserWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal,
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(vi.fn()),
     })
@@ -98,8 +101,11 @@ describe('WindowManager', () => {
     manager.createMainWindow()
 
     expect(
-      created.webContents.setWindowOpenHandler.mock.calls[0]?.[0](),
+      created.webContents.setWindowOpenHandler.mock.calls[0]?.[0]({
+        url: 'https://example.com/popup',
+      }),
     ).toEqual({ action: 'deny' })
+    expect(openExternal).toHaveBeenCalledWith('https://example.com/popup')
     const permissionCallback = vi.fn()
     created.webContents.session.setPermissionRequestHandler.mock.calls[0]?.[0](
       created.webContents,
@@ -131,6 +137,15 @@ describe('WindowManager', () => {
       'https://example.com',
     )
     expect(externalNavigation.preventDefault).toHaveBeenCalledOnce()
+    expect(openExternal).toHaveBeenLastCalledWith('https://example.com')
+
+    const trustedLinkNavigation = { preventDefault: vi.fn() }
+    created.handlers.get('will-navigate')?.(
+      trustedLinkNavigation,
+      'file:///app/renderer/index.html#settings',
+    )
+    expect(trustedLinkNavigation.preventDefault).not.toHaveBeenCalled()
+    expect(openExternal).toHaveBeenCalledTimes(2)
 
     const trustedNavigation = { preventDefault: vi.fn() }
     created.handlers.get('will-redirect')?.(
@@ -149,6 +164,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [browserWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(setTimer),
     })
@@ -172,6 +188,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [browserWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(vi.fn()),
     })
@@ -207,6 +224,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [browserWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(vi.fn()),
     })
@@ -258,6 +276,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [browserWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(vi.fn()),
     })
@@ -313,6 +332,7 @@ describe('WindowManager', () => {
       fromWebContents: vi.fn(),
       getAllWindows: () => [firstWindow, secondWindow],
       mainPreloadPath: '/app/preload/index.js',
+      openExternal: vi.fn(),
       rendererHtmlPath: '/app/renderer/index.html',
       setTimeout: asTimer(setTimer),
     })

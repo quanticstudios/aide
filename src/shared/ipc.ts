@@ -131,6 +131,8 @@ export const IPC_CHANNELS = {
   detectWorktreeBranch: 'app:detect-worktree-branch',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
+  editorOpenFile: 'app:editor-open-file',
+  openExternal: 'app:open-external',
   executableProbe: 'executables:probe',
   executableValidate: 'executables:validate',
   appShortcut: 'app:shortcut',
@@ -285,6 +287,12 @@ export interface AideApi {
   importProject: (repoPath: string) => Promise<ImportProjectResult>
   listAvailableEditors: () => Promise<AvailableEditorDescriptor[]>
   launchEditor: (editorId: string, cwd: string) => Promise<void>
+  openWorkspaceFile: (
+    workspaceId: string,
+    relativePath: string,
+    line: number | null,
+  ) => Promise<void>
+  openExternal: (url: string) => Promise<void>
   listProjectRefs: (projectId: string) => Promise<ProjectRefRecord[]>
   getWorkspaceGitStatus: (
     workspaceId: string,
