@@ -6,6 +6,7 @@ import type {
 
 import { IPC_CHANNELS } from '../shared/ipc'
 import { isAllowedPreviewUrl } from '../shared/preview'
+import type { WorkspaceWindowContext } from '../shared/workspace-window'
 import { mapInputToShortcutEvent } from './app-shortcuts'
 
 const PREVIEW_PARTITION = 'persist:aide-preview'
@@ -23,6 +24,12 @@ export interface WindowManagerDependencies {
 }
 
 export class WindowManager {
+  private mainWindow: BrowserWindow | null = null
+  private readonly windowContexts = new Map<
+    BrowserWindow,
+    WorkspaceWindowContext
+  >()
+
   constructor(private readonly dependencies: WindowManagerDependencies) {}
 
   broadcast(channel: string, payload: unknown): void {
@@ -31,7 +38,25 @@ export class WindowManager {
     }
   }
 
+  broadcastForWindowContext(
+    channel: string,
+    createPayload: (context: WorkspaceWindowContext) => unknown | undefined,
+  ): void {
+    for (const [window, context] of this.windowContexts) {
+      const payload = createPayload(context)
+
+      if (!window.isDestroyed() && payload !== undefined) {
+        window.webContents.send(channel, payload)
+      }
+    }
+  }
+
   createMainWindow(): BrowserWindow {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.focusWindow(this.mainWindow)
+      return this.mainWindow
+    }
+
     const window = this.dependencies.createBrowserWindow({
       autoHideMenuBar: true,
       width: 1440,
@@ -49,6 +74,88 @@ export class WindowManager {
       },
     })
 
+    this.mainWindow = window
+    const handleClosed = this.registerWindow(window, {
+      kind: 'main',
+      windowId: null,
+      workspaceId: null,
+    })
+    this.configureWindow(window, undefined, handleClosed)
+    this.loadRenderer(window)
+
+    return window
+  }
+
+  createWorkspaceWindow(
+    context: Extract<WorkspaceWindowContext, { kind: 'workspace' }>,
+    onClosed: () => void,
+  ): void {
+    const window = this.dependencies.createBrowserWindow({
+      autoHideMenuBar: true,
+      width: 1280,
+      height: 820,
+      minWidth: 900,
+      minHeight: 600,
+      show: false,
+      backgroundColor: '#18181b',
+      title: 'aide',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        preload: this.dependencies.mainPreloadPath,
+        webviewTag: true,
+      },
+    })
+
+    const handleClosed = this.registerWindow(window, context, onClosed)
+    this.configureWindow(window, context, handleClosed)
+    this.loadRenderer(window, context)
+  }
+
+  getWindowContext(webContents: WebContents): WorkspaceWindowContext | null {
+    const window = this.getWindowForWebContents(webContents)
+    return window ? (this.windowContexts.get(window) ?? null) : null
+  }
+
+  focusWorkspaceWindow(windowId: string): boolean {
+    for (const [window, context] of this.windowContexts) {
+      if (context.kind === 'workspace' && context.windowId === windowId) {
+        return this.focusWindow(window)
+      }
+    }
+
+    return false
+  }
+
+  private registerWindow(
+    window: BrowserWindow,
+    context: WorkspaceWindowContext,
+    onClosed?: () => void,
+  ): () => void {
+    let didClose = false
+    const handleClosed = () => {
+      if (didClose) {
+        return
+      }
+
+      didClose = true
+      this.windowContexts.delete(window)
+      if (this.mainWindow === window) {
+        this.mainWindow = null
+      }
+      onClosed?.()
+    }
+
+    this.windowContexts.set(window, context)
+    window.once('closed', handleClosed)
+    return handleClosed
+  }
+
+  private configureWindow(
+    window: BrowserWindow,
+    context?: Extract<WorkspaceWindowContext, { kind: 'workspace' }>,
+    onClosed?: () => void,
+  ): void {
     window.webContents.on(
       'will-attach-webview',
       (event, webPreferences, params) => {
@@ -127,24 +234,96 @@ export class WindowManager {
 
     window.webContents.on(
       'did-fail-load',
-      (_event, errorCode, errorDescription) => {
+      (_event, errorCode, errorDescription, _validatedUrl, isMainFrame) => {
         console.error('Renderer failed to load', errorCode, errorDescription)
 
         if (!window.isVisible()) {
           window.show()
         }
+
+        if (
+          context &&
+          isMainFrame === true &&
+          this.isFatalMainFrameLoadFailure(errorCode)
+        ) {
+          this.repairFailedWorkspaceWindow(window, onClosed)
+        }
       },
     )
 
-    this.dependencies.setTimeout(revealWindow, 1500)
+    window.webContents.on('render-process-gone', (_event, details) => {
+      console.error('Renderer process exited', details)
 
-    if (this.dependencies.loadRendererUrl) {
-      void window.loadURL(this.dependencies.loadRendererUrl)
-    } else {
-      void window.loadFile(this.dependencies.rendererHtmlPath)
+      if (context) {
+        this.repairFailedWorkspaceWindow(window, onClosed)
+      }
+    })
+
+    this.dependencies.setTimeout(revealWindow, 1500)
+  }
+
+  private isFatalMainFrameLoadFailure(errorCode: number): boolean {
+    return errorCode !== -3
+  }
+
+  private repairFailedWorkspaceWindow(
+    window: BrowserWindow,
+    onClosed: (() => void) | undefined,
+  ): void {
+    if (!this.windowContexts.has(window)) {
+      return
     }
 
-    return window
+    if (!window.isDestroyed()) {
+      window.destroy()
+    }
+
+    onClosed?.()
+  }
+
+  private loadRenderer(
+    window: BrowserWindow,
+    context?: Extract<WorkspaceWindowContext, { kind: 'workspace' }>,
+  ): void {
+    if (this.dependencies.loadRendererUrl) {
+      if (!context) {
+        void window.loadURL(this.dependencies.loadRendererUrl)
+        return
+      }
+
+      const rendererUrl = new URL(this.dependencies.loadRendererUrl)
+      rendererUrl.searchParams.set('aideWindowId', context.windowId)
+      rendererUrl.searchParams.set('aideWorkspaceId', context.workspaceId)
+      void window.loadURL(rendererUrl.toString())
+      return
+    }
+
+    if (!context) {
+      void window.loadFile(this.dependencies.rendererHtmlPath)
+      return
+    }
+
+    void window.loadFile(this.dependencies.rendererHtmlPath, {
+      query: {
+        aideWindowId: context.windowId,
+        aideWorkspaceId: context.workspaceId,
+      },
+    })
+  }
+
+  private focusWindow(window: BrowserWindow): boolean {
+    if (window.isDestroyed()) {
+      return false
+    }
+
+    if (window.isMinimized()) {
+      window.restore()
+    }
+    if (!window.isVisible()) {
+      window.show()
+    }
+    window.focus()
+    return true
   }
 
   getWindowForWebContents(webContents: WebContents): BrowserWindow | null {

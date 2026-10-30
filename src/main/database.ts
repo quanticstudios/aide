@@ -409,6 +409,70 @@ export class AideDatabase {
     return workspace
   }
 
+  public clearWorkspaceWindowIds(): number {
+    const result = this.database
+      .prepare(
+        `
+          UPDATE workspaces
+          SET window_id = NULL, updated_at = ?
+          WHERE window_id IS NOT NULL
+        `,
+      )
+      .run(new Date().toISOString()) as { changes: number }
+
+    if (result.changes > 0) {
+      this.incrementCatalogRevision()
+    }
+
+    return result.changes
+  }
+
+  public compareAndSetWorkspaceWindowId(
+    workspaceId: string,
+    expectedWindowId: string | null,
+    nextWindowId: string | null,
+  ): WorkspaceRecord | null {
+    const updatedAt = new Date().toISOString()
+
+    this.database.exec('BEGIN IMMEDIATE')
+    try {
+      const result =
+        expectedWindowId === null
+          ? (this.database
+              .prepare(
+                `
+                  UPDATE workspaces
+                  SET window_id = ?, updated_at = ?
+                  WHERE id = ? AND window_id IS NULL
+                `,
+              )
+              .run(nextWindowId, updatedAt, workspaceId) as {
+              changes: number
+            })
+          : (this.database
+              .prepare(
+                `
+                  UPDATE workspaces
+                  SET window_id = ?, updated_at = ?
+                  WHERE id = ? AND window_id = ?
+                `,
+              )
+              .run(nextWindowId, updatedAt, workspaceId, expectedWindowId) as {
+              changes: number
+            })
+
+      if (result.changes > 0) {
+        this.incrementCatalogRevision()
+      }
+
+      this.database.exec('COMMIT')
+      return result.changes > 0 ? this.getWorkspace(workspaceId) : null
+    } catch (error) {
+      this.database.exec('ROLLBACK')
+      throw error
+    }
+  }
+
   public deleteWorkspace(workspaceId: string): boolean {
     const result = this.database
       .prepare(

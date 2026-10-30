@@ -2,6 +2,7 @@ import { Button, Toolbar } from '@heroui/react'
 import {
   Columns2,
   Expand,
+  ExternalLink,
   GitBranch,
   type LucideIcon,
   Plus,
@@ -27,7 +28,9 @@ interface TopBarProps {
   readonly activeSurfaceId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly allowWorkspaceDetach: boolean
   readonly onClosePane: (paneId: string) => void
+  readonly onDetachWorkspace: () => void
   readonly onCreatePane: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -241,7 +244,9 @@ export default function TopBar({
   activeSurfaceId,
   activeProject,
   activeWorkspace,
+  allowWorkspaceDetach,
   onClosePane,
+  onDetachWorkspace,
   onCreatePane,
   onResizePane,
   onSplitPane,
@@ -254,18 +259,32 @@ export default function TopBar({
   return (
     <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-3">
       <div className="flex w-full items-center gap-3 overflow-hidden">
-        <div className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-surface px-2 py-1">
-          <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
-            {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
-          </p>
-          <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <GitBranch className="size-3.5" />
-            <span>
-              {activeWorkspace?.branchName ??
-                activeProject?.defaultBranch ??
-                'Waiting'}
-            </span>
+        <div className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-surface p-1">
+          <div className="flex items-center gap-2 px-1 py-0.5">
+            <p className="display max-w-[7rem] truncate text-[13px] text-foreground">
+              {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
+            </p>
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <GitBranch className="size-3.5" />
+              <span>
+                {activeWorkspace?.branchName ??
+                  activeProject?.defaultBranch ??
+                  'Waiting'}
+              </span>
+            </div>
           </div>
+          {activeWorkspace && allowWorkspaceDetach ? (
+            <Button
+              aria-label="Detach workspace"
+              className="size-7 rounded"
+              isIconOnly
+              onPress={onDetachWorkspace}
+              size="sm"
+              variant="ghost"
+            >
+              <ExternalLink className="size-3.5" />
+            </Button>
+          ) : null}
         </div>
 
         <div className="min-w-0 flex-1 overflow-x-auto">

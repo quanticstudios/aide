@@ -5,9 +5,9 @@ import path from 'node:path'
 
 import {
   type ElectronApplication,
-  type Page,
   _electron as electron,
   expect,
+  type Page,
   test,
 } from '@playwright/test'
 
@@ -803,5 +803,244 @@ test.describe('electron spatial navigation', () => {
     await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
     await expect(page.getByText('Empty workspace')).toBeVisible()
     await expect(page.getByTestId('active-pane-name')).toHaveText('')
+  })
+
+  test('isolates detached workspace IPC and repairs ownership after a renderer crash and relaunch', async () => {
+    const chosenProjectRoot = createGitRepository()
+    const launched = await launchAideApp({
+      AIDE_TEST_PROJECT_PICK_PATH: chosenProjectRoot,
+    })
+    app = launched.app
+    importedRepoRoot = chosenProjectRoot
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    await importProject(page)
+    await createWorkspace(page, {
+      branchName: 'detached-workspace',
+      name: 'Detached workspace',
+    })
+    const { mainWorkspaceId, workspaceId } = await page.evaluate(async () => {
+      const snapshot = await window.aide.getStorageSnapshot()
+      const workspace = snapshot.workspaces.find(
+        (candidate) => candidate.name === 'Detached workspace',
+      )
+      const mainWorkspace = snapshot.workspaces.find(
+        (candidate) => candidate.name === 'main',
+      )
+
+      if (!workspace || !mainWorkspace) {
+        throw new Error('Expected main and detached workspaces to exist.')
+      }
+
+      return { mainWorkspaceId: mainWorkspace.id, workspaceId: workspace.id }
+    })
+    const detachedPagePromise = app.waitForEvent('window')
+
+    await page.getByRole('button', { name: 'Detach workspace' }).click()
+
+    const detachedPage = await detachedPagePromise
+    await detachedPage.waitForLoadState('domcontentloaded')
+    await expect(detachedPage.getByTestId('active-workspace-name')).toHaveText(
+      'Detached workspace',
+    )
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('main')
+    await expect(
+      page.getByText('Detached workspace', { exact: true }),
+    ).toHaveCount(0)
+
+    const detachedSave = await detachedPage.evaluate(async (id) => {
+      const snapshot = await window.aide.getStorageSnapshot()
+      const expectedRevision = snapshot.workspaceSurfaceRevisions[id] ?? 0
+      const saved = await window.aide.saveWorkspaceSurfaceState(id, {
+        expectedRevision,
+        layouts: {},
+        surfaces: [],
+      })
+      const stale = await window.aide.saveWorkspaceSurfaceState(id, {
+        expectedRevision,
+        layouts: {},
+        surfaces: [],
+      })
+
+      return { saved, stale }
+    }, workspaceId)
+    expect(detachedSave.saved).toMatchObject({
+      ok: true,
+      snapshot: {
+        workspaces: [expect.objectContaining({ id: workspaceId })],
+      },
+      workspaceId,
+    })
+    expect(detachedSave.stale).toMatchObject({
+      code: 'stale-workspace-revision',
+      ok: false,
+      snapshot: {
+        workspaces: [expect.objectContaining({ id: workspaceId })],
+      },
+      workspaceId,
+    })
+
+    const detachedCrossWorkspaceError = await detachedPage.evaluate(
+      async (id) => {
+        try {
+          await window.aide.saveWorkspaceSurfaceState(id, {
+            expectedRevision: 0,
+            layouts: {},
+            surfaces: [],
+          })
+          return null
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error)
+        }
+      },
+      mainWorkspaceId,
+    )
+    expect(detachedCrossWorkspaceError).toContain('not owned by this window')
+
+    const detachedGlobalOperationError = await detachedPage.evaluate(
+      async () => {
+        try {
+          await window.aide.getRuntimeSnapshot()
+          return null
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error)
+        }
+      },
+    )
+    expect(detachedGlobalOperationError).toContain('main window')
+
+    const mainCrossWorkspaceError = await page.evaluate(async (id) => {
+      try {
+        await window.aide.saveWorkspaceSurfaceState(id, {
+          expectedRevision: 0,
+          layouts: {},
+          surfaces: [],
+        })
+        return null
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }, workspaceId)
+    expect(mainCrossWorkspaceError).toContain('not owned by this window')
+
+    await page.evaluate((id) => {
+      const receiver = window as typeof window & {
+        aidePreviewUnsubscribe?: () => void
+        aideSawDetachedPreview?: boolean
+      }
+
+      receiver.aideSawDetachedPreview = false
+      receiver.aidePreviewUnsubscribe = window.aide.onPreviewEvent((event) => {
+        if (event.snapshot.workspaceId === id) {
+          receiver.aideSawDetachedPreview = true
+        }
+      })
+    }, workspaceId)
+    await detachedPage.evaluate(
+      (id) => window.aide.getWorkspacePreviewSnapshot(id),
+      workspaceId,
+    )
+    await page.waitForTimeout(100)
+    expect(
+      await page.evaluate(() => {
+        const receiver = window as typeof window & {
+          aideSawDetachedPreview?: boolean
+        }
+
+        return receiver.aideSawDetachedPreview ?? false
+      }),
+    ).toBe(false)
+    expect(
+      await page.evaluate(async (id) => {
+        const snapshots = await window.aide.getWorkspacePreviewSnapshots()
+        return snapshots[id] ?? null
+      }, workspaceId),
+    ).toBeNull()
+    await page.evaluate(() => {
+      const receiver = window as typeof window & {
+        aidePreviewUnsubscribe?: () => void
+      }
+
+      receiver.aidePreviewUnsubscribe?.()
+    })
+
+    const repeatedDetach = await page.evaluate(
+      async (id) => window.aide.detachWorkspace(id),
+      workspaceId,
+    )
+    expect(repeatedDetach).toMatchObject({
+      outcome: 'focused-existing',
+      windowId: expect.any(String),
+      workspaceId,
+    })
+    expect(
+      await app.evaluate(
+        ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+      ),
+    ).toBe(2)
+
+    const detachedPageClosed = detachedPage.waitForEvent('close')
+
+    await app.evaluate(({ BrowserWindow }, id) => {
+      const detachedWindow = BrowserWindow.getAllWindows().find((window) =>
+        window.webContents.getURL().includes(`aideWorkspaceId=${id}`),
+      )
+
+      if (!detachedWindow) {
+        throw new Error('Expected detached BrowserWindow to exist.')
+      }
+
+      detachedWindow.webContents.forcefullyCrashRenderer()
+    }, workspaceId)
+    await detachedPageClosed
+    await expect
+      .poll(() =>
+        app.evaluate(
+          ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+        ),
+      )
+      .toBe(1)
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => {
+          const snapshot = await window.aide.getStorageSnapshot()
+          const workspace = snapshot.workspaces.find(
+            (candidate) => candidate.id === id,
+          )
+
+          return {
+            revision: snapshot.workspaceSurfaceRevisions[id],
+            windowId: workspace?.windowId,
+          }
+        }, workspaceId),
+      )
+      .toEqual({ revision: 1, windowId: null })
+
+    await expandSidebar(page)
+    await page.getByText('Detached workspace', { exact: true }).click()
+    await expect(page.getByTestId('active-workspace-name')).toHaveText(
+      'Detached workspace',
+    )
+    const secondDetachedPagePromise = app.waitForEvent('window')
+    await page.getByRole('button', { name: 'Detach workspace' }).click()
+    await secondDetachedPagePromise
+    await app.close()
+    app = null
+
+    const relaunched = await launchAideApp(
+      {},
+      { tempDirectory: launched.tempDirectory },
+    )
+    app = relaunched.app
+    await expect
+      .poll(() =>
+        relaunched.page.evaluate(async (id) => {
+          const snapshot = await window.aide.getStorageSnapshot()
+          return snapshot.workspaces.find((workspace) => workspace.id === id)
+            ?.windowId
+        }, workspaceId),
+      )
+      .toBeNull()
   })
 })

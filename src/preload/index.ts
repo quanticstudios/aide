@@ -29,10 +29,13 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   detectWorktreeBranch: (worktreePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
+  detachWorkspace: (workspaceId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.detachWorkspace, workspaceId),
   closeManagedSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
+  getWindowContext: () => ipcRenderer.invoke(IPC_CHANNELS.getWindowContext),
   getManagedSessionSnapshots: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
   getProviderCapabilities: () =>

@@ -21,7 +21,6 @@ import type {
   ManagedSessionProviderSelection,
   ManagedSessionSnapshot,
 } from './managed-session'
-import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
   PersistenceSnapshot,
   SaveWorkspaceLayoutInput,
@@ -35,6 +34,7 @@ import type {
   WorkspacePreviewEvent,
   WorkspacePreviewSnapshot,
 } from './preview'
+import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type { RuntimeSnapshot } from './runtime'
 import type { AppShortcutEvent } from './shortcuts'
 import type {
@@ -47,11 +47,16 @@ import type {
   WorkspaceActivityCollectionSnapshot,
   WorkspaceActivityEvent,
 } from './workspace-activity'
+import type {
+  DetachWorkspaceResult,
+  WorkspaceWindowContext,
+} from './workspace-window'
 
 export const IPC_CHANNELS = {
   attachWorkspace: 'storage:attach-workspace',
   createWorkspace: 'storage:create-workspace',
   detectWorktreeBranch: 'app:detect-worktree-branch',
+  detachWorkspace: 'window:detach-workspace',
   editorList: 'app:editor-list',
   editorLaunch: 'app:editor-launch',
   executableProbe: 'executables:probe',
@@ -67,6 +72,7 @@ export const IPC_CHANNELS = {
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
   getStorageSnapshot: 'storage:get-snapshot',
+  getWindowContext: 'window:get-context',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
   getProviderCapabilities: 'app:get-provider-capabilities',
@@ -113,6 +119,7 @@ export interface AideApi {
   detectWorktreeBranch: (
     worktreePath: string,
   ) => Promise<DetectWorktreeBranchResult>
+  detachWorkspace: (workspaceId: string) => Promise<DetachWorkspaceResult>
   importProject: (repoPath: string) => Promise<ImportProjectResult>
   listAvailableEditors: () => Promise<AvailableEditorDescriptor[]>
   launchEditor: (editorId: string, cwd: string) => Promise<void>
@@ -137,6 +144,7 @@ export interface AideApi {
   ) => Promise<ExecutableValidationResult>
   getRuntimeSnapshot: () => Promise<RuntimeSnapshot>
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
+  getWindowContext: () => Promise<WorkspaceWindowContext>
   getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
   getManagedSessionSnapshots: () => Promise<
     Record<string, ManagedSessionSnapshot>

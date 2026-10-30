@@ -1,5 +1,5 @@
+import type { BrowserWindow, WebContents } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
-import type { BrowserWindow } from 'electron'
 
 import { WindowManager } from './window-manager'
 
@@ -19,8 +19,10 @@ function createWindow() {
     setWindowOpenHandler: vi.fn(),
   }
   const window = {
+    destroy: vi.fn(),
     focus: vi.fn(),
     isDestroyed: vi.fn(() => false),
+    isMinimized: vi.fn(() => false),
     isVisible: vi.fn(() => false),
     loadFile: vi.fn(),
     loadURL: vi.fn(),
@@ -28,6 +30,7 @@ function createWindow() {
       onceHandlers.set(event, handler)
     }),
     show: vi.fn(),
+    restore: vi.fn(),
     webContents,
   }
 
@@ -251,5 +254,173 @@ describe('WindowManager', () => {
     expect(second.webContents.send).toHaveBeenCalledWith('aide:event', {
       revision: 1,
     })
+  })
+
+  it('omits workspace-scoped events for unauthorized window contexts', () => {
+    const main = createWindow()
+    const dedicated = createWindow()
+    const mainWindow = asBrowserWindow(main.window)
+    const dedicatedWindow = asBrowserWindow(dedicated.window)
+    const manager = new WindowManager({
+      createBrowserWindow: vi
+        .fn(() => mainWindow)
+        .mockReturnValueOnce(mainWindow)
+        .mockReturnValueOnce(dedicatedWindow),
+      fromWebContents: vi.fn(),
+      getAllWindows: () => [mainWindow, dedicatedWindow],
+      mainPreloadPath: '/app/preload/index.js',
+      rendererHtmlPath: '/app/renderer/index.html',
+      setTimeout: asTimer(vi.fn()),
+    })
+
+    manager.createMainWindow()
+    manager.createWorkspaceWindow(
+      {
+        kind: 'workspace',
+        windowId: 'workspace-window-1',
+        workspaceId: 'workspace-1',
+      },
+      vi.fn(),
+    )
+    manager.broadcastForWindowContext('aide:event', (context) =>
+      context.kind === 'workspace' && context.workspaceId === 'workspace-1'
+        ? { workspaceId: context.workspaceId }
+        : undefined,
+    )
+
+    expect(main.webContents.send).not.toHaveBeenCalled()
+    expect(dedicated.webContents.send).toHaveBeenCalledWith('aide:event', {
+      workspaceId: 'workspace-1',
+    })
+  })
+
+  it('loads a detached workspace with main-controlled context and focuses its existing owner', () => {
+    const created = createWindow()
+    const browserWindow = asBrowserWindow(created.window)
+    const onClosed = vi.fn()
+    const manager = new WindowManager({
+      createBrowserWindow: vi.fn(() => browserWindow),
+      fromWebContents: vi.fn(() => browserWindow),
+      getAllWindows: () => [browserWindow],
+      loadRendererUrl: 'http://localhost:5173',
+      mainPreloadPath: '/app/preload/index.js',
+      rendererHtmlPath: '/app/renderer/index.html',
+      setTimeout: asTimer(vi.fn()),
+    })
+
+    manager.createWorkspaceWindow(
+      {
+        kind: 'workspace',
+        windowId: 'workspace-window-1',
+        workspaceId: 'workspace-1',
+      },
+      onClosed,
+    )
+
+    expect(created.window.loadURL).toHaveBeenCalledWith(
+      'http://localhost:5173/?aideWindowId=workspace-window-1&aideWorkspaceId=workspace-1',
+    )
+    expect(
+      manager.getWindowContext(created.webContents as unknown as WebContents),
+    ).toEqual({
+      kind: 'workspace',
+      windowId: 'workspace-window-1',
+      workspaceId: 'workspace-1',
+    })
+
+    created.window.isMinimized.mockReturnValueOnce(true)
+    expect(manager.focusWorkspaceWindow('workspace-window-1')).toBe(true)
+    expect(created.window.restore).toHaveBeenCalledOnce()
+    expect(created.window.show).toHaveBeenCalledOnce()
+    expect(created.window.focus).toHaveBeenCalledOnce()
+
+    created.onceHandlers.get('closed')?.()
+    expect(onClosed).toHaveBeenCalledOnce()
+    expect(manager.focusWorkspaceWindow('workspace-window-1')).toBe(false)
+  })
+
+  it('repairs a crashed dedicated renderer once without closing the main window on load failures', () => {
+    const dedicated = createWindow()
+    const main = createWindow()
+    const dedicatedWindow = asBrowserWindow(dedicated.window)
+    const mainWindow = asBrowserWindow(main.window)
+    const onClosed = vi.fn()
+    const manager = new WindowManager({
+      createBrowserWindow: vi
+        .fn(() => dedicatedWindow)
+        .mockReturnValueOnce(dedicatedWindow)
+        .mockReturnValueOnce(mainWindow),
+      fromWebContents: vi.fn(),
+      getAllWindows: () => [dedicatedWindow, mainWindow],
+      mainPreloadPath: '/app/preload/index.js',
+      rendererHtmlPath: '/app/renderer/index.html',
+      setTimeout: asTimer(vi.fn()),
+    })
+
+    manager.createWorkspaceWindow(
+      {
+        kind: 'workspace',
+        windowId: 'workspace-window-1',
+        workspaceId: 'workspace-1',
+      },
+      onClosed,
+    )
+    dedicated.handlers.get('did-fail-load')?.({}, -3, 'ERR_ABORTED', '', true)
+    expect(dedicated.window.destroy).not.toHaveBeenCalled()
+
+    dedicated.handlers.get('render-process-gone')?.({}, { reason: 'crashed' })
+    dedicated.handlers.get('render-process-gone')?.({}, { reason: 'crashed' })
+
+    expect(dedicated.window.destroy).toHaveBeenCalledOnce()
+    expect(onClosed).toHaveBeenCalledOnce()
+
+    manager.createMainWindow()
+    main.handlers.get('did-fail-load')?.({}, -2, 'ERR_FAILED', '', true)
+    expect(main.window.destroy).not.toHaveBeenCalled()
+  })
+
+  it('repairs all fatal dedicated main-frame load failures but ignores benign aborts and subframes', () => {
+    const created = createWindow()
+    const browserWindow = asBrowserWindow(created.window)
+    const onClosed = vi.fn()
+    const manager = new WindowManager({
+      createBrowserWindow: vi.fn(() => browserWindow),
+      fromWebContents: vi.fn(),
+      getAllWindows: () => [browserWindow],
+      mainPreloadPath: '/app/preload/index.js',
+      rendererHtmlPath: '/app/renderer/index.html',
+      setTimeout: asTimer(vi.fn()),
+    })
+
+    manager.createWorkspaceWindow(
+      {
+        kind: 'workspace',
+        windowId: 'workspace-window-1',
+        workspaceId: 'workspace-1',
+      },
+      onClosed,
+    )
+    created.handlers.get('did-fail-load')?.(
+      {},
+      -102,
+      'ERR_CONNECTION_REFUSED',
+      '',
+      false,
+    )
+    created.handlers.get('did-fail-load')?.({}, -3, 'ERR_ABORTED', '', true)
+
+    expect(created.window.destroy).not.toHaveBeenCalled()
+    expect(onClosed).not.toHaveBeenCalled()
+
+    created.handlers.get('did-fail-load')?.(
+      {},
+      -102,
+      'ERR_CONNECTION_REFUSED',
+      '',
+      true,
+    )
+
+    expect(created.window.destroy).toHaveBeenCalledOnce()
+    expect(onClosed).toHaveBeenCalledOnce()
   })
 })

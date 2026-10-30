@@ -21,7 +21,9 @@ interface AppShellProps {
   readonly workspaces: readonly WorkspaceRecord[]
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
+  readonly allowWorkspaceDetach: boolean
   readonly onClosePane: (paneId: string) => void
+  readonly onDetachWorkspace: () => void
   readonly onCreatePane: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -49,7 +51,9 @@ export default function AppShell({
   workspaces,
   activeProject,
   activeWorkspace,
+  allowWorkspaceDetach,
   onClosePane,
+  onDetachWorkspace,
   onCreatePane,
   onResizePane,
   onSplitPane,
@@ -282,7 +286,9 @@ export default function AppShell({
           activeSurfaceId={activeSurfaceId}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
+          allowWorkspaceDetach={allowWorkspaceDetach}
           onClosePane={onClosePane}
+          onDetachWorkspace={onDetachWorkspace}
           onCreatePane={onCreatePane}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}

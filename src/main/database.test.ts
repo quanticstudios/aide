@@ -27,6 +27,113 @@ describe('createAideDatabase', () => {
     database.close()
   })
 
+  it('clears stale detached window ownership without changing main-owned workspaces', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const mainWorkspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'Main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+    const detachedWorkspace = database.createWorkspace({
+      branchName: 'feature/detach',
+      name: 'Detached',
+      projectId: project.id,
+      windowId: 'workspace-window-1',
+      worktreePath: '/workspace/aide/.worktrees/detach',
+    })
+
+    expect(database.clearWorkspaceWindowIds()).toBe(1)
+    expect(database.getWorkspace(mainWorkspace.id)?.windowId).toBeNull()
+    expect(database.getWorkspace(detachedWorkspace.id)?.windowId).toBeNull()
+    expect(database.clearWorkspaceWindowIds()).toBe(0)
+
+    database.close()
+  })
+
+  it('compare-and-sets workspace window ownership with its catalog revision atomically', () => {
+    const database = createAideDatabase(':memory:')
+    const project = database.createProject({
+      defaultBranch: 'main',
+      name: 'aide',
+      remoteUrl: null,
+      repoRoot: '/workspace/aide',
+    })
+    const workspace = database.createWorkspace({
+      branchName: 'main',
+      name: 'Main',
+      projectId: project.id,
+      windowId: null,
+      worktreePath: '/workspace/aide',
+    })
+    const before = database.getSnapshot().catalogRevision
+
+    expect(
+      database.compareAndSetWorkspaceWindowId(
+        workspace.id,
+        null,
+        'workspace-window-1',
+      ),
+    ).toMatchObject({ windowId: 'workspace-window-1' })
+    expect(database.getSnapshot().catalogRevision).toBe(before + 1)
+
+    expect(
+      database.compareAndSetWorkspaceWindowId(workspace.id, null, null),
+    ).toBeNull()
+    expect(database.getSnapshot().catalogRevision).toBe(before + 1)
+
+    expect(
+      database.compareAndSetWorkspaceWindowId(
+        workspace.id,
+        'workspace-window-1',
+        null,
+      ),
+    ).toMatchObject({ windowId: null })
+    expect(database.getSnapshot().catalogRevision).toBe(before + 2)
+    database.close()
+  })
+
+  it('persists detached workspace ownership until startup repair clears it', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-window-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'feature/detach',
+        name: 'Detached',
+        projectId: project.id,
+        windowId: 'workspace-window-1',
+        worktreePath: '/workspace/aide/.worktrees/detach',
+      })
+      database.close()
+
+      const reopenedDatabase = createAideDatabase(databasePath)
+      expect(reopenedDatabase.getWorkspace(workspace.id)?.windowId).toBe(
+        'workspace-window-1',
+      )
+
+      expect(reopenedDatabase.clearWorkspaceWindowIds()).toBe(1)
+      expect(reopenedDatabase.getWorkspace(workspace.id)?.windowId).toBeNull()
+      reopenedDatabase.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
+  })
+
   it('stores and reloads projects plus workspaces', () => {
     const database = createAideDatabase(':memory:')
 

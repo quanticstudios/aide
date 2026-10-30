@@ -15,14 +15,15 @@ import type {
 } from '../../shared/git'
 import type { AideApi } from '../../shared/ipc'
 import {
+  createEmptyPersistenceSnapshot,
   type PersistenceSnapshot,
   type SaveWorkspaceSurfaceStateInput,
   type SurfaceLayoutRecord,
   type WorkspaceLayoutRecord,
-  createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
+import type { WorkspaceWindowContext } from '../../shared/workspace-window'
 import AppShell from './components/AppShell'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
@@ -35,15 +36,16 @@ import {
   getPaneTemplateId,
   resolvePaneMetadata,
   resolvePaneType,
+  resolveTerminalLaunchModeForPaneId,
 } from './lib/pane-catalog'
 import {
-  type SpatialNavigationState,
   applyPaneSelection,
   applyProjectSelection,
   applySurfaceSelection,
   applyWorkspaceSelection,
   moveRelativePane,
   resolveSpatialNavigationState,
+  type SpatialNavigationState,
 } from './lib/spatial-navigation-state'
 import { collectWorkspaceLayoutPaneIds } from './lib/workspace-layout'
 import {
@@ -156,6 +158,8 @@ function prioritizeProjectRefs(
 export default function App() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
+  const [windowContext, setWindowContext] =
+    useState<WorkspaceWindowContext | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isPaneCreationOpen, setIsPaneCreationOpen] = useState(false)
@@ -558,6 +562,8 @@ export default function App() {
 
     void (async () => {
       try {
+        const context = await api.getWindowContext()
+        setWindowContext(context)
         const snapshot = await api.getStorageSnapshot()
         storageSnapshotRef.current = snapshot
         setStorageSnapshot(snapshot)
@@ -972,12 +978,29 @@ export default function App() {
         await Promise.all(
           removedPaneIds.map(async (paneId) => {
             const sessionId = `${workspaceId}:${paneId}`
-            await api.closeManagedSession(sessionId)
+            const paneType = getPaneCatalogEntryForTemplate(
+              getPaneTemplateId(paneId),
+            )?.type
+
             if (
-              getPaneCatalogEntryForTemplate(getPaneTemplateId(paneId))
-                ?.type === 'terminal'
+              paneType === 'terminal' &&
+              resolveTerminalLaunchModeForPaneId(paneId) === 'shell'
             ) {
-              await api.killTerminalSession(sessionId)
+              try {
+                await api.killTerminalSession(sessionId)
+              } catch (error) {
+                if (!getErrorMessage(error).includes('Unknown session.')) {
+                  throw error
+                }
+              }
+            } else if (paneType === 'terminal') {
+              try {
+                await api.closeManagedSession(sessionId)
+              } catch (error) {
+                if (!getErrorMessage(error).includes('Unknown session.')) {
+                  throw error
+                }
+              }
             }
           }),
         )
@@ -1671,6 +1694,27 @@ export default function App() {
         : [],
     [activeWorkspace, navigationSnapshot],
   )
+  const handleDetachWorkspace = useCallback(() => {
+    if (!activeWorkspace) {
+      return
+    }
+
+    const api = getAideApi()
+
+    if (!api) {
+      setShellError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+
+    void api
+      .detachWorkspace(activeWorkspace.id)
+      .then((result) => {
+        storageSnapshotRef.current = result.snapshot
+        setStorageSnapshot(result.snapshot)
+        setActionError(null)
+      })
+      .catch((error: unknown) => setActionError(getErrorMessage(error)))
+  }, [activeWorkspace])
   const surfaceManagedSessionIds = useMemo(() => {
     if (!activeWorkspace) return {}
     const map: Record<string, string | null> = {}
@@ -1776,7 +1820,9 @@ export default function App() {
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
+      allowWorkspaceDetach={windowContext?.kind === 'main'}
       onClosePane={handleClosePane}
+      onDetachWorkspace={handleDetachWorkspace}
       onResizePane={handleResizePane}
       onSplitPane={handleSplitPane}
       surfaces={activeWorkspaceSurfaces}
