@@ -25,6 +25,7 @@ import type {
   ImportProjectResult,
   ProjectRefRecord,
   WorkspaceGitCommitInput,
+  WorkspaceDiffScope,
   WorkspaceGitDiffResult,
   WorkspaceGitFileMutationInput,
   WorkspaceGitMessageInput,
@@ -35,6 +36,7 @@ import type {
   WorkspaceGitPullResult,
   WorkspaceGitRevertInput,
   WorkspaceGitStatusResult,
+  WorkspaceScopeDiffResult,
   WorktreeBranchStatsResult,
 } from './git'
 import type { JevSettingsInput, JevSettingsStatus } from './jev'
@@ -164,6 +166,7 @@ export const IPC_CHANNELS = {
   createWorkspaceGitPullRequest: 'app:create-workspace-git-pull-request',
   getWorkspaceGitPullRequest: 'app:get-workspace-git-pull-request',
   getWorktreeBranchStats: 'app:get-worktree-branch-stats',
+  getWorkspaceScopeDiff: 'app:get-workspace-scope-diff',
   saveWorkspaceLayout: 'storage:save-workspace-layout',
   saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
   getStorageSnapshot: 'storage:get-snapshot',
@@ -340,6 +343,10 @@ export interface AideApi {
   getWorktreeBranchStats: (
     workspaceId: string,
   ) => Promise<WorktreeBranchStatsResult>
+  getWorkspaceScopeDiff: (
+    workspaceId: string,
+    scope: Exclude<WorkspaceDiffScope, 'turn'>,
+  ) => Promise<WorkspaceScopeDiffResult>
   pickProjectRoot: (defaultPath?: string | null) => Promise<string | null>
   onAppShortcut: (callback: (event: AppShortcutEvent) => void) => () => void
   onDiagnosticsEvent: (

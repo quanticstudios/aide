@@ -677,6 +677,71 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('lists branch and uncommitted scope files with their counts', async () => {
+    const repoRoot = createGitRepository()
+    runGit(repoRoot, ['config', 'diff.noprefix', 'true'])
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    runGit(repoRoot, ['checkout', '-b', 'feature'])
+    mkdirSync(path.join(repoRoot, 'src'))
+    writeFileSync(path.join(repoRoot, 'src', 'app.ts'), 'one\ntwo\n')
+    runGit(repoRoot, ['add', 'src/app.ts'])
+    runGit(repoRoot, ['commit', '-m', 'Add app'])
+    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nlocal\n')
+    writeFileSync(path.join(repoRoot, 'notes.txt'), 'notes\n')
+
+    await expect(
+      service.getWorkspaceScopeDiff(imported.workspaceId, 'branch'),
+    ).resolves.toEqual({
+      diff: {
+        additions: 2,
+        deletions: 0,
+        files: [
+          expect.objectContaining({
+            additions: 2,
+            deletions: 0,
+            path: 'src/app.ts',
+            status: 'added',
+          }),
+        ],
+      },
+      ok: true,
+    })
+
+    await expect(
+      service.getWorkspaceScopeDiff(imported.workspaceId, 'uncommitted'),
+    ).resolves.toEqual({
+      diff: {
+        additions: 2,
+        deletions: 0,
+        files: [
+          expect.objectContaining({
+            additions: 1,
+            path: 'README.md',
+            status: 'modified',
+          }),
+          expect.objectContaining({
+            additions: 1,
+            path: 'notes.txt',
+            status: 'added',
+          }),
+        ],
+      },
+      ok: true,
+    })
+
+    await expect(
+      service.getWorkspaceScopeDiff(imported.workspaceId, 'turn' as 'branch'),
+    ).resolves.toMatchObject({ code: 'invalid-input', ok: false })
+    await expect(
+      service.getWorkspaceScopeDiff('missing', 'branch'),
+    ).resolves.toMatchObject({ code: 'workspace-not-found', ok: false })
+
+    database.close()
+  })
+
   it('renders an untracked symlink without reading its target', async () => {
     const repoRoot = createGitRepository()
     const hostRoot = createTempDirectory('aide-git-host-')

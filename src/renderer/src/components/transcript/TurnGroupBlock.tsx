@@ -6,6 +6,7 @@ import type { ManagedSessionContentItem } from '../../../../shared/managed-sessi
 import { getSessionTransport } from '../../lib/session-transport'
 import type { TranscriptRow } from '../../lib/transcript-rows'
 import { cn } from '../../lib/utils'
+import ChangedFilesTree from '../ChangedFilesTree'
 import IconTooltip from '../ui/icon-tooltip'
 import ContentItemBlock from './ContentItemBlock'
 import { formatMessageTime } from './format-message-time'
@@ -54,6 +55,7 @@ function TurnGroupBlockContent({
   onBranch,
   onEditFromHere,
   onInterrupt,
+  onOpenDiff,
   onRetry,
   providerLabel,
   recipientAlias,
@@ -73,6 +75,7 @@ function TurnGroupBlockContent({
     item: ManagedSessionContentItem,
   ) => void
   readonly onInterrupt: (recipientAlias: string) => void
+  readonly onOpenDiff: (checkpointId: string, path: string | null) => void
   readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
   readonly recipientAlias: string | null
@@ -190,6 +193,37 @@ function TurnGroupBlockContent({
         >
           (empty response)
         </p>
+      ) : null}
+      {isLast && !isRunning && checkpointId && turnDiff?.files.length ? (
+        <div
+          className="rounded-md border border-border bg-surface"
+          data-testid="changed-files-card"
+        >
+          <div className="flex items-center gap-2 border-b border-border px-2 py-1 text-[11px] font-medium text-muted-foreground">
+            <span>
+              {turnDiff.files.length}{' '}
+              {turnDiff.files.length === 1 ? 'file' : 'files'} changed
+            </span>
+            <span className="tabular-nums text-accent-green">
+              +{turnDiff.additions}
+            </span>
+            <span className="tabular-nums text-accent-red">
+              -{turnDiff.deletions}
+            </span>
+            <button
+              className="ml-auto transition-colors hover:text-foreground"
+              onClick={() => onOpenDiff(checkpointId, null)}
+              type="button"
+            >
+              Open diff panel
+            </button>
+          </div>
+          <ChangedFilesTree
+            defaultExpanded={false}
+            files={turnDiff.files}
+            onSelect={(path) => onOpenDiff(checkpointId, path)}
+          />
+        </div>
       ) : null}
       {isLast && !isRunning && (canRetry || responseItem) ? (
         <div

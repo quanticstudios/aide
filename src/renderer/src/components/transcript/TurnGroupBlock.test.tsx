@@ -96,6 +96,7 @@ function Transcript({
       onBranch={noop}
       onEditFromHere={noop}
       onInterrupt={noop}
+      onOpenDiff={noop}
       onRetry={noop}
       providerLabel="Claude"
       recipientAlias={null}

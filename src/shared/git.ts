@@ -1,3 +1,4 @@
+import type { TurnCheckpointDiff } from './checkpoints'
 import type { PersistenceSnapshot } from './persistence'
 
 export interface ProjectRefRecord {
@@ -114,6 +115,18 @@ export type WorkspaceGitStatusResult =
 
 export type WorkspaceGitDiffResult =
   | WorkspaceGitDiffSuccess
+  | WorkspaceGitStatusFailure
+
+/** Which changes the diff panel shows: one turn, the branch against its base, or the working tree against HEAD. */
+export type WorkspaceDiffScope = 'branch' | 'turn' | 'uncommitted'
+
+export interface WorkspaceScopeDiffSuccess {
+  diff: TurnCheckpointDiff
+  ok: true
+}
+
+export type WorkspaceScopeDiffResult =
+  | WorkspaceScopeDiffSuccess
   | WorkspaceGitStatusFailure
 
 export interface WorktreeBranchStats {

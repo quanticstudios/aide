@@ -244,6 +244,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceGitPullRequest, workspaceId),
   getWorktreeBranchStats: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorktreeBranchStats, workspaceId),
+  getWorkspaceScopeDiff: (workspaceId, scope) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceScopeDiff, workspaceId, scope),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
   interruptManagedSession: (sessionId: string, recipientAlias?: string) =>
