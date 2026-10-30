@@ -148,6 +148,7 @@ function TurnGroupBlockContent({
             {taskList}
             <ContentItemBlock
               editFromHereDisabledReason={rewindDisabledReason}
+              isLive={isRunning && isLast && item === group.items.at(-1)}
               item={item}
               checkpointId={item.kind === 'user-prompt' ? checkpointId : null}
               onEditFromHere={onEditFromHere}

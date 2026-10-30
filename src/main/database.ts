@@ -600,6 +600,7 @@ const persistedManagedSessionSchema = z
       content: z.array(
         z.object({
           attachments: z.array(persistedManagedAttachment).max(8).optional(),
+          createdAt: persistedTimestamp.optional(),
           id: persistedIdentifier,
           kind: z.enum([
             'assistant-text',

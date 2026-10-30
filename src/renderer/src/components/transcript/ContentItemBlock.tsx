@@ -7,7 +7,7 @@ import {
   History,
   Terminal,
 } from 'lucide-react'
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
 import { cn } from '../../lib/utils'
 import ManagedComposerAttachments from '../ManagedComposerAttachments'
@@ -15,18 +15,34 @@ import MarkdownContent from '../MarkdownContent'
 import IconTooltip from '../ui/icon-tooltip'
 import { AnthropicIcon, OpenAIIcon } from '../ui/provider-icons'
 import { formatMessageTime } from './format-message-time'
+import { formatThinkingDuration } from './format-thinking-duration'
 import MessageCopyButton from './MessageCopyButton'
 import ToolCallBlock from './ToolCallBlock'
+
+// why: the ticking clock lives in this leaf so each second re-renders it alone, not the transcript row.
+function ThinkingElapsed({ since }: { readonly since: string }) {
+  const [now, setNow] = useState(Date.now)
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return formatThinkingDuration(now - Date.parse(since))
+}
 
 export default memo(function ContentItemBlock({
   checkpointId = null,
   editFromHereDisabledReason = null,
+  isLive = false,
   item,
   onEditFromHere,
   showProvider = true,
 }: {
   readonly checkpointId?: string | null
   readonly editFromHereDisabledReason?: string | null
+  /** True while this reasoning item is the newest output of a running turn. */
+  readonly isLive?: boolean
   readonly item: ManagedSessionContentItem
   readonly onEditFromHere?:
     | ((checkpointId: string, item: ManagedSessionContentItem) => void)
@@ -159,18 +175,41 @@ export default memo(function ContentItemBlock({
     item.kind === 'reasoning-text' ||
     item.kind === 'reasoning-summary-text'
   ) {
+    const startedAt = item.createdAt ?? item.updatedAt
+    const preview = item.text
+      .trim()
+      .split(/\n\s*\n/)
+      .at(-1)
+
     return (
       <div
         className="rounded-lg border border-[var(--border-soft)] px-3 py-2"
+        data-state={isLive ? 'live' : 'done'}
         data-testid={`managed-content-${item.kind}`}
       >
         <button
+          aria-expanded={isExpanded}
           className="flex w-full items-center gap-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
           onClick={() => setIsExpanded((prev) => !prev)}
           type="button"
         >
           <Brain className="size-3.5 text-accent-blue" />
-          {item.kind === 'reasoning-text' ? 'Reasoning' : 'Reasoning summary'}
+          {isLive ? (
+            <>
+              <span
+                className="hidden size-1.5 rounded-full bg-accent-blue motion-reduce:inline-block"
+                data-testid="thinking-dot"
+              />
+              <span className="thinking-shimmer">Thinking</span>
+              <span className="font-normal tabular-nums">
+                <ThinkingElapsed since={startedAt} />
+              </span>
+            </>
+          ) : item.createdAt ? (
+            `Thought for ${formatThinkingDuration(Date.parse(item.updatedAt) - Date.parse(item.createdAt))}`
+          ) : (
+            'Thought'
+          )}
           <ChevronDown
             className={`ml-auto size-3.5 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
           />
@@ -179,6 +218,13 @@ export default memo(function ContentItemBlock({
           <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-[13px] leading-[1.6] text-muted-foreground">
             {item.text}
           </pre>
+        ) : !isLive && preview ? (
+          <p
+            className="mt-2 line-clamp-4 whitespace-pre-wrap break-words text-[13px] leading-[1.6] text-muted-foreground"
+            data-testid="thinking-preview"
+          >
+            {preview}
+          </p>
         ) : null}
       </div>
     )

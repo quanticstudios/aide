@@ -2782,6 +2782,33 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (trimmed === 'think-stream') {
+      const itemId = randomUUID()
+      for (let tick = 0; tick < 30; tick += 1) {
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          itemId,
+          kind: 'reasoning-text',
+          provider: this.provider,
+          text:
+            tick === 15 ? '\n\nChecking the latest idea. ' : `step ${tick} `,
+          type: 'content.delta',
+        })
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        if (this.activeTurnId !== turnId) return
+      }
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: randomUUID(),
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: 'Done thinking.',
+        type: 'content.delta',
+      })
+      this.finishTurn('completed')
+      return
+    }
+
     if (trimmed === `wait-${this.provider}`) return
     if (trimmed === 'empty reply') {
       this.finishTurn('completed')
@@ -5304,6 +5331,7 @@ export class ManagedSessionManager {
         existing.updatedAt = event.createdAt
       } else {
         state.contentByKey.set(key, {
+          createdAt: event.createdAt,
           id: event.itemId,
           kind: event.kind,
           phase: event.phase,

@@ -403,6 +403,7 @@
       "updatedAt": "2026-10-23T12:01:03.000Z",
       "type": "tool.start",
       "item": {
+        "createdAt": "2026-10-23T12:01:03.000Z",
         "id": "call-bash",
         "kind": "tool-call",
         "provider": "claude",
@@ -463,6 +464,7 @@
       "updatedAt": "2026-10-23T12:01:07.000Z",
       "type": "tool.start",
       "item": {
+        "createdAt": "2026-10-23T12:01:07.000Z",
         "id": "call-todos",
         "kind": "tool-call",
         "provider": "claude",
@@ -515,6 +517,7 @@
       "updatedAt": "2026-10-23T12:01:09.000Z",
       "type": "item.add",
       "item": {
+        "createdAt": "2026-10-23T12:01:09.000Z",
         "id": "answer-1",
         "kind": "assistant-text",
         "provider": "claude",
@@ -702,6 +705,7 @@
         "updatedAt": "2026-10-23T12:01:01.000Z"
       },
       {
+        "createdAt": "2026-10-23T12:01:03.000Z",
         "id": "call-bash",
         "kind": "tool-call",
         "provider": "claude",
@@ -721,6 +725,7 @@
         "updatedAt": "2026-10-23T12:01:06.000Z"
       },
       {
+        "createdAt": "2026-10-23T12:01:07.000Z",
         "id": "call-todos",
         "kind": "tool-call",
         "provider": "claude",
@@ -745,6 +750,7 @@
         "updatedAt": "2026-10-23T12:01:08.000Z"
       },
       {
+        "createdAt": "2026-10-23T12:01:09.000Z",
         "id": "answer-1",
         "kind": "assistant-text",
         "provider": "claude",

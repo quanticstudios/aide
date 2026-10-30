@@ -230,6 +230,7 @@ describe('createAideDatabase', () => {
           },
           content: [
             {
+              createdAt: '2026-04-11T09:59:58.000Z',
               id: 'progress',
               kind: 'assistant-text',
               phase: 'commentary',
