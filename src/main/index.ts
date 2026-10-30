@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import {
   app,
@@ -102,7 +101,6 @@ import {
   WorkspaceTitleService,
 } from './workspace-title-service'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
 if (process.platform === 'linux') app.setDesktopName('aide.desktop')
 if (process.env.AIDE_DATABASE_PATH) {
   const userDataPath = path.dirname(
@@ -136,7 +134,7 @@ let updateHealthReporter: UpdateHealthReporter
 let updateRestartCoordinator: UpdateRestartCoordinator | FakeUpdateService
 const rendererLocation = {
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
-  rendererHtmlPath: path.join(__dirname, '../renderer/index.html'),
+  rendererHtmlPath: path.join(import.meta.dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
 const AGENT_ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
@@ -674,7 +672,7 @@ const windowManager = new WindowManager({
   fromWebContents: (webContents) => BrowserWindow.fromWebContents(webContents),
   getAllWindows: () => BrowserWindow.getAllWindows(),
   loadRendererUrl: process.env.ELECTRON_RENDERER_URL,
-  mainPreloadPath: path.join(__dirname, '../preload/index.js'),
+  mainPreloadPath: path.join(import.meta.dirname, '../preload/index.js'),
   rendererHtmlPath: rendererLocation.rendererHtmlPath,
   setTimeout,
 })
