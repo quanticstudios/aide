@@ -231,6 +231,7 @@ interface ManagedSessionBackend {
   resolveRequest(
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ): Promise<void>
   resolveUserInput(
     requestId: string,
@@ -991,6 +992,7 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
   public async resolveRequest(
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ): Promise<void> {
     const pending = this.pendingApprovals.get(requestId)
 
@@ -1018,7 +1020,9 @@ class ClaudeManagedSessionBackend implements ManagedSessionBackend {
 
     pending.resolve({
       behavior: 'deny',
-      message: 'User declined tool execution.',
+      message: reason
+        ? `User declined tool execution. The user said: ${reason}`
+        : 'User declined tool execution.',
     })
   }
 
@@ -1657,6 +1661,7 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
   public async resolveRequest(
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ): Promise<void> {
     const pending = this.pendingApprovals.get(requestId)
 
@@ -1669,7 +1674,11 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       id: pending.jsonRpcId,
       result: {
         decision:
-          decision === 'accept-for-session' ? 'acceptForSession' : decision,
+          decision === 'accept-for-session'
+            ? 'acceptForSession'
+            : decision === 'deny'
+              ? 'decline'
+              : decision,
       },
     })
     this.emitRuntimeEvent({
@@ -1678,6 +1687,12 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       requestId,
       type: 'request.resolved',
     })
+    // why: Codex approval responses carry no reason, so the feedback steers the still-running turn.
+    if (reason) {
+      await this.steerInput(
+        `The user declined that request and said: ${reason}`,
+      )
+    }
   }
 
   public async resolveUserInput(
@@ -2410,6 +2425,7 @@ Next I will check the \`content-visibility\` rules and measure the minimap again
 
 class FakeManagedSessionBackend implements ManagedSessionBackend {
   private activeRequestId: string | null = null
+  private queuedRequestIds: string[] = []
   private activeTurnId: string | null = null
 
   public constructor(
@@ -2507,6 +2523,23 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
           risk: 'routine',
         },
       })
+    }
+
+    if (trimmed === 'three approvals') {
+      for (const command of ['echo one', 'echo two', 'echo three']) {
+        const requestId = randomUUID()
+        this.queuedRequestIds.push(requestId)
+        this.emitRuntimeEvent({
+          createdAt: this.getNow(),
+          detail: `${this.provider} needs approval`,
+          provider: this.provider,
+          request: { command, input: { command }, toolName: 'Bash' },
+          requestId,
+          requestType: 'command-execution-approval',
+          type: 'request.opened',
+        })
+      }
+      return
     }
 
     if (trimmed === 'approval') {
@@ -2863,18 +2896,40 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     this.activeTurnId = null
   }
 
-  public async resolveRequest(): Promise<void> {
-    if (!this.activeRequestId) {
+  public async resolveRequest(
+    requestId: string,
+    _decision: ManagedSessionDecision,
+    reason?: string,
+  ): Promise<void> {
+    const queued = this.queuedRequestIds.includes(requestId)
+    if (!queued && !this.activeRequestId) {
       return
     }
 
     this.emitRuntimeEvent({
       createdAt: this.getNow(),
       provider: this.provider,
-      requestId: this.activeRequestId,
+      requestId: queued ? requestId : (this.activeRequestId ?? requestId),
       type: 'request.resolved',
     })
-    this.activeRequestId = null
+    if (reason) {
+      this.emitRuntimeEvent({
+        createdAt: this.getNow(),
+        itemId: randomUUID(),
+        kind: 'assistant-text',
+        provider: this.provider,
+        text: `${this.provider} got the denial reason: ${reason}`,
+        type: 'content.delta',
+      })
+    }
+    if (queued) {
+      this.queuedRequestIds = this.queuedRequestIds.filter(
+        (id) => id !== requestId,
+      )
+      if (this.queuedRequestIds.length > 0) return
+    } else {
+      this.activeRequestId = null
+    }
     this.finishTurn('completed')
   }
 
@@ -4465,11 +4520,12 @@ export class ManagedSessionManager {
     sessionId: string,
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ): Promise<void> {
     const state = this.sessions.get(sessionId)
     if (state?.pendingApprovals.has(requestId))
       this.options.jevGates?.recordOutcome(requestId, decision)
-    await state?.backend.resolveRequest(requestId, decision)
+    await state?.backend.resolveRequest(requestId, decision, reason)
   }
 
   public configureSessionJevGates(

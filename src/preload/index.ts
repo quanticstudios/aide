@@ -386,12 +386,14 @@ const aideApi: AideApi = {
     sessionId: string,
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.managedSessionResolveRequest,
       sessionId,
       requestId,
       decision,
+      reason,
     ),
   resolveManagedSessionUserInput: (
     sessionId: string,

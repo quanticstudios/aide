@@ -8,6 +8,7 @@ import {
   LockOpen,
   PenLine,
   RefreshCw,
+  X,
 } from 'lucide-react'
 import type {
   ChangeEvent,
@@ -447,6 +448,26 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
 
   const handleSendInput = useCallback(async () => {
     const submittedDraft = draftInput
+    const pendingApproval = snapshot?.pendingApprovals[0]
+    if (pendingApproval) {
+      const transport = getSessionTransport()
+      if (!transport) return
+      try {
+        await transport.resolveApproval(
+          sessionId,
+          pendingApproval.id,
+          'deny',
+          submittedDraft.trim(),
+        )
+        if (draftInputRef.current === submittedDraft) {
+          draftInputRef.current = ''
+          setDraftInput('')
+        }
+      } catch (denyError) {
+        setError(getErrorMessage(denyError))
+      }
+      return
+    }
     const submittedRecipientAliases = selectedRecipientAliases
     const submittedAttachments = attachments
     const submittedSkill = selectedSkill
@@ -536,7 +557,9 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     selectedProvider,
     selectedSkill,
     sendPromptText,
+    sessionId,
     setError,
+    snapshot,
   ])
 
   const addImageFiles = useCallback(
@@ -1828,6 +1851,16 @@ export default function ManagedComposer({
               <LoaderCircle className="size-3.5 animate-spin" />
             ) : null}
             Submit answer
+          </button>
+        ) : snapshot?.pendingApprovals[0] && draftInput.trim().length > 0 ? (
+          <button
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
+            disabled={isSubmitting || !isDraftHydrated}
+            onClick={() => void handleSendInput()}
+            type="button"
+          >
+            <X className="size-3.5" />
+            Deny with this feedback
           </button>
         ) : (
           <button
