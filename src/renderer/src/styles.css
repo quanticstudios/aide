@@ -1,6 +1,98 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+.recovery-screen {
+  align-items: center;
+  background: #18181b;
+  color: #f4f4f5;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.recovery-card {
+  background: #27272a;
+  border: 1px solid #52525b;
+  border-radius: 0.75rem;
+  max-width: 42rem;
+  padding: 2rem;
+}
+
+.recovery-card h1 {
+  font-size: 1.5rem;
+  font-weight: 650;
+  margin: 0.25rem 0 1rem;
+}
+
+.recovery-card p {
+  line-height: 1.5;
+  margin: 0.75rem 0;
+}
+
+.recovery-eyebrow {
+  color: #fbbf24;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.recovery-message,
+.recovery-error {
+  background: #3f3f46;
+  border-radius: 0.375rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.875rem;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.recovery-error {
+  color: #fecaca;
+}
+
+.recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.recovery-card button {
+  background: #3f3f46;
+  border: 1px solid #71717a;
+  border-radius: 0.375rem;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.625rem 0.875rem;
+}
+
+.recovery-card button:hover:not(:disabled) {
+  background: #52525b;
+}
+
+.recovery-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.recovery-reset-button,
+.recovery-reset-confirm-button {
+  border-color: #b45309;
+  color: #fde68a;
+  margin-top: 1rem;
+}
+
+.recovery-reset-confirmation {
+  border-top: 1px solid #52525b;
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+}
+
+.recovery-reset-confirm-button + button {
+  margin-left: 0.75rem;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /* Always-dark Electron shell — Apple grammar in dark mode (see DESIGN.md). */

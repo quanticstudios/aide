@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 import { describe, expect, it } from 'vitest'
 
@@ -25,6 +26,66 @@ describe('createAideDatabase', () => {
     })
 
     database.close()
+  })
+
+  it('rolls back a failed migration together with its user version', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-migration-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const legacyDatabase = new DatabaseSync(databasePath)
+      legacyDatabase.exec(`
+        CREATE TABLE workspace_layouts (workspace_id TEXT PRIMARY KEY);
+        PRAGMA user_version = 4;
+      `)
+      legacyDatabase.close()
+
+      expect(() => createAideDatabase(databasePath)).toThrow(
+        'no such table: app_state',
+      )
+
+      const inspected = new DatabaseSync(databasePath, { readOnly: true })
+      try {
+        expect(
+          inspected
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workspace_surface_states'",
+            )
+            .get(),
+        ).toBeUndefined()
+        expect(
+          (
+            inspected.prepare('PRAGMA user_version;').get() as {
+              user_version: number
+            }
+          ).user_version,
+        ).toBe(4)
+      } finally {
+        inspected.close()
+      }
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
+  })
+
+  it('keeps duplicate-column compatibility inside a migration transaction', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-migration-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const currentDatabase = createAideDatabase(databasePath)
+      currentDatabase.close()
+
+      const legacyDatabase = new DatabaseSync(databasePath)
+      legacyDatabase.exec('PRAGMA user_version = 2;')
+      legacyDatabase.close()
+
+      const migratedDatabase = createAideDatabase(databasePath)
+      expect(migratedDatabase.getSnapshot().schemaVersion).toBe(6)
+      migratedDatabase.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
   })
 
   it('stores and reloads projects plus workspaces', () => {
@@ -470,6 +531,68 @@ describe('createAideDatabase', () => {
     database.deleteWorkspace(workspace.id)
     expect(database.getWorkspacePreviewState(workspace.id)).toBeNull()
     database.close()
+  })
+
+  it('rejects a preview active-tab id that does not reference a persisted tab', () => {
+    const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-preview-db-'))
+    const databasePath = path.join(tempDirectory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      const project = database.createProject({
+        defaultBranch: 'main',
+        name: 'aide',
+        remoteUrl: null,
+        repoRoot: '/workspace/aide',
+      })
+      const workspace = database.createWorkspace({
+        branchName: 'main',
+        name: 'main',
+        projectId: project.id,
+        windowId: null,
+        worktreePath: '/workspace/aide',
+      })
+      database.saveWorkspacePreviewState({
+        activeTabId: 'preview-1',
+        initialized: true,
+        revision: 1,
+        tabs: [
+          {
+            canGoBack: false,
+            canGoForward: false,
+            error: null,
+            id: 'preview-1',
+            label: 'Preview',
+            navStatus: 'idle',
+            title: null,
+            updatedAt: '2026-07-13T12:00:00.000Z',
+            url: 'http://127.0.0.1:4173',
+            workspaceId: workspace.id,
+          },
+        ],
+        workspaceId: workspace.id,
+      })
+      database.close()
+
+      const corrupted = new DatabaseSync(databasePath)
+      corrupted
+        .prepare(
+          "UPDATE workspace_preview_states SET active_tab_id = 'missing' WHERE workspace_id = ?",
+        )
+        .run(workspace.id)
+      corrupted.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(() => reopened.getWorkspacePreviewStates()).toThrow(
+        'Workspace preview active tab id must reference a tab.',
+      )
+      expect(() => reopened.getSnapshot()).toThrow(
+        'Workspace preview active tab id must reference a tab.',
+      )
+      reopened.close()
+    } finally {
+      rmSync(tempDirectory, { force: true, recursive: true })
+    }
   })
 
   it('tracks catalog and per-workspace surface revisions', () => {

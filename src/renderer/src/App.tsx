@@ -15,15 +15,17 @@ import type {
 } from '../../shared/git'
 import type { AideApi } from '../../shared/ipc'
 import {
+  createEmptyPersistenceSnapshot,
   type PersistenceSnapshot,
   type SaveWorkspaceSurfaceStateInput,
   type SurfaceLayoutRecord,
   type WorkspaceLayoutRecord,
-  createEmptyPersistenceSnapshot,
 } from '../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../shared/preview'
+import type { PersistedStateRecovery } from '../../shared/recovery'
 import type { WorkspaceActivitySnapshot } from '../../shared/workspace-activity'
 import AppShell from './components/AppShell'
+import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
 import PreviewBrowserHost, {
   type PreviewBrowserControl,
   type PreviewPresentation,
@@ -37,13 +39,13 @@ import {
   resolvePaneType,
 } from './lib/pane-catalog'
 import {
-  type SpatialNavigationState,
   applyPaneSelection,
   applyProjectSelection,
   applySurfaceSelection,
   applyWorkspaceSelection,
   moveRelativePane,
   resolveSpatialNavigationState,
+  type SpatialNavigationState,
 } from './lib/spatial-navigation-state'
 import { collectWorkspaceLayoutPaneIds } from './lib/workspace-layout'
 import {
@@ -154,6 +156,53 @@ function prioritizeProjectRefs(
 }
 
 export default function App() {
+  const [recovery, setRecovery] = useState<
+    PersistedStateRecovery | null | undefined
+  >(undefined)
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const api = getAideApi()
+    if (!api) {
+      setRecoveryError('Desktop bridge did not load. Reload the app window.')
+      return
+    }
+
+    void api
+      .getPersistedStateRecovery()
+      .then(setRecovery)
+      .catch((error: unknown) => setRecoveryError(getErrorMessage(error)))
+  }, [])
+
+  if (recoveryError) {
+    return <main className="recovery-screen">{recoveryError}</main>
+  }
+
+  if (recovery === undefined) {
+    return (
+      <main aria-live="polite" className="recovery-screen">
+        Checking saved data…
+      </main>
+    )
+  }
+
+  const api = getAideApi()
+  if (!api) {
+    return (
+      <main className="recovery-screen">
+        Desktop bridge did not load. Reload the app window.
+      </main>
+    )
+  }
+
+  if (recovery) {
+    return <PersistedStateRecoveryScreen api={api} recovery={recovery} />
+  }
+
+  return <MainApp />
+}
+
+function MainApp() {
   const [storageSnapshot, setStorageSnapshot] =
     useState<PersistenceSnapshot | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
@@ -1810,139 +1859,135 @@ export default function App() {
       workspaces={orderedWorkspaces}
       workspaceSummaries={workspaceSummaries}
     >
-      <>
-        {isCommandPaletteOpen ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
-            <LazyCommandPalette
-              commands={paletteCommands}
-              isOpen
-              onClose={() => setIsCommandPaletteOpen(false)}
-            />
-          </Suspense>
-        ) : null}
-        {isPaneCreationOpen ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
-            <LazyPaneCreationModal
-              isOpen
-              onCreatePane={(paneId) => void handleCreatePane(paneId)}
-              onOpenChange={setIsPaneCreationOpen}
-            />
-          </Suspense>
-        ) : null}
-        {isWorkspaceCreationOpen ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
-            <LazyWorkspaceCreationModal
-              existingRootWorkspaceName={
-                activeProject
-                  ? (projectWorkspaces.find(
-                      (workspace) =>
-                        workspace.worktreePath === activeProject.repoRoot,
-                    )?.name ?? null)
-                  : null
-              }
-              isOpen
-              loadProjectRefs={listProjectRefs}
-              onAttach={submitWorkspaceAttachment}
-              onOpenChange={setIsWorkspaceCreationOpen}
-              onSubmit={submitWorkspaceCreation}
-              project={activeProject}
-              workspaceCount={projectWorkspaces.length}
-            />
-          </Suspense>
-        ) : null}
-        {isWorkspaceSwitcherVisible ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
-            <LazyWorkspaceSwitcherOverlay
-              activeWorkspaceId={activeWorkspace?.id ?? null}
-              mode="workspace-switcher"
-              onRequestClose={() => setIsWorkspaceSwitcherVisible(false)}
-              onSelectWorkspace={handleWorkspaceSelection}
-              projectName={activeProject?.name ?? null}
-              summaries={workspaceSummaries}
-              visible
-              workspaces={projectWorkspaces}
-            />
-          </Suspense>
-        ) : null}
-        {isOverviewVisible ? (
-          <Suspense fallback={<OverlayLoadFallback />}>
-            <LazyWorkspaceSwitcherOverlay
-              activeWorkspaceId={activeWorkspace?.id ?? null}
-              mode="overview"
-              onRequestClose={() => setIsOverviewVisible(false)}
-              onSelectWorkspace={handleWorkspaceSelection}
-              projectName={activeProject?.name ?? null}
-              summaries={workspaceSummaries}
-              visible
-              workspaces={orderedWorkspaces}
-            />
-          </Suspense>
-        ) : null}
-        <WorkspaceCanvas
-          activeProject={activeProject}
-          activeWorkspace={activeWorkspace}
-          actionError={actionError}
-          onAddView={handleAddView}
-          onCreateProject={openProject}
-          onCreateWorkspace={createWorkspace}
-          onClosePane={handleClosePane}
-          onRemoveView={handleRemoveView}
-          onPreviewBrowserControl={handlePreviewBrowserControl}
-          onPreviewCloseTab={(workspace, tabId) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.closePreviewTab(workspace.id, tabId),
-              )
-          }}
-          onPreviewNavigate={(workspace, tabId, url) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.navigatePreviewTab(workspace.id, tabId, url),
-              )
-          }}
-          onPreviewOpenTab={(workspace, url) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() => aide.openPreviewTab(workspace.id, url))
-          }}
-          onPreviewPresentationChange={setPreviewPresentation}
-          onPreviewSelectTab={(workspace, tabId) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.selectPreviewTab(workspace.id, tabId),
-              )
-          }}
-          onSelectPane={(paneId: string) =>
-            setSelection(
-              applyPaneSelection(
-                navigationSnapshot,
-                resolvedNavigationState,
-                paneId,
-                getSurfaceIdsForWorkspace,
-                getPaneIdsForWorkspace,
-              ),
+      {isCommandPaletteOpen ? (
+        <Suspense fallback={<OverlayLoadFallback />}>
+          <LazyCommandPalette
+            commands={paletteCommands}
+            isOpen
+            onClose={() => setIsCommandPaletteOpen(false)}
+          />
+        </Suspense>
+      ) : null}
+      {isPaneCreationOpen ? (
+        <Suspense fallback={<OverlayLoadFallback />}>
+          <LazyPaneCreationModal
+            isOpen
+            onCreatePane={(paneId) => void handleCreatePane(paneId)}
+            onOpenChange={setIsPaneCreationOpen}
+          />
+        </Suspense>
+      ) : null}
+      {isWorkspaceCreationOpen ? (
+        <Suspense fallback={<OverlayLoadFallback />}>
+          <LazyWorkspaceCreationModal
+            existingRootWorkspaceName={
+              activeProject
+                ? (projectWorkspaces.find(
+                    (workspace) =>
+                      workspace.worktreePath === activeProject.repoRoot,
+                  )?.name ?? null)
+                : null
+            }
+            isOpen
+            loadProjectRefs={listProjectRefs}
+            onAttach={submitWorkspaceAttachment}
+            onOpenChange={setIsWorkspaceCreationOpen}
+            onSubmit={submitWorkspaceCreation}
+            project={activeProject}
+            workspaceCount={projectWorkspaces.length}
+          />
+        </Suspense>
+      ) : null}
+      {isWorkspaceSwitcherVisible ? (
+        <Suspense fallback={<OverlayLoadFallback />}>
+          <LazyWorkspaceSwitcherOverlay
+            activeWorkspaceId={activeWorkspace?.id ?? null}
+            mode="workspace-switcher"
+            onRequestClose={() => setIsWorkspaceSwitcherVisible(false)}
+            onSelectWorkspace={handleWorkspaceSelection}
+            projectName={activeProject?.name ?? null}
+            summaries={workspaceSummaries}
+            visible
+            workspaces={projectWorkspaces}
+          />
+        </Suspense>
+      ) : null}
+      {isOverviewVisible ? (
+        <Suspense fallback={<OverlayLoadFallback />}>
+          <LazyWorkspaceSwitcherOverlay
+            activeWorkspaceId={activeWorkspace?.id ?? null}
+            mode="overview"
+            onRequestClose={() => setIsOverviewVisible(false)}
+            onSelectWorkspace={handleWorkspaceSelection}
+            projectName={activeProject?.name ?? null}
+            summaries={workspaceSummaries}
+            visible
+            workspaces={orderedWorkspaces}
+          />
+        </Suspense>
+      ) : null}
+      <WorkspaceCanvas
+        activeProject={activeProject}
+        activeWorkspace={activeWorkspace}
+        actionError={actionError}
+        onAddView={handleAddView}
+        onCreateProject={openProject}
+        onCreateWorkspace={createWorkspace}
+        onClosePane={handleClosePane}
+        onRemoveView={handleRemoveView}
+        onPreviewBrowserControl={handlePreviewBrowserControl}
+        onPreviewCloseTab={(workspace, tabId) => {
+          const aide = getAideApi()
+          if (aide)
+            withPreviewSnapshot(() => aide.closePreviewTab(workspace.id, tabId))
+        }}
+        onPreviewNavigate={(workspace, tabId, url) => {
+          const aide = getAideApi()
+          if (aide)
+            withPreviewSnapshot(() =>
+              aide.navigatePreviewTab(workspace.id, tabId, url),
             )
-          }
-          onSwitchView={handleSwitchView}
-          previewSnapshot={activePreviewSnapshot}
-          allWorkspaces={projectWorkspaces}
-          projects={projects}
-          shellError={shellError}
-          activePaneId={resolvedNavigationState.activePaneId}
-          activeSurfaceId={resolvedNavigationState.activeSurfaceId}
-          surfaceLayouts={navigationSnapshot.surfaceLayouts ?? {}}
-          workspaceSurfaces={navigationSnapshot.workspaceSurfaces ?? {}}
-          workspaceLayouts={navigationSnapshot.workspaceLayouts}
-        />
-        <PreviewBrowserHost
-          action={previewBrowserAction}
-          presentation={previewPresentation}
-          snapshots={previewSnapshots}
-        />
-      </>
+        }}
+        onPreviewOpenTab={(workspace, url) => {
+          const aide = getAideApi()
+          if (aide)
+            withPreviewSnapshot(() => aide.openPreviewTab(workspace.id, url))
+        }}
+        onPreviewPresentationChange={setPreviewPresentation}
+        onPreviewSelectTab={(workspace, tabId) => {
+          const aide = getAideApi()
+          if (aide)
+            withPreviewSnapshot(() =>
+              aide.selectPreviewTab(workspace.id, tabId),
+            )
+        }}
+        onSelectPane={(paneId: string) =>
+          setSelection(
+            applyPaneSelection(
+              navigationSnapshot,
+              resolvedNavigationState,
+              paneId,
+              getSurfaceIdsForWorkspace,
+              getPaneIdsForWorkspace,
+            ),
+          )
+        }
+        onSwitchView={handleSwitchView}
+        previewSnapshot={activePreviewSnapshot}
+        allWorkspaces={projectWorkspaces}
+        projects={projects}
+        shellError={shellError}
+        activePaneId={resolvedNavigationState.activePaneId}
+        activeSurfaceId={resolvedNavigationState.activeSurfaceId}
+        surfaceLayouts={navigationSnapshot.surfaceLayouts ?? {}}
+        workspaceSurfaces={navigationSnapshot.workspaceSurfaces ?? {}}
+        workspaceLayouts={navigationSnapshot.workspaceLayouts}
+      />
+      <PreviewBrowserHost
+        action={previewBrowserAction}
+        presentation={previewPresentation}
+        snapshots={previewSnapshots}
+      />
     </AppShell>
   )
 }

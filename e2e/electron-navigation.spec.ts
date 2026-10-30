@@ -1,13 +1,19 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import {
   type ElectronApplication,
-  type Page,
   _electron as electron,
   expect,
+  type Page,
   test,
 } from '@playwright/test'
 
@@ -197,6 +203,81 @@ test.describe('electron spatial navigation', () => {
     additionalRepoRoots = []
     importedRepoRoot = null
     tempDirectory = null
+  })
+
+  test('requires an explicit reset and preserves damaged persisted state', async () => {
+    const safeModeDirectory = mkdtempSync(path.join(tmpdir(), 'aide-recovery-'))
+    const databasePath = path.join(safeModeDirectory, 'aide.sqlite3')
+    writeFileSync(databasePath, 'damaged state')
+
+    const launched = await launchAideApp(
+      {},
+      { tempDirectory: safeModeDirectory },
+    )
+    app = launched.app
+    tempDirectory = launched.tempDirectory
+
+    const { page } = launched
+    await expect(page.getByTestId('persisted-state-recovery')).toBeVisible()
+    expect(readFileSync(databasePath, 'utf8')).toBe('damaged state')
+
+    await page.getByRole('button', { name: /reset saved data/i }).click()
+    await expect(
+      page.getByRole('button', {
+        name: /reset and preserve damaged database/i,
+      }),
+    ).toBeVisible()
+    await page.getByRole('button', { name: /cancel reset/i }).click()
+    expect(readFileSync(databasePath, 'utf8')).toBe('damaged state')
+
+    await page.getByRole('button', { name: /reset saved data/i }).click()
+    await page
+      .getByRole('button', { name: /reset and preserve damaged database/i })
+      .click()
+    await expect(page.getByText('No project selected')).toBeVisible()
+
+    const damagedBackup = readdirSync(path.join(safeModeDirectory, 'recovery'))
+      .filter((entry) => entry.includes('.damaged-'))
+      .map((entry) => path.join(safeModeDirectory, 'recovery', entry))[0]
+    expect(readFileSync(damagedBackup, 'utf8')).toBe('damaged state')
+  })
+
+  test('restores a known-good backup and survives a full relaunch', async () => {
+    const recoveryDirectory = mkdtempSync(path.join(tmpdir(), 'aide-recovery-'))
+    const databasePath = path.join(recoveryDirectory, 'aide.sqlite3')
+    const initial = await launchAideApp(
+      {},
+      { tempDirectory: recoveryDirectory },
+    )
+    app = initial.app
+    tempDirectory = recoveryDirectory
+
+    await expect(initial.page.getByText('No project selected')).toBeVisible()
+    await initial.app.close()
+    app = null
+    writeFileSync(databasePath, 'damaged state')
+
+    const recovery = await launchAideApp(
+      {},
+      { tempDirectory: recoveryDirectory },
+    )
+    app = recovery.app
+    await expect(
+      recovery.page.getByTestId('persisted-state-recovery'),
+    ).toBeVisible()
+    await recovery.page
+      .getByRole('button', { name: /restore latest known-good backup/i })
+      .click()
+    await expect(recovery.page.getByText('No project selected')).toBeVisible()
+    await recovery.app.close()
+    app = null
+
+    const relaunched = await launchAideApp(
+      {},
+      { tempDirectory: recoveryDirectory },
+    )
+    app = relaunched.app
+    await expect(relaunched.page.getByText('No project selected')).toBeVisible()
   })
 
   test('can open a git project from the empty state', async () => {

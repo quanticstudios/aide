@@ -15,11 +15,18 @@ describe('ApplicationRuntime', () => {
       return { unref }
     })
     const runtime = new ApplicationRuntime({
+      closeDatabase: vi.fn(),
       createMainWindow,
       hasWindows: () => false,
-      initializeServices,
+      initializeServices: () => {
+        initializeServices()
+        return true
+      },
+      quiescePersistenceWrites: vi.fn(),
       registerIpcHandlers,
+      registerRecoveryIpcHandlers: vi.fn(),
       reapStoppedManagedSessions,
+      refreshKnownGoodBackup: vi.fn(),
       startReaper,
       shutdownServices: vi.fn(),
     })
@@ -52,11 +59,15 @@ describe('ApplicationRuntime', () => {
     const createMainWindow = vi.fn()
     let hasWindows = true
     const runtime = new ApplicationRuntime({
+      closeDatabase: vi.fn(),
       createMainWindow,
       hasWindows: () => hasWindows,
-      initializeServices: vi.fn(),
+      initializeServices: () => true,
+      quiescePersistenceWrites: vi.fn(),
       registerIpcHandlers: vi.fn(),
+      registerRecoveryIpcHandlers: vi.fn(),
       reapStoppedManagedSessions: vi.fn(),
+      refreshKnownGoodBackup: vi.fn(),
       startReaper: () => ({ unref: vi.fn() }),
       shutdownServices: vi.fn(),
     })
@@ -68,14 +79,28 @@ describe('ApplicationRuntime', () => {
     expect(createMainWindow).toHaveBeenCalledOnce()
   })
 
-  it('runs bounded service shutdown at most once', async () => {
-    const shutdownServices = vi.fn(async () => undefined)
+  it('quiesces writes before services stop and refreshes the backup before closing once', async () => {
+    const events: string[] = []
+    const shutdownServices = vi.fn(async () => {
+      events.push('services stopped')
+    })
     const runtime = new ApplicationRuntime({
+      closeDatabase: () => {
+        events.push('database closed')
+      },
       createMainWindow: vi.fn(),
       hasWindows: () => false,
-      initializeServices: vi.fn(),
+      initializeServices: () => true,
+      quiescePersistenceWrites: () => {
+        events.push('writes quiesced')
+        return Promise.resolve()
+      },
       registerIpcHandlers: vi.fn(),
+      registerRecoveryIpcHandlers: vi.fn(),
       reapStoppedManagedSessions: vi.fn(),
+      refreshKnownGoodBackup: () => {
+        events.push('backup refreshed')
+      },
       startReaper: () => ({ unref: vi.fn() }),
       shutdownServices,
     })
@@ -84,6 +109,43 @@ describe('ApplicationRuntime', () => {
     await runtime.shutdown()
 
     expect(shutdownServices).toHaveBeenCalledOnce()
+    expect(events).toEqual([
+      'writes quiesced',
+      'services stopped',
+      'backup refreshed',
+      'database closed',
+    ])
     expect(runtime.isShutdownComplete()).toBe(true)
+  })
+
+  it('starts in recovery without normal IPC or hydration reaper and resumes later', () => {
+    let servicesAvailable = false
+    const registerIpcHandlers = vi.fn()
+    const registerRecoveryIpcHandlers = vi.fn()
+    const startReaper = vi.fn(() => ({ unref: vi.fn() }))
+    const runtime = new ApplicationRuntime({
+      closeDatabase: vi.fn(),
+      createMainWindow: vi.fn(),
+      hasWindows: () => false,
+      initializeServices: () => servicesAvailable,
+      quiescePersistenceWrites: vi.fn(),
+      registerIpcHandlers,
+      registerRecoveryIpcHandlers,
+      reapStoppedManagedSessions: vi.fn(),
+      refreshKnownGoodBackup: vi.fn(),
+      startReaper,
+      shutdownServices: vi.fn(),
+    })
+
+    runtime.start()
+
+    expect(registerRecoveryIpcHandlers).toHaveBeenCalledOnce()
+    expect(registerIpcHandlers).not.toHaveBeenCalled()
+    expect(startReaper).not.toHaveBeenCalled()
+
+    servicesAvailable = true
+    expect(runtime.resume()).toBe(true)
+    expect(registerIpcHandlers).toHaveBeenCalledOnce()
+    expect(startReaper).toHaveBeenCalledOnce()
   })
 })

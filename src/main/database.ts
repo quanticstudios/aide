@@ -17,7 +17,11 @@ import type {
   WorkspaceRecord,
   WorkspaceSurfaceRecord,
 } from '../shared/persistence'
-import type { WorkspacePreviewSnapshot } from '../shared/preview'
+import type {
+  PreviewNavStatus,
+  PreviewTabSnapshot,
+  WorkspacePreviewSnapshot,
+} from '../shared/preview'
 
 interface SqlProjectRow {
   created_at: string
@@ -76,6 +80,91 @@ const MIGRATION_STRATEGY =
   'Ordered SQL migrations tracked with PRAGMA user_version.'
 
 const LEGACY_SURFACE_SUFFIX = ':surface:legacy-root'
+
+const PREVIEW_NAV_STATUSES = new Set<PreviewNavStatus>([
+  'idle',
+  'loading',
+  'success',
+  'load-failed',
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function parsePersistedJson(value: string, description: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    throw new Error(`${description} is not valid JSON.`)
+  }
+}
+
+function requireRecord(
+  value: unknown,
+  description: string,
+): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new Error(`${description} must be an object.`)
+  }
+
+  return value
+}
+
+function requireArray(value: unknown, description: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${description} must be an array.`)
+  }
+
+  return value
+}
+
+function requireString(value: unknown, description: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${description} must be a string.`)
+  }
+
+  return value
+}
+
+function requireNonEmptyString(value: unknown, description: string): string {
+  const string = requireString(value, description)
+  if (!string) {
+    throw new Error(`${description} must not be empty.`)
+  }
+
+  return string
+}
+
+function requireNullableString(
+  value: unknown,
+  description: string,
+): string | null {
+  if (value === null || typeof value === 'string') {
+    return value
+  }
+
+  throw new Error(`${description} must be a string or null.`)
+}
+
+function requireNonNegativeInteger(
+  value: unknown,
+  description: string,
+): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`${description} must be a non-negative integer.`)
+  }
+
+  return value as number
+}
+
+function requireBoolean(value: unknown, description: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${description} must be a boolean.`)
+  }
+
+  return value
+}
 
 const MIGRATIONS = [
   {
@@ -184,6 +273,9 @@ const MIGRATIONS = [
   },
 ]
 
+export const AIDE_DATABASE_SCHEMA_VERSION =
+  MIGRATIONS[MIGRATIONS.length - 1].version
+
 export function createAideDatabase(databasePath: string): AideDatabase {
   return new AideDatabase(databasePath)
 }
@@ -193,8 +285,13 @@ export class AideDatabase {
 
   public constructor(private readonly databasePath: string) {
     this.database = new DatabaseSync(databasePath)
-    this.database.exec('PRAGMA foreign_keys = ON;')
-    this.runMigrations()
+    try {
+      this.database.exec('PRAGMA foreign_keys = ON;')
+      this.runMigrations()
+    } catch (error) {
+      this.database.close()
+      throw error
+    }
   }
 
   public close(): void {
@@ -537,6 +634,9 @@ export class AideDatabase {
   public getSnapshot(): PersistenceSnapshot {
     const activeSelection = this.getActiveSelection()
     const workspaces = this.listWorkspaces()
+    // Load every persisted JSON field during startup validation, including
+    // preview state which is otherwise fetched lazily by the renderer.
+    void this.getWorkspacePreviewStates()
     const legacyWorkspaceLayouts = this.listWorkspaceLayouts().reduce<
       Record<string, WorkspaceLayoutRecord>
     >((layouts, layout) => {
@@ -697,12 +797,21 @@ export class AideDatabase {
       return null
     }
 
-    const surfaces = [...input.surfaces]
+    const persistedInput = requireRecord(input, 'Workspace surface state')
+    const surfaceInputs = requireArray(
+      persistedInput.surfaces,
+      'Workspace surfaces',
+    )
+    const layoutInputs = requireRecord(
+      persistedInput.layouts,
+      'Workspace surface layouts',
+    )
+    const surfaces = surfaceInputs
       .map((surface) => this.normalizeWorkspaceSurface(workspaceId, surface))
       .sort((left, right) => left.orderIndex - right.orderIndex)
     const layouts = surfaces.reduce<Record<string, SurfaceLayoutRecord>>(
       (acc, surface) => {
-        const layoutInput = input.layouts[surface.id]
+        const layoutInput = layoutInputs[surface.id]
 
         if (!layoutInput) {
           throw new Error('Each workspace surface requires a layout.')
@@ -786,7 +895,8 @@ export class AideDatabase {
   public saveWorkspacePreviewState(
     input: WorkspacePreviewSnapshot,
   ): WorkspacePreviewSnapshot | null {
-    if (!this.getWorkspace(input.workspaceId)) {
+    const snapshot = this.normalizeWorkspacePreviewState(input)
+    if (!this.getWorkspace(snapshot.workspaceId)) {
       return null
     }
 
@@ -804,18 +914,19 @@ export class AideDatabase {
         `,
       )
       .run(
-        input.workspaceId,
-        input.activeTabId,
-        input.initialized ? 1 : 0,
-        input.revision,
-        JSON.stringify(input.tabs),
+        snapshot.workspaceId,
+        snapshot.activeTabId,
+        snapshot.initialized ? 1 : 0,
+        snapshot.revision,
+        JSON.stringify(snapshot.tabs),
         new Date().toISOString(),
       )
 
-    return this.getWorkspacePreviewState(input.workspaceId)
+    return this.getWorkspacePreviewState(snapshot.workspaceId)
   }
 
   public setActiveSelection(input: SetActiveSelectionInput): void {
+    const selection = this.normalizeActiveSelection(input)
     this.database
       .prepare(
         `
@@ -825,12 +936,12 @@ export class AideDatabase {
         `,
       )
       .run(
-        input.projectId,
-        input.workspaceId,
-        JSON.stringify(input.workspaceIdsByProject ?? {}),
-        JSON.stringify(input.paneIdsByWorkspace ?? {}),
-        JSON.stringify(input.surfaceIdsByWorkspace ?? {}),
-        JSON.stringify(input.paneIdsBySurface ?? {}),
+        selection.projectId,
+        selection.workspaceId,
+        JSON.stringify(selection.workspaceIdsByProject),
+        JSON.stringify(selection.paneIdsByWorkspace),
+        JSON.stringify(selection.surfaceIdsByWorkspace),
+        JSON.stringify(selection.paneIdsBySurface),
         new Date().toISOString(),
       )
   }
@@ -870,22 +981,26 @@ export class AideDatabase {
       )
       .get() as SqlAppStateRow | undefined
 
-    return {
-      paneIdsBySurface: row?.last_active_pane_ids_by_surface
-        ? JSON.parse(row.last_active_pane_ids_by_surface)
-        : {},
-      paneIdsByWorkspace: row?.last_active_pane_ids_by_workspace
-        ? JSON.parse(row.last_active_pane_ids_by_workspace)
-        : {},
+    return this.normalizeActiveSelection({
+      paneIdsBySurface: parsePersistedJson(
+        row?.last_active_pane_ids_by_surface ?? '{}',
+        'Active surface pane selection',
+      ),
+      paneIdsByWorkspace: parsePersistedJson(
+        row?.last_active_pane_ids_by_workspace ?? '{}',
+        'Active workspace pane selection',
+      ),
       projectId: row?.last_active_project_id ?? null,
-      surfaceIdsByWorkspace: row?.last_active_surface_ids_by_workspace
-        ? JSON.parse(row.last_active_surface_ids_by_workspace)
-        : {},
-      workspaceIdsByProject: row?.last_active_workspace_ids_by_project
-        ? JSON.parse(row.last_active_workspace_ids_by_project)
-        : {},
+      surfaceIdsByWorkspace: parsePersistedJson(
+        row?.last_active_surface_ids_by_workspace ?? '{}',
+        'Active workspace surface selection',
+      ),
+      workspaceIdsByProject: parsePersistedJson(
+        row?.last_active_workspace_ids_by_project ?? '{}',
+        'Active project workspace selection',
+      ),
       workspaceId: row?.last_active_workspace_id ?? null,
-    }
+    })
   }
 
   private mapProjectRow(row: SqlProjectRow): ProjectRecord {
@@ -916,7 +1031,10 @@ export class AideDatabase {
   private mapWorkspaceLayoutRow(
     row: SqlWorkspaceLayoutRow,
   ): WorkspaceLayoutRecord {
-    const parsedNodes = JSON.parse(row.nodes_json) as PersistedLayoutNode[]
+    const parsedNodes = parsePersistedJson(
+      row.nodes_json,
+      'Workspace layout nodes',
+    )
 
     return this.normalizeWorkspaceLayout(row.workspace_id, {
       nodes: parsedNodes,
@@ -980,28 +1098,49 @@ export class AideDatabase {
     surfaces: WorkspaceSurfaceRecord[]
     workspaceId: string
   } {
-    const parsedSurfaces = JSON.parse(
-      row.surfaces_json,
-    ) as WorkspaceSurfaceRecord[]
-    const parsedLayouts = JSON.parse(row.layouts_json) as Record<
-      string,
-      SaveWorkspaceLayoutInput
-    >
+    const parsedSurfaces = requireArray(
+      parsePersistedJson(row.surfaces_json, 'Workspace surfaces'),
+      'Workspace surfaces',
+    )
+    const parsedLayouts = requireRecord(
+      parsePersistedJson(row.layouts_json, 'Workspace surface layouts'),
+      'Workspace surface layouts',
+    )
+    const layouts = Object.entries(parsedLayouts).reduce<
+      Record<string, SurfaceLayoutRecord>
+    >((acc, [surfaceId, layout]) => {
+      acc[surfaceId] = {
+        ...this.normalizeWorkspaceLayout(row.workspace_id, layout),
+        surfaceId,
+      }
+      return acc
+    }, {})
+    const surfaces = parsedSurfaces.map((surface) =>
+      this.normalizeWorkspaceSurface(row.workspace_id, surface),
+    )
+    const surfaceIds = new Set<string>()
+    for (const surface of surfaces) {
+      if (surfaceIds.has(surface.id)) {
+        throw new Error('Workspace surfaces must have unique ids.')
+      }
+      surfaceIds.add(surface.id)
+
+      const layout = layouts[surface.id]
+      if (!layout || layout.rootNodeId !== surface.rootNodeId) {
+        throw new Error('Each workspace surface requires a matching layout.')
+      }
+    }
+    if (Object.keys(layouts).some((surfaceId) => !surfaceIds.has(surfaceId))) {
+      throw new Error('Workspace surface layouts must belong to a surface.')
+    }
 
     return {
-      layouts: Object.entries(parsedLayouts).reduce<
-        Record<string, SurfaceLayoutRecord>
-      >((acc, [surfaceId, layout]) => {
-        acc[surfaceId] = {
-          ...this.normalizeWorkspaceLayout(row.workspace_id, layout),
-          surfaceId,
-        }
-        return acc
-      }, {}),
-      revision: row.revision,
-      surfaces: parsedSurfaces.map((surface) =>
-        this.normalizeWorkspaceSurface(row.workspace_id, surface),
+      layouts,
+      revision: requireNonNegativeInteger(
+        row.revision,
+        'Workspace surface revision',
       ),
+      surfaces,
       workspaceId: row.workspace_id,
     }
   }
@@ -1009,112 +1148,323 @@ export class AideDatabase {
   private mapWorkspacePreviewStateRow(
     row: SqlWorkspacePreviewStateRow,
   ): WorkspacePreviewSnapshot {
-    return {
+    if (row.initialized !== 0 && row.initialized !== 1) {
+      throw new Error('Workspace preview initialization must be 0 or 1.')
+    }
+
+    return this.normalizeWorkspacePreviewState({
       activeTabId: row.active_tab_id,
       initialized: row.initialized === 1,
       revision: row.revision,
-      tabs: JSON.parse(row.tabs_json),
+      tabs: parsePersistedJson(row.tabs_json, 'Workspace preview tabs'),
       workspaceId: row.workspace_id,
+    })
+  }
+
+  private normalizeActiveSelection(input: unknown): SetActiveSelectionInput {
+    const selection = requireRecord(input, 'Active selection')
+    const normalizeIdMap = (
+      value: unknown,
+      description: string,
+    ): Record<string, string | null> => {
+      const map = requireRecord(value ?? {}, description)
+      return Object.fromEntries(
+        Object.entries(map).map(([key, item]) => [
+          key,
+          requireNullableString(item, `${description} values`),
+        ]),
+      )
+    }
+
+    return {
+      paneIdsBySurface: normalizeIdMap(
+        selection.paneIdsBySurface,
+        'Active surface pane selection',
+      ),
+      paneIdsByWorkspace: normalizeIdMap(
+        selection.paneIdsByWorkspace,
+        'Active workspace pane selection',
+      ),
+      projectId: requireNullableString(
+        selection.projectId,
+        'Active project id',
+      ),
+      surfaceIdsByWorkspace: normalizeIdMap(
+        selection.surfaceIdsByWorkspace,
+        'Active workspace surface selection',
+      ),
+      workspaceIdsByProject: normalizeIdMap(
+        selection.workspaceIdsByProject,
+        'Active project workspace selection',
+      ),
+      workspaceId: requireNullableString(
+        selection.workspaceId,
+        'Active workspace id',
+      ),
+    }
+  }
+
+  private normalizeWorkspacePreviewState(
+    input: unknown,
+  ): WorkspacePreviewSnapshot {
+    const snapshot = requireRecord(input, 'Workspace preview state')
+    const workspaceId = requireNonEmptyString(
+      snapshot.workspaceId,
+      'Workspace preview workspace id',
+    )
+    const tabs = requireArray(snapshot.tabs, 'Workspace preview tabs').map(
+      (tab) => this.normalizeWorkspacePreviewTab(workspaceId, tab),
+    )
+    const tabIds = new Set(tabs.map((tab) => tab.id))
+    if (tabIds.size !== tabs.length) {
+      throw new Error('Workspace preview tabs must have unique ids.')
+    }
+    const activeTabId = requireNullableString(
+      snapshot.activeTabId,
+      'Workspace preview active tab id',
+    )
+    if (activeTabId !== null && !tabIds.has(activeTabId)) {
+      throw new Error('Workspace preview active tab id must reference a tab.')
+    }
+
+    return {
+      activeTabId,
+      initialized: requireBoolean(
+        snapshot.initialized,
+        'Workspace preview initialization',
+      ),
+      revision: requireNonNegativeInteger(
+        snapshot.revision,
+        'Workspace preview revision',
+      ),
+      tabs,
+      workspaceId,
+    }
+  }
+
+  private normalizeWorkspacePreviewTab(
+    workspaceId: string,
+    input: unknown,
+  ): PreviewTabSnapshot {
+    const tab = requireRecord(input, 'Workspace preview tab')
+    if (tab.workspaceId !== workspaceId) {
+      throw new Error('Workspace preview tabs must belong to their workspace.')
+    }
+    if (!PREVIEW_NAV_STATUSES.has(tab.navStatus as PreviewNavStatus)) {
+      throw new Error('Workspace preview tabs must have a supported status.')
+    }
+
+    return {
+      canGoBack: requireBoolean(
+        tab.canGoBack,
+        'Workspace preview tab back navigation',
+      ),
+      canGoForward: requireBoolean(
+        tab.canGoForward,
+        'Workspace preview tab forward navigation',
+      ),
+      error: requireNullableString(tab.error, 'Workspace preview tab error'),
+      id: requireNonEmptyString(tab.id, 'Workspace preview tab id'),
+      label: requireString(tab.label, 'Workspace preview tab label'),
+      navStatus: tab.navStatus as PreviewNavStatus,
+      title: requireNullableString(tab.title, 'Workspace preview tab title'),
+      updatedAt: requireString(
+        tab.updatedAt,
+        'Workspace preview tab update time',
+      ),
+      url: requireString(tab.url, 'Workspace preview tab URL'),
+      workspaceId,
     }
   }
 
   private normalizeWorkspaceLayout(
     workspaceId: string,
-    input: SaveWorkspaceLayoutInput,
+    input: unknown,
   ): WorkspaceLayoutRecord {
-    if (!input.rootNodeId) {
-      throw new Error('Workspace layouts require a root node id.')
-    }
-
-    if (input.nodes.length === 0) {
+    const layout = requireRecord(input, 'Workspace layout')
+    const rootNodeId = requireNonEmptyString(
+      layout.rootNodeId,
+      'Workspace layout root node id',
+    )
+    const inputNodes = requireArray(layout.nodes, 'Workspace layout nodes')
+    if (inputNodes.length === 0) {
       throw new Error('Workspace layouts require at least one layout node.')
     }
 
-    const nodes = input.nodes.map((node) =>
+    const nodes = inputNodes.map((node) =>
       this.normalizeLayoutNode(workspaceId, node),
     )
+    const nodesById = new Map(nodes.map((node) => [node.id, node]))
+    if (nodesById.size !== nodes.length) {
+      throw new Error('Workspace layout nodes must have unique ids.')
+    }
 
-    if (!nodes.some((node) => node.id === input.rootNodeId)) {
+    if (!nodesById.has(rootNodeId)) {
       throw new Error('Workspace layout root node must exist in the node list.')
+    }
+    if (nodesById.get(rootNodeId)?.parentId !== null) {
+      throw new Error('Workspace layout root node cannot have a parent.')
+    }
+
+    for (const node of nodes) {
+      if (node.parentId !== null && !nodesById.has(node.parentId)) {
+        throw new Error('Workspace layout node parents must exist.')
+      }
+      if (node.type === 'pane') {
+        continue
+      }
+
+      for (const childId of node.children) {
+        const child = nodesById.get(childId)
+        if (!child || child.parentId !== node.id) {
+          throw new Error('Workspace layout children must match their parent.')
+        }
+      }
+    }
+
+    const reachableNodeIds = new Set<string>()
+    const visit = (nodeId: string): void => {
+      if (reachableNodeIds.has(nodeId)) {
+        throw new Error('Workspace layout nodes must form a tree.')
+      }
+      reachableNodeIds.add(nodeId)
+      const node = nodesById.get(nodeId)
+      if (node?.type !== 'pane') {
+        node?.children.forEach(visit)
+      }
+    }
+    visit(rootNodeId)
+    if (reachableNodeIds.size !== nodes.length) {
+      throw new Error('Workspace layout nodes must be reachable from the root.')
     }
 
     return {
       nodes,
-      rootNodeId: input.rootNodeId,
+      rootNodeId,
       workspaceId,
     }
   }
 
   private normalizeWorkspaceSurface(
     workspaceId: string,
-    surface: WorkspaceSurfaceRecord,
+    input: unknown,
   ): WorkspaceSurfaceRecord {
+    const surface = requireRecord(input, 'Workspace surface')
     if (surface.workspaceId !== workspaceId) {
       throw new Error(
         'Workspace surfaces must belong to the workspace being saved.',
       )
     }
 
-    if (!surface.id || !surface.rootNodeId) {
-      throw new Error('Workspace surfaces require ids and root node ids.')
-    }
+    const id = requireNonEmptyString(surface.id, 'Workspace surface id')
+    const rootNodeId = requireNonEmptyString(
+      surface.rootNodeId,
+      'Workspace surface root node id',
+    )
+    const orderIndex = requireNonNegativeInteger(
+      surface.orderIndex,
+      'Workspace surface order index',
+    )
+    const title = requireString(surface.title, 'Workspace surface title')
 
     return {
-      ...surface,
-      orderIndex: Math.max(0, Math.trunc(surface.orderIndex)),
-      title: surface.title.trim() || 'Pane',
+      id,
+      orderIndex,
+      rootNodeId,
+      title: title.trim() || 'Pane',
+      workspaceId,
     }
   }
 
   private normalizeLayoutNode(
     workspaceId: string,
-    node: PersistedLayoutNode,
+    input: unknown,
   ): PersistedLayoutNode {
+    const node = requireRecord(input, 'Workspace layout node')
     if (node.workspaceId !== workspaceId) {
       throw new Error('Layout nodes must belong to the workspace being saved.')
     }
 
+    const id = requireNonEmptyString(node.id, 'Workspace layout node id')
+    const parentId = requireNullableString(
+      node.parentId,
+      'Workspace layout node parent id',
+    )
+    const children = requireArray(
+      node.children,
+      'Workspace layout node children',
+    )
+    const sizeWeights = requireArray(
+      node.sizeWeights,
+      'Workspace layout node weights',
+    )
+    if (!children.every((childId) => typeof childId === 'string' && childId)) {
+      throw new Error('Workspace layout node children must be non-empty ids.')
+    }
+    if (
+      !sizeWeights.every(
+        (weight) =>
+          typeof weight === 'number' && Number.isFinite(weight) && weight >= 0,
+      )
+    ) {
+      throw new Error('Workspace layout node weights must be finite numbers.')
+    }
+
     if (node.type === 'pane') {
-      if (node.children.length > 0 || node.sizeWeights.length > 0) {
+      if (children.length > 0 || sizeWeights.length > 0) {
         throw new Error('Pane layout nodes cannot declare children or weights.')
       }
 
-      if (!node.paneId) {
-        throw new Error('Pane layout nodes require a pane id.')
+      const paneId = requireNonEmptyString(node.paneId, 'Pane layout node id')
+      const viewIds = requireArray(node.viewIds, 'Pane layout node views')
+      if (
+        viewIds.length === 0 ||
+        !viewIds.every((viewId) => typeof viewId === 'string' && viewId)
+      ) {
+        throw new Error('Pane layout nodes require non-empty view ids.')
+      }
+      const activeViewIndex = requireNonNegativeInteger(
+        node.activeViewIndex,
+        'Pane layout active view index',
+      )
+      if (activeViewIndex >= viewIds.length) {
+        throw new Error('Pane layout active view index must reference a view.')
       }
 
-      const viewIds =
-        Array.isArray(node.viewIds) && node.viewIds.length > 0
-          ? node.viewIds
-          : [node.paneId]
-      const activeViewIndex =
-        typeof node.activeViewIndex === 'number'
-          ? Math.min(Math.max(node.activeViewIndex, 0), viewIds.length - 1)
-          : 0
-
       return {
-        ...node,
         activeViewIndex,
         children: [],
+        id,
+        paneId,
+        parentId,
         sizeWeights: [],
-        viewIds,
+        type: 'pane',
+        viewIds: viewIds as string[],
+        workspaceId,
       }
     }
 
+    if (node.type !== 'split-horizontal' && node.type !== 'split-vertical') {
+      throw new Error('Workspace layout nodes must have a supported type.')
+    }
     if (node.paneId !== null) {
       throw new Error('Split layout nodes cannot declare a pane id.')
     }
 
-    if (node.children.length !== node.sizeWeights.length) {
+    if (children.length !== sizeWeights.length) {
       throw new Error(
         'Split layout nodes must keep children and weight counts aligned.',
       )
     }
 
     return {
-      ...node,
-      children: [...node.children],
-      sizeWeights: [...node.sizeWeights],
+      children: children as string[],
+      id,
+      paneId: null,
+      parentId,
+      sizeWeights: sizeWeights as number[],
+      type: node.type,
+      workspaceId,
     }
   }
 
@@ -1125,19 +1475,33 @@ export class AideDatabase {
     )
 
     for (const migration of pendingMigrations) {
+      this.database.exec('BEGIN IMMEDIATE;')
       try {
-        this.database.exec(migration.sql)
-      } catch (error) {
-        if (
-          error instanceof Error &&
-          error.message.includes('duplicate column name')
-        ) {
-          // Ignore duplicate column errors when migrating existing local databases.
-        } else {
-          throw error
+        for (const statement of migration.sql.split(';')) {
+          if (statement.trim().length === 0) {
+            continue
+          }
+
+          try {
+            this.database.exec(statement)
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message.includes('duplicate column name')
+            ) {
+              // Existing local databases can have a column before its version.
+              continue
+            }
+
+            throw error
+          }
         }
+        this.database.exec(`PRAGMA user_version = ${migration.version};`)
+        this.database.exec('COMMIT;')
+      } catch (error) {
+        this.database.exec('ROLLBACK;')
+        throw error
       }
-      this.database.exec(`PRAGMA user_version = ${migration.version};`)
     }
   }
 }

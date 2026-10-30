@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { BrowserWindow, Menu, app, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 
 import type {
   AttachWorkspaceRequest,
@@ -14,14 +14,15 @@ import type {
   SaveWorkspaceSurfaceStateInput,
   SetActiveSelectionInput,
 } from '../shared/persistence'
+import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
 } from '../shared/terminal'
-import { ApplicationRuntime } from './application-runtime'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
-import { createAideDatabase } from './database'
+import { ApplicationRuntime } from './application-runtime'
+import type { AideDatabase } from './database'
 import { launchEditor, listAvailableEditors } from './editor-launcher'
 import {
   probeExecutable,
@@ -29,74 +30,149 @@ import {
 } from './executable-resolution'
 import { GitWorkspaceService } from './git-service'
 import { ManagedSessionManager } from './managed-session-manager'
-import { ProviderCapabilityService } from './provider-capability-service'
+import { PersistenceOperationGate } from './persistence-operation-gate'
+import {
+  createInitialKnownGoodPersistedStateBackup,
+  createPersistedStateBootstrapFailure,
+  type PersistedStateRecoveryState,
+  preparePersistedState,
+  reconcilePersistedStateRecovery,
+  refreshKnownGoodPersistedStateBackup,
+  resetPersistedState,
+  restorePersistedStateBackup,
+  toRendererPersistedStateRecovery,
+} from './persistence-recovery'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile } from './project-files'
 import { pickProjectRoot } from './project-picker'
+import { ProviderCapabilityService } from './provider-capability-service'
 import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
 import { TerminalSessionManager } from './terminal-session-manager'
-import { WorkspaceActivityService } from './workspace-activity-service'
 import { WindowManager } from './window-manager'
+import { WorkspaceActivityService } from './workspace-activity-service'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let database: ReturnType<typeof createAideDatabase>
+let database: AideDatabase
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
 let managedSessionManager: ManagedSessionManager
 let providerCapabilityService: ProviderCapabilityService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
+let persistedStateRecovery: PersistedStateRecoveryState | null = null
+let activeDatabasePath: string | null = null
+let runtimeInitialized = false
+let ipcHandlersRegistered = false
+const persistenceOperationGate = new PersistenceOperationGate()
 
-function initializeServices(): void {
+function runPersistenceMutation<T>(mutation: () => Promise<T> | T): Promise<T> {
+  return persistenceOperationGate.run(mutation)
+}
+
+function quiescePersistenceWrites(): Promise<void> {
+  return persistenceOperationGate.quiesce()
+}
+
+function resumePersistenceWrites(): void {
+  persistenceOperationGate.resume()
+}
+
+function initializeServices(): boolean {
   const databasePath = getAideDatabasePath({
     databasePathOverride: process.env.AIDE_DATABASE_PATH,
     userDataPath: app.getPath('userData'),
   })
 
+  let resetRecoveryCommitted = false
   if (!process.env.AIDE_DATABASE_PATH) {
-    migrateLegacyDatabase({
-      databasePath,
-      legacyPath: path.join(process.cwd(), '.aide.sqlite3'),
-    })
+    try {
+      resetRecoveryCommitted = reconcilePersistedStateRecovery(databasePath)
+    } catch {
+      const preparedState = preparePersistedState(databasePath)
+      if (preparedState.status === 'recovery') {
+        persistedStateRecovery = preparedState.recovery
+        return false
+      }
+      preparedState.database.close()
+      throw new Error('Recovery reconciliation unexpectedly completed.')
+    }
+    if (!resetRecoveryCommitted) {
+      migrateLegacyDatabase({
+        databasePath,
+        legacyPath: path.join(process.cwd(), '.aide.sqlite3'),
+      })
+    }
   }
 
-  database = createAideDatabase(databasePath)
-  gitWorkspaceService = new GitWorkspaceService(database)
-  workspaceActivityService = new WorkspaceActivityService({
-    onWorkspaceVisited: (workspaceId, processedThrough) => {
-      database.setWorkspaceActivityVisitWatermark(workspaceId, processedThrough)
-    },
-    onUpdate: (event) => {
-      windowManager.broadcast(IPC_CHANNELS.workspaceActivityEvent, event)
-    },
-    visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
-  })
-  managedSessionManager = new ManagedSessionManager({
-    onRuntimeEvent: () => undefined,
-    onUpdate: (event) => {
-      if (event.type === 'snapshot') {
-        workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
-      } else {
-        workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
-      }
-      windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
-    },
-  })
-  providerCapabilityService = new ProviderCapabilityService()
-  previewManager = new PreviewManager(database, {
-    onUpdate: (event) => {
-      windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
-    },
-  })
-  terminalSessionManager = new TerminalSessionManager({
-    onEvent: (event) => {
-      workspaceActivityService.handleTerminalEvent(event)
-      windowManager.broadcast(IPC_CHANNELS.terminalEvent, event)
-    },
-  })
+  resumePersistenceWrites()
+  const preparedState = preparePersistedState(databasePath)
+  if (preparedState.status === 'recovery') {
+    persistedStateRecovery = preparedState.recovery
+    return false
+  }
+
+  database = preparedState.database
+  activeDatabasePath = databasePath
+  try {
+    gitWorkspaceService = new GitWorkspaceService(database)
+    workspaceActivityService = new WorkspaceActivityService({
+      onWorkspaceVisited: (workspaceId, processedThrough) => {
+        void runPersistenceMutation(() =>
+          database.setWorkspaceActivityVisitWatermark(
+            workspaceId,
+            processedThrough,
+          ),
+        ).catch(() => undefined)
+      },
+      onUpdate: (event) => {
+        windowManager.broadcast(IPC_CHANNELS.workspaceActivityEvent, event)
+      },
+      visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
+    })
+    managedSessionManager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: (event) => {
+        if (event.type === 'snapshot') {
+          workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
+        } else {
+          workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
+        }
+        windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event)
+      },
+    })
+    providerCapabilityService = new ProviderCapabilityService()
+    previewManager = new PreviewManager(database, {
+      onUpdate: (event) => {
+        windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
+      },
+    })
+    terminalSessionManager = new TerminalSessionManager({
+      onEvent: (event) => {
+        workspaceActivityService.handleTerminalEvent(event)
+        windowManager.broadcast(IPC_CHANNELS.terminalEvent, event)
+      },
+    })
+    createInitialKnownGoodPersistedStateBackup(databasePath)
+    persistedStateRecovery = null
+    runtimeInitialized = true
+    return true
+  } catch (error) {
+    database.close()
+    activeDatabasePath = null
+    runtimeInitialized = false
+    const failedBootstrap = createPersistedStateBootstrapFailure(
+      databasePath,
+      error,
+      preparedState.preMigrationBackupPath,
+    )
+    if (failedBootstrap.status === 'recovery') {
+      persistedStateRecovery = failedBootstrap.recovery
+    }
+    return false
+  }
 }
 
 app.setName('aide')
@@ -135,6 +211,11 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
 }
 
 function registerIpcHandlers(): void {
+  if (ipcHandlersRegistered) {
+    return
+  }
+
+  ipcHandlersRegistered = true
   const publishPersistenceSnapshot = () => {
     const snapshot = database.getSnapshot()
     windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {
@@ -156,7 +237,8 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.getWorkspacePreviewSnapshot,
-    (_event, workspaceId) => previewManager.ensure(workspaceId),
+    (_event, workspaceId) =>
+      runPersistenceMutation(() => previewManager.ensure(workspaceId)),
   )
   ipcMain.handle(IPC_CHANNELS.getWorkspacePreviewSnapshots, () =>
     previewManager.list(),
@@ -175,37 +257,41 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(IPC_CHANNELS.previewOpenTab, (_event, workspaceId, url) =>
-    previewManager.openTab(workspaceId, url),
+    runPersistenceMutation(() => previewManager.openTab(workspaceId, url)),
   )
   ipcMain.handle(IPC_CHANNELS.previewSelectTab, (_event, workspaceId, tabId) =>
-    previewManager.selectTab(workspaceId, tabId),
+    runPersistenceMutation(() => previewManager.selectTab(workspaceId, tabId)),
   )
   ipcMain.handle(IPC_CHANNELS.previewCloseTab, (_event, workspaceId, tabId) =>
-    previewManager.closeTab(workspaceId, tabId),
+    runPersistenceMutation(() => previewManager.closeTab(workspaceId, tabId)),
   )
   ipcMain.handle(
     IPC_CHANNELS.previewNavigate,
     (_event, workspaceId, tabId, url) =>
-      previewManager.navigate(workspaceId, tabId, url),
+      runPersistenceMutation(() =>
+        previewManager.navigate(workspaceId, tabId, url),
+      ),
   )
   ipcMain.handle(IPC_CHANNELS.previewReportNavigation, (_event, report) =>
-    previewManager.reportNavigation(report),
+    runPersistenceMutation(() => previewManager.reportNavigation(report)),
   )
   ipcMain.handle(
     IPC_CHANNELS.createWorkspace,
-    async (_event, input: CreateWorkspaceRequest) => {
-      const snapshot = await gitWorkspaceService.createWorkspace(input)
-      publishPersistenceSnapshot()
-      return snapshot
-    },
+    (_event, input: CreateWorkspaceRequest) =>
+      runPersistenceMutation(async () => {
+        const snapshot = await gitWorkspaceService.createWorkspace(input)
+        publishPersistenceSnapshot()
+        return snapshot
+      }),
   )
   ipcMain.handle(
     IPC_CHANNELS.attachWorkspace,
-    async (_event, input: AttachWorkspaceRequest) => {
-      const snapshot = await gitWorkspaceService.attachWorkspace(input)
-      publishPersistenceSnapshot()
-      return snapshot
-    },
+    (_event, input: AttachWorkspaceRequest) =>
+      runPersistenceMutation(async () => {
+        const snapshot = await gitWorkspaceService.attachWorkspace(input)
+        publishPersistenceSnapshot()
+        return snapshot
+      }),
   )
   ipcMain.handle(
     IPC_CHANNELS.detectWorktreeBranch,
@@ -217,13 +303,12 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.editorLaunch,
     (_event, editorId: string, cwd: string) => launchEditor(editorId, cwd),
   )
-  ipcMain.handle(
-    IPC_CHANNELS.importProject,
-    async (_event, repoPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.importProject, (_event, repoPath: string) =>
+    runPersistenceMutation(async () => {
       const result = await gitWorkspaceService.importProject(repoPath)
       publishPersistenceSnapshot()
       return result
-    },
+    }),
   )
   ipcMain.handle(IPC_CHANNELS.listProjectRefs, (_event, projectId: string) =>
     gitWorkspaceService.listProjectRefs(projectId),
@@ -248,89 +333,93 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.setActiveSelection,
-    (_event, input: SetActiveSelectionInput) => {
-      database.setActiveSelection(input)
-      workspaceActivityService.setVisibleWorkspace(input.workspaceId)
-    },
+    (_event, input: SetActiveSelectionInput) =>
+      runPersistenceMutation(() => {
+        database.setActiveSelection(input)
+        workspaceActivityService.setVisibleWorkspace(input.workspaceId)
+      }),
   )
   ipcMain.handle(
     IPC_CHANNELS.saveWorkspaceLayout,
-    (_event, workspaceId: string, input: SaveWorkspaceLayoutInput) => {
-      const snapshot = database.getSnapshot()
-      const currentRevision =
-        snapshot.workspaceLayoutRevisions?.[workspaceId] ?? 0
-      if (
-        input.expectedRevision !== undefined &&
-        input.expectedRevision !== currentRevision
-      ) {
-        return {
-          code: 'stale-workspace-revision' as const,
-          currentRevision,
-          ok: false as const,
-          snapshot,
-          workspaceId,
+    (_event, workspaceId: string, input: SaveWorkspaceLayoutInput) =>
+      runPersistenceMutation(() => {
+        const snapshot = database.getSnapshot()
+        const currentRevision =
+          snapshot.workspaceLayoutRevisions?.[workspaceId] ?? 0
+        if (
+          input.expectedRevision !== undefined &&
+          input.expectedRevision !== currentRevision
+        ) {
+          return {
+            code: 'stale-workspace-revision' as const,
+            currentRevision,
+            ok: false as const,
+            snapshot,
+            workspaceId,
+          }
         }
-      }
-      database.saveWorkspaceLayout(workspaceId, input)
-      const nextSnapshot = publishPersistenceSnapshot()
-      return {
-        ok: true as const,
-        snapshot: nextSnapshot,
-        workspaceId,
-        workspaceRevision:
-          nextSnapshot.workspaceLayoutRevisions?.[workspaceId] ??
-          currentRevision + 1,
-      }
-    },
+        database.saveWorkspaceLayout(workspaceId, input)
+        const nextSnapshot = publishPersistenceSnapshot()
+        return {
+          ok: true as const,
+          snapshot: nextSnapshot,
+          workspaceId,
+          workspaceRevision:
+            nextSnapshot.workspaceLayoutRevisions?.[workspaceId] ??
+            currentRevision + 1,
+        }
+      }),
   )
   ipcMain.handle(
     IPC_CHANNELS.saveWorkspaceSurfaceState,
-    (_event, workspaceId: string, input: SaveWorkspaceSurfaceStateInput) => {
-      const snapshot = database.getSnapshot()
-      const currentRevision =
-        snapshot.workspaceSurfaceRevisions?.[workspaceId] ?? 0
-      if (
-        input.expectedRevision !== undefined &&
-        input.expectedRevision !== currentRevision
-      ) {
-        return {
-          code: 'stale-workspace-revision' as const,
-          currentRevision,
-          ok: false as const,
-          snapshot,
-          workspaceId,
+    (_event, workspaceId: string, input: SaveWorkspaceSurfaceStateInput) =>
+      runPersistenceMutation(() => {
+        const snapshot = database.getSnapshot()
+        const currentRevision =
+          snapshot.workspaceSurfaceRevisions?.[workspaceId] ?? 0
+        if (
+          input.expectedRevision !== undefined &&
+          input.expectedRevision !== currentRevision
+        ) {
+          return {
+            code: 'stale-workspace-revision' as const,
+            currentRevision,
+            ok: false as const,
+            snapshot,
+            workspaceId,
+          }
         }
-      }
-      database.saveWorkspaceSurfaceState(workspaceId, input)
-      const nextSnapshot = publishPersistenceSnapshot()
-      return {
-        ok: true as const,
-        snapshot: nextSnapshot,
-        workspaceId,
-        workspaceRevision:
-          nextSnapshot.workspaceSurfaceRevisions?.[workspaceId] ??
-          currentRevision + 1,
-      }
-    },
+        database.saveWorkspaceSurfaceState(workspaceId, input)
+        const nextSnapshot = publishPersistenceSnapshot()
+        return {
+          ok: true as const,
+          snapshot: nextSnapshot,
+          workspaceId,
+          workspaceRevision:
+            nextSnapshot.workspaceSurfaceRevisions?.[workspaceId] ??
+            currentRevision + 1,
+        }
+      }),
   )
   ipcMain.handle(
     IPC_CHANNELS.terminalCreate,
-    (_event, input: TerminalSessionConfig) => {
-      if (input.mode !== 'shell') {
-        throw new Error(
-          `Managed provider mode "${input.mode}" must use managed-session:create.`,
-        )
-      }
+    (_event, input: TerminalSessionConfig) =>
+      runPersistenceMutation(() => {
+        if (input.mode !== 'shell') {
+          throw new Error(
+            `Managed provider mode "${input.mode}" must use managed-session:create.`,
+          )
+        }
 
-      workspaceActivityService.trackSession(input)
+        workspaceActivityService.trackSession(input)
 
-      try {
-        return terminalSessionManager.createSession(input)
-      } catch (error) {
-        workspaceActivityService.handleSessionLaunchFailure(input, error)
-        throw error
-      }
-    },
+        try {
+          return terminalSessionManager.createSession(input)
+        } catch (error) {
+          workspaceActivityService.handleSessionLaunchFailure(input, error)
+          throw error
+        }
+      }),
   )
   ipcMain.handle(IPC_CHANNELS.terminalKill, (_event, sessionId: string) => {
     terminalSessionManager.killSession(sessionId)
@@ -347,13 +436,12 @@ function registerIpcHandlers(): void {
       terminalSessionManager.writeToSession(sessionId, data)
     },
   )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionCreate,
-    async (_event, input: unknown) => {
+  ipcMain.handle(IPC_CHANNELS.managedSessionCreate, (_event, input: unknown) =>
+    runPersistenceMutation(async () => {
       const config =
         await providerCapabilityService.resolveManagedSessionConfig(input)
       return managedSessionManager.createSession(config)
-    },
+    }),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionClose,
@@ -411,23 +499,147 @@ function registerIpcHandlers(): void {
   )
 }
 
+function reloadOpenWindows(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.webContents.reload()
+  }
+}
+
+function resumeFromPersistedStateRecovery(): void {
+  if (!applicationRuntime.resume()) {
+    throw new Error(
+      'The database is still unavailable after the recovery action.',
+    )
+  }
+
+  reloadOpenWindows()
+}
+
+function runPersistedStateRecoveryAction(action: () => void): void {
+  try {
+    action()
+  } catch {
+    throw new Error('The recovery action could not be completed safely.')
+  }
+}
+
+function getRecommendedRecoveryBackupPath(
+  recovery: PersistedStateRecoveryState,
+): string {
+  if (
+    recovery.recommendedBackup === 'pre-migration' &&
+    recovery.preMigrationBackupPath
+  ) {
+    return recovery.preMigrationBackupPath
+  }
+
+  if (
+    recovery.recommendedBackup === 'known-good' &&
+    recovery.knownGoodBackupPath
+  ) {
+    return recovery.knownGoodBackupPath
+  }
+
+  throw new Error('No recovery backup is available to restore.')
+}
+
+function registerPersistedStateRecoveryIpcHandlers(): void {
+  ipcMain.handle(
+    IPC_CHANNELS.getPersistedStateRecovery,
+    (): PersistedStateRecovery | null => {
+      const recovery = persistedStateRecovery
+      if (!recovery) {
+        return null
+      }
+
+      return toRendererPersistedStateRecovery(recovery)
+    },
+  )
+  ipcMain.handle(IPC_CHANNELS.openPersistedStateDataFolder, async () => {
+    const recovery = persistedStateRecovery
+    if (!recovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    try {
+      const error = await shell.openPath(recovery.dataDirectory)
+      if (error) {
+        throw new Error(error)
+      }
+    } catch {
+      throw new Error('The saved-data folder could not be opened.')
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.quitPersistedStateRecovery, () => {
+    app.quit()
+  })
+  ipcMain.handle(IPC_CHANNELS.retryPersistedStateRecovery, () => {
+    runPersistedStateRecoveryAction(() => resumeFromPersistedStateRecovery())
+  })
+  ipcMain.handle(IPC_CHANNELS.restorePersistedStateBackup, () => {
+    const recovery = persistedStateRecovery
+    if (!recovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    runPersistedStateRecoveryAction(() => {
+      restorePersistedStateBackup(
+        recovery.databasePath,
+        getRecommendedRecoveryBackupPath(recovery),
+      )
+      resumeFromPersistedStateRecovery()
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.resetPersistedState, () => {
+    const recovery = persistedStateRecovery
+    if (!recovery) {
+      throw new Error('Persisted-state recovery is not active.')
+    }
+
+    runPersistedStateRecoveryAction(() => {
+      resetPersistedState(recovery.databasePath)
+      resumeFromPersistedStateRecovery()
+    })
+  })
+}
+
 const applicationRuntime = new ApplicationRuntime({
+  closeDatabase: () => {
+    if (!runtimeInitialized) {
+      return
+    }
+
+    database.close()
+    activeDatabasePath = null
+    runtimeInitialized = false
+  },
   createMainWindow: () => windowManager.createMainWindow(),
   hasWindows: () => windowManager.hasWindows(),
   initializeServices,
+  quiescePersistenceWrites,
   reapStoppedManagedSessions: () => {
+    if (!runtimeInitialized) {
+      return
+    }
+
     void managedSessionManager.reapSessions(
       (snapshot) => snapshot.sessionState === 'stopped',
     )
   },
   registerIpcHandlers,
-  shutdownServices: async () => {
-    try {
-      await managedSessionManager.closeAll(2_000)
-      await terminalSessionManager.closeAll(1_000)
-    } finally {
-      database.close()
+  registerRecoveryIpcHandlers: registerPersistedStateRecoveryIpcHandlers,
+  refreshKnownGoodBackup: () => {
+    if (runtimeInitialized && activeDatabasePath) {
+      refreshKnownGoodPersistedStateBackup(activeDatabasePath)
     }
+  },
+  shutdownServices: async () => {
+    if (!runtimeInitialized) {
+      return
+    }
+
+    await managedSessionManager.closeAll(2_000)
+    await terminalSessionManager.closeAll(1_000)
   },
   startReaper: setInterval,
 })
