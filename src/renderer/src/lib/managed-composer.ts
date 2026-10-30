@@ -49,7 +49,9 @@ export function fitImageWithin(
 }
 
 async function downscaleImage(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
+  // why: an image the renderer cannot decode keeps its bytes; main still checks type and size.
+  const bitmap = await createImageBitmap(file).catch(() => null)
+  if (!bitmap) return file
   try {
     const size = fitImageWithin(bitmap.width, bitmap.height)
     if (
