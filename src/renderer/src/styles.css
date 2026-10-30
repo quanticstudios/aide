@@ -411,6 +411,12 @@
   border-radius: var(--radius-sm);
 }
 
+/* why: HeroUI colors toast descriptions with text-muted, which this file defines as a
+   surface color, so the body would vanish into the toast. */
+.toast__description {
+  color: var(--muted-foreground);
+}
+
 /* ── Utility classes (DESIGN.md primitives) ──────── */
 
 .keycap {

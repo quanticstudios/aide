@@ -37,10 +37,8 @@ import type {
 import { PROJECT_COLOR_IDS } from '../shared/persistence'
 import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
-import {
-  getTaskActivity,
-  type TaskMetadataUpdate,
-} from '../shared/task-library'
+import type { TaskMetadataUpdate } from '../shared/task-library'
+import type { TaskNotification } from '../shared/task-notification'
 import type {
   TerminalResizeInput,
   TerminalSessionConfig,
@@ -481,33 +479,12 @@ function initializeServices(): void {
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
         workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
-        if (
-          taskLibrary?.shouldNotify(
-            event.snapshot,
-            BrowserWindow.getAllWindows().some((window) => window.isFocused()),
-          ) &&
-          Notification.isSupported()
-        ) {
-          const status = getTaskActivity(event.snapshot).status
-          const notification = new Notification({
-            title: 'Aide task activity',
-            body:
-              status === 'completed'
-                ? 'A task finished. Open Aide to review it.'
-                : 'A task needs your attention. Open Aide to continue.',
-          })
-          notification.on('click', () => {
-            const window = BrowserWindow.getAllWindows()[0]
-            if (!window) return
-            if (window.isMinimized()) window.restore()
-            window.show()
-            window.focus()
-            window.webContents.send(
-              IPC_CHANNELS.taskOpen,
-              event.snapshot.sessionId,
-            )
-          })
-          notification.show()
+        const notification = taskLibrary?.nextNotification(event.snapshot)
+        if (notification) showTaskNotification(notification)
+        const attentionCount = taskLibrary?.attentionCount() ?? 0
+        if (attentionCount !== badgeCount) {
+          badgeCount = attentionCount
+          app.setBadgeCount(attentionCount)
         }
         managedSessionBroadcaster.update(event.snapshot)
       } else {
@@ -677,6 +654,34 @@ const windowManager = new WindowManager({
   setTimeout,
 })
 
+let badgeCount = 0
+
+function showTaskNotification(notification: TaskNotification) {
+  const focusedWindow = BrowserWindow.getFocusedWindow()
+  const sound = database.getTaskNotificationSoundsEnabled()
+  // The renderer plays the sound, so it also gets unfocused notifications when sounds are on.
+  if (focusedWindow || sound)
+    (focusedWindow ?? BrowserWindow.getAllWindows()[0])?.webContents.send(
+      IPC_CHANNELS.taskNotification,
+      { ...notification, toast: focusedWindow !== null, sound },
+    )
+  if (focusedWindow || !Notification.isSupported()) return
+  const osNotification = new Notification({
+    title: notification.title,
+    body: notification.body,
+    silent: true,
+  })
+  osNotification.on('click', () => {
+    const window = BrowserWindow.getAllWindows()[0]
+    if (!window) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+    window.webContents.send(IPC_CHANNELS.taskOpen, notification.sessionId)
+  })
+  osNotification.show()
+}
+
 function publishPersistenceSnapshot() {
   const snapshot = database.getSnapshot()
   windowManager.broadcast(IPC_CHANNELS.workspacePersistenceEvent, {
@@ -829,6 +834,14 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.setTaskNotifications,
     (_event, enabled: boolean) => {
       database.setTaskNotificationsEnabled(enabled)
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      return taskLibrary.getSnapshot()
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.setTaskNotificationSounds,
+    (_event, enabled: boolean) => {
+      database.setTaskNotificationSoundsEnabled(enabled)
       windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
       return taskLibrary.getSnapshot()
     },

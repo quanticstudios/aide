@@ -450,6 +450,13 @@ const MIGRATIONS = [
       CHECK (archived IN (0, 1));
     `,
   },
+  {
+    version: 18,
+    sql: `
+      ALTER TABLE task_notification_preferences ADD COLUMN sounds INTEGER NOT NULL DEFAULT 0
+      CHECK (sounds IN (0, 1));
+    `,
+  },
 ]
 
 const UPDATE_HEALTH_QUEUE_LIMIT = 100
@@ -1443,6 +1450,24 @@ export class AideDatabase {
     this.database
       .prepare(
         'UPDATE task_notification_preferences SET enabled = ? WHERE id = 1',
+      )
+      .run(Number(z.boolean().parse(enabled)))
+  }
+
+  public getTaskNotificationSoundsEnabled(): boolean {
+    return (
+      this.database
+        .prepare(
+          'SELECT sounds FROM task_notification_preferences WHERE id = 1',
+        )
+        .get()?.sounds === 1
+    )
+  }
+
+  public setTaskNotificationSoundsEnabled(enabled: boolean): void {
+    this.database
+      .prepare(
+        'UPDATE task_notification_preferences SET sounds = ? WHERE id = 1',
       )
       .run(Number(z.boolean().parse(enabled)))
   }

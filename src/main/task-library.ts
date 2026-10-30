@@ -8,7 +8,25 @@ import {
   type TaskMetadataUpdate,
   taskSearchText,
 } from '../shared/task-library'
+import {
+  buildTaskNotification,
+  type TaskNotification,
+} from '../shared/task-notification'
 import type { AideDatabase } from './database'
+
+function taskTitle(
+  metadata: { title: string | null },
+  snapshot: ManagedSessionSnapshot,
+): string {
+  const firstPrompt = snapshot.content.find(
+    (item) => item.kind === 'user-prompt',
+  )?.text
+  return (
+    metadata.title ??
+    firstPrompt?.replace(/\s+/g, ' ').slice(0, 100) ??
+    'New conversation'
+  )
+}
 
 export class TaskLibrary {
   private readonly notified = new Map<string, string | null>()
@@ -48,13 +66,7 @@ export class TaskLibrary {
       )
       if (!workspace || !project) continue
       const metadata = this.database.getTaskMetadata(snapshot.sessionId)
-      const firstPrompt = snapshot.content.find(
-        (item) => item.kind === 'user-prompt',
-      )?.text
-      const title =
-        metadata.title ??
-        firstPrompt?.replace(/\s+/g, ' ').slice(0, 100) ??
-        'New conversation'
+      const title = taskTitle(metadata, snapshot)
       const transcript = taskSearchText(snapshot)
       const haystack =
         `${title}\n${project.name}\n${workspace.name}\n${workspace.branchName}\n${transcript}`.toLocaleLowerCase()
@@ -91,6 +103,8 @@ export class TaskLibrary {
     return {
       tasks,
       notificationsEnabled: this.database.getTaskNotificationsEnabled(),
+      notificationSoundsEnabled:
+        this.database.getTaskNotificationSoundsEnabled(),
     }
   }
 
@@ -117,23 +131,27 @@ export class TaskLibrary {
     return this.getSnapshot()
   }
 
-  shouldNotify(
-    snapshot: ManagedSessionSnapshot,
-    isAppFocused: boolean,
-  ): boolean {
+  /** The message for new activity on this thread, or null when there is nothing new to tell. */
+  nextNotification(snapshot: ManagedSessionSnapshot): TaskNotification | null {
     const activity = getTaskActivity(snapshot)
     const previous = this.notified.get(snapshot.sessionId)
     this.notified.set(snapshot.sessionId, activity.activityKey)
     if (
       !activity.activityKey ||
       activity.activityKey === previous ||
-      isAppFocused ||
       !this.database.getTaskNotificationsEnabled()
     )
-      return false
+      return null
     const metadata = this.database.getTaskMetadata(snapshot.sessionId)
-    return (
-      !metadata.archived && metadata.readActivityKey !== activity.activityKey
-    )
+    if (metadata.archived || metadata.readActivityKey === activity.activityKey)
+      return null
+    return buildTaskNotification(snapshot, taskTitle(metadata, snapshot))
+  }
+
+  /** Live threads blocked on an approval or an answer from you. */
+  attentionCount(): number {
+    return Object.values(this.getLiveSnapshots()).filter((snapshot) =>
+      ['approval', 'input'].includes(getTaskActivity(snapshot).status),
+    ).length
   }
 }

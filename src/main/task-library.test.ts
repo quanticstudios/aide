@@ -119,12 +119,15 @@ describe('TaskLibrary', () => {
         archived: true,
         readActivityKey: task.activityKey,
       })
+      expect(library.getSnapshot().notificationSoundsEnabled).toBe(false)
       database.setTaskNotificationsEnabled(false)
+      database.setTaskNotificationSoundsEnabled(true)
       database.close()
       const reopened = createAideDatabase(file)
       const restored = new TaskLibrary(reopened, () => ({}))
       expect(restored.getSnapshot('recovery')).toMatchObject({
         notificationsEnabled: false,
+        notificationSoundsEnabled: true,
         tasks: [
           {
             title: 'Checkout recovery',
@@ -166,25 +169,57 @@ describe('TaskLibrary', () => {
     database.close()
   })
 
-  it('notifies only new background attention, respecting persisted preferences', () => {
+  it('notifies only new attention, respecting persisted preferences', () => {
     const { database, library, snapshot } = fixture()
-    expect(library.shouldNotify(snapshot, false)).toBe(false)
+    expect(library.nextNotification(snapshot)).toBeNull()
     const completedKey = library.getSnapshot().tasks[0]?.activityKey
     library.update(snapshot.sessionId, { readActivityKey: completedKey })
     snapshot.runtimeGeneration += 1
     expect(library.getSnapshot().tasks[0]?.unread).toBe(false)
-    expect(library.shouldNotify(snapshot, false)).toBe(false)
+    expect(library.nextNotification(snapshot)).toBeNull()
+    snapshot.pendingApprovals = [
+      {
+        id: 'approval-1',
+        detail: null,
+        requestType: 'file-change-approval',
+        request: { toolName: 'Edit' },
+      },
+    ]
+    expect(library.nextNotification(snapshot)).toEqual({
+      sessionId: snapshot.sessionId,
+      kind: 'approval',
+      title: 'Fix the checkout',
+      body: 'Approval needed: Edit',
+    })
+    expect(library.nextNotification(snapshot)).toBeNull()
+    library.update(snapshot.sessionId, { title: 'Checkout retry' })
+    snapshot.pendingApprovals[0].id = 'approval-2'
+    expect(library.nextNotification(snapshot)?.title).toBe('Checkout retry')
+    database.setTaskNotificationsEnabled(false)
+    snapshot.pendingApprovals[0].id = 'approval-3'
+    expect(library.nextNotification(snapshot)).toBeNull()
+    database.close()
+  })
+
+  it('counts live threads waiting on an approval or an answer', () => {
+    const { database, library, live, snapshot } = fixture()
+    expect(library.attentionCount()).toBe(0)
     snapshot.pendingApprovals = [
       { id: 'approval-1', detail: null, requestType: 'file-change-approval' },
     ]
-    expect(library.shouldNotify(snapshot, false)).toBe(true)
-    expect(library.shouldNotify(snapshot, false)).toBe(false)
-    snapshot.pendingApprovals[0].id = 'approval-2'
-    expect(library.shouldNotify(snapshot, true)).toBe(false)
-    expect(library.shouldNotify(snapshot, false)).toBe(false)
-    database.setTaskNotificationsEnabled(false)
-    snapshot.pendingApprovals[0].id = 'approval-3'
-    expect(library.shouldNotify(snapshot, false)).toBe(false)
+    live.other = {
+      ...snapshot,
+      sessionId: 'other',
+      pendingApprovals: [],
+      pendingUserInputs: [{ id: 'input-1', detail: null, questions: [] }],
+    }
+    live.running = {
+      ...snapshot,
+      sessionId: 'running',
+      pendingApprovals: [],
+      sessionState: 'running',
+    }
+    expect(library.attentionCount()).toBe(2)
     database.close()
   })
 })

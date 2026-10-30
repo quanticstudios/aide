@@ -175,6 +175,7 @@ export default function SettingsPage({
   const [notificationsEnabled, setNotificationsEnabled] = useState<
     boolean | null
   >(null)
+  const [soundsEnabled, setSoundsEnabled] = useState<boolean | null>(null)
   const [pendingPreference, setPendingPreference] = useState<string | null>(
     null,
   )
@@ -199,6 +200,7 @@ export default function SettingsPage({
         .then((snapshot) => {
           if (!isDisposed) {
             setNotificationsEnabled(snapshot.notificationsEnabled)
+            setSoundsEnabled(snapshot.notificationSoundsEnabled)
           }
         })
         .catch(() => {
@@ -291,6 +293,7 @@ export default function SettingsPage({
         'General',
         'Background task notifications',
         'Show a desktop notification when a background task needs attention',
+        'Notification sounds',
       ),
       showKeyboard: normalizedQuery
         ? shortcutGroups.length > 0
@@ -346,6 +349,22 @@ export default function SettingsPage({
       setNotificationsEnabled(snapshot.notificationsEnabled)
     } catch {
       setNotificationsEnabled(previousValue)
+      setError('Could not save notification preferences.')
+    } finally {
+      setPendingPreference(null)
+    }
+  }
+
+  async function saveSounds(isEnabled: boolean) {
+    const previousValue = soundsEnabled
+    setSoundsEnabled(isEnabled)
+    setPendingPreference('sounds')
+    setError(null)
+    try {
+      const snapshot = await window.aide.setTaskNotificationSounds(isEnabled)
+      setSoundsEnabled(snapshot.notificationSoundsEnabled)
+    } catch {
+      setSoundsEnabled(previousValue)
       setError('Could not save notification preferences.')
     } finally {
       setPendingPreference(null)
@@ -478,6 +497,15 @@ export default function SettingsPage({
                   }
                   label="Background task notifications"
                   onChange={(isEnabled) => void saveNotifications(isEnabled)}
+                />
+                <PreferenceRow
+                  checked={soundsEnabled ?? false}
+                  description="Play a short tone for each notification, different for each kind."
+                  disabled={
+                    soundsEnabled === null || pendingPreference !== null
+                  }
+                  label="Notification sounds"
+                  onChange={(isEnabled) => void saveSounds(isEnabled)}
                 />
               </div>
             </section>

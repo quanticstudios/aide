@@ -29,6 +29,7 @@ export default function TaskLibraryControl({
   const [library, setLibrary] = useState<TaskLibrarySnapshot>({
     tasks: [],
     notificationsEnabled: true,
+    notificationSoundsEnabled: false,
   })
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<SavedTask[] | null>(null)
