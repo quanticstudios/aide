@@ -2655,3 +2655,168 @@ describe('Jev gates', () => {
     await manager.closeAll()
   })
 })
+
+describe('ManagedSessionManager message queue', () => {
+  function createQueueManager(
+    options: { failSend?: (text: string) => boolean } = {},
+  ) {
+    const sent: string[] = []
+    const steered: string[] = []
+    let emitEvent: (event: ManagedProviderRuntimeEvent) => void = () => {}
+    let turn = 0
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) => {
+        emitEvent = emit
+        return {
+          close: async () => undefined,
+          interrupt: async () => undefined,
+          resolveRequest: async () => undefined,
+          resolveUserInput: async () => undefined,
+          sendInput: async (text) => {
+            sent.push(text.split('\n\nFleet policy.')[0] ?? text)
+            turn += 1
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              turnId: `turn-${turn}`,
+              type: 'turn.started',
+            })
+          },
+          start: async () => {
+            emit({
+              createdAt: '2026-04-11T10:00:00.000Z',
+              provider: config.mode,
+              state: 'ready',
+              type: 'session.state.changed',
+            })
+          },
+          steerInput: async (text) => {
+            steered.push(text)
+          },
+        }
+      },
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+      prepareInput: async ({ text }) => {
+        if (options.failSend?.(text)) throw new Error('refused')
+        return { text }
+      },
+    })
+    const finishTurn = async () => {
+      emitEvent({
+        createdAt: '2026-04-11T10:00:01.000Z',
+        provider: 'codex',
+        state: 'completed',
+        turnId: `turn-${turn}`,
+        type: 'turn.completed',
+      })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    return { finishTurn, manager, sent, steered }
+  }
+
+  const queued = (manager: ManagedSessionManager, sessionId: string) =>
+    manager.getSnapshots()[sessionId]?.queuedInputs?.map((input) => input.text)
+
+  it('sends queued messages one per finished turn, in order', async () => {
+    const { finishTurn, manager, sent } = createQueueManager()
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    await manager.queueInput(config.sessionId, 'second')
+    await manager.queueInput(config.sessionId, 'third')
+
+    expect(sent).toEqual(['first'])
+    expect(queued(manager, config.sessionId)).toEqual(['second', 'third'])
+
+    await finishTurn()
+    expect(sent).toEqual(['first', 'second'])
+    expect(queued(manager, config.sessionId)).toEqual(['third'])
+
+    await finishTurn()
+    expect(sent).toEqual(['first', 'second', 'third'])
+    expect(manager.getSnapshots()[config.sessionId]?.queuedInputs).toBe(
+      undefined,
+    )
+    await manager.closeAll()
+  })
+
+  it('sends a queued message at once when no turn runs', async () => {
+    const { manager, sent } = createQueueManager()
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.queueInput(config.sessionId, 'now')
+    expect(sent).toEqual(['now'])
+    await manager.closeAll()
+  })
+
+  it('edits, reorders, deletes and promotes queued messages', async () => {
+    const { finishTurn, manager, sent, steered } = createQueueManager()
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    for (const text of ['a', 'b', 'c', 'd']) {
+      await manager.queueInput(config.sessionId, text)
+    }
+    const idOf = (text: string) =>
+      manager
+        .getSnapshots()
+        [config.sessionId]?.queuedInputs?.find((input) => input.text === text)
+        ?.id ?? ''
+
+    await manager.updateQueue(config.sessionId, {
+      type: 'edit',
+      id: idOf('a'),
+      text: 'a edited',
+    })
+    await manager.updateQueue(config.sessionId, {
+      type: 'move',
+      id: idOf('c'),
+      index: 0,
+    })
+    await manager.updateQueue(config.sessionId, {
+      type: 'remove',
+      id: idOf('b'),
+    })
+    await manager.updateQueue(config.sessionId, {
+      type: 'steer',
+      id: idOf('d'),
+    })
+
+    expect(steered).toEqual(['d'])
+    expect(queued(manager, config.sessionId)).toEqual(['c', 'a edited'])
+    await finishTurn()
+    expect(sent).toEqual(['first', 'c'])
+    await expect(
+      manager.updateQueue(config.sessionId, { type: 'remove', id: 'gone' }),
+    ).rejects.toThrow('already sent')
+    await manager.closeAll()
+  })
+
+  it('pauses after Stop and after a failed send until resumed', async () => {
+    const { finishTurn, manager, sent } = createQueueManager({
+      failSend: (text) => text === 'bad',
+    })
+    const config = createConfig('codex')
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'first')
+    await manager.queueInput(config.sessionId, 'bad')
+    await manager.queueInput(config.sessionId, 'good')
+
+    await manager.interruptSession(config.sessionId)
+    await finishTurn()
+    expect(sent).toEqual(['first'])
+    expect(manager.getSnapshots()[config.sessionId]?.queuePaused).toBe(true)
+
+    await manager.updateQueue(config.sessionId, { type: 'resume' })
+    expect(sent).toEqual(['first'])
+    expect(manager.getSnapshots()[config.sessionId]).toMatchObject({
+      queuePaused: true,
+      queuedInputs: [
+        expect.objectContaining({ lastError: 'refused', text: 'bad' }),
+        expect.objectContaining({ text: 'good' }),
+      ],
+    })
+    await manager.closeAll()
+  })
+})

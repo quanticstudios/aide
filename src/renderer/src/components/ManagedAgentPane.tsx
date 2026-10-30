@@ -59,6 +59,7 @@ import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import DiffPanel from './DiffPanel'
+import ManagedQueuedMessages from './ManagedQueuedMessages'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import PlanCard from './PlanCard'
 import ThreadErrorBanner from './ThreadErrorBanner'
@@ -629,6 +630,7 @@ export default function ManagedAgentPane({
       recipients: readonly string[] = [],
       promptAttachments: readonly ManagedSessionAttachment[] = [],
       providerSkill?: ProviderSkill,
+      queue = false,
     ) => {
       const transport = getSessionTransport()
       const trimmed = text.trim()
@@ -644,6 +646,21 @@ export default function ManagedAgentPane({
           if (!(await ensureSession())) {
             return false
           }
+        }
+        const skill = providerSkill
+          ? { id: providerSkill.id, provider: providerSkill.provider }
+          : undefined
+        if (queue) {
+          // why: a queued message reaches the transcript only when main sends it, so there is no row to pin yet.
+          await transport.queue(
+            sessionId,
+            trimmed,
+            recipients,
+            promptAttachments,
+            skill,
+          )
+          setError(null)
+          return true
         }
         const virtualizer = virtualizerRef.current
         if (
@@ -663,9 +680,7 @@ export default function ManagedAgentPane({
           trimmed,
           recipients,
           promptAttachments,
-          providerSkill
-            ? { id: providerSkill.id, provider: providerSkill.provider }
-            : undefined,
+          skill,
         )
         setError(null)
         return true
@@ -1154,6 +1169,14 @@ export default function ManagedAgentPane({
               void handleResolveApproval(requestId, decision)
             }
             total={snapshot?.pendingApprovals.length ?? 1}
+          />
+        ) : null}
+
+        {snapshot?.queuedInputs?.length ? (
+          <ManagedQueuedMessages
+            isPaused={snapshot.queuePaused ?? false}
+            queuedInputs={snapshot.queuedInputs}
+            sessionId={sessionId}
           />
         ) : null}
 

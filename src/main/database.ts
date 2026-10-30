@@ -686,7 +686,7 @@ const persistedManagedSessionSchema = z
         })
         .nullable(),
       provider: persistedProvider,
-      // why: builds before steering saved unsent follow-ups here; load turns them into visible notes.
+      // why: the queue lives in memory, so messages still queued when the session ends load back as visible notes.
       queuedInputs: z
         .array(
           z.object({
@@ -2531,7 +2531,7 @@ export class AideDatabase {
             id: `unsent-follow-up:${input.id}`,
             kind: 'system' as const,
             provider: null,
-            text: `Aide did not send this queued follow-up before the update:\n\n${input.text}`,
+            text: `This queued message was never sent:\n\n${input.text}`,
             turnId: null,
             updatedAt: input.createdAt,
           })),

@@ -26,7 +26,10 @@ import type {
 } from '../shared/git'
 import { IPC_CHANNELS } from '../shared/ipc'
 import { JevGateOverridesSchema } from '../shared/jev-gates'
-import type { ManagedSessionDecision } from '../shared/managed-session'
+import type {
+  ManagedSessionDecision,
+  ManagedSessionQueueAction,
+} from '../shared/managed-session'
 import type {
   ProjectColor,
   ProjectIcon,
@@ -291,6 +294,31 @@ function requireRecipientAliases(value: unknown): readonly string[] {
     aliases.add(normalizedAlias)
   }
   return [...aliases]
+}
+
+function requireQueueAction(value: unknown): ManagedSessionQueueAction {
+  const action = (value ?? {}) as Record<string, unknown>
+  if (action.type === 'resume') return { type: 'resume' }
+  const id = requireRuntimeId(action.id, 'queued message id')
+  if (action.type === 'remove' || action.type === 'steer') {
+    return { type: action.type, id }
+  }
+  if (
+    action.type === 'move' &&
+    Number.isInteger(action.index) &&
+    (action.index as number) >= 0
+  ) {
+    return { type: 'move', id, index: action.index as number }
+  }
+  if (
+    action.type === 'edit' &&
+    typeof action.text === 'string' &&
+    action.text.trim() &&
+    action.text.length <= 65_536
+  ) {
+    return { type: 'edit', id, text: action.text }
+  }
+  throw new Error('Invalid queue action.')
 }
 
 function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
@@ -1559,10 +1587,11 @@ function registerIpcHandlers(): void {
       return searchProjectFiles(workspace.worktreePath, query)
     },
   )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionSendInput,
+  // why: a queued message is checked when queued, so a bad one is refused before it waits a whole turn.
+  const handleManagedSessionInput =
+    (deliver: 'queueInput' | 'sendInput') =>
     async (
-      event,
+      event: IpcMainInvokeEvent,
       sessionId: unknown,
       text: unknown,
       recipients: unknown,
@@ -1592,14 +1621,29 @@ function registerIpcHandlers(): void {
       if (resolvedSkill && resolvedSkill.provider !== session.provider) {
         throw new Error('Selected provider skill does not match this session.')
       }
-      return managedSessionManager.sendInput(
+      return managedSessionManager[deliver](
         id,
         text,
         recipientAliases,
         validateManagedSessionAttachments(attachments),
         resolvedSkill,
       )
-    },
+    }
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSendInput,
+    handleManagedSessionInput('sendInput'),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionQueueInput,
+    handleManagedSessionInput('queueInput'),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionUpdateQueue,
+    (_event, sessionId: unknown, action: unknown) =>
+      managedSessionManager.updateQueue(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        requireQueueAction(action),
+      ),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionConfigureMode,

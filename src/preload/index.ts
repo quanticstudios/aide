@@ -455,6 +455,27 @@ const aideApi: AideApi = {
       attachments,
       selectedSkill,
     ),
+  queueManagedSessionInput: (
+    sessionId,
+    text,
+    recipients,
+    attachments,
+    selectedSkill,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionQueueInput,
+      sessionId,
+      text,
+      recipients,
+      attachments,
+      selectedSkill,
+    ),
+  updateManagedSessionQueue: (sessionId, action) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.managedSessionUpdateQueue,
+      sessionId,
+      action,
+    ),
   getTurnCheckpointDiff: (sessionId: string, checkpointId: string) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.turnCheckpointDiff,

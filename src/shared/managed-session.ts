@@ -9,6 +9,7 @@ import type {
   ManagedProviderRuntimeToolCall,
   ManagedProviderRuntimeToolRequest,
 } from './provider-runtime'
+import type { ResolvedProviderSkill } from './provider-skills'
 import type { ManagedSessionMode } from './terminal'
 
 export type ManagedSessionProvider = ManagedProviderRuntimeProvider
@@ -94,6 +95,25 @@ export interface ManagedSessionProviderImage {
   name: string
   path?: string
 }
+
+/** A message held until the running turn ends; main sends one per finished turn, in order. */
+export interface ManagedSessionQueuedInput {
+  attachments: ManagedSessionAttachment[]
+  createdAt: string
+  id: string
+  /** Why the last automatic send failed. */
+  lastError?: string
+  recipients: string[]
+  skill?: ResolvedProviderSkill
+  text: string
+}
+
+export type ManagedSessionQueueAction =
+  | { type: 'edit'; id: string; text: string }
+  | { type: 'move'; id: string; index: number }
+  | { type: 'remove'; id: string }
+  | { type: 'resume' }
+  | { type: 'steer'; id: string }
 
 export interface ManagedSessionConfig {
   agents?: readonly ManagedSessionAgentConfig[]
@@ -258,6 +278,9 @@ export interface ManagedSessionSnapshot {
   permissionMode: ManagedSessionPermissionMode
   planApproval: ManagedSessionPlanApproval | null
   provider: ManagedSessionProvider
+  /** True after Stop or a failed send; the queue waits for Resume. */
+  queuePaused?: boolean
+  queuedInputs?: ManagedSessionQueuedInput[]
   revision: number
   running: boolean
   runtimeGeneration: number
