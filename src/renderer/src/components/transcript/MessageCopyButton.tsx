@@ -3,13 +3,11 @@ import { Clipboard, ClipboardCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import IconTooltip from '../ui/icon-tooltip'
 
-export default function MessageCopyButton({
-  text,
-  kind,
-}: {
-  readonly text: string
-  readonly kind: 'message' | 'plan' | 'response'
-}) {
+/** Writes text to the clipboard and reports `copied` for 1.5 s afterwards. */
+export function useCopyText(): readonly [
+  boolean,
+  (text: string) => Promise<void>,
+] {
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
   useEffect(
@@ -19,8 +17,7 @@ export default function MessageCopyButton({
     },
     [],
   )
-  const label = `${copied ? 'Copied' : 'Copy'} ${kind}`
-  const copy = async () => {
+  const copy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopied(true)
@@ -31,13 +28,25 @@ export default function MessageCopyButton({
       // Clipboard access can be unavailable in the shell.
     }
   }
+  return [copied, copy]
+}
+
+export default function MessageCopyButton({
+  text,
+  kind,
+}: {
+  readonly text: string
+  readonly kind: 'message' | 'plan' | 'response' | 'code'
+}) {
+  const [copied, copy] = useCopyText()
+  const label = `${copied ? 'Copied' : 'Copy'} ${kind}`
   return (
     <IconTooltip label={label}>
       <Button
         aria-label={label}
         className="size-7 rounded-md text-muted-foreground"
         isIconOnly
-        onPress={() => void copy()}
+        onPress={() => void copy(text)}
         size="sm"
         variant="ghost"
       >

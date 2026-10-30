@@ -125,6 +125,26 @@ describe('createAideDatabase', () => {
     }
   })
 
+  it('persists the code block wrap choice across reopen', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-code-wrap-'))
+    const databasePath = path.join(directory, 'aide.sqlite3')
+
+    try {
+      const database = createAideDatabase(databasePath)
+      expect(database.getCodeWrap()).toBe(false)
+      database.setCodeWrap(true)
+      expect(() => database.setCodeWrap('yes')).toThrow()
+      database.close()
+
+      const reopened = createAideDatabase(databasePath)
+      expect(reopened.getCodeWrap()).toBe(true)
+      expect(reopened.getComposerDefaults('workspace-1')).toBeNull()
+      reopened.close()
+    } finally {
+      rmSync(directory, { force: true, recursive: true })
+    }
+  })
+
   it('persists project capabilities across reopen', () => {
     const tempDirectory = mkdtempSync(path.join(tmpdir(), 'aide-project-db-'))
     const databasePath = path.join(tempDirectory, 'aide.sqlite3')

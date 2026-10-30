@@ -117,6 +117,8 @@ export const IPC_CHANNELS = {
   restoreKnownGoodPersistedState: 'app:restore-known-good-persisted-state',
   getComposerDefaults: 'composer:get-defaults',
   setComposerDefaults: 'composer:set-defaults',
+  getCodeWrap: 'composer:get-code-wrap',
+  setCodeWrap: 'composer:set-code-wrap',
   getJevSettings: 'jev:get-settings',
   updateJevSettings: 'jev:update-settings',
   getJevGates: 'jev:get-gates',
@@ -257,6 +259,8 @@ export interface AideApi {
     workspaceId: string,
     defaults: ComposerDefaults,
   ) => Promise<ComposerDefaults>
+  getCodeWrap: () => Promise<boolean>
+  setCodeWrap: (wrap: boolean) => Promise<void>
   getJevGates: (workspaceId: string | null) => Promise<JevGateSnapshot>
   updateJevGates: (
     scope: JevGateScope,

@@ -84,6 +84,7 @@ import {
   resolveSpatialNavigationState,
   type SpatialNavigationState,
 } from './lib/spatial-navigation-state'
+import { queueTerminalInput, RunInTerminalContext } from './lib/terminal-input'
 import {
   createUpdateSnoozeUntil,
   getUpdatePresentationRefreshDelay,
@@ -1460,6 +1461,7 @@ function WorkspaceApp() {
       templatePaneId: string,
       requestedWorkspaceId?: string,
       shouldRestoreClosedAgent = true,
+      initialTerminalInput?: string,
     ) => {
       const workspaceId =
         requestedWorkspaceId ??
@@ -1518,6 +1520,9 @@ function WorkspaceApp() {
             workspaceId,
           )
           const paneId = createWorkspacePaneInstanceId(templatePaneId)
+          if (initialTerminalInput) {
+            queueTerminalInput(paneId, initialTerminalInput)
+          }
           const { layout, surface } = createSinglePaneSurface({
             orderIndex: surfaces.length,
             paneId,
@@ -1565,6 +1570,12 @@ function WorkspaceApp() {
       resolvedNavigationState.activeWorkspaceId,
       workspaceMutationQueue,
     ],
+  )
+
+  const handleRunInTerminal = useCallback(
+    (command: string) =>
+      void handleCreatePane('terminal', undefined, true, command),
+    [handleCreatePane],
   )
 
   const handleCreateChat = useCallback(
@@ -2940,66 +2951,72 @@ function WorkspaceApp() {
               : null)
           }
         />
-        <WorkspaceCanvas
-          activeProject={activeProject}
-          activeWorkspace={activeWorkspace}
-          actionError={actionError}
-          onAddView={handleAddView}
-          onCreateProject={openProject}
-          onCreateWorkspace={createWorkspace}
-          onClosePane={handleClosePane}
-          onOpenJevSettings={(trigger) => openSettings(trigger, 'jev-settings')}
-          onRemoveView={handleRemoveView}
-          onPreviewBrowserControl={handlePreviewBrowserControl}
-          onPreviewCloseTab={(workspace, tabId) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.closePreviewTab(workspace.id, tabId),
+        <RunInTerminalContext.Provider value={handleRunInTerminal}>
+          <WorkspaceCanvas
+            activeProject={activeProject}
+            activeWorkspace={activeWorkspace}
+            actionError={actionError}
+            onAddView={handleAddView}
+            onCreateProject={openProject}
+            onCreateWorkspace={createWorkspace}
+            onClosePane={handleClosePane}
+            onOpenJevSettings={(trigger) =>
+              openSettings(trigger, 'jev-settings')
+            }
+            onRemoveView={handleRemoveView}
+            onPreviewBrowserControl={handlePreviewBrowserControl}
+            onPreviewCloseTab={(workspace, tabId) => {
+              const aide = getAideApi()
+              if (aide)
+                withPreviewSnapshot(() =>
+                  aide.closePreviewTab(workspace.id, tabId),
+                )
+            }}
+            onPreviewNavigate={(workspace, tabId, url) => {
+              const aide = getAideApi()
+              if (aide)
+                withPreviewSnapshot(() =>
+                  aide.navigatePreviewTab(workspace.id, tabId, url),
+                )
+            }}
+            onPreviewOpenTab={(workspace, url) => {
+              const aide = getAideApi()
+              if (aide)
+                withPreviewSnapshot(() =>
+                  aide.openPreviewTab(workspace.id, url),
+                )
+            }}
+            onPreviewPresentationChange={setPreviewPresentation}
+            onPreviewSelectTab={(workspace, tabId) => {
+              const aide = getAideApi()
+              if (aide)
+                withPreviewSnapshot(() =>
+                  aide.selectPreviewTab(workspace.id, tabId),
+                )
+            }}
+            onSelectPane={(paneId: string) =>
+              setSelection(
+                applyPaneSelection(
+                  navigationSnapshot,
+                  resolvedNavigationState,
+                  paneId,
+                  getSurfaceIdsForWorkspace,
+                  getPaneIdsForWorkspace,
+                ),
               )
-          }}
-          onPreviewNavigate={(workspace, tabId, url) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.navigatePreviewTab(workspace.id, tabId, url),
-              )
-          }}
-          onPreviewOpenTab={(workspace, url) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() => aide.openPreviewTab(workspace.id, url))
-          }}
-          onPreviewPresentationChange={setPreviewPresentation}
-          onPreviewSelectTab={(workspace, tabId) => {
-            const aide = getAideApi()
-            if (aide)
-              withPreviewSnapshot(() =>
-                aide.selectPreviewTab(workspace.id, tabId),
-              )
-          }}
-          onSelectPane={(paneId: string) =>
-            setSelection(
-              applyPaneSelection(
-                navigationSnapshot,
-                resolvedNavigationState,
-                paneId,
-                getSurfaceIdsForWorkspace,
-                getPaneIdsForWorkspace,
-              ),
-            )
-          }
-          onSwitchView={handleSwitchView}
-          previewSnapshot={activePreviewSnapshot}
-          allWorkspaces={projectWorkspaces}
-          projects={projects}
-          shellError={shellError}
-          activePaneId={resolvedNavigationState.activePaneId}
-          activeSurfaceId={resolvedNavigationState.activeSurfaceId}
-          surfaceLayouts={navigationSnapshot.surfaceLayouts ?? {}}
-          workspaceSurfaces={navigationSnapshot.workspaceSurfaces ?? {}}
-          workspaceLayouts={navigationSnapshot.workspaceLayouts}
-        />
+            }
+            onSwitchView={handleSwitchView}
+            previewSnapshot={activePreviewSnapshot}
+            allWorkspaces={projectWorkspaces}
+            projects={projects}
+            shellError={shellError}
+            activePaneId={resolvedNavigationState.activePaneId}
+            activeSurfaceId={resolvedNavigationState.activeSurfaceId}
+            surfaceLayouts={navigationSnapshot.surfaceLayouts ?? {}}
+            workspaceSurfaces={navigationSnapshot.workspaceSurfaces ?? {}}
+            workspaceLayouts={navigationSnapshot.workspaceLayouts}
+          />
+        </RunInTerminalContext.Provider>
         <PreviewBrowserHost
           action={previewBrowserAction}
           presentation={previewPresentation}

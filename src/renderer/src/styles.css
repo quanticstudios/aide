@@ -734,6 +734,83 @@ button:active:not(:disabled),
   border-radius: 0;
 }
 
+.prose .code-block {
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  margin-top: 0.85em;
+  margin-bottom: 0.85em;
+  overflow: hidden;
+}
+
+.prose .code-block-header,
+.prose .table-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.15rem 0.25rem 0.15rem 0.75rem;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.prose .code-block pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.prose .code-block[data-wrap] pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 30 code lines of 12.5px at line-height 1.6, plus the pre's vertical padding. */
+.prose .code-block[data-collapsed] pre {
+  max-height: calc(30 * 1.6 * 12.5px + 1.7rem);
+  overflow-y: hidden;
+}
+
+.prose .code-block-expand,
+.prose .table-block-action {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  border-radius: 6px;
+  transition: color var(--t-fast);
+}
+
+.prose .code-block-expand {
+  display: block;
+  width: 100%;
+  padding: 0.4rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.prose .table-block-action {
+  padding: 0.3rem 0.5rem;
+}
+
+.prose .code-block-expand:hover,
+.prose .table-block-action:hover {
+  color: var(--foreground);
+}
+
+.prose .table-block {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose .table-block-header {
+  justify-content: flex-end;
+  border-bottom: 0;
+  padding: 0;
+}
+
+.prose .table-block-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .prose blockquote {
   border-left: 2px solid var(--border);
   padding-left: 1em;
@@ -759,8 +836,6 @@ button:active:not(:disabled),
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85em;
-  margin-top: 0.75em;
-  margin-bottom: 0.75em;
 }
 
 .prose th,

@@ -172,6 +172,8 @@ const MIGRATION_STRATEGY =
 const LEGACY_SURFACE_SUFFIX = ':surface:legacy-root'
 
 const GLOBAL_COMPOSER_DEFAULTS_SCOPE = 'global'
+// why: workspace scopes are `workspace:<id>`, so this key never collides with one.
+const CODE_WRAP_SCOPE = 'code-wrap'
 
 function composerDefaultsScope(workspaceId: string): string {
   return `workspace:${workspaceId}`
@@ -1508,6 +1510,23 @@ export class AideDatabase {
     statement.run(scope, payload)
     statement.run(GLOBAL_COMPOSER_DEFAULTS_SCOPE, payload)
     return defaults
+  }
+
+  /** The transcript code block soft-wrap choice, shared by every workspace. */
+  public getCodeWrap(): boolean {
+    const row = this.database
+      .prepare('SELECT payload_json FROM composer_defaults WHERE scope = ?')
+      .get(CODE_WRAP_SCOPE) as { payload_json: string } | undefined
+    return row?.payload_json === 'true'
+  }
+
+  public setCodeWrap(wrap: unknown): void {
+    this.database
+      .prepare(`
+        INSERT INTO composer_defaults (scope, payload_json) VALUES (?, ?)
+        ON CONFLICT(scope) DO UPDATE SET payload_json = excluded.payload_json
+      `)
+      .run(CODE_WRAP_SCOPE, JSON.stringify(z.boolean().parse(wrap)))
   }
 
   private readComposerDefaults(scope: string): ComposerDefaults | null {
