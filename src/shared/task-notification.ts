@@ -12,6 +12,7 @@ export type TaskNotificationKind =
 
 export interface TaskNotification {
   sessionId: string
+  paneId: string
   kind: TaskNotificationKind
   title: string
   body: string
@@ -30,6 +31,7 @@ export function buildTaskNotification(
 ): TaskNotification | null {
   const message = (kind: TaskNotificationKind, body: string) => ({
     sessionId: snapshot.sessionId,
+    paneId: snapshot.paneId,
     kind,
     title: threadName,
     body,

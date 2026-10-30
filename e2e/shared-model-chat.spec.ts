@@ -1864,7 +1864,7 @@ test.describe('shared model chat', () => {
     })
     await expect(notifications).toBeEnabled()
     const wasEnabled = await notifications.isChecked()
-    await settings.locator('[data-slot="switch-content"]').click()
+    await settings.locator('[data-slot="switch-content"]').first().click()
     await expect
       .poll(async () =>
         page.evaluate(

@@ -47,6 +47,7 @@ describe('buildTaskNotification', () => {
       ),
     ).toEqual({
       sessionId: 'session-1',
+      paneId: 'agent:one',
       kind: 'completed',
       title: 'Fix checkout',
       body: 'Done',

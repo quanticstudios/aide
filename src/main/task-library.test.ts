@@ -187,6 +187,7 @@ describe('TaskLibrary', () => {
     ]
     expect(library.nextNotification(snapshot)).toEqual({
       sessionId: snapshot.sessionId,
+      paneId: snapshot.paneId,
       kind: 'approval',
       title: 'Fix the checkout',
       body: 'Approval needed: Edit',

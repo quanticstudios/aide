@@ -398,7 +398,7 @@ export default function TopBar({
           projectKind={activeProject?.kind ?? 'git'}
         />
         <TaskLibraryControl onOpenTask={onOpenTask} />
-        <TaskNotificationToasts />
+        <TaskNotificationToasts activePaneId={activePaneId} />
         <IconTooltip
           label={
             <span className="flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { Toast, toast } from '@heroui/react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import type { TaskNotificationKind } from '../../../shared/task-notification'
 
@@ -27,12 +27,23 @@ function playTone(kind: TaskNotificationKind) {
   oscillator.stop(context.currentTime + 0.3)
 }
 
-export default function TaskNotificationToasts() {
+export default function TaskNotificationToasts({
+  activePaneId,
+}: {
+  readonly activePaneId: string | null
+}) {
+  const activePaneIdRef = useRef(activePaneId)
+  activePaneIdRef.current = activePaneId
   useEffect(
     () =>
       window.aide?.onTaskNotification((notification) => {
         if (notification.sound) playTone(notification.kind)
-        if (!notification.toast) return
+        // The thread you are looking at already shows what it needs.
+        if (
+          !notification.toast ||
+          notification.paneId === activePaneIdRef.current
+        )
+          return
         const key = toast(notification.title, {
           description: notification.body,
           variant:
