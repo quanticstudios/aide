@@ -7,6 +7,7 @@ import {
   type ElectronApplication,
   _electron as electron,
   expect,
+  type Locator,
   type Page,
   test,
 } from '@playwright/test'
@@ -42,6 +43,18 @@ function distanceFromBottom(page: Page): Promise<number> {
   return page
     .getByTestId('managed-session-content')
     .evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)
+}
+
+// why: on CI the 300-line fake stream outlasts one expect timeout, so follow it 50 lines at a time.
+async function expectStreamedThrough(
+  reply: Locator,
+  lastLine: number,
+): Promise<void> {
+  const lineText = (line: number) => `line ${String(line).padStart(3, '0')}`
+  for (let line = 50; line < lastLine; line += 50) {
+    await expect(reply).toContainText(lineText(line))
+  }
+  await expect(reply).toContainText(lineText(lastLine))
 }
 
 test.describe('transcript follow', () => {
@@ -129,9 +142,9 @@ test.describe('transcript follow', () => {
     await prompt.fill('stream-lines')
     await page.getByRole('button', { name: /send prompt/i }).click()
 
-    await expect(replies.first()).toContainText('line 150')
+    await expectStreamedThrough(replies.first(), 150)
     await expect.poll(() => distanceFromBottom(page)).toBeLessThanOrEqual(40)
-    await expect(replies.first()).toContainText('line 299')
+    await expectStreamedThrough(replies.first(), 299)
     await expect
       .poll(() => content.evaluate((el) => el.scrollHeight / el.clientHeight))
       .toBeGreaterThan(2)
@@ -150,8 +163,13 @@ test.describe('transcript follow', () => {
             .closest('[data-testid="managed-session-content"]')
             ?.getBoundingClientRect().top ?? 0),
       )
-    await expect.poll(questionOffset).toBeLessThanOrEqual(40)
-    expect(await questionOffset()).toBeGreaterThanOrEqual(0)
+    // why: a negative offset already passes "<= 40", so wait for both bounds at once.
+    await expect
+      .poll(async () => {
+        const offset = await questionOffset()
+        return offset >= 0 && offset <= 40 ? 'pinned' : offset
+      })
+      .toBe('pinned')
     const trailingSpace = () =>
       content.evaluate(
         (el) =>
@@ -173,7 +191,7 @@ test.describe('transcript follow', () => {
     await expect(replies.nth(2)).toContainText('line 060')
     await content.hover()
     await page.mouse.wheel(0, -2000)
-    await expect(replies.nth(2)).toContainText('line 299')
+    await expectStreamedThrough(replies.nth(2), 299)
     expect(await distanceFromBottom(page)).toBeGreaterThan(400)
 
     await expect(jump).toBeVisible()
