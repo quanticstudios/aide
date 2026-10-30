@@ -15,6 +15,7 @@ interface ManagedPendingApprovalPanelProps {
     requestId: string,
     decision: ManagedSessionDecision,
   ) => void
+  readonly total: number
 }
 
 function ApprovalDiff({
@@ -115,6 +116,7 @@ function ApprovalRequestBody({
 export default function ManagedPendingApprovalPanel({
   approval,
   onResolve,
+  total,
 }: ManagedPendingApprovalPanelProps) {
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -159,6 +161,14 @@ export default function ManagedPendingApprovalPanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">
             Approval required
+            {total > 1 ? (
+              <span
+                className="ml-2 font-normal text-muted-foreground"
+                data-testid="managed-approval-counter"
+              >
+                1 of {total}
+              </span>
+            ) : null}
           </p>
           <ApprovalRequestBody approval={approval} />
           <div className="mt-3 flex flex-wrap gap-2">

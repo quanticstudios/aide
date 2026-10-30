@@ -503,6 +503,7 @@ export interface AideApi {
     sessionId: string,
     requestId: string,
     decision: ManagedSessionDecision,
+    reason?: string,
   ) => Promise<void>
   resolveManagedSessionUserInput: (
     sessionId: string,

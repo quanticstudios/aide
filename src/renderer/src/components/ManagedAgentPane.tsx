@@ -1052,15 +1052,16 @@ export default function ManagedAgentPane({
       </div>
 
       <div className="flex flex-col gap-2 px-4 pb-3 pt-2">
-        {snapshot?.pendingApprovals.map((approval) => (
+        {snapshot?.pendingApprovals[0] ? (
           <ManagedPendingApprovalPanel
-            approval={approval}
-            key={approval.id}
+            approval={snapshot.pendingApprovals[0]}
+            key={snapshot.pendingApprovals[0].id}
             onResolve={(requestId, decision) =>
               void handleResolveApproval(requestId, decision)
             }
+            total={snapshot.pendingApprovals.length}
           />
-        ))}
+        ) : null}
 
         <ManagedComposer {...composer} />
       </div>

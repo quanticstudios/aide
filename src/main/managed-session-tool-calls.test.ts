@@ -1,11 +1,20 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { query } = vi.hoisted(() => ({ query: vi.fn() }))
 
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query }))
+vi.mock('@anthropic-ai/claude-agent-sdk', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  query,
+}))
 
 import {
   CodexManagedSessionBackend,
@@ -451,6 +460,158 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         status: 'completed',
         toolName: 'Shell',
       })
+    } finally {
+      await manager.closeAll()
+      vi.unstubAllEnvs()
+      rmSync(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('passes deny feedback to Claude as the permission message', async () => {
+    let denial: Promise<unknown> | undefined
+    query.mockImplementation(
+      ({
+        options,
+        prompt,
+      }: {
+        options: {
+          canUseTool: (
+            toolName: string,
+            input: Record<string, unknown>,
+            callbackOptions: { signal: AbortSignal; suggestions: [] },
+          ) => Promise<unknown>
+        }
+        prompt: AsyncIterable<unknown>
+      }) => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            model: 'claude-test',
+            subtype: 'init',
+            type: 'system',
+            uuid: 'init-event',
+          }
+          await prompt[Symbol.asyncIterator]().next()
+          denial = options.canUseTool(
+            'Bash',
+            { command: 'rm -rf build' },
+            { signal: new AbortController().signal, suggestions: [] },
+          )
+          await denial
+        },
+        close: vi.fn(),
+        interrupt: vi.fn(),
+      }),
+    )
+    const manager = new ManagedSessionManager({
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    try {
+      await manager.createSession({
+        cwd: '/tmp/workspace',
+        mode: 'claude',
+        paneId: 'pane',
+        sessionId: 'session',
+        workspaceId: 'workspace',
+      })
+      await manager.sendInput('session', 'clean the build')
+      await vi.waitFor(() =>
+        expect(manager.getSnapshots().session.pendingApprovals).toHaveLength(1),
+      )
+      await manager.resolveRequest(
+        'session',
+        manager.getSnapshots().session.pendingApprovals[0]?.id ?? '',
+        'deny',
+        'Keep the build folder.',
+      )
+
+      await expect(denial).resolves.toEqual({
+        behavior: 'deny',
+        message:
+          'User declined tool execution. The user said: Keep the build folder.',
+      })
+    } finally {
+      await manager.closeAll()
+    }
+  })
+
+  it('declines a Codex approval and steers the turn with the deny feedback', async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'aide-codex-deny-'))
+    const executable = path.join(directory, 'codex-fixture.cjs')
+    const log = path.join(directory, 'messages.jsonl')
+    writeFileSync(
+      executable,
+      `#!${process.execPath}
+const fs = require('node:fs');
+const readline = require('node:readline');
+const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  fs.appendFileSync(${JSON.stringify(log)}, line + '\\n');
+  const request = JSON.parse(line);
+  if (request.method === 'thread/start') {
+    send({ id: request.id, result: { thread: { id: 'thread' }, model: 'codex-test' } });
+    return;
+  }
+  if (request.method === 'turn/start') {
+    send({ method: 'turn/started', params: { turn: { id: 'turn' } } });
+    send({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: { command: 'rm -rf build' } });
+  }
+  if (request.id !== undefined && request.method) send({ id: request.id, result: {} });
+});
+`,
+    )
+    chmodSync(executable, 0o755)
+    vi.stubEnv('AIDE_CODEX_COMMAND', executable)
+    const manager = new ManagedSessionManager({
+      createBackend: (config, emit) =>
+        new CodexManagedSessionBackend(config, emit, () =>
+          new Date().toISOString(),
+        ),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+
+    try {
+      await manager.createSession({
+        cwd: directory,
+        mode: 'codex',
+        paneId: 'pane',
+        sessionId: 'session',
+        workspaceId: 'workspace',
+      })
+      await manager.sendInput('session', 'clean the build')
+      await vi.waitFor(() =>
+        expect(manager.getSnapshots().session.pendingApprovals).toHaveLength(1),
+      )
+      await manager.resolveRequest(
+        'session',
+        manager.getSnapshots().session.pendingApprovals[0]?.id ?? '',
+        'deny',
+        'Keep the build folder.',
+      )
+
+      const messages = readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+      expect(messages).toContainEqual({
+        id: 'approval-1',
+        result: { decision: 'decline' },
+      })
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          method: 'turn/steer',
+          params: expect.objectContaining({
+            expectedTurnId: 'turn',
+            input: [
+              expect.objectContaining({
+                text: 'The user declined that request and said: Keep the build folder.',
+              }),
+            ],
+          }),
+        }),
+      )
     } finally {
       await manager.closeAll()
       vi.unstubAllEnvs()

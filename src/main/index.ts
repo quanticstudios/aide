@@ -1602,7 +1602,14 @@ function registerIpcHandlers(): void {
       sessionId: string,
       requestId: string,
       decision: ManagedSessionDecision,
-    ) => managedSessionManager.resolveRequest(sessionId, requestId, decision),
+      reason: unknown,
+    ) =>
+      managedSessionManager.resolveRequest(
+        sessionId,
+        requestId,
+        decision,
+        typeof reason === 'string' && reason.trim() ? reason.trim() : undefined,
+      ),
   )
   ipcMain.handle(
     IPC_CHANNELS.managedSessionResolveUserInput,
