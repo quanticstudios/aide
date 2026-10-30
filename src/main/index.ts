@@ -76,6 +76,7 @@ import {
   resetPersistedState,
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
+import { writePlanFile } from './plan-file'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile, searchProjectFiles } from './project-files'
 import { pickProjectRoot } from './project-picker'
@@ -1464,6 +1465,33 @@ function registerIpcHandlers(): void {
       )
       windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
       event.sender.send(IPC_CHANNELS.taskOpen, branch.sessionId)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionImplementPlanInNewThread,
+    async (event, sessionId: unknown, requestId: unknown) => {
+      const threadId = await managedSessionManager.implementPlanInNewThread(
+        requireRuntimeId(sessionId, 'managed-session id'),
+        requireRuntimeId(requestId, 'request id'),
+      )
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      event.sender.send(IPC_CHANNELS.taskOpen, threadId)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.managedSessionSavePlan,
+    async (event, workspaceId: unknown, plan: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      const window = windowManager.getWindowForWebContents(event.sender)
+      if (typeof plan !== 'string' || !plan.trim() || !window) return null
+      const result = await dialog.showSaveDialog(window, {
+        defaultPath: path.join(workspace.worktreePath, 'PLAN.md'),
+        filters: [{ extensions: ['md'], name: 'Markdown' }],
+        properties: ['showOverwriteConfirmation'],
+        title: 'Save plan',
+      })
+      if (result.canceled || !result.filePath) return null
+      return writePlanFile(workspace.worktreePath, result.filePath, plan)
     },
   )
   ipcMain.handle(

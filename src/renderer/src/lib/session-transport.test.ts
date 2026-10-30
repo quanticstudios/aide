@@ -26,6 +26,7 @@ const SESSION_BRIDGE_METHODS = [
   'getTaskLibrary',
   'getTaskTranscript',
   'getTurnCheckpointDiff',
+  'implementManagedSessionPlanInNewThread',
   'interruptManagedSession',
   'listTurnCheckpoints',
   'onManagedSessionEvent',

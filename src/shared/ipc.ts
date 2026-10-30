@@ -194,6 +194,9 @@ export const IPC_CHANNELS = {
   cancelWorkspaceSetup: 'workspace-setup:cancel',
   managedSessionCreate: 'managed-session:create',
   managedSessionBranch: 'managed-session:branch',
+  managedSessionImplementPlanInNewThread:
+    'managed-session:implement-plan-in-new-thread',
+  managedSessionSavePlan: 'managed-session:save-plan',
   managedFleetAcceptNode: 'managed-session:accept-fleet-node',
   managedSessionClose: 'managed-session:close',
   managedSessionConfigureAgents: 'managed-session:configure-agents',
@@ -425,6 +428,15 @@ export interface AideApi {
     sessionId: string,
     responseContentItemId: string,
   ) => Promise<void>
+  implementManagedSessionPlanInNewThread: (
+    sessionId: string,
+    requestId: string,
+  ) => Promise<void>
+  /** Asks where to save the plan inside the workspace; resolves to the saved path, or null if cancelled. */
+  saveManagedSessionPlan: (
+    workspaceId: string,
+    plan: string,
+  ) => Promise<string | null>
   configureManagedSessionAgents: (
     sessionId: string,
     agents: readonly ManagedSessionAgentConfig[],

@@ -171,6 +171,18 @@ export interface ManagedSessionPendingApproval {
   requestType: ManagedSessionRequestType
 }
 
+/** The markdown plan a plan approval carries (Claude's `ExitPlanMode` input), or null. */
+export function readPlanText(
+  approval: ManagedSessionPendingApproval,
+): string | null {
+  const input = approval.request?.input
+  const plan =
+    input && typeof input === 'object'
+      ? (input as { plan?: unknown }).plan
+      : undefined
+  return typeof plan === 'string' && plan.trim() ? plan : null
+}
+
 export interface ManagedSessionPlanApproval {
   detail: string | null
   id: string

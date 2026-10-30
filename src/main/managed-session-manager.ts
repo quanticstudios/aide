@@ -48,6 +48,7 @@ import type {
   ManagedSessionUserQuestion,
   PersistedManagedSession,
 } from '../shared/managed-session'
+import { readPlanText } from '../shared/managed-session'
 import {
   type ManagedUsageReport,
   summarizeManagedUsage,
@@ -63,6 +64,7 @@ import type {
   ManagedProviderRuntimeUserQuestion,
 } from '../shared/provider-runtime'
 import type { ResolvedProviderSkill } from '../shared/provider-skills'
+import { mapCodexPlanUpdate } from './codex-plan'
 import { parseCodexUsage } from './codex-usage'
 import type { JevGates } from './jev-gates'
 import {
@@ -1839,6 +1841,12 @@ export class CodexManagedSessionBackend implements ManagedSessionBackend {
       return
     }
 
+    if (notification.method === 'turn/plan/updated') {
+      const call = mapCodexPlanUpdate(params, this.activeTurnId)
+      if (call) this.emitToolCall(call)
+      return
+    }
+
     if (notification.method === 'turn/completed') {
       const turn = this.readObject(params, 'turn')
       const turnId =
@@ -2588,6 +2596,19 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
         createdAt: this.getNow(),
         detail: `${this.provider} is ready to apply its plan`,
         provider: this.provider,
+        request: {
+          input: {
+            plan: [
+              '# Rename the greeting',
+              '',
+              ...Array.from(
+                { length: 24 },
+                (_, index) => `${index + 1}. Step ${index + 1}`,
+              ),
+            ].join('\n'),
+          },
+          toolName: 'ExitPlanMode',
+        },
         requestId: this.activeRequestId,
         requestType: 'plan-approval',
         type: 'request.opened',
@@ -4550,9 +4571,51 @@ export class ManagedSessionManager {
     reason?: string,
   ): Promise<void> {
     const state = this.sessions.get(sessionId)
-    if (state?.pendingApprovals.has(requestId))
-      this.options.jevGates?.recordOutcome(requestId, decision)
+    const approval = state?.pendingApprovals.get(requestId)
+    if (approval) this.options.jevGates?.recordOutcome(requestId, decision)
+    if (
+      state &&
+      approval?.requestType === 'plan-approval' &&
+      decision !== 'deny'
+    ) {
+      state.config = { ...state.config, interactionMode: 'build' }
+      // why: the runtime must leave plan mode before the approved plan's first edit reaches it.
+      await state.backend
+        .setPermissionMode?.(resolveEffectivePermissionMode(state.config))
+        .catch(() => undefined)
+      this.publishSnapshot(state, this.getNow())
+      this.persistSession(state)
+    }
     await state?.backend.resolveRequest(requestId, decision, reason)
+  }
+
+  /** Starts a build-mode session in the same workspace whose first prompt is the pending plan. */
+  public async implementPlanInNewThread(
+    sessionId: string,
+    requestId: string,
+  ): Promise<string> {
+    const source = this.sessions.get(sessionId)
+    const approval = source?.pendingApprovals.get(requestId)
+    const plan =
+      approval?.requestType === 'plan-approval' ? readPlanText(approval) : null
+    if (!source || !plan) throw new Error('The plan is no longer pending.')
+
+    const paneId = `agent::copy-plan-${randomUUID()}`
+    const config: ManagedSessionConfig = {
+      ...source.config,
+      interactionMode: 'build',
+      paneId,
+      sessionId: `${source.config.workspaceId}:${paneId}`,
+    }
+    await this.createSession(config)
+    await this.sendInput(config.sessionId, `Implement this plan:\n\n${plan}`)
+    await this.resolveRequest(
+      sessionId,
+      requestId,
+      'deny',
+      'The user is implementing this plan in a new thread. Stop here.',
+    )
+    return config.sessionId
   }
 
   public configureSessionJevGates(

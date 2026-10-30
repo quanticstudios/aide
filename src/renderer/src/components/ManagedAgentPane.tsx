@@ -25,6 +25,7 @@ import type {
   ManagedSessionSnapshot,
   ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
+import { readPlanText } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import {
   type ProviderCapabilitiesSnapshot,
@@ -57,6 +58,7 @@ import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
+import PlanCard from './PlanCard'
 import TranscriptList, {
   type TranscriptVirtualizer,
 } from './transcript/TranscriptList'
@@ -872,6 +874,25 @@ export default function ManagedAgentPane({
     [sessionId],
   )
 
+  const handleImplementPlanInNewThread = useCallback(
+    async (requestId: string) => {
+      try {
+        await getSessionTransport()?.implementPlanInNewThread(
+          sessionId,
+          requestId,
+        )
+      } catch (implementError) {
+        setError(getErrorMessage(implementError))
+      }
+    },
+    [sessionId],
+  )
+  const pendingApproval = snapshot?.pendingApprovals[0]
+  const pendingPlan =
+    pendingApproval?.requestType === 'plan-approval'
+      ? readPlanText(pendingApproval)
+      : null
+
   const turnGroups = useMemo(
     () => groupContentByTurn(snapshot?.content ?? []),
     [snapshot?.content],
@@ -1055,14 +1076,28 @@ export default function ManagedAgentPane({
       </div>
 
       <div className="flex flex-col gap-2 px-4 pb-3 pt-2">
-        {snapshot?.pendingApprovals[0] ? (
+        {pendingApproval && pendingPlan ? (
+          <PlanCard
+            key={pendingApproval.id}
+            onImplement={() =>
+              void handleResolveApproval(pendingApproval.id, 'accept')
+            }
+            onImplementInNewThread={() =>
+              void handleImplementPlanInNewThread(pendingApproval.id)
+            }
+            onRefine={() => textareaRef.current?.focus()}
+            plan={pendingPlan}
+            total={snapshot?.pendingApprovals.length ?? 1}
+            workspaceId={workspace.id}
+          />
+        ) : pendingApproval ? (
           <ManagedPendingApprovalPanel
-            approval={snapshot.pendingApprovals[0]}
-            key={snapshot.pendingApprovals[0].id}
+            approval={pendingApproval}
+            key={pendingApproval.id}
             onResolve={(requestId, decision) =>
               void handleResolveApproval(requestId, decision)
             }
-            total={snapshot.pendingApprovals.length}
+            total={snapshot?.pendingApprovals.length ?? 1}
           />
         ) : null}
 

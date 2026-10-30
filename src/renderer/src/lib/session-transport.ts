@@ -34,6 +34,7 @@ export interface SessionTransport {
   setPermissionMode: AideApi['configureManagedSessionPermissionMode']
   setAgents: AideApi['configureManagedSessionAgents']
   fork: AideApi['branchManagedSession']
+  implementPlanInNewThread: AideApi['implementManagedSessionPlanInNewThread']
   getCheckpointDiff: AideApi['getTurnCheckpointDiff']
   previewRewind: AideApi['previewTurnCheckpointRestore']
   rewind: AideApi['restoreTurnCheckpoint']
@@ -62,6 +63,8 @@ export function createIpcTransport(api: AideApi): SessionTransport {
       api.configureManagedSessionPermissionMode(...args),
     setAgents: (...args) => api.configureManagedSessionAgents(...args),
     fork: (...args) => api.branchManagedSession(...args),
+    implementPlanInNewThread: (...args) =>
+      api.implementManagedSessionPlanInNewThread(...args),
     getCheckpointDiff: (...args) => api.getTurnCheckpointDiff(...args),
     previewRewind: (...args) => api.previewTurnCheckpointRestore(...args),
     rewind: (...args) => api.restoreTurnCheckpoint(...args),
