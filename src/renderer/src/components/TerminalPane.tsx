@@ -13,6 +13,7 @@ import {
   clearTerminalPaneRunning,
   setTerminalPaneRunning,
 } from '../lib/pane-close-warning'
+import { takeTerminalInput } from '../lib/terminal-input'
 
 interface TerminalPaneProps {
   readonly onShellExit: () => void
@@ -157,6 +158,12 @@ export default function TerminalPane({
     })
 
     setTerminalPaneRunning(sessionId, workspace.id, paneId, snapshot.running)
+
+    const queuedInput = takeTerminalInput(paneId)
+    if (queuedInput && snapshot.running) {
+      // why: typed without a line ending, so the command waits at the prompt until the user presses Enter.
+      void aideApi.writeTerminalInput(sessionId, queuedInput)
+    }
 
     if (snapshot.buffer) {
       terminal.write(snapshot.buffer)

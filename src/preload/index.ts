@@ -81,6 +81,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getComposerDefaults, workspaceId),
   setComposerDefaults: (workspaceId, defaults) =>
     ipcRenderer.invoke(IPC_CHANNELS.setComposerDefaults, workspaceId, defaults),
+  getCodeWrap: () => ipcRenderer.invoke(IPC_CHANNELS.getCodeWrap),
+  setCodeWrap: (wrap) => ipcRenderer.invoke(IPC_CHANNELS.setCodeWrap, wrap),
   getJevSettings: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.getJevSettings, workspaceId),
   updateJevSettings: (workspaceId, input) =>

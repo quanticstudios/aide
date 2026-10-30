@@ -897,6 +897,10 @@ function registerIpcHandlers(): void {
         defaults,
       ),
   )
+  ipcMain.handle(IPC_CHANNELS.getCodeWrap, () => database.getCodeWrap())
+  ipcMain.handle(IPC_CHANNELS.setCodeWrap, (_event, wrap: unknown) =>
+    database.setCodeWrap(wrap),
+  )
   ipcMain.handle(IPC_CHANNELS.getJevSettings, (event, workspaceId: unknown) => {
     const workspace = requireWorkspaceForSetup(event, workspaceId)
     return jevSettings.getStatus(workspace.worktreePath)

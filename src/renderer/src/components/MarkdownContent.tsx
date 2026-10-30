@@ -7,7 +7,9 @@ import type { ThemedToken } from 'shiki/core'
 import { cachedTokens, highlight, resolveLanguage } from '../lib/highlighter'
 import { splitMarkdownBlocks } from '../lib/markdown-blocks'
 import { remarkWorkspaceFileLinks } from '../lib/markdown-file-paths'
+import MarkdownCodeBlock, { MarkdownSourceContext } from './MarkdownCodeBlock'
 import { MarkdownImage, MarkdownLink } from './MarkdownLink'
+import MarkdownTable from './MarkdownTable'
 
 interface MarkdownContentProps {
   readonly text: string
@@ -120,18 +122,32 @@ function CodeBlock({ children, node }: ComponentProps<'pre'> & ExtraProps) {
   const languageClass = Array.isArray(classNames)
     ? classNames.map(String).find((name) => name.startsWith('language-'))
     : undefined
-  const lang = resolveLanguage(languageClass?.slice('language-'.length))
-  if (!lang) return <pre>{children}</pre>
+  const language = languageClass?.slice('language-'.length)
+  const lang = resolveLanguage(language)
   const text = code.children
     .map((child) => (child.type === 'text' ? child.value : ''))
     .join('')
-  return <HighlightedCode code={text} lang={lang} />
+  return (
+    <MarkdownCodeBlock
+      code={text}
+      language={language}
+      node={node}
+      shell={lang === 'shellscript'}
+    >
+      {lang ? (
+        <HighlightedCode code={text} lang={lang} />
+      ) : (
+        <pre>{children}</pre>
+      )}
+    </MarkdownCodeBlock>
+  )
 }
 
 const components: Components = {
   a: MarkdownLink,
   img: MarkdownImage,
   pre: CodeBlock,
+  table: MarkdownTable,
 }
 const remarkPlugins = [remarkGfm, remarkWorkspaceFileLinks]
 const remarkPluginsWithLabels = [
@@ -150,15 +166,16 @@ export default memo(function MarkdownContent({
   return (
     <div className="prose max-w-none">
       {splitMarkdownBlocks(text).map((block) => (
-        <MemoizedMarkdown
-          components={components}
-          key={block.start}
-          remarkPlugins={
-            formatSessionLabels ? remarkPluginsWithLabels : remarkPlugins
-          }
-        >
-          {block.text}
-        </MemoizedMarkdown>
+        <MarkdownSourceContext.Provider key={block.start} value={block.text}>
+          <MemoizedMarkdown
+            components={components}
+            remarkPlugins={
+              formatSessionLabels ? remarkPluginsWithLabels : remarkPlugins
+            }
+          >
+            {block.text}
+          </MemoizedMarkdown>
+        </MarkdownSourceContext.Provider>
       ))}
     </div>
   )

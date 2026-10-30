@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { highlight, loadLanguage } from '../lib/highlighter'
 import { splitMarkdownBlocks } from '../lib/markdown-blocks'
+import { RunInTerminalContext } from '../lib/terminal-input'
+import { isClosedFence } from './MarkdownCodeBlock'
 import MarkdownContent from './MarkdownContent'
 
 const splitter = vi.hoisted(() => ({ whole: false }))
@@ -61,9 +63,9 @@ const reply = [
   'Done.',
 ].join('\n')
 
-// why: newlines between block tags are whitespace text nodes that render nothing.
+// why: newlines between block tags are whitespace text nodes that render nothing, and React Aria ids follow the tree shape, not the content.
 function withoutBlockGaps(html: string): string {
-  return html.replace(/>\n+</g, '><')
+  return html.replace(/>\n+</g, '><').replace(/ id="react-aria-[^"]*"/g, '')
 }
 
 function renderWhole(text: string): string {
@@ -135,6 +137,84 @@ describe('MarkdownContent code blocks', () => {
     )
 
     expect(markup).toContain('<pre><code class="language-brainfuck">')
+  })
+})
+
+function renderWithTerminal(text: string): string {
+  return renderToStaticMarkup(
+    <RunInTerminalContext.Provider value={() => undefined}>
+      <MarkdownContent text={text} />
+    </RunInTerminalContext.Provider>,
+  )
+}
+
+describe('MarkdownContent code block header', () => {
+  it('labels the language and offers copy and wrap', () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={'```ts\nconst a = 1\n```'} />,
+    )
+
+    expect(markup).toContain('>ts</span>')
+    expect(markup).toContain('aria-label="Copy code"')
+    expect(markup).toContain('aria-label="Wrap lines"')
+    expect(markup).not.toContain('Show all')
+  })
+
+  it('collapses blocks past 30 lines', () => {
+    const lines = Array.from({ length: 31 }, (_, index) => `line ${index}`)
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={`\`\`\`\n${lines.join('\n')}\n\`\`\``} />,
+    )
+
+    expect(markup).toContain('data-collapsed="true"')
+    expect(markup).toContain('Show all 31 lines')
+    expect(
+      renderToStaticMarkup(
+        <MarkdownContent
+          text={`\`\`\`\n${lines.slice(1).join('\n')}\n\`\`\``}
+        />,
+      ),
+    ).not.toContain('Show all')
+  })
+
+  it('offers Run in terminal only for a finished one-line shell block', () => {
+    const run = 'aria-label="Run in terminal"'
+    expect(renderWithTerminal('```bash\nbun run test\n```')).toContain(run)
+    expect(renderWithTerminal('Run:\n\n```sh\nls\n```\n\nDone.')).toContain(run)
+    expect(renderWithTerminal('```bash\nbun run test')).not.toContain(run)
+    expect(renderWithTerminal('```bash\ncd app\nbun i\n```')).not.toContain(run)
+    expect(renderWithTerminal('```ts\nconst a = 1\n```')).not.toContain(run)
+    expect(
+      renderToStaticMarkup(<MarkdownContent text={'```bash\nls\n```'} />),
+    ).not.toContain(run)
+  })
+})
+
+describe('isClosedFence', () => {
+  it('needs a matching closing fence at least as long as the opening one', () => {
+    expect(isClosedFence('```bash\nls\n```')).toBe(true)
+    expect(isClosedFence('~~~\nls\n~~~~')).toBe(true)
+    expect(isClosedFence('```bash\nls')).toBe(false)
+    expect(isClosedFence('````\nls\n```')).toBe(false)
+    expect(isClosedFence('```\nls\n~~~')).toBe(false)
+    expect(isClosedFence('```')).toBe(false)
+  })
+
+  it('reads fences inside quotes and list items', () => {
+    expect(isClosedFence('```sh\n> ls\n> ```')).toBe(true)
+    expect(isClosedFence('```sh\n   ls\n   ```')).toBe(true)
+  })
+})
+
+describe('MarkdownContent tables', () => {
+  it('scrolls wide tables in their own container and offers both copies', () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownContent text={'| a | b |\n| - | - |\n| 1 | 2 |'} />,
+    )
+
+    expect(markup).toContain('<div class="table-block-scroll"><table>')
+    expect(markup).toContain('Copy as Markdown')
+    expect(markup).toContain('Copy as CSV')
   })
 })
 
