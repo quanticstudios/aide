@@ -13,7 +13,7 @@ function ShellToolBody({ tool }: { readonly tool: ManagedSessionToolCall }) {
   return (
     <>
       {command ? (
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-foreground">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[length:var(--code-font-size)] leading-[1.6] text-foreground">
           <span className="select-none text-muted-foreground">$ </span>
           {command}
         </pre>

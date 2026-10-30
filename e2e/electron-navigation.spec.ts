@@ -442,7 +442,7 @@ test.describe('electron spatial navigation', () => {
 
     const heading = page.getByTestId('workspace-heading')
     await expect(heading.locator('svg.lucide-sparkles')).toBeVisible()
-    await expect(heading.locator('.text-violet-400')).toBeVisible()
+    await expect(heading.locator('.text-project-violet')).toBeVisible()
     expect(
       await heading.evaluate((element) => ({
         border: getComputedStyle(element).borderTopWidth,
@@ -484,10 +484,10 @@ test.describe('electron spatial navigation', () => {
       page.getByRole('button', { name: 'Orange project color' }),
     ).toHaveAttribute('aria-pressed', 'true')
     await expect(heading.locator('svg.lucide-rocket')).toBeVisible()
-    await expect(heading.locator('.text-orange-500')).toBeVisible()
+    await expect(heading.locator('.text-project-orange')).toBeVisible()
     await page.reload()
     await expect(heading.locator('svg.lucide-rocket')).toBeVisible()
-    await expect(heading.locator('.text-orange-500')).toBeVisible()
+    await expect(heading.locator('.text-project-orange')).toBeVisible()
     await page
       .getByRole('button', {
         exact: true,

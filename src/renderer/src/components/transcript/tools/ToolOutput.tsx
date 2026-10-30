@@ -15,7 +15,7 @@ export default function ToolOutput({ output }: { readonly output: string }) {
   return (
     <>
       <pre
-        className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.6] text-body"
+        className="whitespace-pre-wrap break-words font-mono text-[length:var(--code-font-size)] leading-[1.6] text-body"
         data-testid="tool-call-output"
       >
         {segments.map((segment, index) =>

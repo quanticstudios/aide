@@ -8,6 +8,8 @@ import type {
   ManagedSessionDecision,
   ManagedSessionPendingApproval,
 } from '../../../shared/managed-session'
+import { useFontPreference } from '../lib/font-preference'
+import { useColorScheme } from '../lib/theme-preference'
 
 interface ManagedPendingApprovalPanelProps {
   readonly approval: ManagedSessionPendingApproval
@@ -25,13 +27,14 @@ function ApprovalDiff({
   readonly diff: string
   readonly filePath: string
 }) {
+  const colorScheme = useColorScheme()
+  const { codeSize } = useFontPreference()
   const diffFile = useMemo(() => {
     const file = DiffFile.createInstance({
       hunks: [diff],
       newFile: { fileName: filePath },
       oldFile: { fileName: filePath },
     })
-    file.initTheme('dark')
     file.init()
     file.buildUnifiedDiffLines()
     return file
@@ -40,10 +43,10 @@ function ApprovalDiff({
   return (
     <DiffView
       diffFile={diffFile}
-      diffViewFontSize={12}
+      diffViewFontSize={codeSize ?? 12}
       diffViewHighlight={false}
       diffViewMode={DiffModeEnum.Unified}
-      diffViewTheme="dark"
+      diffViewTheme={colorScheme}
       diffViewWrap
     />
   )

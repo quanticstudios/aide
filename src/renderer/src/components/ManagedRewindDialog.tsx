@@ -182,7 +182,7 @@ export default function ManagedRewindDialog({
         variant="opaque"
       >
         <Modal.Container placement="center" size="lg">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface text-foreground shadow-[0_20px_60px_rgba(0,0,0,0.4)]">
+          <Modal.Dialog className="rounded-xl border border-border bg-surface text-foreground shadow-[0_20px_60px_color-mix(in_srgb,var(--shadow-color)_40%,transparent)]">
             <Modal.Header>
               <Modal.Heading>Edit from here</Modal.Heading>
             </Modal.Header>

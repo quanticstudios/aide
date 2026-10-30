@@ -2,13 +2,13 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import { initializeAnimationPreference } from './lib/animation-preference'
+import { initializeFontPreference } from './lib/font-preference'
 import { initializeThemePreference } from './lib/theme-preference'
 import './styles.css'
 
-document.documentElement.classList.add('dark')
-document.documentElement.dataset.theme = 'dark'
 initializeAnimationPreference()
 initializeThemePreference()
+initializeFontPreference()
 
 function reportRendererFault(
   type: 'renderer-exception' | 'renderer-unhandled-rejection',
