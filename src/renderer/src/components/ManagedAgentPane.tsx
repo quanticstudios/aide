@@ -53,6 +53,7 @@ import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
+import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import TranscriptList, {
@@ -837,7 +838,18 @@ export default function ManagedAgentPane({
     startedSessionRef,
     workspace,
   })
-  const { draftLoadError, hydrateManagedDraft } = composer
+  const { draftLoadError, hydrateManagedDraft, setDraftInput, textareaRef } =
+    composer
+  const handlePickRecentPrompt = useCallback(
+    (text: string) => {
+      setDraftInput(text)
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus()
+        textareaRef.current?.setSelectionRange(text.length, text.length)
+      })
+    },
+    [setDraftInput, textareaRef],
+  )
 
   const handleResolveApproval = useCallback(
     async (
@@ -973,6 +985,7 @@ export default function ManagedAgentPane({
                     <TurnGroupBlock
                       canBranch={turn?.state === 'completed'}
                       checkpointId={turn?.checkpointId ?? null}
+                      isCompleted={turn?.state === 'completed'}
                       isFailed={turn?.state === 'failed'}
                       isRunning={turn?.state === 'running'}
                       onBranch={handleTurnBranch}
@@ -1009,11 +1022,13 @@ export default function ManagedAgentPane({
               ) : null}
             </div>
           ) : (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground/60">
-                Send a prompt to start.
-              </p>
-            </div>
+            <ManagedEmptyState
+              model={selectedModel}
+              onPickPrompt={handlePickRecentPrompt}
+              providerLabel={providerLabel}
+              sessionId={sessionId}
+              workspace={workspace}
+            />
           )}
 
           {showScrollToLatest ? (

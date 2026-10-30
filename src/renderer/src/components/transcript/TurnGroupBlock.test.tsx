@@ -89,6 +89,7 @@ function Transcript({
     <TurnGroupBlock
       canBranch={false}
       checkpointId="checkpoint"
+      isCompleted={false}
       isFailed={false}
       isRunning={row.group.turnId === 'turn-2'}
       key={row.key}

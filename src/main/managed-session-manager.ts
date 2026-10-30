@@ -2783,6 +2783,10 @@ class FakeManagedSessionBackend implements ManagedSessionBackend {
     }
 
     if (trimmed === `wait-${this.provider}`) return
+    if (trimmed === 'empty reply') {
+      this.finishTurn('completed')
+      return
+    }
     if (trimmed === `fail-${this.provider}`) {
       this.emitRuntimeEvent({
         createdAt: this.getNow(),
