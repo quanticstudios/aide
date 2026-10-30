@@ -23,6 +23,7 @@ import type {
 import type { PreviewNavigationReport } from '../shared/preview'
 import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type { AppShortcutEvent } from '../shared/shortcuts'
+import type { TaskNotificationEvent } from '../shared/task-notification'
 import type {
   TerminalEvent,
   TerminalResizeInput,
@@ -42,6 +43,16 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.updateTaskMetadata, sessionId, input),
   setTaskNotifications: (enabled) =>
     ipcRenderer.invoke(IPC_CHANNELS.setTaskNotifications, enabled),
+  setTaskNotificationSounds: (enabled) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setTaskNotificationSounds, enabled),
+  onTaskNotification: (callback) => {
+    const listener = (_event: unknown, notification: TaskNotificationEvent) =>
+      callback(notification)
+    ipcRenderer.on(IPC_CHANNELS.taskNotification, listener)
+    return () => {
+      ipcRenderer.off(IPC_CHANNELS.taskNotification, listener)
+    }
+  },
   onTaskLibraryChanged: (callback) => {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.taskLibraryChanged, listener)

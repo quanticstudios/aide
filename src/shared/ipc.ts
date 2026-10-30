@@ -76,6 +76,7 @@ import type { RuntimeSnapshot } from './runtime'
 import type { SessionDelta, SessionDeltaState } from './session-delta'
 import type { AppShortcutEvent } from './shortcuts'
 import type { TaskLibrarySnapshot, TaskMetadataUpdate } from './task-library'
+import type { TaskNotificationEvent } from './task-notification'
 import type {
   TerminalEvent,
   TerminalResizeInput,
@@ -170,6 +171,8 @@ export const IPC_CHANNELS = {
   getTaskTranscript: 'tasks:transcript',
   updateTaskMetadata: 'tasks:update',
   setTaskNotifications: 'tasks:notifications',
+  setTaskNotificationSounds: 'tasks:notification-sounds',
+  taskNotification: 'tasks:notification',
   taskLibraryChanged: 'tasks:changed',
   taskOpen: 'tasks:open',
   openTask: 'tasks:open-request',
@@ -378,6 +381,10 @@ export interface AideApi {
     input: TaskMetadataUpdate,
   ) => Promise<TaskLibrarySnapshot>
   setTaskNotifications: (enabled: boolean) => Promise<TaskLibrarySnapshot>
+  setTaskNotificationSounds: (enabled: boolean) => Promise<TaskLibrarySnapshot>
+  onTaskNotification: (
+    callback: (event: TaskNotificationEvent) => void,
+  ) => () => void
   onTaskLibraryChanged: (callback: () => void) => () => void
   onTaskOpen: (callback: (sessionId: string) => void) => () => void
   openTask: (sessionId: string) => Promise<void>

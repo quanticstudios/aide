@@ -31,6 +31,7 @@ import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
 import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
 import TaskLibraryControl from './TaskLibraryControl'
+import TaskNotificationToasts from './TaskNotificationToasts'
 import UpdateIndicator from './UpdateIndicator'
 import IconTooltip from './ui/icon-tooltip'
 
@@ -397,6 +398,7 @@ export default function TopBar({
           projectKind={activeProject?.kind ?? 'git'}
         />
         <TaskLibraryControl onOpenTask={onOpenTask} />
+        <TaskNotificationToasts activePaneId={activePaneId} />
         <IconTooltip
           label={
             <span className="flex items-center gap-2">

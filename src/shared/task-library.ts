@@ -40,6 +40,7 @@ export interface SavedTask extends TaskMetadata {
 export interface TaskLibrarySnapshot {
   tasks: SavedTask[]
   notificationsEnabled: boolean
+  notificationSoundsEnabled: boolean
 }
 
 export function getTaskActivity(snapshot: ManagedSessionSnapshot): {
