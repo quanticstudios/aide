@@ -33,7 +33,7 @@ function validateStorageKey(storageKey: string): void {
   }
 }
 
-function validateManagedDraft(value: unknown): ManagedDraft {
+export function validateManagedDraft(value: unknown): ManagedDraft {
   if (!value || typeof value !== 'object') {
     throw new Error('The saved managed draft is invalid.')
   }
@@ -89,7 +89,7 @@ function openManagedDraftDatabase(): Promise<IDBDatabase> {
   })
 }
 
-async function runManagedDraftRequest<Result>(
+export async function runManagedDraftRequest<Result>(
   mode: IDBTransactionMode,
   startRequest: (store: IDBObjectStore) => IDBRequest<Result>,
 ): Promise<Result> {

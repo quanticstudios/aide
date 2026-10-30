@@ -10,6 +10,7 @@ import type {
 import {
   MANAGED_SESSION_MAX_ATTACHMENTS,
   MANAGED_SESSION_MAX_IMAGE_BYTES,
+  MANAGED_SESSION_MAX_PASTED_TEXT_BYTES,
   MANAGED_SESSION_MAX_TOTAL_IMAGE_BYTES,
 } from '../shared/managed-session'
 import type { JevCandidate } from './jev-client'
@@ -23,7 +24,7 @@ export interface PreparedManagedSessionAttachments {
   candidates: JevCandidate[]
   evidence: Array<{
     content?: string
-    kind: 'image' | 'workspace-file'
+    kind: 'image' | 'pasted-text' | 'workspace-file'
     path: string
   }>
   images: ManagedSessionProviderImage[]
@@ -89,6 +90,25 @@ export function validateManagedSessionAttachments(
         throw new Error('Workspace attachments require a relative file path.')
       }
       return { id: entry.id, kind: 'workspace-file', path: entry.path }
+    }
+
+    if (entry.kind === 'pasted-text') {
+      if (
+        typeof entry.text !== 'string' ||
+        !entry.text ||
+        Buffer.byteLength(entry.text) > MANAGED_SESSION_MAX_PASTED_TEXT_BYTES ||
+        typeof entry.name !== 'string' ||
+        !entry.name.trim() ||
+        entry.name.length > 255
+      ) {
+        throw new Error('Pasted text attachments may be at most 256 KB each.')
+      }
+      return {
+        id: entry.id,
+        kind: 'pasted-text',
+        name: entry.name,
+        text: entry.text,
+      }
     }
 
     if (
@@ -210,6 +230,31 @@ export async function prepareManagedSessionAttachments(
         data: attachment.data,
         mimeType: attachment.mimeType,
         name: attachment.name,
+      })
+      revisions[attachment.id] = revision
+      continue
+    }
+
+    if (attachment.kind === 'pasted-text') {
+      workspaceFileBytes += Buffer.byteLength(attachment.text)
+      if (workspaceFileBytes > MAX_EXPLICIT_FILE_TOTAL_BYTES) {
+        throw new Error('Workspace attachments may total at most 1 MB.')
+      }
+      const revision = createHash('sha256')
+        .update(attachment.text)
+        .digest('hex')
+      candidates.push({
+        content: attachment.text.slice(0, 24 * 1024),
+        contentRevision: revision,
+        endLine: Math.max(1, attachment.text.split('\n').length),
+        id: `explicit:${attachment.id}`,
+        path: `(attachment)/${attachment.name}`,
+        startLine: 1,
+      })
+      evidence.push({
+        content: attachment.text,
+        kind: 'pasted-text',
+        path: attachment.name,
       })
       revisions[attachment.id] = revision
       continue

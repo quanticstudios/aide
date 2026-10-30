@@ -52,10 +52,15 @@ import type {
   ProviderSkillsSnapshot,
 } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
+import { useComposerHistory } from '../hooks/useComposerHistory'
 import { resolveAgentHotkey } from '../lib/agent-hotkeys'
-import { createImageAttachments } from '../lib/managed-composer'
+import {
+  createImageAttachments,
+  createPastedTextAttachment,
+} from '../lib/managed-composer'
 import {
   loadManagedDraft,
+  type ManagedDraft,
   removeManagedDraft,
   saveManagedDraft,
 } from '../lib/managed-draft-storage'
@@ -79,6 +84,7 @@ import {
   resolveMentionMenuSelection,
   WorkspaceFileMentionSearch,
 } from '../lib/workspace-file-mentions'
+import ComposerStashMenu from './ComposerStashMenu'
 import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedComposerAttachments, {
@@ -351,6 +357,28 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   const shouldFocusComposerRef = useRef(false)
   const wasActiveRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const currentDraft = useMemo(
+    (): ManagedDraft => ({
+      attachments: [...attachments],
+      recipients: [...selectedRecipientAliases],
+      ...(selectedSkill ? { selectedSkill } : {}),
+      text: draftInput,
+    }),
+    [attachments, draftInput, selectedRecipientAliases, selectedSkill],
+  )
+  const applyDraft = useCallback((draft: ManagedDraft) => {
+    setDraftInput(draft.text)
+    setAttachments(draft.attachments)
+    setSelectedRecipientAliases(draft.recipients)
+    setSelectedSkill(draft.selectedSkill ?? null)
+    textareaRef.current?.focus()
+  }, [])
+  const composerHistory = useComposerHistory({
+    applyDraft,
+    draft: currentDraft,
+    setError,
+    workspaceId: workspace.id,
+  })
 
   useEffect(() => {
     if (draftInput === '' && textareaRef.current) {
@@ -529,6 +557,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       submittedSkill ?? undefined,
     )
 
+    if (sent) composerHistory.recordSentPrompt(submittedDraft)
     const currentMetadata = composerMetadataRef.current
     if (
       !sent &&
@@ -551,6 +580,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     }
   }, [
     attachments,
+    composerHistory,
     configuredAgents,
     draftInput,
     selectedRecipientAliases,
@@ -582,11 +612,44 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       const imageFiles = Array.from(event.clipboardData.files).filter((file) =>
         file.type.startsWith('image/'),
       )
-      if (imageFiles.length === 0) return
-      event.preventDefault()
-      void addImageFiles(imageFiles)
+      if (imageFiles.length > 0) {
+        event.preventDefault()
+        void addImageFiles(imageFiles)
+        return
+      }
+      // why: answers to a pending question cannot carry attachments.
+      if (snapshot?.pendingUserInputs[0]) return
+      try {
+        const pasted = createPastedTextAttachment(
+          event.clipboardData.getData('text/plain'),
+          attachments,
+        )
+        if (!pasted) return
+        event.preventDefault()
+        setAttachments((current) => [...current, pasted])
+        setError(null)
+      } catch (attachmentError) {
+        event.preventDefault()
+        setError(getErrorMessage(attachmentError))
+      }
     },
-    [addImageFiles],
+    [addImageFiles, attachments, setError, snapshot],
+  )
+
+  const handlePasteInline = useCallback(
+    (attachmentId: string) => {
+      const attachment = attachments.find(({ id }) => id === attachmentId)
+      if (attachment?.kind !== 'pasted-text') return
+      const start = textareaRef.current?.selectionStart ?? draftInput.length
+      const end = textareaRef.current?.selectionEnd ?? start
+      setAttachments((current) =>
+        current.filter(({ id }) => id !== attachmentId),
+      )
+      setDraftInput(
+        `${draftInput.slice(0, start)}${attachment.text}${draftInput.slice(end)}`,
+      )
+    },
+    [attachments, draftInput],
   )
 
   const handleComposerDrop = useCallback(
@@ -1194,10 +1257,12 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     allQuestionsAnswered,
     applyPermissionMode,
     attachments,
+    composerHistory,
     draftInput,
     draftLoadError,
     handleComposerDrop,
     handleComposerPaste,
+    handlePasteInline,
     handleConfiguredAgentsChange,
     handleDraftAnswerChange,
     handleEffortChange,
@@ -1257,11 +1322,13 @@ export default function ManagedComposer({
   attachments,
   canChangeProviderSelection,
   capabilities,
+  composerHistory,
   configuredAgents,
   draftInput,
   effort,
   handleComposerDrop,
   handleComposerPaste,
+  handlePasteInline,
   handleConfiguredAgentsChange,
   handleDraftAnswerChange,
   handleEffortChange,
@@ -1508,6 +1575,7 @@ export default function ManagedComposer({
 
       <ManagedComposerAttachments
         attachments={attachments}
+        onPasteInline={handlePasteInline}
         onRemove={(attachmentId) =>
           setAttachments((current) =>
             current.filter((attachment) => attachment.id !== attachmentId),
@@ -1714,6 +1782,10 @@ export default function ManagedComposer({
             return
           }
 
+          if (!activeQuestion && composerHistory.handleHistoryKeyDown(event)) {
+            return
+          }
+
           const hotkey = resolveAgentHotkey(event, {
             isMac: isMac(),
             isMenuOpen:
@@ -1774,6 +1846,12 @@ export default function ManagedComposer({
         <ManagedComposerAttachmentButton
           isDisabled={isSubmitting || Boolean(activeQuestion)}
           onPickFiles={() => void handlePickWorkspaceFiles()}
+        />
+        <ComposerStashMenu
+          onOpen={composerHistory.refreshStashes}
+          onRemove={composerHistory.removeStash}
+          onRestore={composerHistory.restoreStash}
+          stashes={composerHistory.stashes}
         />
         {isUnifiedPane ? (
           <ModelSelector
