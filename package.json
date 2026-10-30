@@ -81,7 +81,7 @@
     "@vitejs/plugin-react": "6.1.2",
     "electron": "43.8.1",
     "electron-builder": "26.15.3",
-    "electron-vite": "5.0.0",
+    "electron-vite": "6.0.0",
     "happy-dom": "21.0.4",
     "react-doctor": "0.7.1",
     "typescript": "7.0.2",
