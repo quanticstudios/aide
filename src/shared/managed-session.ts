@@ -148,6 +148,8 @@ export interface ManagedSessionTurnSummary {
 
 export interface ManagedSessionContentItem {
   attachments?: ManagedSessionAttachment[]
+  /** When the item's first delta arrived. Absent on items persisted before it existed. */
+  createdAt?: string
   id: string
   kind: ManagedSessionContentKind
   phase?: 'commentary' | 'final_answer'

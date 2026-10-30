@@ -189,3 +189,57 @@ describe('TurnGroupBlock', () => {
     act(() => root.unmount())
   })
 })
+
+describe('TurnGroupBlock reasoning', () => {
+  afterEach(() => {
+    rowUpdates.length = 0
+    vi.useRealTimers()
+  })
+
+  it('shows a live thinking row, ticks without re-rendering other rows, then collapses with its duration', () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-23T12:00:01.000Z') })
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const reasoning = contentItem(
+      'reasoning',
+      'turn-2',
+      'reasoning-text',
+      'First idea.\n\nLatest idea.',
+      { createdAt: '2026-10-23T12:00:00.000Z' },
+    )
+    const content = [
+      contentItem('old-prompt', 'turn-1', 'user-prompt', 'Earlier question'),
+      contentItem('old-reply', 'turn-1', 'assistant-text', 'Earlier reply'),
+      contentItem('prompt', 'turn-2', 'user-prompt', 'Question'),
+      reasoning,
+    ]
+    act(() => root.render(<Transcript content={content} />))
+    const row = () =>
+      container.querySelector('[data-testid="managed-content-reasoning-text"]')
+
+    expect(row()?.getAttribute('data-state')).toBe('live')
+    expect(row()?.textContent).toContain('Thinking1s')
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(row()?.textContent).toContain('Thinking3s')
+    expect(rowUpdates).toEqual([])
+
+    const done = [
+      ...content.slice(0, -1),
+      { ...reasoning, updatedAt: '2026-10-23T12:00:12.000Z' },
+      contentItem('answer', 'turn-2', 'assistant-text', 'Answer'),
+    ]
+    act(() => root.render(<Transcript content={done} />))
+    expect(row()?.getAttribute('data-state')).toBe('done')
+    expect(row()?.textContent).toContain('Thought for 12s')
+    expect(
+      row()?.querySelector('[data-testid="thinking-preview"]')?.textContent,
+    ).toBe('Latest idea.')
+
+    act(() => row()?.querySelector('button')?.click())
+    expect(row()?.querySelector('pre')?.textContent).toBe(
+      'First idea.\n\nLatest idea.',
+    )
+    act(() => root.unmount())
+  })
+})

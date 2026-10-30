@@ -1612,6 +1612,70 @@ createInterface({ input: process.stdin }).on('line', line => {
     ])
   })
 
+  it('keeps the first delta time as createdAt while updatedAt follows the latest', async () => {
+    const manager = new ManagedSessionManager({
+      createBackend: (_config, emit) => ({
+        close: async () => undefined,
+        interrupt: async () => undefined,
+        resolveRequest: async () => undefined,
+        resolveUserInput: async () => undefined,
+        sendInput: async () => {
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'claude',
+            turnId: 'turn-1',
+            type: 'turn.started',
+          })
+          for (const createdAt of [
+            '2026-04-11T10:00:01.000Z',
+            '2026-04-11T10:00:13.000Z',
+          ]) {
+            emit({
+              createdAt,
+              itemId: 'thinking',
+              kind: 'reasoning-text',
+              provider: 'claude',
+              text: 'hmm ',
+              type: 'content.delta',
+            })
+          }
+          emit({
+            createdAt: '2026-04-11T10:00:14.000Z',
+            provider: 'claude',
+            state: 'completed',
+            turnId: 'turn-1',
+            type: 'turn.completed',
+          })
+        },
+        start: async () =>
+          emit({
+            createdAt: '2026-04-11T10:00:00.000Z',
+            provider: 'claude',
+            state: 'ready',
+            type: 'session.state.changed',
+          }),
+      }),
+      onRuntimeEvent: () => undefined,
+      onUpdate: () => undefined,
+    })
+    const config = createConfig('claude')
+
+    await manager.createSession(config)
+    await manager.sendInput(config.sessionId, 'think')
+
+    expect(
+      manager
+        .getSnapshots()
+        [config.sessionId].content.find(
+          (item) => item.kind === 'reasoning-text',
+        ),
+    ).toMatchObject({
+      createdAt: '2026-04-11T10:00:01.000Z',
+      text: 'hmm hmm ',
+      updatedAt: '2026-04-11T10:00:13.000Z',
+    })
+  })
+
   it('tracks turn summaries through the snapshot', async () => {
     const manager = new ManagedSessionManager({
       getNow: () => '2026-04-11T10:00:00.000Z',

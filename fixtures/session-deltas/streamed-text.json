@@ -320,6 +320,7 @@
       "updatedAt": "2026-10-23T12:01:03.000Z",
       "type": "item.add",
       "item": {
+        "createdAt": "2026-10-23T12:01:03.000Z",
         "id": "reasoning-1",
         "kind": "reasoning-text",
         "provider": "codex",
@@ -347,6 +348,7 @@
       "updatedAt": "2026-10-23T12:01:05.000Z",
       "type": "item.add",
       "item": {
+        "createdAt": "2026-10-23T12:01:05.000Z",
         "id": "answer-1",
         "kind": "assistant-text",
         "phase": "final_answer",
@@ -561,6 +563,7 @@
         "updatedAt": "2026-10-23T12:01:01.000Z"
       },
       {
+        "createdAt": "2026-10-23T12:01:03.000Z",
         "id": "reasoning-1",
         "kind": "reasoning-text",
         "provider": "codex",
@@ -569,6 +572,7 @@
         "updatedAt": "2026-10-23T12:01:04.000Z"
       },
       {
+        "createdAt": "2026-10-23T12:01:05.000Z",
         "id": "answer-1",
         "kind": "assistant-text",
         "phase": "final_answer",
