@@ -450,8 +450,7 @@ test.describe('electron spatial navigation', () => {
       })),
     ).toEqual({ border: '0px', background: 'rgba(0, 0, 0, 0)' })
     await page.reload()
-    const openSidebarButton = page.getByRole('button', { name: 'Open sidebar' })
-    if (await openSidebarButton.isVisible()) await openSidebarButton.click()
+    await expandSidebar(page)
     await page
       .getByRole('button', {
         exact: true,
@@ -1782,13 +1781,33 @@ test.describe('electron spatial navigation', () => {
     await expect(modal).toContainText(/remaining/)
     await modal.getByRole('button', { exact: true, name: 'Close' }).click()
 
+    // why: the fake download shows progress for ~50 ms, shorter than an expect poll, so record it as the DOM changes.
+    await page.evaluate(() => {
+      const state = window as Window & { sawUpdateProgress?: boolean }
+      state.sawUpdateProgress = false
+      new MutationObserver((_, observer) => {
+        if (
+          !document.querySelector(
+            '[role="progressbar"][aria-label="Update download progress"]',
+          )
+        ) {
+          return
+        }
+        state.sawUpdateProgress = true
+        observer.disconnect()
+      }).observe(document.body, { childList: true, subtree: true })
+    })
     await runPaletteCommand(page, 'Download update')
-    await expect(
-      page.getByRole('progressbar', { name: 'Update download progress' }),
-    ).toBeVisible()
     await expect(
       page.getByRole('button', { name: 'Retry update' }),
     ).toBeVisible({ timeout: 5_000 })
+    expect(
+      await page.evaluate(
+        () =>
+          (window as Window & { sawUpdateProgress?: boolean })
+            .sawUpdateProgress,
+      ),
+    ).toBe(true)
 
     await page.getByRole('button', { name: 'Retry update' }).click()
     await expect(
