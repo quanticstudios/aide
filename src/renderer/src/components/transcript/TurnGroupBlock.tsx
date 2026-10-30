@@ -48,6 +48,7 @@ function TurnGroupBlockContent({
   row,
   canBranch,
   checkpointId,
+  isCompleted,
   isFailed,
   isRunning,
   onBranch,
@@ -63,6 +64,7 @@ function TurnGroupBlockContent({
   readonly row: TranscriptRow
   readonly canBranch: boolean
   readonly checkpointId: string | null
+  readonly isCompleted: boolean
   readonly isFailed: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
@@ -175,6 +177,18 @@ function TurnGroupBlockContent({
             </button>
           ) : null}
         </div>
+      ) : null}
+      {isLast &&
+      isCompleted &&
+      !group.items.some(
+        (item) => item.kind === 'assistant-text' && item.text.trim(),
+      ) ? (
+        <p
+          className="px-1 text-[13px] text-muted-foreground"
+          data-testid="empty-response"
+        >
+          (empty response)
+        </p>
       ) : null}
       {isLast && !isRunning && (canRetry || responseItem) ? (
         <div

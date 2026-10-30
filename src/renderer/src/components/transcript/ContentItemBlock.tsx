@@ -36,6 +36,13 @@ export default memo(function ContentItemBlock({
   const [isExpanded, setIsExpanded] = useState(false)
 
   if (item.kind === 'user-prompt') {
+    const lines = item.text.split('\n')
+    const isLong = item.text.length > 600 || lines.length > 8
+    const displayText =
+      isLong && !isExpanded
+        ? `${lines.slice(0, 8).join('\n').slice(0, 600)}…`
+        : item.text
+
     return (
       <div className="flex justify-end">
         <div
@@ -48,8 +55,18 @@ export default memo(function ContentItemBlock({
             data-testid="user-message-bubble"
           >
             <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-[1.55] text-foreground">
-              {item.text}
+              {displayText}
             </pre>
+            {isLong ? (
+              <button
+                aria-expanded={isExpanded}
+                className="mt-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                onClick={() => setIsExpanded((prev) => !prev)}
+                type="button"
+              >
+                {isExpanded ? 'Show less' : 'Show more'}
+              </button>
+            ) : null}
             <ManagedComposerAttachments attachments={item.attachments ?? []} />
           </div>
           <div
