@@ -68,11 +68,11 @@ function applySessionBackend(): void {
           id: workspace.id,
           path: workspace.worktreePath,
         })),
-      getNotificationSettings: async () => {
-        const { notificationSoundsEnabled, notificationsEnabled } =
-          await ipc.listSessions()
-        return { notificationSoundsEnabled, notificationsEnabled }
-      },
+      aideTasks: ipc,
+      reportSession: (sessionId, snapshot) =>
+        void api
+          .reportDaemonSession(sessionId, snapshot)
+          .catch(() => undefined),
     })
   }
   setSessionTransport(daemon)

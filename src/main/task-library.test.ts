@@ -202,6 +202,20 @@ describe('TaskLibrary', () => {
     database.close()
   })
 
+  it('stays quiet about the activity a thread had when first seen', () => {
+    const { database, library, snapshot } = fixture()
+    snapshot.sessionId = 'pitwall-chat'
+    snapshot.pendingUserInputs = [
+      { id: 'input-1', detail: null, questions: [] },
+    ]
+    library.markNotified(snapshot)
+    expect(library.nextNotification(snapshot)).toBeNull()
+    snapshot.pendingUserInputs = []
+    snapshot.lastCompletedAt = '2026-10-31T20:00:00.000Z'
+    expect(library.nextNotification(snapshot)?.body).toBe('Done')
+    database.close()
+  })
+
   it('counts live threads waiting on an approval or an answer', () => {
     const { database, library, live, snapshot } = fixture()
     expect(library.attentionCount()).toBe(0)

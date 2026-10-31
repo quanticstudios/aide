@@ -100,7 +100,7 @@ test.describe('pitwall daemon backend', () => {
     if (repository) rmSync(repository, { force: true, recursive: true })
   })
 
-  test('shows a chat started with pitwall chat new without a reload', async () => {
+  test('shows a chat started with pitwall chat new without a reload, and opens it in its workspace', async () => {
     const page = await launch('pitwall')
     await page.getByRole('button', { name: 'Open task history' }).click()
     const tasks = page.getByLabel('Saved tasks')
@@ -112,9 +112,16 @@ test.describe('pitwall daemon backend', () => {
       { env: process.env },
     )
 
-    await expect(
-      tasks.getByTestId('saved-task').filter({ hasText: 'hello from cli' }),
-    ).toBeVisible()
+    const task = tasks
+      .getByTestId('saved-task')
+      .filter({ hasText: 'hello from cli' })
+    await expect(task).toBeVisible()
+
+    await task.getByRole('button').first().click()
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      'hello from cli',
+    )
+    await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
   })
 
   test('keeps built-in sessions across a switch to pitwall and back', async () => {

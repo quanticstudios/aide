@@ -112,13 +112,13 @@ export interface DaemonTransportOptions {
   readonly getWorkspaces: () => Promise<readonly { id: string; path: string }[]>
   /** Opens aide's session in its pane, as main's `taskOpen` does after it starts one. */
   readonly openTask: (sessionId: string) => Promise<void>
-  /** aide's own notification settings, which the task library shows beside pitwall's chats. */
-  readonly getNotificationSettings: () => Promise<
-    Pick<
-      TaskLibrarySnapshot,
-      'notificationSoundsEnabled' | 'notificationsEnabled'
-    >
-  >
+  /** aide's own task library: its notification settings, and the attention and read state of every chat reported to it. */
+  readonly aideTasks: Pick<SessionTransport, 'listSessions' | 'updateSession'>
+  /** Hands Electron main each snapshot of a chat in one of aide's panes under aide's ids, or null once it is gone, so the sidebar, notifications and badge cover it. */
+  readonly reportSession?: (
+    sessionId: string,
+    snapshot: ManagedSessionSnapshot | null,
+  ) => void
 }
 
 export function isDaemonTransport(
@@ -517,6 +517,7 @@ export function createDaemonTransport(
     for (const listener of entry.listeners) {
       listener({ snapshot, type: 'snapshot' })
     }
+    report(sessionId, snapshot)
   }
 
   function removed(sessionId: string): void {
@@ -524,6 +525,27 @@ export function createDaemonTransport(
     if (!entry) return
     entry.state = null
     for (const listener of entry.listeners) listener({ type: 'removed' })
+    report(sessionId, null)
+  }
+
+  /** Reports a chat to main under the `<workspace id>:<pane id>` session id of its aide pane; a chat with no pane yet is not reported. */
+  function report(chat: string, snapshot: ManagedSessionSnapshot | null) {
+    const id = paneIds().get(chat)
+    const colon = id?.indexOf(':') ?? -1
+    if (!id || colon < 0) return
+    options.reportSession?.(
+      id,
+      snapshot && {
+        ...snapshot,
+        // why: main reads only the first prompt, for the thread's name; the whole transcript would cross IPC on every delta.
+        content: snapshot.content
+          .filter((item) => item.kind === 'user-prompt')
+          .slice(0, 1),
+        sessionId: id,
+        workspaceId: id.slice(0, colon),
+        paneId: id.slice(colon + 1),
+      },
+    )
   }
 
   async function read(sessionId: string): Promise<SessionDeltaState | null> {
@@ -592,10 +614,7 @@ export function createDaemonTransport(
     return new Map([...chatIds].map(([sessionId, chat]) => [chat, sessionId]))
   }
 
-  /**
-   * The pane of aide's session id, which aide builds as `<workspace id>:<pane id>`.
-   * @remarks shortcut: a chat aide never started keeps its chat id as the pane, so opening it starts a new chat; map those too once pitwall chats open in aide panes.
-   */
+  /** The pane of aide's session id, which aide builds as `<workspace id>:<pane id>`. */
   function paneOf(sessionId: string, workspaceId: string): string {
     const prefix = `${workspaceId}:`
     return sessionId.startsWith(prefix)
@@ -604,7 +623,7 @@ export function createDaemonTransport(
   }
 
   async function listSessions(query?: string): Promise<TaskLibrarySnapshot> {
-    const [live, archived, projects, settings, aideWorkspaces] =
+    const [live, archived, projects, aideLibrary, aideWorkspaces] =
       await Promise.all([
         command<{ chats: DaemonChat[] }>('listSessions'),
         // why: pitwall answers `unsupported` for archived chats until it lists them (CHANGELOG, web clients).
@@ -621,10 +640,13 @@ export function createDaemonTransport(
         command<{ projects: DaemonProject[] }>('listProjects').catch(() => ({
           projects: [],
         })),
-        options.getNotificationSettings(),
+        options.aideTasks.listSessions(),
         options.getWorkspaces(),
       ])
     const aideIds = workspaceIds(projects.projects, aideWorkspaces)
+    const aideTasks = new Map(
+      aideLibrary.tasks.map((task) => [task.sessionId, task]),
+    )
     const panes = paneIds()
     const workspaces = new Map<
       string,
@@ -642,8 +664,17 @@ export function createDaemonTransport(
     ] as const) {
       for (const chat of chats) {
         const workspace = workspaces.get(chat.workspaceId)
-        const id = panes.get(chat.id) ?? chat.id
-        const workspaceId = aideIds.get(chat.workspaceId) ?? chat.workspaceId
+        const aideWorkspaceId = aideIds.get(chat.workspaceId)
+        let id = panes.get(chat.id)
+        if (!id && aideWorkspaceId) {
+          // why: a chat started outside aide gets an Agent pane of its own, so opening it shows the chat instead of starting one.
+          id = `${aideWorkspaceId}:agent::copy-pitwall-${chat.id}`
+          chatIds.set(id, chat.id)
+          options.chatIds?.save(Object.fromEntries(chatIds))
+        }
+        id ??= chat.id
+        const workspaceId = aideWorkspaceId ?? chat.workspaceId
+        const own = aideTasks.get(id)
         // why: aide opens a task in its own workspace and pane, so pitwall's ids would not find either.
         tasks.set(chat.id, {
           sessionId: id,
@@ -655,20 +686,21 @@ export function createDaemonTransport(
           title: chat.title,
           updatedAt: chat.updatedAt,
           provider: chat.provider,
-          status: toTaskStatus(chat),
-          activityKey: null,
-          unread: false,
+          status: own?.status ?? toTaskStatus(chat),
+          activityKey: own?.activityKey ?? null,
+          unread: own?.unread ?? false,
           excerpt: chat.recentPrompt ?? '',
           recentPrompt: chat.recentPrompt,
           pinned: false,
           archived: isArchived,
-          readActivityKey: null,
+          readActivityKey: own?.readActivityKey ?? null,
         })
       }
     }
     const needle = query?.trim().toLowerCase()
     return {
-      ...settings,
+      notificationsEnabled: aideLibrary.notificationsEnabled,
+      notificationSoundsEnabled: aideLibrary.notificationSoundsEnabled,
       tasks: [...tasks.values()]
         .filter((task) => !needle || task.title.toLowerCase().includes(needle))
         .sort(
@@ -705,6 +737,7 @@ export function createDaemonTransport(
     },
     dispose: () => {
       disposed = true
+      for (const chat of sessions.keys()) report(chat, null)
       if (timer) clearTimeout(timer)
       socket?.close(1000)
     },
@@ -738,9 +771,15 @@ export function createDaemonTransport(
       }
     },
     updateSession: async (sessionId, input) => {
-      // shortcut: title, pinned and readActivityKey have no web command in v1 (web-protocol.md, Left open 2); they are dropped until pitwall adds them.
+      // shortcut: title and pinned have no web command in v1 (web-protocol.md, Left open 2); they are dropped until pitwall adds them.
       if (input.archived !== undefined) {
         await command(input.archived ? 'archive' : 'unarchive', { sessionId })
+      }
+      // Read state is aide's: main keeps it for the chats reported to it, which are the only ones with an activity key.
+      if (input.readActivityKey) {
+        await options.aideTasks.updateSession(sessionId, {
+          readActivityKey: input.readActivityKey,
+        })
       }
       return listSessions()
     },
@@ -762,6 +801,7 @@ export function createDaemonTransport(
         const current = chatId(sessionId)
         if (sessions.get(current)?.listeners !== listeners) return
         sessions.delete(current)
+        report(current, null)
         void quietly('unsubscribe', { sessionId: current })
       }
     },
