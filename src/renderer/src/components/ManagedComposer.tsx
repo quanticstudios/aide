@@ -1651,7 +1651,7 @@ export default function ManagedComposer({
         aria-label={
           activeQuestion ? 'Free-form answer' : `${providerLabel} prompt`
         }
-        className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-[1.5] placeholder:text-muted-foreground/70 focus:outline-none"
+        className="max-h-[200px] w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-[1.5] placeholder:text-muted-foreground focus:outline-none"
         disabled={!isDraftHydrated}
         onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
           const value = event.target.value

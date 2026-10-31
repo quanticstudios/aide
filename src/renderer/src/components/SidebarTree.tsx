@@ -376,7 +376,7 @@ function getMergeStatusClassName(
     return 'text-accent-red'
   }
 
-  return 'text-muted-foreground/70'
+  return 'text-muted-foreground'
 }
 
 function getWorkspaceBackgroundClassName(
@@ -1235,7 +1235,7 @@ export default function SidebarTree({
                               />
                               <span>{formatWorkspaceActivityLabel(entry)}</span>
                               {entry.detail ? (
-                                <span className="ml-1 text-muted-foreground/70">
+                                <span className="ml-1 text-muted-foreground">
                                   —{' '}
                                   {entry.detail.length > 120
                                     ? `${entry.detail.slice(0, 120)}…`
@@ -1319,7 +1319,7 @@ export default function SidebarTree({
                                 </span>
                               </div>
 
-                              <div className="flex w-full min-w-0 items-center gap-1.5 pl-5 text-[11px] text-muted-foreground/70">
+                              <div className="flex w-full min-w-0 items-center gap-1.5 pl-5 text-[11px] text-muted-foreground">
                                 {stats &&
                                 (stats.additions > 0 || stats.deletions > 0) ? (
                                   <span
