@@ -964,7 +964,12 @@ export function createDaemonTransport(
     },
     send: async (sessionId, text, _recipients, attachments) => {
       // aide's send steers a running turn; pitwall's default would queue it.
-      const running = sessions.get(chatId(sessionId))?.state?.snapshot.running
+      const snapshot = sessions.get(chatId(sessionId))?.state?.snapshot
+      // why: pitwall's busy(). `running` only says the session is alive, and a driver that just started can report ready during its first turn.
+      const running =
+        snapshot?.sessionState === 'running' ||
+        snapshot?.sessionState === 'waiting' ||
+        snapshot?.turns.some((turn) => turn.state === 'running')
       await command('send', {
         sessionId,
         text,
