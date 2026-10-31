@@ -130,6 +130,20 @@ async function prepareSyntheticJev(
   }, allowProcessing)
 }
 
+/** Waits until the session transport answers again after a reload; the daemon transport refuses reads while it reconnects. */
+async function waitForSessions(page: Page): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.aideSessions.getSessions().then(
+          () => true,
+          () => false,
+        ),
+      ),
+    )
+    .toBe(true)
+}
+
 async function getOnlySnapshot(page: Page) {
   return await page.evaluate(async () => {
     const snapshots = Object.entries(await window.aideSessions.getSessions())
@@ -1189,6 +1203,7 @@ test.describe('shared model chat', () => {
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({ serviceTier: null })
     await page.reload()
+    await waitForSessions(page)
     await expect
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({ serviceTier: null })
