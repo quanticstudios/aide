@@ -10,7 +10,21 @@ export type SessionBackend = 'built-in' | 'pitwall'
 const STORAGE_KEY = 'aide.session-backend'
 const CHAT_IDS_KEY = 'aide.pitwall-chat-ids'
 const listeners = new Set<() => void>()
+const taskOpenListeners = new Set<(sessionId: string) => void>()
 let daemon: DaemonTransport | null = null
+
+/**
+ * Calls `listener` when the daemon backend asks to open one of its sessions.
+ * @remarks main's `taskOpen` cannot do it: main checks its own task library, which has no pitwall chats.
+ */
+export function onDaemonTaskOpen(
+  listener: (sessionId: string) => void,
+): () => void {
+  taskOpenListeners.add(listener)
+  return () => {
+    taskOpenListeners.delete(listener)
+  }
+}
 
 /** The stored choice, else the default Electron main passed (`AIDE_SESSION_BACKEND`), else built-in. */
 export function getSessionBackend(): SessionBackend {
@@ -46,6 +60,14 @@ function applySessionBackend(): void {
       },
       clientVersion: version,
       getEndpoint: () => api.getPitwallEndpoint(),
+      openTask: async (sessionId) => {
+        for (const listener of taskOpenListeners) listener(sessionId)
+      },
+      getWorkspaces: async () =>
+        (await api.getStorageSnapshot()).workspaces.map((workspace) => ({
+          id: workspace.id,
+          path: workspace.worktreePath,
+        })),
       getNotificationSettings: async () => {
         const { notificationSoundsEnabled, notificationsEnabled } =
           await ipc.listSessions()

@@ -67,6 +67,7 @@ class MockDaemon {
   capabilities = [
     'subscribeSessions',
     'listSessions',
+    'listProjects',
     'subscribe',
     'unsubscribe',
     'read',
@@ -86,6 +87,8 @@ class MockDaemon {
   running = true
   readonly subscribed = new Set<FakeSocket>()
   readonly commands: Frame[] = []
+  /** The folder of pitwall's one workspace, `workspace-1`. */
+  workspacePath = '/repo'
   /** Command types the daemon takes but never answers. */
   readonly silent = new Set<string>()
 
@@ -153,13 +156,36 @@ class MockDaemon {
       if (frame.archived) {
         fail('unsupported', 'pitwall does not list archived chats yet')
       } else {
-        ok({ chats: state ? [{ id: SESSION_ID, title: 'Chat' }] : [] })
+        ok({
+          chats: state
+            ? [{ id: SESSION_ID, title: 'Chat', workspaceId: 'workspace-1' }]
+            : [],
+        })
       }
+    } else if (frame.type === 'listProjects') {
+      ok({
+        projects: [
+          {
+            name: 'repo',
+            workspaces: [
+              {
+                branch: 'main',
+                id: 'workspace-1',
+                label: 'main',
+                path: this.workspacePath,
+              },
+            ],
+          },
+        ],
+      })
     } else if (frame.type === 'archive' && frame.sessionId !== SESSION_ID) {
       fail('not-found', `no chat ${frame.sessionId}`)
     } else if (frame.type === 'start') {
       ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
-    } else if (frame.type === 'resolveApproval') {
+    } else if (
+      frame.type === 'resolveApproval' &&
+      frame.requestId === 'toolu_01'
+    ) {
       fail('conflict', 'toolu_01 was answered from cli')
     } else ok()
     if (frame.type !== 'subscribe') return
@@ -210,6 +236,7 @@ class MockDaemon {
 
 let daemon: MockDaemon
 let transport: DaemonTransport
+let opened: string[] = []
 
 async function settle(ms = 0): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms)
@@ -222,6 +249,10 @@ function start(
     clientVersion: '0.0.3',
     createSocket: (url) => daemon.open(url) as unknown as WebSocket,
     getEndpoint: async () => daemon.status(),
+    getWorkspaces: async () => [{ id: 'aide-workspace', path: '/repo' }],
+    openTask: async (sessionId) => {
+      opened.push(sessionId)
+    },
     getNotificationSettings: async () => ({
       notificationsEnabled: true,
       notificationSoundsEnabled: false,
@@ -489,6 +520,65 @@ describe('DaemonTransport', () => {
     ])
   })
 
+  it('implements a pending plan in a new chat and denies it in the source', async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.emit({
+      ...fixture.deltas[0],
+      seq: fixture.deltas[0].seq + 1,
+      type: 'approval.add',
+      approval: {
+        detail: null,
+        id: 'plan-1',
+        request: { input: { plan: '# Rename it' }, toolName: 'ExitPlanMode' },
+        requestType: 'plan-approval',
+      },
+    } as SessionDelta)
+    start()
+    await settle()
+    opened = []
+    await transport.implementPlanInNewThread(SESSION_ID, 'plan-1')
+    expect(opened).toEqual([
+      expect.stringMatching(/^aide-workspace:agent::copy-plan-/),
+    ])
+    const sessions = await transport.getSessions()
+    expect(Object.keys(sessions)).toEqual(opened)
+    // aide's pane builds its session id as `<workspace>:<pane>`.
+    expect(sessions[opened[0]].paneId).toMatch(/^agent::copy-plan-/)
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: opened[0], paneId: sessions[opened[0]].paneId },
+    ])
+    expect(
+      daemon.commands
+        .filter((frame) =>
+          ['start', 'send', 'resolveApproval'].includes(String(frame.type)),
+        )
+        .map(({ id: _id, ...frame }) => frame),
+    ).toEqual([
+      {
+        type: 'start',
+        dir: '/repo',
+        provider: 'claude',
+        permissionMode: 'default',
+      },
+      {
+        type: 'send',
+        sessionId: SESSION_ID,
+        text: 'Implement this plan:\n\n# Rename it',
+      },
+      {
+        type: 'resolveApproval',
+        sessionId: SESSION_ID,
+        requestId: 'plan-1',
+        decision: 'deny',
+        reason:
+          'The user is implementing this plan in a new thread. Stop here.',
+      },
+    ])
+    await expect(
+      transport.implementPlanInNewThread(SESSION_ID, 'missing'),
+    ).rejects.toThrow('The plan is no longer pending.')
+  })
+
   it('refuses a command the server did not list, or the protocol lacks', async () => {
     daemon.capabilities = daemon.capabilities.filter(
       (type) => type !== 'interrupt',
@@ -548,9 +638,15 @@ describe('DaemonTransport', () => {
       type: 'interrupt',
       sessionId: SESSION_ID,
     })
-    expect(Object.keys(await transport.getSessions())).toEqual([
-      SESSION_ID,
-      'pane-1',
+    const sessions = await transport.getSessions()
+    expect(Object.keys(sessions)).toEqual(['pane-1'])
+    expect(sessions['pane-1']).toMatchObject({
+      paneId: 'pane-1',
+      sessionId: SESSION_ID,
+      workspaceId: 'aide-workspace',
+    })
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { paneId: 'pane-1', sessionId: 'pane-1', workspaceId: 'aide-workspace' },
     ])
     expect(saved).toEqual([{ 'pane-1': SESSION_ID }])
 
@@ -559,6 +655,17 @@ describe('DaemonTransport', () => {
     await settle()
     await transport.interrupt('pane-1')
     expect(daemon.commands.at(-1)).toMatchObject({ sessionId: SESSION_ID })
+  })
+
+  it("leaves out chats in folders that are none of aide's workspaces", async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.workspacePath = '/elsewhere'
+    start()
+    await settle()
+    expect(await transport.getSessions()).toEqual({})
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: SESSION_ID, workspaceId: 'workspace-1' },
+    ])
   })
 
   it('closes a pane that has no chat without an error', async () => {
