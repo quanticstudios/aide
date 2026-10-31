@@ -1,15 +1,16 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { useSyncExternalStore } from 'react'
 import type { DaemonTransport } from '../lib/daemon-transport'
+import PitwallSetupCard from './PitwallSetupCard'
 
 interface DaemonConnectionBannerProps {
   readonly transport: Pick<
     DaemonTransport,
-    'getConnection' | 'subscribeConnection'
+    'checkAgain' | 'getConnection' | 'subscribeConnection'
   >
 }
 
-/** Says when aide is not connected to pitwall's daemon, and so read-only, or cannot talk to this pitwall at all. */
+/** Says when aide is not connected to pitwall's daemon, and so read-only, cannot talk to this pitwall at all, or cannot find one. */
 export default function DaemonConnectionBanner({
   transport,
 }: DaemonConnectionBannerProps) {
@@ -19,6 +20,14 @@ export default function DaemonConnectionBanner({
     transport.getConnection,
   )
   if (connection.status === 'connected') return null
+  if (connection.status === 'unavailable') {
+    return (
+      <PitwallSetupCard
+        onCheckAgain={transport.checkAgain}
+        pitwall={connection.pitwall}
+      />
+    )
+  }
 
   const incompatible = connection.status === 'incompatible'
   return (

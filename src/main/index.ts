@@ -81,11 +81,8 @@ import {
   resetPersistedState,
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
-import {
-  allowPitwallOrigin,
-  getPitwallStateDir,
-  readPitwallEndpoint,
-} from './pitwall-endpoint'
+import { findPitwall } from './pitwall-daemon'
+import { allowPitwallOrigin } from './pitwall-endpoint'
 import { writePlanFile } from './plan-file'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile, searchProjectFiles } from './project-files'
@@ -1017,14 +1014,13 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
   ipcMain.handle(IPC_CHANNELS.getPitwallEndpoint, async () => {
-    const endpoint = await readPitwallEndpoint(
-      path.join(
-        getPitwallStateDir(process.env, process.platform, homedir()),
-        'web.json',
-      ),
-    )
-    pitwallUrl = endpoint?.url ?? null
-    return endpoint
+    const found = await findPitwall({
+      env: process.env,
+      home: homedir(),
+      platform: process.platform,
+    })
+    pitwallUrl = found.status === 'ready' ? found.endpoint.url : null
+    return found
   })
   ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {
     requireTrustedRenderer(event)

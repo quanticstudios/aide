@@ -19,7 +19,20 @@ export function getPitwallStateDir(
   return path.join(home, '.local', 'state', 'pitwall')
 }
 
-/** Reads the `web.json` pitwall's daemon writes; null when it is missing, damaged, or names anything but a loopback WebSocket. */
+/** Whether a process with this pid runs; EPERM means it does, as another user's. */
+export function isRunning(pid: unknown): boolean {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+    return false
+  }
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** Reads the `web.json` pitwall's daemon writes; null when it is missing, damaged, names anything but a loopback WebSocket, or outlived its daemon. */
 export async function readPitwallEndpoint(
   file: string,
 ): Promise<PitwallEndpoint | null> {
@@ -30,9 +43,11 @@ export async function readPitwallEndpoint(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null) return null
-  const { token, url } = parsed as Record<string, unknown>
+  const { pid, token, url } = parsed as Record<string, unknown>
   if (typeof url !== 'string' || !ENDPOINT_URL.test(url)) return null
   if (typeof token !== 'string' || !TOKEN.test(token)) return null
+  // The file stays after the daemon exits, so it keeps the token.
+  if (!isRunning(pid)) return null
   return { token, url }
 }
 

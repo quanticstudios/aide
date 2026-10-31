@@ -41,7 +41,7 @@ describe('readPitwallEndpoint', () => {
     const file = writeEndpoint({
       url: 'ws://127.0.0.1:41234/ws',
       token: TOKEN,
-      pid: 42,
+      pid: process.pid,
     })
     expect(await readPitwallEndpoint(file)).toEqual({
       url: 'ws://127.0.0.1:41234/ws',
@@ -54,7 +54,15 @@ describe('readPitwallEndpoint', () => {
     ['damaged JSON', '{"url":'],
     ['a remote host', { url: 'ws://example.com:80/ws', token: TOKEN }],
     ['another path', { url: 'ws://127.0.0.1:1/other', token: TOKEN }],
-    ['a short token', { url: 'ws://127.0.0.1:1/ws', token: 'abc' }],
+    [
+      'a short token',
+      { url: 'ws://127.0.0.1:1/ws', token: 'abc', pid: process.pid },
+    ],
+    ['no pid', { url: 'ws://127.0.0.1:1/ws', token: TOKEN }],
+    [
+      'a daemon that exited',
+      { url: 'ws://127.0.0.1:1/ws', token: TOKEN, pid: 2 ** 31 - 2 },
+    ],
   ])('returns null for %s', async (_name, contents) => {
     const file =
       contents === null

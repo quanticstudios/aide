@@ -250,6 +250,18 @@ export interface PitwallEndpoint {
   readonly url: string
 }
 
+/** What Electron main found of pitwall: a running daemon's endpoint, or why aide has none. */
+export type PitwallStatus =
+  | { readonly status: 'ready'; readonly endpoint: PitwallEndpoint }
+  | { readonly status: 'missing'; readonly platform: string }
+  | {
+      readonly status: 'outdated'
+      readonly required: string
+      readonly version: string
+    }
+  /** pitwall runs, or was started, but published no endpoint: its web listener is off. */
+  | { readonly status: 'noEndpoint' }
+
 export interface AideApi {
   acceptManagedFleetNode: (input: {
     sessionId: string
@@ -405,8 +417,8 @@ export interface AideApi {
   >
   syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
-  /** The daemon's endpoint and token, for the daemon transport only; null when pitwall has not written one. */
-  getPitwallEndpoint: () => Promise<PitwallEndpoint | null>
+  /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
+  getPitwallEndpoint: () => Promise<PitwallStatus>
   getTaskTranscript: (
     sessionId: string,
   ) => Promise<ManagedSessionSnapshot | null>
