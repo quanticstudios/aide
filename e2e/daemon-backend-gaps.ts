@@ -34,14 +34,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     "task history lists the suite's other daemon chats too, and Restore needs unarchive, which pitwall lacks (ENG-2707). Rename and pin pass on the daemon in pitwall-backend.spec.ts",
   ],
   [
-    'hands a follow-up with images to the running agent',
-    'sends an attachment; pitwall takes them after ENG-2933, which unskips its own specs',
-  ],
-  [
-    'attaches a selected workspace file to a required-Jev turn',
-    'sends an attachment; pitwall takes them after ENG-2933, which unskips its own specs',
-  ],
-  [
     'selects the highlighted agent mention with the keyboard',
     'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
