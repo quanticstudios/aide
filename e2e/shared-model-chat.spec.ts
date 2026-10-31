@@ -1797,7 +1797,10 @@ test.describe('shared model chat', () => {
     const session = await startPlainChat(launched.page, app)
     const { page } = launched
     await page.getByRole('button', { name: 'Open task history' }).click()
-    const task = page.getByTestId('saved-task')
+    // why: on the daemon backend task history also lists the chats other specs left on the suite's one daemon.
+    const task = page
+      .getByTestId('saved-task')
+      .filter({ hasText: path.basename(repository) })
     await expect(task).toContainText('initialize shared chat')
     await task.getByRole('button', { name: 'Rename', exact: true }).click()
     await page.getByRole('textbox', { name: 'Task title' }).fill('Daily review')
@@ -1834,7 +1837,10 @@ test.describe('shared model chat', () => {
       'initialize shared chat',
     )
     await page.getByRole('button', { name: /Open activity inbox/ }).click()
-    await expect(page.getByText('No tasks need attention.')).toBeVisible()
+    if (!process.env.AIDE_E2E_PITWALL) {
+      await expect(page.getByText('No tasks need attention.')).toBeVisible()
+    }
+    await expect(task).toHaveCount(0)
     await page
       .getByRole('checkbox', { name: 'Notify when Aide is in the background' })
       .uncheck()

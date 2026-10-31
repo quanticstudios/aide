@@ -16,9 +16,10 @@ import {
   SessionDeltaResyncError,
   type SessionDeltaState,
 } from '../../../shared/session-delta'
-import type {
-  SavedTask,
-  TaskLibrarySnapshot,
+import {
+  type SavedTask,
+  type TaskLibrarySnapshot,
+  taskSearchText,
 } from '../../../shared/task-library'
 import {
   type ManagedSessionUpdate,
@@ -107,6 +108,11 @@ export interface DaemonTransportOptions {
     load: () => Record<string, string>
     save: (chatIds: Record<string, string>) => void
   }
+  /** Keeps the chats archived by closing their pane, which aide lists as open tasks, as the built-in backend does. */
+  readonly closedChats?: {
+    load: () => string[]
+    save: (chats: string[]) => void
+  }
   /** The hello name; pitwall gates the chats an `aide` client starts with the Jev settings aide's main process hands over. */
   readonly clientName?: string
   readonly clientVersion: string
@@ -114,7 +120,16 @@ export interface DaemonTransportOptions {
   /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
   readonly getEndpoint: () => Promise<PitwallStatus>
   /** aide's workspaces and their folders; a chat is this aide's when its pitwall workspace has the same folder. */
-  readonly getWorkspaces: () => Promise<readonly { id: string; path: string }[]>
+  /** aide's workspaces; the names label an archived chat, whose tab pitwall no longer lists. */
+  readonly getWorkspaces: () => Promise<
+    readonly {
+      id: string
+      path: string
+      label?: string
+      branch?: string
+      project?: string
+    }[]
+  >
   /** Opens aide's session in its pane, as main's `taskOpen` does after it starts one. */
   readonly openTask: (sessionId: string) => Promise<void>
   /** aide's own task library: its notification settings, and the attention and read state of every chat reported to it. */
@@ -286,6 +301,8 @@ export function createDaemonTransport(
   let disposed = false
   // shortcut: entries are never dropped; prune archived chats once pitwall lists them.
   const chatIds = new Map(Object.entries(options.chatIds?.load() ?? {}))
+  /** Chats pitwall archived because aide closed their pane; opening the pane again unarchives them. */
+  const closedChats = new Set(options.closedChats?.load() ?? [])
   /** Chats in aide's workspaces that stay subscribed with no pane listening, so main hears of them. */
   const watched = new Set<string>()
   const watchAll = Boolean(options.reportSession)
@@ -503,14 +520,37 @@ export function createDaemonTransport(
     return command(type, fields).catch(() => undefined)
   }
 
+  /** Marks a chat archived by closing its pane, or no longer so. */
+  function setClosed(chat: string, closed: boolean): void {
+    if (closedChats.has(chat) === closed) return
+    if (closed) closedChats.add(chat)
+    else closedChats.delete(chat)
+    options.closedChats?.save([...closedChats])
+  }
+
   function subscribe(sessionId: string, after: number): void {
     const entry = sessions.get(sessionId)
     if (entry) entry.resyncing = after === 0
-    command('subscribe', { sessionId, after }).catch((error) => {
-      if (error instanceof DaemonCommandError && error.code === 'not-found') {
-        removed(sessionId)
+    command('subscribe', { sessionId, after }).catch(async (error) => {
+      if (!(error instanceof DaemonCommandError && error.code === 'not-found'))
+        return
+      // why: closing an Agent pane archived its chat; the pane opening again brings the chat back, as on the built-in backend.
+      if (closedChats.has(sessionId)) {
+        const reopened = await unarchive(sessionId).then(
+          () => true,
+          () => false,
+        )
+        if (reopened) return
       }
+      removed(sessionId)
     })
+  }
+
+  /** Unarchives a chat and subscribes again a pane already showing it. */
+  async function unarchive(chat: string): Promise<void> {
+    await command('unarchive', { sessionId: chat })
+    setClosed(chat, false)
+    if (sessions.has(chat)) subscribe(chat, 0)
   }
 
   function receiveDeltas(
@@ -757,6 +797,7 @@ export function createDaemonTransport(
       }
     }
     const tasks = new Map<string, SavedTask>()
+    const needle = query?.trim().toLowerCase()
     for (const [chats, isArchived] of [
       [live.chats, false],
       [archived.chats, true],
@@ -767,16 +808,37 @@ export function createDaemonTransport(
         const id = aideWorkspaceId
           ? aideId(chat.id, aideWorkspaceId, panes)
           : (panes.get(chat.id) ?? chat.id)
-        const workspaceId = aideWorkspaceId ?? chat.workspaceId
+        // why: an archived chat's tab is gone from listProjects, but aide's own id still names aide's workspace.
+        const workspaceId =
+          aideWorkspaceId ??
+          (panes.has(chat.id) ? id.slice(0, id.indexOf(':')) : chat.workspaceId)
         const own = aideTasks.get(id)
+        const names =
+          workspace ??
+          aideWorkspaces.find((candidate) => candidate.id === workspaceId)
+        if (needle) {
+          // shortcut: the transcript of a chat aide holds no snapshot of goes unsearched; add a pitwall search command if that is missed.
+          const snapshot = sessions.get(chat.id)?.state?.snapshot
+          const haystack = [
+            chat.title,
+            names?.project,
+            names?.label,
+            names?.branch,
+            chat.recentPrompt,
+            snapshot && taskSearchText(snapshot),
+          ]
+            .join('\n')
+            .toLowerCase()
+          if (!haystack.includes(needle)) continue
+        }
         // why: aide opens a task in its own workspace and pane, so pitwall's ids would not find either.
         tasks.set(chat.id, {
           sessionId: id,
           paneId: paneOf(id, workspaceId),
           workspaceId,
-          projectName: workspace?.project ?? '',
-          workspaceName: workspace?.label ?? '',
-          branchName: workspace?.branch ?? '',
+          projectName: names?.project ?? '',
+          workspaceName: names?.label ?? '',
+          branchName: names?.branch ?? '',
           title: chat.title,
           updatedAt: chat.updatedAt,
           provider: chat.provider,
@@ -786,22 +848,19 @@ export function createDaemonTransport(
           excerpt: chat.recentPrompt ?? '',
           recentPrompt: chat.recentPrompt,
           pinned: chat.pinned ?? false,
-          archived: isArchived,
+          archived: isArchived && !closedChats.has(chat.id),
           readActivityKey: own?.readActivityKey ?? null,
         })
       }
     }
-    const needle = query?.trim().toLowerCase()
     return {
       notificationsEnabled: aideLibrary.notificationsEnabled,
       notificationSoundsEnabled: aideLibrary.notificationSoundsEnabled,
-      tasks: [...tasks.values()]
-        .filter((task) => !needle || task.title.toLowerCase().includes(needle))
-        .sort(
-          (left, right) =>
-            right.updatedAt.localeCompare(left.updatedAt) ||
-            left.sessionId.localeCompare(right.sessionId),
-        ),
+      tasks: [...tasks.values()].sort(
+        (left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt) ||
+          left.sessionId.localeCompare(right.sessionId),
+      ),
     }
   }
 
@@ -896,8 +955,13 @@ export function createDaemonTransport(
       if (input.pinned !== undefined) {
         await command('pin', { sessionId, pinned: input.pinned })
       }
-      if (input.archived !== undefined) {
-        await command(input.archived ? 'archive' : 'unarchive', { sessionId })
+      const chat = chatId(sessionId)
+      if (input.archived === false) {
+        await unarchive(chat)
+      } else if (input.archived && closedChats.has(chat)) {
+        setClosed(chat, false) // pitwall archived it when its pane closed
+      } else if (input.archived) {
+        await command('archive', { sessionId })
       }
       // Read state is aide's: main keeps it for the chats reported to it, which are the only ones with an activity key.
       if (input.readActivityKey) {
@@ -1199,6 +1263,7 @@ export function createDaemonTransport(
     close: async (sessionId) => {
       try {
         await command('archive', { sessionId })
+        setClosed(chatId(sessionId), true)
       } catch (error) {
         // why: aide closes every pane through here, terminals too, and most have no chat.
         if (

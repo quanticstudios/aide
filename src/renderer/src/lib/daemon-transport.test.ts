@@ -114,6 +114,10 @@ class MockDaemon {
   refuseProtocol: number | null = null
   port = 4100
   pinned = false
+  /** The chat is archived: live lists and subscribe leave it out, read and unarchive find it. */
+  archived = false
+  /** Lists archived chats, as a pitwall with unarchive does, instead of refusing to. */
+  listsArchived = false
   title = 'Chat'
   running = true
   readonly subscribed = new Set<FakeSocket>()
@@ -182,26 +186,26 @@ class MockDaemon {
       socket.push({ type: 'result', id: frame.id, ok: false, code, message })
     const ok = (data?: unknown) =>
       socket.push({ type: 'result', id: frame.id, ok: true, data })
+    if (this.archived && frame.type === 'subscribe') {
+      fail('not-found', `no chat ${frame.sessionId}`)
+      return
+    }
+    const chat = {
+      id: SESSION_ID,
+      title: this.title,
+      pinned: this.pinned,
+      workspaceId: 'workspace-1',
+      recentPrompt: 'Explain the build setup',
+    }
     if (frame.type === 'read') {
       if (state) ok({ seq: state.seq, snapshot: state.snapshot, deltas: [] })
       else fail('not-found', 'no chat')
     } else if (frame.type === 'listSessions') {
-      if (frame.archived) {
+      if (frame.archived && !this.listsArchived) {
         fail('unsupported', 'pitwall does not list archived chats yet')
       } else {
-        ok({
-          chats: state
-            ? [
-                {
-                  id: SESSION_ID,
-                  title: this.title,
-                  pinned: this.pinned,
-                  workspaceId: 'workspace-1',
-                  recentPrompt: 'Explain the build setup',
-                },
-              ]
-            : [],
-        })
+        const listed = Boolean(frame.archived) === this.archived
+        ok({ chats: state && listed ? [chat] : [] })
       }
     } else if (frame.type === 'listProjects') {
       ok({
@@ -221,6 +225,15 @@ class MockDaemon {
       })
     } else if (frame.type === 'archive' && frame.sessionId !== SESSION_ID) {
       fail('not-found', `no chat ${frame.sessionId}`)
+    } else if (frame.type === 'archive') {
+      this.archived = true
+      ok()
+      for (const subscriber of this.subscribed)
+        subscriber.push({ type: 'removed', sessionId: SESSION_ID })
+      this.subscribed.clear()
+    } else if (frame.type === 'unarchive') {
+      this.archived = false
+      ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
     } else if (frame.type === 'rename') {
       this.title = String(frame.title)
       ok()
@@ -734,6 +747,7 @@ describe('DaemonTransport', () => {
 
   it('renames and pins a chat before archiving it, and lists both', async () => {
     daemon.emit(fixture.deltas[0])
+    daemon.listsArchived = true
     start()
     await settle()
     await transport.updateSession(SESSION_ID, {
@@ -752,7 +766,7 @@ describe('DaemonTransport', () => {
     ])
     const library = await transport.listSessions()
     expect(library.tasks).toMatchObject([
-      { title: 'Daily review', pinned: true },
+      { title: 'Daily review', pinned: true, archived: true },
     ])
   })
 
@@ -1186,6 +1200,58 @@ describe('DaemonTransport', () => {
     expect(await transport.getSessions()).toEqual({})
     expect((await transport.listSessions()).tasks).toMatchObject([
       { sessionId: SESSION_ID, workspaceId: 'workspace-1' },
+    ])
+  })
+
+  it('lists the chat of a closed pane as open, and unarchives it when the pane opens again', async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.listsArchived = true
+    daemon.capabilities.push('unarchive')
+    const pane = 'aide-workspace:agent'
+    const closed: string[][] = []
+    start({
+      chatIds: { load: () => ({ [pane]: SESSION_ID }), save: () => undefined },
+      closedChats: { load: () => [], save: (chats) => closed.push(chats) },
+      getWorkspaces: async () => [
+        { id: 'aide-workspace', path: '/repo', label: 'main', project: 'repo' },
+      ],
+    })
+    await settle()
+    const unmount = transport.subscribeSession(pane, () => undefined)
+    await settle()
+    unmount()
+    await transport.close(pane)
+    await settle()
+    expect(closed).toEqual([[SESSION_ID]])
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      {
+        sessionId: pane,
+        workspaceId: 'aide-workspace',
+        projectName: 'repo',
+        workspaceName: 'main',
+        archived: false,
+      },
+    ])
+    // Search matches the project, as the built-in backend's does.
+    expect((await transport.listSessions('REPO')).tasks).toHaveLength(1)
+    expect((await transport.listSessions('nowhere')).tasks).toEqual([])
+
+    const updates = watch(pane)
+    await settle()
+    expect(daemon.archived).toBe(false)
+    expect(lastSnapshot(updates)).toEqual(daemon.state()?.snapshot)
+    expect(closed.at(-1)).toEqual([])
+
+    // An explicit archive of a closed pane's task keeps pitwall's archive.
+    await transport.close(pane)
+    await settle()
+    const archives = daemon.commands.filter((f) => f.type === 'archive').length
+    await transport.updateSession(pane, { archived: true })
+    expect(daemon.commands.filter((f) => f.type === 'archive')).toHaveLength(
+      archives,
+    )
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: pane, archived: true },
     ])
   })
 
