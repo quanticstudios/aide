@@ -35,11 +35,11 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   [
     'hands a follow-up with images to the running agent',
-    "pitwall answers every attachment with 'attachments are not supported yet' (ENG-2933)",
+    'sends an attachment; pitwall takes them after ENG-2933, which unskips its own specs',
   ],
   [
     'attaches a selected workspace file to a required-Jev turn',
-    "pitwall answers every attachment with 'attachments are not supported yet' (ENG-2933)",
+    'sends an attachment; pitwall takes them after ENG-2933, which unskips its own specs',
   ],
   [
     'selects the highlighted agent mention with the keyboard',
