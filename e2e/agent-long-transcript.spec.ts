@@ -266,6 +266,18 @@ test.describe('long agent transcript', () => {
     await expect(steered).toBeInViewport()
     await expect.poll(() => offsetFromTop(steered)).toBeLessThan(48)
 
+    // why: pitwall streams the turn over seconds, and a send into a running turn steers it instead of starting the turn this step pins.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            async () =>
+              Object.values(await window.aideSessions.getSessions())[0]
+                ?.sessionState,
+          ),
+        { timeout: 30_000 },
+      )
+      .not.toBe('running')
     // why: from the top of a long history the newest rows are unmounted, so the send has to mount them before the hook can pin the prompt.
     await page.evaluate((selector) => {
       const scroll = document.querySelector(selector)

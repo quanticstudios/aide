@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   jumpToLatest,
+  leftBottom,
   pinSpacerHeight,
   releasePin,
 } from './useTranscriptFollow'
@@ -46,5 +47,43 @@ describe('jumpToLatest', () => {
     expect(pin).toEqual({ active: false, pending: null, spacer: 0 })
     expect(content.style.paddingBottom).toBe('')
     expect(scroll.scrollTop).toBe(2400)
+  })
+})
+
+describe('leftBottom', () => {
+  it('ignores a clamp at the bottom that the next stream chunk outgrew', () => {
+    expect(
+      leftBottom({
+        clientHeight: 700,
+        previousScrollHeight: 109_258,
+        previousScrollTop: 108_557,
+        scrollHeight: 127_778,
+        scrollTop: 108_538,
+      }),
+    ).toBe(false)
+  })
+
+  it('counts a scroll up away from the bottom', () => {
+    expect(
+      leftBottom({
+        clientHeight: 700,
+        previousScrollHeight: 109_258,
+        previousScrollTop: 108_557,
+        scrollHeight: 127_778,
+        scrollTop: 100_000,
+      }),
+    ).toBe(true)
+  })
+
+  it('ignores a scroll up that ends near the bottom', () => {
+    expect(
+      leftBottom({
+        clientHeight: 700,
+        previousScrollHeight: 2400,
+        previousScrollTop: 1700,
+        scrollHeight: 2400,
+        scrollTop: 1670,
+      }),
+    ).toBe(false)
   })
 })
