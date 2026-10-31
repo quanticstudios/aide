@@ -113,7 +113,7 @@ function applySessionBackend(): void {
         }))
       },
       aideTasks: ipc,
-      subscribeLocalChanges: (listener) => api.onTaskLibraryChanged(listener),
+      subscribeLocalChanges: (listener) => ipc.subscribeSessionList(listener),
       reportSession: (sessionId, snapshot) =>
         void api
           .reportDaemonSession(sessionId, snapshot)
