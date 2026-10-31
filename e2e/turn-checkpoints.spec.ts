@@ -165,8 +165,15 @@ test.describe('turn checkpoints', () => {
       'before\n',
     )
     // pitwall rewinds the chat in place; aide's built-in backend restores into a copy.
-    expect(
-      (await page.evaluate(() => window.aideSessions.listSessions())).tasks,
-    ).toHaveLength(process.env.AIDE_SESSION_BACKEND === 'pitwall' ? 1 : 2)
+    // why: the daemon backend also lists the chats other specs left on the suite's daemon.
+    const tasks = await page.evaluate(async () => {
+      const workspace = (await window.aide.getStorageSnapshot()).workspaces[0]
+      return (await window.aideSessions.listSessions()).tasks.filter(
+        (task) => task.workspaceId === workspace?.id,
+      )
+    })
+    expect(tasks).toHaveLength(
+      process.env.AIDE_SESSION_BACKEND === 'pitwall' ? 1 : 2,
+    )
   })
 })
