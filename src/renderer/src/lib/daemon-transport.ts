@@ -44,6 +44,8 @@ export interface DaemonTransport extends SessionTransport {
   /** Looks for pitwall now instead of at the next retry. */
   checkAgain: () => void
   dispose: () => void
+  /** The repos pitwall has tabs in, for starting a chat in one. */
+  listProjects: () => Promise<DaemonProject[]>
 }
 
 export interface DaemonTransportOptions {
@@ -93,8 +95,10 @@ interface DaemonChat {
   workspaceId: string
 }
 
-interface DaemonProject {
+/** A repo with tabs in pitwall (web-protocol.md, listProjects). */
+export interface DaemonProject {
   name: string
+  root: string
   workspaces: { branch: string; id: string; label: string }[]
 }
 
@@ -589,6 +593,8 @@ export function createDaemonTransport(
       socket?.close(1000)
     },
 
+    listProjects: async () =>
+      (await command<{ projects: DaemonProject[] }>('listProjects')).projects,
     listSessions,
     subscribeSessionList: (listener) => {
       listListeners.add(listener)

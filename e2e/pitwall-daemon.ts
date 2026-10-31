@@ -29,7 +29,12 @@ export default async function globalSetup(): Promise<(() => void) | undefined> {
   mkdirSync(folders.XDG_STATE_HOME)
   writeFileSync(
     path.join(folders.XDG_CONFIG_HOME, 'pitwall', 'config.toml'),
-    '[web]\nenabled = true\n',
+    // AIDE_E2E_WEB_BUNDLE serves the browser build too, for the phone specs (e2e-web/).
+    `[web]\nenabled = true\n${
+      process.env.AIDE_E2E_WEB_BUNDLE
+        ? `bundle = ${JSON.stringify(path.resolve(process.env.AIDE_E2E_WEB_BUNDLE))}\n`
+        : ''
+    }`,
   )
   // why: a pitwall pane's PITWALL_SOCKET would send the CLI to the user's daemon.
   for (const name of Object.keys(process.env)) {
@@ -61,6 +66,7 @@ export default async function globalSetup(): Promise<(() => void) | undefined> {
   )
   return () => {
     daemon.kill()
-    rmSync(root, { force: true, recursive: true })
+    // why: the killed daemon may still be writing its state when this runs.
+    rmSync(root, { force: true, maxRetries: 5, recursive: true })
   }
 }
