@@ -19,6 +19,7 @@ import {
   type ManagedSessionUpdate,
   shareSnapshotContent,
 } from './managed-session-events'
+import type { PlanUsage } from './plan-usage'
 import type { SessionTransport } from './session-transport'
 
 /** The `protocol` of pitwall's docs/web-protocol.md that this transport speaks. */
@@ -44,6 +45,8 @@ export interface DaemonTransport extends SessionTransport {
   /** Looks for pitwall now instead of at the next retry. */
   checkAgain: () => void
   dispose: () => void
+  /** pitwall's plan limits and token use over the `days` days ending today, 30 when left out. */
+  readUsage: (days?: number) => Promise<PlanUsage>
 }
 
 export interface DaemonTransportOptions {
@@ -588,6 +591,13 @@ export function createDaemonTransport(
       if (timer) clearTimeout(timer)
       socket?.close(1000)
     },
+    readUsage: async (days) =>
+      (
+        await command<{ usage: PlanUsage }>(
+          'readUsage',
+          days === undefined ? {} : { days },
+        )
+      ).usage,
 
     listSessions,
     subscribeSessionList: (listener) => {
