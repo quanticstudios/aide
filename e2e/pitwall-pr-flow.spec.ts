@@ -147,6 +147,8 @@ test.describe('pull request flow on the pitwall daemon', () => {
         HYPRLAND_INSTANCE_SIGNATURE: '',
         OZONE_PLATFORM: 'x11',
         SWAYSOCK: '',
+        // why: the daemon gates aide's chats as aide does (ENG-2934), and its fake Jev takes any key.
+        TYPESAFE_API_KEY: 'synthetic-e2e-key',
         WAYLAND_DISPLAY: '',
         XDG_SESSION_TYPE: 'x11',
       },

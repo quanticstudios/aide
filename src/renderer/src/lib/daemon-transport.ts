@@ -1,5 +1,5 @@
 import type { TurnCheckpointPreview } from '../../../shared/checkpoints'
-import type { PitwallStatus } from '../../../shared/ipc'
+import { DAEMON_PROTOCOL, type PitwallStatus } from '../../../shared/ipc'
 import {
   type ManagedSessionDecision,
   type ManagedSessionSnapshot,
@@ -23,8 +23,7 @@ import {
 import type { PlanUsage } from './plan-usage'
 import type { SessionTransport } from './session-transport'
 
-/** The `protocol` of pitwall's docs/web-protocol.md that this transport speaks. */
-export const DAEMON_PROTOCOL = 1
+export { DAEMON_PROTOCOL }
 export const DAEMON_RECONNECT_MIN_MS = 500
 export const DAEMON_RECONNECT_MAX_MS = 10_000
 
@@ -104,6 +103,8 @@ export interface DaemonTransportOptions {
     load: () => Record<string, string>
     save: (chatIds: Record<string, string>) => void
   }
+  /** The hello name; pitwall gates the chats an `aide` client starts with the Jev settings aide's main process hands over. */
+  readonly clientName?: string
   readonly clientVersion: string
   readonly createSocket?: (url: string) => WebSocket
   /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
@@ -306,7 +307,10 @@ export function createDaemonTransport(
           type: 'hello',
           protocol: DAEMON_PROTOCOL,
           token: endpoint.token,
-          client: { name: 'aide', version: options.clientVersion },
+          client: {
+            name: options.clientName ?? 'aide',
+            version: options.clientVersion,
+          },
         }),
       )
     }

@@ -41,11 +41,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'opens a turn file and switches between the three scopes',
     'needs the turn diff; the web protocol has no checkpoint diff yet',
   ],
-  // electron-navigation.spec.ts
-  [
-    'persists explicit Jev workspace consent without exposing credentials',
-    "Jev preparation and its consent check run in aide's session manager, which the daemon backend skips",
-  ],
   // jev-gates-sidebar.spec.ts
   [
     'draws a gate node for every gate turned on and keeps the choice after a relaunch',
@@ -67,10 +62,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   [
     'branches a response into an independent same-workspace conversation',
     'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'chats in an ordinary folder without Git and restores the project after restart',
-    "Jev preparation and its consent check run in aide's session manager, which the daemon backend skips",
   ],
   [
     'reopens a closed Agent conversation while New chat and other workspaces stay fresh',

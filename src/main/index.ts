@@ -26,7 +26,11 @@ import type {
   WorkspaceGitPullRequestInput,
   WorkspaceGitRevertInput,
 } from '../shared/git'
-import { IPC_CHANNELS, SESSION_BACKEND_ARGUMENT } from '../shared/ipc'
+import {
+  IPC_CHANNELS,
+  type PitwallEndpoint,
+  SESSION_BACKEND_ARGUMENT,
+} from '../shared/ipc'
 import { JevGateOverridesSchema } from '../shared/jev-gates'
 import type {
   ManagedSessionDecision,
@@ -83,6 +87,7 @@ import {
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
 import { findPitwall } from './pitwall-daemon'
+import { type PitwallJev, syncPitwallJev } from './pitwall-jev'
 import { allowPitwallOrigin } from './pitwall-endpoint'
 import { writePlanFile } from './plan-file'
 import { PreviewManager } from './preview-manager'
@@ -717,6 +722,33 @@ function updateBadge() {
 }
 /** The daemon URL last handed to the renderer, the only one whose upgrade loses its Origin. */
 let pitwallUrl: string | null = null
+/** The daemon the renderer talks to, which gets aide's Jev settings for the chats aide starts. */
+let pitwallEndpoint: PitwallEndpoint | null = null
+
+/** Hands aide's Jev key, consent and gates to the daemon; settings it cannot read go as no key, so the daemon refuses turns as aide would. */
+async function syncJevToPitwall(): Promise<void> {
+  if (!pitwallEndpoint) return
+  let jev: PitwallJev
+  try {
+    jev = {
+      ...jevSettings.getDaemonSettings(),
+      gates: jevGateSettings.getAll(),
+    }
+  } catch {
+    jev = {
+      apiKey: null,
+      disabledRoots: [],
+      gates: { global: {}, workspaces: {} },
+    }
+  }
+  try {
+    await syncPitwallJev(pitwallEndpoint, jev, { version: app.getVersion() })
+  } catch (error) {
+    console.warn(
+      `pitwall did not take the Jev settings: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
 
 function showTaskNotification(notification: TaskNotification) {
   const focusedWindow = BrowserWindow.getFocusedWindow()
@@ -952,9 +984,11 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle(
     IPC_CHANNELS.updateJevSettings,
-    (event, workspaceId: unknown, input: unknown) => {
+    async (event, workspaceId: unknown, input: unknown) => {
       const workspace = requireWorkspaceForSetup(event, workspaceId)
-      return jevSettings.update(workspace.worktreePath, input)
+      const status = jevSettings.update(workspace.worktreePath, input)
+      await syncJevToPitwall()
+      return status
     },
   )
   ipcMain.handle(IPC_CHANNELS.getJevGates, (event, workspaceId: unknown) =>
@@ -962,14 +996,16 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.updateJevGates,
-    (event, scope: unknown, workspaceId: unknown, overrides: unknown) => {
+    async (event, scope: unknown, workspaceId: unknown, overrides: unknown) => {
       if (scope !== 'global' && scope !== 'workspace')
         throw new Error('Unknown Jev gate scope.')
-      return jevGateSettings.update(
+      const snapshot = jevGateSettings.update(
         scope,
         requireJevGateWorktree(event, workspaceId),
         overrides,
       )
+      await syncJevToPitwall()
+      return snapshot
     },
   )
   ipcMain.handle(IPC_CHANNELS.getStorageSnapshot, (event) => {
@@ -1059,6 +1095,9 @@ function registerIpcHandlers(): void {
       platform: process.platform,
     })
     pitwallUrl = found.status === 'ready' ? found.endpoint.url : null
+    pitwallEndpoint = found.status === 'ready' ? found.endpoint : null
+    // why: the daemon keeps Jev's settings in memory only, so each connection, a restarted daemon's included, starts after a sync.
+    await syncJevToPitwall()
     return found
   })
   ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {

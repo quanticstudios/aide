@@ -352,6 +352,15 @@ describe('DaemonTransport', () => {
     })
   })
 
+  it('says hello under the client name it is given', async () => {
+    start({ clientName: 'aide-phone' })
+    watch()
+    await settle()
+    expect(daemon.latest.sent[0]).toMatchObject({
+      client: { name: 'aide-phone', version: '0.0.3' },
+    })
+  })
+
   it('matches a run without a restart when the daemon is killed and restarted mid-stream', async () => {
     const [first, ...rest] = fixture.deltas
     daemon.emit(first)
