@@ -1,6 +1,6 @@
 import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
 import '@git-diff-view/react/styles/diff-view-pure.css'
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 
 import { useFontPreference } from '../lib/font-preference'
 import {
@@ -14,16 +14,32 @@ import { useColorScheme } from '../lib/theme-preference'
 /** Which way a diff is laid out: one column of changes or two. */
 export type DiffLayout = 'line-by-line' | 'side-by-side'
 
-/** Renders one file's patch with syntax highlighting. */
+/** Renders one file's patch with syntax highlighting, and `annotations` under the new file's lines they key. */
 export function GitDiffView({
+  annotations,
   filePath,
   outputFormat,
   patch,
 }: {
+  readonly annotations?: Readonly<Record<number, ReactNode>>
   readonly filePath: string
   readonly outputFormat: DiffLayout
   readonly patch: string
 }) {
+  const extendData = useMemo(
+    () =>
+      annotations
+        ? {
+            newFile: Object.fromEntries(
+              Object.entries(annotations).map(([line, data]) => [
+                line,
+                { data },
+              ]),
+            ),
+          }
+        : undefined,
+    [annotations],
+  )
   const lang = useMemo(() => {
     const name = filePath.slice(filePath.lastIndexOf('/') + 1)
     return resolveLanguage(name.slice(name.lastIndexOf('.') + 1))
@@ -78,7 +94,9 @@ export function GitDiffView({
       }
       diffViewTheme={colorScheme}
       diffViewWrap={false}
+      extendData={extendData}
       registerHighlighter={diffHighlighter}
+      renderExtendLine={({ data }: { data: ReactNode }) => data}
     />
   )
 }

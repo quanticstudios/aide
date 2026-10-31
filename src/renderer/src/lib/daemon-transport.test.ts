@@ -11,6 +11,7 @@ import {
   createDaemonTransport,
   DAEMON_RECONNECT_MAX_MS,
   DAEMON_RECONNECT_MIN_MS,
+  type DaemonPullRequest,
   type DaemonTransport,
   type DaemonTransportOptions,
 } from './daemon-transport'
@@ -60,6 +61,26 @@ class FakeSocket {
   }
 }
 
+const REVIEW_THREAD = {
+  path: 'src/a.ts',
+  line: 3,
+  comments: [{ author: 'octocat', body: 'Why?' }],
+  more: 0,
+}
+
+const PULL_REQUEST: DaemonPullRequest = {
+  checks: [{ name: 'linux', state: 'fail' }],
+  conflicts: false,
+  detail: 'linux failing',
+  draft: false,
+  head: 'abc123',
+  number: 7,
+  reason: 'checks_failing',
+  review: 'changes',
+  state: 'open',
+  url: 'https://github.com/o/r/pull/7',
+}
+
 /** pitwall's daemon for one chat, with the resync rules of web-protocol.md and a log of the deltas it streamed. */
 class MockDaemon {
   readonly sockets: FakeSocket[] = []
@@ -78,6 +99,9 @@ class MockDaemon {
     'set',
     'archive',
     'start',
+    'reviewThreads',
+    'prPrompt',
+    'mergePR',
   ]
   protocol = 1
   deltaVersion = 1
@@ -182,6 +206,10 @@ class MockDaemon {
       fail('not-found', `no chat ${frame.sessionId}`)
     } else if (frame.type === 'start') {
       ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
+    } else if (frame.type === 'prPrompt') {
+      ok({ text: `Fix the ${frame.what}.` })
+    } else if (frame.type === 'reviewThreads') {
+      ok({ threads: [REVIEW_THREAD], changeRequests: [] })
     } else if (
       frame.type === 'resolveApproval' &&
       frame.requestId === 'toolu_01'
@@ -607,6 +635,50 @@ describe('DaemonTransport', () => {
     expect(daemon.latest.sent.map((frame) => frame.type)).toEqual([
       'hello',
       'subscribeSessions',
+    ])
+  })
+
+  it("keeps each chat's pull request from the pushed list, and maps the pull request commands", async () => {
+    start({
+      chatIds: { load: () => ({ 'pane-1': SESSION_ID }), save: () => {} },
+    })
+    const listener = vi.fn()
+    transport.subscribeSessionList(listener)
+    await settle()
+    const chat = { id: SESSION_ID, workspaceId: 'w', pr: PULL_REQUEST }
+    daemon.latest.push({ type: 'sessions', chats: [chat, { id: 'other' }] })
+    expect(transport.getPullRequest('pane-1')).toEqual(PULL_REQUEST)
+    expect(transport.getPullRequest('other')).toBeNull()
+    daemon.latest.push({
+      type: 'sessionsChanged',
+      changed: [{ ...chat, pr: { ...PULL_REQUEST, state: 'merged' } }],
+      removed: ['other'],
+    })
+    expect(transport.getPullRequest(SESSION_ID)?.state).toBe('merged')
+    daemon.latest.push({
+      type: 'sessionsChanged',
+      changed: [],
+      removed: [SESSION_ID],
+    })
+    expect(transport.getPullRequest(SESSION_ID)).toBeNull()
+    expect(listener).toHaveBeenCalledTimes(3)
+
+    await expect(
+      transport.pullRequestPrompt('pane-1', 'failures'),
+    ).resolves.toBe('Fix the failures.')
+    await expect(transport.reviewThreads('pane-1')).resolves.toEqual({
+      threads: [REVIEW_THREAD],
+      changeRequests: [],
+    })
+    await transport.mergePullRequest('pane-1')
+    expect(
+      daemon.commands
+        .filter((frame) => frame.type !== 'subscribeSessions')
+        .map(({ id: _id, ...frame }) => frame),
+    ).toEqual([
+      { type: 'prPrompt', sessionId: SESSION_ID, what: 'failures' },
+      { type: 'reviewThreads', sessionId: SESSION_ID },
+      { type: 'mergePR', sessionId: SESSION_ID },
     ])
   })
 

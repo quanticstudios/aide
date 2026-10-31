@@ -52,12 +52,15 @@ import {
   providerSelectionHydrationKey,
 } from '../lib/managed-session-selection'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
+import { NewThreadContext, takeThreadPrompt } from '../lib/new-thread'
+import { usePullRequest } from '../lib/pull-request'
 import { WorkspaceIdContext } from '../lib/workspace-id'
 import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
+import ManagedPullRequestRow from './ManagedPullRequestRow'
 import DiffPanel from './DiffPanel'
 import ManagedQueuedMessages from './ManagedQueuedMessages'
 import ManagedRewindDialog from './ManagedRewindDialog'
@@ -694,6 +697,16 @@ export default function ManagedAgentPane({
     [ensureSession, pinNextMessage, scrollToLatest, sessionId],
   )
 
+  // why: Fix in a new thread queues its prompt before this pane mounts, and the session can start only once the provider selection is known.
+  useEffect(() => {
+    if (!isSelectionHydrated) return
+    const prompt = takeThreadPrompt(paneId)
+    if (prompt) void sendPromptText(prompt)
+  }, [isSelectionHydrated, paneId, sendPromptText])
+
+  const pullRequest = usePullRequest(sessionId, isActive)
+  const startThread = useContext(NewThreadContext)
+
   const handleRetryTurn = useCallback(
     async (text: string, recipientAlias: string) => {
       await sendPromptText(text, [recipientAlias])
@@ -1126,6 +1139,7 @@ export default function ManagedAgentPane({
             initialPath={diffPanelTarget.path}
             key={`${diffPanelTarget.checkpointId}:${diffPanelTarget.path}`}
             onClose={() => setDiffPanelTarget(null)}
+            reviewThreads={pullRequest.review?.threads}
             sessionId={sessionId}
             workspaceId={workspace.id}
           />
@@ -1180,6 +1194,22 @@ export default function ManagedAgentPane({
             total={snapshot?.pendingApprovals.length ?? 1}
           />
         ) : null}
+
+        <ManagedPullRequestRow
+          onFixInNewThread={(prompt) => startThread?.(workspace.id, prompt)}
+          onSend={(prompt) =>
+            // why: pitwall holds a message for a busy agent until its turn ends; queueing does the same here.
+            sendPromptText(
+              prompt,
+              [],
+              [],
+              undefined,
+              snapshot?.running ?? false,
+            )
+          }
+          sessionId={sessionId}
+          state={pullRequest}
+        />
 
         {snapshot?.queuedInputs?.length ? (
           <ManagedQueuedMessages
