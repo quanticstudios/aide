@@ -1,8 +1,9 @@
 import type { TurnCheckpointPreview } from '../../../shared/checkpoints'
 import type { PitwallStatus } from '../../../shared/ipc'
-import type {
-  ManagedSessionDecision,
-  ManagedSessionSnapshot,
+import {
+  type ManagedSessionDecision,
+  type ManagedSessionSnapshot,
+  readPlanText,
 } from '../../../shared/managed-session'
 import {
   applyDelta,
@@ -56,6 +57,10 @@ export interface DaemonTransportOptions {
   readonly createSocket?: (url: string) => WebSocket
   /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
   readonly getEndpoint: () => Promise<PitwallStatus>
+  /** aide's workspaces and their folders; a chat is this aide's when its pitwall workspace has the same folder. */
+  readonly getWorkspaces: () => Promise<readonly { id: string; path: string }[]>
+  /** Opens aide's session in its pane, as main's `taskOpen` does after it starts one. */
+  readonly openTask: (sessionId: string) => Promise<void>
   /** aide's own notification settings, which the task library shows beside pitwall's chats. */
   readonly getNotificationSettings: () => Promise<
     Pick<
@@ -95,7 +100,7 @@ interface DaemonChat {
 
 interface DaemonProject {
   name: string
-  workspaces: { branch: string; id: string; label: string }[]
+  workspaces: { branch: string; id: string; label: string; path: string }[]
 }
 
 interface DeltasPayload {
@@ -494,22 +499,66 @@ export function createDaemonTransport(
     )
   }
 
+  /**
+   * pitwall's workspace id to aide's, for every pitwall workspace whose folder is one of aide's.
+   * @remarks shortcut: compares the paths as both report them; normalize them if a symlinked or trailing-slash path ever misses.
+   */
+  function workspaceIds(
+    projects: DaemonProject[],
+    aide: readonly { id: string; path: string }[],
+  ): Map<string, string> {
+    const byPath = new Map(
+      aide.map((workspace) => [workspace.path, workspace.id]),
+    )
+    const ids = new Map<string, string>()
+    for (const project of projects) {
+      for (const workspace of project.workspaces) {
+        const id = byPath.get(workspace.path)
+        if (id) ids.set(workspace.id, id)
+      }
+    }
+    return ids
+  }
+
+  /** aide's id for a chat: the pane it was started for, else the chat id. */
+  function paneIds(): Map<string, string> {
+    return new Map([...chatIds].map(([sessionId, chat]) => [chat, sessionId]))
+  }
+
+  /**
+   * The pane of aide's session id, which aide builds as `<workspace id>:<pane id>`.
+   * @remarks shortcut: a chat aide never started keeps its chat id as the pane, so opening it starts a new chat; map those too once pitwall chats open in aide panes.
+   */
+  function paneOf(sessionId: string, workspaceId: string): string {
+    const prefix = `${workspaceId}:`
+    return sessionId.startsWith(prefix)
+      ? sessionId.slice(prefix.length)
+      : sessionId
+  }
+
   async function listSessions(query?: string): Promise<TaskLibrarySnapshot> {
-    const [live, archived, projects, settings] = await Promise.all([
-      command<{ chats: DaemonChat[] }>('listSessions'),
-      // why: pitwall answers `unsupported` for archived chats until it lists them (CHANGELOG, web clients).
-      command<{ chats: DaemonChat[] }>('listSessions', {
-        archived: true,
-      }).catch((error) => {
-        if (error instanceof DaemonCommandError && error.code === 'unsupported')
-          return { chats: [] }
-        throw error
-      }),
-      command<{ projects: DaemonProject[] }>('listProjects').catch(() => ({
-        projects: [],
-      })),
-      options.getNotificationSettings(),
-    ])
+    const [live, archived, projects, settings, aideWorkspaces] =
+      await Promise.all([
+        command<{ chats: DaemonChat[] }>('listSessions'),
+        // why: pitwall answers `unsupported` for archived chats until it lists them (CHANGELOG, web clients).
+        command<{ chats: DaemonChat[] }>('listSessions', {
+          archived: true,
+        }).catch((error) => {
+          if (
+            error instanceof DaemonCommandError &&
+            error.code === 'unsupported'
+          )
+            return { chats: [] }
+          throw error
+        }),
+        command<{ projects: DaemonProject[] }>('listProjects').catch(() => ({
+          projects: [],
+        })),
+        options.getNotificationSettings(),
+        options.getWorkspaces(),
+      ])
+    const aideIds = workspaceIds(projects.projects, aideWorkspaces)
+    const panes = paneIds()
     const workspaces = new Map<
       string,
       { branch: string; label: string; project: string }
@@ -526,10 +575,13 @@ export function createDaemonTransport(
     ] as const) {
       for (const chat of chats) {
         const workspace = workspaces.get(chat.workspaceId)
+        const id = panes.get(chat.id) ?? chat.id
+        const workspaceId = aideIds.get(chat.workspaceId) ?? chat.workspaceId
+        // why: aide opens a task in its own workspace and pane, so pitwall's ids would not find either.
         tasks.set(chat.id, {
-          sessionId: chat.id,
-          paneId: chat.id,
-          workspaceId: chat.workspaceId,
+          sessionId: id,
+          paneId: paneOf(id, workspaceId),
+          workspaceId,
           projectName: workspace?.project ?? '',
           workspaceName: workspace?.label ?? '',
           branchName: workspace?.branch ?? '',
@@ -628,15 +680,28 @@ export function createDaemonTransport(
       }
     },
     getSessions: async () => {
-      const { chats } = await command<{ chats: DaemonChat[] }>('listSessions')
-      const states = await Promise.all(chats.map((chat) => read(chat.id)))
+      const [{ chats }, { projects }, aideWorkspaces] = await Promise.all([
+        command<{ chats: DaemonChat[] }>('listSessions'),
+        command<{ projects: DaemonProject[] }>('listProjects'),
+        options.getWorkspaces(),
+      ])
+      // why: the built-in backend returns only aide's own sessions; a daemon also runs chats in folders aide never opened.
+      const aideIds = workspaceIds(projects, aideWorkspaces)
+      const panes = paneIds()
       const snapshots: Record<string, ManagedSessionSnapshot> = {}
-      for (const state of states) {
-        if (state) snapshots[state.snapshot.sessionId] = state.snapshot
-      }
-      for (const [sessionId, chat] of chatIds) {
-        if (snapshots[chat]) snapshots[sessionId] = snapshots[chat]
-      }
+      await Promise.all(
+        chats.map(async (chat) => {
+          const workspaceId = aideIds.get(chat.workspaceId)
+          const snapshot = workspaceId && (await read(chat.id))?.snapshot
+          if (!snapshot) return
+          const id = panes.get(chat.id) ?? chat.id
+          snapshots[id] = {
+            ...snapshot,
+            paneId: paneOf(id, workspaceId),
+            workspaceId,
+          }
+        }),
+      )
       return snapshots
     },
     getSavedSession: async (sessionId) =>
@@ -731,8 +796,65 @@ export function createDaemonTransport(
       }
       await command('fork', { sessionId, turnId })
     },
-    implementPlanInNewThread: () =>
-      unsupported('implementing a plan in a new chat'),
+    implementPlanInNewThread: async (sessionId, requestId) => {
+      const source = await currentSnapshot(sessionId)
+      const approval = source.pendingApprovals.find(
+        (request) => request.id === requestId,
+      )
+      const plan =
+        approval?.requestType === 'plan-approval'
+          ? readPlanText(approval)
+          : null
+      if (!plan) {
+        throw new DaemonCommandError(
+          'not-found',
+          'The plan is no longer pending.',
+        )
+      }
+      const [{ projects }, aideWorkspaces] = await Promise.all([
+        command<{ projects: DaemonProject[] }>('listProjects'),
+        options.getWorkspaces(),
+      ])
+      const dir = projects
+        .flatMap((project) => project.workspaces)
+        .find((workspace) => workspace.id === source.workspaceId)?.path
+      const workspaceId = aideWorkspaces.find(
+        (workspace) => workspace.path === dir,
+      )?.id
+      if (!dir || !workspaceId) {
+        throw new DaemonCommandError(
+          'not-found',
+          "The plan's workspace is not open in aide.",
+        )
+      }
+      // Same ids as aide's built-in backend, so the new chat lists under its own pane.
+      const paneId = `agent::copy-plan-${crypto.randomUUID()}`
+      const { sessionId: chat } = await command<{ sessionId: string }>(
+        'start',
+        {
+          dir,
+          provider: source.provider,
+          model: source.model ?? undefined,
+          effort: source.effort ?? undefined,
+          permissionMode: 'default',
+        },
+      )
+      const newId = `${workspaceId}:${paneId}`
+      chatIds.set(newId, chat)
+      options.chatIds?.save(Object.fromEntries(chatIds))
+      await command('send', {
+        sessionId: chat,
+        text: `Implement this plan:\n\n${plan}`,
+      })
+      await command('resolveApproval', {
+        sessionId,
+        requestId,
+        decision: DECISIONS.deny,
+        reason:
+          'The user is implementing this plan in a new thread. Stop here.',
+      })
+      await options.openTask(newId)
+    },
     getCheckpointDiff: () => unsupported('checkpoint diffs'),
     previewRewind: async (sessionId, checkpointId) => {
       const snapshot = await currentSnapshot(sessionId)

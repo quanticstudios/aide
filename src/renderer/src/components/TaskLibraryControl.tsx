@@ -7,6 +7,7 @@ import type {
   TaskLibrarySnapshot,
   TaskMetadataUpdate,
 } from '../../../shared/task-library'
+import { onDaemonTaskOpen } from '../lib/session-backend'
 import { getSessionTransport } from '../lib/session-transport'
 import IconTooltip from './ui/icon-tooltip'
 
@@ -129,29 +130,33 @@ export default function TaskLibraryControl({
     [onOpenTask, refresh],
   )
 
-  useEffect(
-    () =>
-      window.aide?.onTaskOpen((sessionId) => {
-        void getSessionTransport()
-          ?.listSessions()
-          .then((snapshot) => {
-            const task = snapshot.tasks.find(
-              (item) => item.sessionId === sessionId,
-            )
-            if (task) return openTask(task)
-            throw new Error('This conversation is no longer available.')
-          })
-          .catch((failure) => {
-            setMode('activity')
-            setError(
-              failure instanceof Error
-                ? failure.message
-                : 'Could not open the task.',
-            )
-          })
-      }),
-    [openTask],
-  )
+  useEffect(() => {
+    const open = (sessionId: string) => {
+      void getSessionTransport()
+        ?.listSessions()
+        .then((snapshot) => {
+          const task = snapshot.tasks.find(
+            (item) => item.sessionId === sessionId,
+          )
+          if (task) return openTask(task)
+          throw new Error('This conversation is no longer available.')
+        })
+        .catch((failure) => {
+          setMode('activity')
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : 'Could not open the task.',
+          )
+        })
+    }
+    const offMain = window.aide?.onTaskOpen(open)
+    const offDaemon = onDaemonTaskOpen(open)
+    return () => {
+      offMain?.()
+      offDaemon()
+    }
+  }, [openTask])
 
   async function update(task: SavedTask, input: TaskMetadataUpdate) {
     const transport = getSessionTransport()

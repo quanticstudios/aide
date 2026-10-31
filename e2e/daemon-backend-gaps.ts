@@ -20,10 +20,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   // agent-hotkeys.spec.ts
   [
-    'opens each composer menu, closes it with Escape, then interrupts',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
-  ],
-  [
     'steers a running Codex turn with the next message',
     "pitwall's web protocol cannot switch a chat to another provider",
   ],
@@ -35,11 +31,11 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   // agent-message-queue.spec.ts
   [
     'queues on Enter, steers on Mod+Enter, then sends one per finished turn',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    "pitwall keeps queued messages in the chat's config, not its snapshot, so no queued row shows; aide's transport has no updateQueue either",
   ],
   [
     'keeps the queue across a renderer reload and promotes one to steer',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    "pitwall keeps queued messages in the chat's config, not its snapshot, so no queued row shows; aide's transport has no updateQueue either",
   ],
   // agent-rewind.spec.ts
   [
@@ -87,27 +83,18 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'edits the global gate layer in Settings and lets a workspace override win',
     'configured agents (setAgents) are aide-only; pitwall answers unsupported',
   ],
-  // plan-card.spec.ts
-  [
-    'refines, implements and implements a plan in a new thread',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
-  ],
   // shared-model-chat.spec.ts
   [
-    'waits for model discovery before selecting a skill or sending with Enter',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
-  ],
-  [
     'distinguishes Codex activity from the final response',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'keeps copy actions below the response and copies only reply text',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'branches a response into an independent same-workspace conversation',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'chats in an ordinary folder without Git and restores the project after restart',
@@ -115,99 +102,99 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   [
     'reopens a closed Agent conversation while New chat and other workspaces stay fresh',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'selects the highlighted agent mention with the keyboard',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'keeps the composer responsive during a sustained Codex stream',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'reattaches to a Codex stream after a renderer reload with the same transcript',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'navigates the conversation minimap with scrolling, clicks and keyboard',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'keeps model and effort controls available during a reply and applies the next choice after it finishes',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'shows provider reasoning options and applies keyboard selections',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'clears accepted drafts and restores only an untouched failed submission',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'ranks skill names first and removes stale suggestions while typing',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'runs a Claude skill with its owner and clears opinion recipients',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'switches to a Codex skill owner and restores its draft in a narrow pane',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'opens fleet Plan first, accepts reported work, and shows actual routing after restart',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'searches, archives and reopens saved tasks with durable attention state',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'opens settings with searchable shortcuts and persists preferences without losing the draft',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'hands a follow-up with images to the running agent',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'sends Codex follow-ups immediately through required Jev preparation',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'labels a running Codex opinion response under a Claude parent',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'attaches a selected workspace file to a required-Jev turn',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'preserves a ten-megabyte image draft across renderer reload',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'keeps the orchestrator while tagged opinions retain model attribution in Build and Plan',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'closes the configured agents popover on an outside click',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'closes the configured agents popover on Escape and refocuses the trigger',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'preserves a completed opinion when a peer fails, then interrupts only the pending peer',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   [
     'rounds the settings select menu and the model selector popover to 8px',
-    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
   ],
   // task-notifications.spec.ts
   [

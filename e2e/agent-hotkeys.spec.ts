@@ -166,8 +166,11 @@ test.describe('agent pane hotkeys', () => {
     await expect
       .poll(() => getSnapshot(page))
       .toMatchObject({
+        // why: aide's backend calls a stopped turn cancelled, pitwall interrupted; both draw the same.
         turns: expect.arrayContaining([
-          expect.objectContaining({ state: 'cancelled' }),
+          expect.objectContaining({
+            state: expect.stringMatching(/^(cancelled|interrupted)$/),
+          }),
         ]),
       })
 
