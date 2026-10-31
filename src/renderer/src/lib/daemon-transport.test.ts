@@ -94,6 +94,7 @@ class MockDaemon {
     'read',
     'send',
     'interrupt',
+    'updateQueue',
     'resolveApproval',
     'resolveInput',
     'set',
@@ -182,7 +183,14 @@ class MockDaemon {
       } else {
         ok({
           chats: state
-            ? [{ id: SESSION_ID, title: 'Chat', workspaceId: 'workspace-1' }]
+            ? [
+                {
+                  id: SESSION_ID,
+                  title: 'Chat',
+                  workspaceId: 'workspace-1',
+                  recentPrompt: 'Explain the build setup',
+                },
+              ]
             : [],
         })
       }
@@ -512,6 +520,95 @@ describe('DaemonTransport', () => {
         'Update aide: pitwall speaks web delta version 2 and this aide speaks 1.',
     })
     expect(daemon.latest.closed).toBe(true)
+  })
+
+  it('streams queued inputs and usage limits into the existing snapshot', async () => {
+    daemon.emit(fixture.deltas[0])
+    start()
+    const updates = watch()
+    await settle()
+    const envelope = {
+      version: 1 as const,
+      sessionId: SESSION_ID,
+      revision: 2,
+      updatedAt: '2030-01-01T00:00:00.000Z',
+    }
+    const queuedInputs = [
+      {
+        id: 'q1',
+        text: 'later',
+        createdAt: envelope.updatedAt,
+        attachments: [],
+        recipients: [],
+      },
+    ]
+    daemon.emit({
+      ...envelope,
+      type: 'session.patch',
+      seq: 2,
+      set: { queuedInputs, queuePaused: true },
+    })
+    const limit = {
+      provider: 'claude',
+      limitId: 'five_hour',
+      label: '5-hour limit',
+      resetsAt: '2030-01-01T05:00:00.000Z',
+    } as const
+    daemon.emit({ ...envelope, type: 'limit', seq: 3, limit })
+    expect(lastSnapshot(updates)).toMatchObject({
+      queuedInputs,
+      queuePaused: true,
+      usageLimit: limit,
+    })
+    daemon.emit({ ...envelope, type: 'limit', seq: 4, limit: null })
+    expect(lastSnapshot(updates)?.usageLimit).toBeUndefined()
+  })
+
+  it('maps every queue action to an atomic daemon command', async () => {
+    daemon.emit(fixture.deltas[0])
+    start()
+    await settle()
+    for (const action of [
+      { type: 'edit', id: 'q1', text: 'revised' },
+      { type: 'move', id: 'q1', index: 0 },
+      { type: 'remove', id: 'q1' },
+      { type: 'steer', id: 'q1' },
+      { type: 'resume' },
+    ] as const)
+      await transport.updateQueue(SESSION_ID, action)
+    expect(daemon.commands.map(({ id: _id, ...frame }) => frame)).toEqual([
+      {
+        type: 'updateQueue',
+        sessionId: SESSION_ID,
+        action: 'edit',
+        messageId: 'q1',
+        text: 'revised',
+      },
+      {
+        type: 'updateQueue',
+        sessionId: SESSION_ID,
+        action: 'move',
+        messageId: 'q1',
+        index: 0,
+      },
+      {
+        type: 'updateQueue',
+        sessionId: SESSION_ID,
+        action: 'remove',
+        messageId: 'q1',
+      },
+      {
+        type: 'updateQueue',
+        sessionId: SESSION_ID,
+        action: 'steer',
+        messageId: 'q1',
+      },
+      { type: 'updateQueue', sessionId: SESSION_ID, action: 'resume' },
+    ])
+    expect((await transport.listSessions()).tasks[0]).toMatchObject({
+      recentPrompt: 'Explain the build setup',
+      excerpt: 'Explain the build setup',
+    })
   })
 
   it('maps commands to the protocol', async () => {

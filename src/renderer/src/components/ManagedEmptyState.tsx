@@ -35,13 +35,14 @@ export default function ManagedEmptyState({
         )
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       const prompts: string[] = []
-      // why: task titles are cut to 100 characters, so the full first prompt comes from the saved transcript.
+      // why: daemon summaries carry a prompt excerpt; older chats and the built-in backend read the saved transcript.
       for (const task of earlier) {
         if (prompts.length === RECENT_PROMPT_LIMIT) break
-        const transcript = await transport.getSavedSession(task.sessionId)
-        const prompt = transcript?.content
-          .find((item) => item.kind === 'user-prompt')
-          ?.text.trim()
+        const prompt =
+          task.recentPrompt?.trim() ??
+          (await transport.getSavedSession(task.sessionId))?.content
+            .find((item) => item.kind === 'user-prompt')
+            ?.text.trim()
         if (prompt && !prompts.includes(prompt)) prompts.push(prompt)
       }
       if (!cancelled) setRecentPrompts(prompts)

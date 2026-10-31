@@ -8,11 +8,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'counts queued approvals and denies one with composer feedback for Claude and Codex',
     "pitwall's web protocol cannot switch a chat to another provider",
   ],
-  // agent-empty-state.spec.ts
-  [
-    'shows the workspace context and reuses a recent prompt',
-    "recent prompts come from task excerpts, which pitwall's chat list has no field for",
-  ],
   // agent-full-access.spec.ts
   [
     'auto-allows requests the permission mode covers and still asks for the rest',
@@ -27,15 +22,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   [
     'opens, scrolls and follows a 2,000-item transcript',
     'fails on the daemon backend, cause not traced yet: the last of 4,000 items never scrolls into view',
-  ],
-  // agent-message-queue.spec.ts
-  [
-    'queues on Enter, steers on Mod+Enter, then sends one per finished turn',
-    "pitwall keeps queued messages in the chat's config, not its snapshot, so no queued row shows; aide's transport has no updateQueue either",
-  ],
-  [
-    'keeps the queue across a renderer reload and promotes one to steer',
-    "pitwall keeps queued messages in the chat's config, not its snapshot, so no queued row shows; aide's transport has no updateQueue either",
   ],
   // agent-rewind.spec.ts
   [
@@ -210,14 +196,5 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   [
     'keeps checkpoints available through the API without conversation buttons',
     'reads checkpoints through window.aide; the web protocol has no checkpoint list',
-  ],
-  // usage-limit-banners.spec.ts
-  [
-    'resumes once at the reset, in local time, and not after the user typed',
-    "pitwall's snapshot drops limit events, so there is no usageLimit for the banner",
-  ],
-  [
-    'names the fix for a missing CLI',
-    "the fake fails a start only through PITWALL_FAKE_SCRIPT, which is global to the suite's daemon",
   ],
 ]
