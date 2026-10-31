@@ -74,6 +74,8 @@ function applySessionBackend(): void {
       },
       clientVersion: version,
       getEndpoint: () => api.getPitwallEndpoint(),
+      resolveSkill: (workspaceId, skill) =>
+        api.resolveProviderSkill(workspaceId, skill),
       openTask: async (sessionId) => {
         for (const listener of taskOpenListeners) listener(sessionId)
       },
