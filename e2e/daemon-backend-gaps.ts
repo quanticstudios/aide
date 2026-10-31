@@ -3,20 +3,10 @@
  * @remarks Found by running the whole suite with `AIDE_E2E_PITWALL` on 2026-10-31. Delete an entry once its test passes on the daemon.
  */
 export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
-  // agent-approval-cards.spec.ts
-  [
-    'counts queued approvals and denies one with composer feedback for Claude and Codex',
-    "pitwall's web protocol cannot switch a chat to another provider",
-  ],
   // agent-full-access.spec.ts
   [
     'auto-allows requests the permission mode covers and still asks for the rest',
     'pitwall hands the mode to the provider, so a real CLI never asks; the fake asks anyway and nothing auto-allows it or writes aide\'s "Allowed by" line',
-  ],
-  // agent-hotkeys.spec.ts
-  [
-    'steers a running Codex turn with the next message',
-    "pitwall's web protocol cannot switch a chat to another provider",
   ],
   // agent-rewind.spec.ts
   [

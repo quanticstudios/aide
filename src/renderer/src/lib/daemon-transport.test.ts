@@ -639,6 +639,11 @@ describe('DaemonTransport', () => {
       tags: ['a', 'b'],
     })
     await transport.setMode(SESSION_ID, 'build')
+    await transport.setModel(SESSION_ID, {
+      mode: 'codex',
+      model: 'gpt-6.1-sol',
+      effort: 'high',
+    })
     await transport.close(SESSION_ID)
     await expect(
       transport.resolveApproval(SESSION_ID, 'toolu_01', 'accept-for-session'),
@@ -652,6 +657,14 @@ describe('DaemonTransport', () => {
         answers: { branch: ['main'], tags: ['a', 'b'] },
       },
       { type: 'set', sessionId: SESSION_ID, permissionMode: 'default' },
+      { type: 'read', sessionId: SESSION_ID, after: 0 },
+      {
+        type: 'set',
+        sessionId: SESSION_ID,
+        provider: 'codex',
+        model: 'gpt-6.1-sol',
+        effort: 'high',
+      },
       { type: 'read', sessionId: SESSION_ID, after: 0 },
       { type: 'archive', sessionId: SESSION_ID },
       {
