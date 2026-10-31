@@ -204,7 +204,7 @@ function PaneTab({
       className={cn(
         'group/tab flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors',
         isActive
-          ? 'bg-surface-elevated text-foreground'
+          ? 'bg-surface-2 text-foreground'
           : 'text-muted-foreground hover:bg-surface-secondary hover:text-foreground',
       )}
     >

@@ -389,7 +389,7 @@ function getWorkspaceBackgroundClassName(
   if (activity?.state === 'working') return 'sidebar-working-shimmer'
   if (activity?.state === 'connecting') return 'sidebar-working-shimmer'
   if (activity?.state === 'plan-ready') return 'bg-accent-purple-soft'
-  if (isActive) return 'bg-surface-elevated'
+  if (isActive) return 'bg-primary/12'
   return ''
 }
 
