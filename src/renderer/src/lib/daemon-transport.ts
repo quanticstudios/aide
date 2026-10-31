@@ -119,7 +119,7 @@ export interface DaemonTransportOptions {
   readonly openTask: (sessionId: string) => Promise<void>
   /** aide's own task library: its notification settings, and the attention and read state of every chat reported to it. */
   readonly aideTasks: Pick<SessionTransport, 'listSessions' | 'updateSession'>
-  /** Hands Electron main each snapshot of a chat in one of aide's panes under aide's ids, or null once it is gone, so the sidebar, notifications and badge cover it. */
+  /** Hands Electron main each snapshot of a chat in one of aide's workspaces under aide's ids, or null once it is gone, so the sidebar, notifications and badge cover it; the transport then stays subscribed to every such chat, shown in a pane or not. */
   readonly reportSession?: (
     sessionId: string,
     snapshot: ManagedSessionSnapshot | null,
@@ -285,6 +285,9 @@ export function createDaemonTransport(
   let disposed = false
   // shortcut: entries are never dropped; prune archived chats once pitwall lists them.
   const chatIds = new Map(Object.entries(options.chatIds?.load() ?? {}))
+  /** Chats in aide's workspaces that stay subscribed with no pane listening, so main hears of them. */
+  const watched = new Set<string>()
+  const watchAll = Boolean(options.reportSession)
 
   /** pitwall's id for a session: the chat it started for aide's id, else the id itself. */
   function chatId(sessionId: string): string {
@@ -406,7 +409,7 @@ export function createDaemonTransport(
           status: 'connected',
           server: `${message.server.name} ${message.server.version}`,
         })
-        if (listListeners.size) void quietly('subscribeSessions')
+        if (listListeners.size || watchAll) void quietly('subscribeSessions')
         for (const [sessionId, entry] of sessions) {
           subscribe(sessionId, entry.state?.seq ?? 0)
         }
@@ -443,8 +446,18 @@ export function createDaemonTransport(
           chats.set(chat.id, chat)
         }
         if (message.type === 'sessionsChanged') {
-          for (const id of message.removed) chats.delete(id)
+          for (const id of message.removed) {
+            chats.delete(id)
+            unwatch(id)
+          }
         }
+        if (
+          watchAll &&
+          (message.type === 'sessions' ? message.chats : message.changed).some(
+            (chat) => !watched.has(chat.id),
+          )
+        )
+          void watchChats()
         for (const listener of listListeners) listener()
         return
     }
@@ -549,6 +562,41 @@ export function createDaemonTransport(
     report(sessionId, null)
   }
 
+  /**
+   * Subscribes to every listed chat in one of aide's workspaces, so a chat no pane shows still reaches main.
+   * @remarks shortcut: a changed chat in a folder aide has not opened asks for the projects again each time; cache them if that ever shows up.
+   */
+  async function watchChats(): Promise<void> {
+    const [{ projects }, aideWorkspaces] = await Promise.all([
+      command<{ projects: DaemonProject[] }>('listProjects'),
+      options.getWorkspaces(),
+    ]).catch(() => [{ projects: [] as DaemonProject[] }, []] as const)
+    const aideIds = workspaceIds(projects, aideWorkspaces)
+    const panes = paneIds()
+    for (const chat of chats.values()) {
+      const workspaceId = aideIds.get(chat.workspaceId)
+      if (!workspaceId || watched.has(chat.id)) continue
+      aideId(chat.id, workspaceId, panes)
+      watched.add(chat.id)
+      if (sessions.has(chat.id)) continue
+      sessions.set(chat.id, {
+        listeners: new Set(),
+        resyncing: false,
+        state: null,
+      })
+      subscribe(chat.id, 0)
+    }
+  }
+
+  /** Stops watching an archived or deleted chat, and drops it unless a pane still shows it. */
+  function unwatch(chat: string): void {
+    if (!watched.delete(chat) || sessions.get(chat)?.listeners.size !== 0)
+      return
+    sessions.delete(chat)
+    report(chat, null)
+    void quietly('unsubscribe', { sessionId: chat })
+  }
+
   /** Reports a chat to main under the `<workspace id>:<pane id>` session id of its aide pane; a chat with no pane yet is not reported. */
   function report(chat: string, snapshot: ManagedSessionSnapshot | null) {
     const id = paneIds().get(chat)
@@ -648,6 +696,22 @@ export function createDaemonTransport(
     return new Map([...chatIds].map(([sessionId, chat]) => [chat, sessionId]))
   }
 
+  /** aide's id for a chat in aide's workspace `workspaceId`, giving a chat started outside aide an Agent pane of its own. */
+  function aideId(
+    chat: string,
+    workspaceId: string,
+    panes: Map<string, string>,
+  ): string {
+    const known = panes.get(chat)
+    if (known) return known
+    // why: a chat started outside aide gets an Agent pane of its own, so opening it shows the chat instead of starting one.
+    const id = `${workspaceId}:agent::copy-pitwall-${chat}`
+    chatIds.set(id, chat)
+    panes.set(chat, id)
+    options.chatIds?.save(Object.fromEntries(chatIds))
+    return id
+  }
+
   /** The pane of aide's session id, which aide builds as `<workspace id>:<pane id>`. */
   function paneOf(sessionId: string, workspaceId: string): string {
     const prefix = `${workspaceId}:`
@@ -699,14 +763,9 @@ export function createDaemonTransport(
       for (const chat of chats) {
         const workspace = workspaces.get(chat.workspaceId)
         const aideWorkspaceId = aideIds.get(chat.workspaceId)
-        let id = panes.get(chat.id)
-        if (!id && aideWorkspaceId) {
-          // why: a chat started outside aide gets an Agent pane of its own, so opening it shows the chat instead of starting one.
-          id = `${aideWorkspaceId}:agent::copy-pitwall-${chat.id}`
-          chatIds.set(id, chat.id)
-          options.chatIds?.save(Object.fromEntries(chatIds))
-        }
-        id ??= chat.id
+        const id = aideWorkspaceId
+          ? aideId(chat.id, aideWorkspaceId, panes)
+          : (panes.get(chat.id) ?? chat.id)
         const workspaceId = aideWorkspaceId ?? chat.workspaceId
         const own = aideTasks.get(id)
         // why: aide opens a task in its own workspace and pane, so pitwall's ids would not find either.
@@ -797,9 +856,14 @@ export function createDaemonTransport(
     listSessions,
     subscribeSessionList: (listener) => {
       listListeners.add(listener)
-      if (listListeners.size === 1) void quietly('subscribeSessions')
+      if (listListeners.size === 1 && !watchAll)
+        void quietly('subscribeSessions')
       return () => {
-        if (listListeners.delete(listener) && listListeners.size === 0) {
+        if (
+          listListeners.delete(listener) &&
+          listListeners.size === 0 &&
+          !watchAll
+        ) {
           void quietly('unsubscribeSessions')
         }
       }
@@ -834,6 +898,8 @@ export function createDaemonTransport(
         // why: start may have moved the entry to the chat pitwall picked.
         const current = chatId(sessionId)
         if (sessions.get(current)?.listeners !== listeners) return
+        // why: main keeps hearing of a chat in aide's workspaces after its pane goes.
+        if (watched.has(current)) return
         sessions.delete(current)
         report(current, null)
         void quietly('unsubscribe', { sessionId: current })
@@ -879,9 +945,9 @@ export function createDaemonTransport(
       if (sessionId !== config.sessionId) {
         chatIds.set(config.sessionId, sessionId)
         options.chatIds?.save(Object.fromEntries(chatIds))
-        // The pane subscribed under its own id before the chat existed.
+        // The pane subscribed under its own id before the chat existed; a watched entry with no pane gives way to it.
         const entry = sessions.get(config.sessionId)
-        if (entry && !sessions.has(sessionId)) {
+        if (entry && !sessions.get(sessionId)?.listeners.size) {
           sessions.delete(config.sessionId)
           sessions.set(sessionId, entry)
           subscribe(sessionId, 0)
