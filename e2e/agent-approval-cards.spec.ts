@@ -44,9 +44,7 @@ async function sendPrompt(page: Page, text: string): Promise<void> {
 
 async function pendingApprovalCount(page: Page): Promise<number> {
   return await page.evaluate(async () => {
-    const session = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )[0]
+    const session = Object.values(await window.aideSessions.getSessions())[0]
     return session?.pendingApprovals.length ?? 0
   })
 }
@@ -201,11 +199,9 @@ test.describe('agent approval cards', () => {
     expect(await pendingApprovalCount(page)).toBe(0)
 
     await page.evaluate(async () => {
-      const session = Object.values(
-        await window.aide.getManagedSessionSnapshots(),
-      )[0]
+      const session = Object.values(await window.aideSessions.getSessions())[0]
       if (!session) throw new Error('Session unavailable.')
-      await window.aide.switchManagedSessionProvider(session.sessionId, {
+      await window.aideSessions.setModel(session.sessionId, {
         effort: 'medium',
         mode: 'codex',
         model: 'gpt-5.6-terra',

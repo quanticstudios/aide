@@ -132,9 +132,7 @@ async function prepareSyntheticJev(
 
 async function getOnlySnapshot(page: Page) {
   return await page.evaluate(async () => {
-    const snapshots = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )
+    const snapshots = Object.values(await window.aideSessions.getSessions())
 
     if (snapshots.length !== 1) {
       throw new Error(`Expected one managed session, got ${snapshots.length}.`)
@@ -167,16 +165,14 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
     })
 
   return await page.evaluate(async () => {
-    const snapshots = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )
+    const snapshots = Object.values(await window.aideSessions.getSessions())
     const session = snapshots[0]
 
     if (!session) {
       throw new Error('Managed session did not start.')
     }
 
-    return await window.aide.configureManagedSessionAgents(session.sessionId, [
+    return await window.aideSessions.setAgents(session.sessionId, [
       {
         alias: 'Claude',
         selection: {
@@ -453,7 +449,7 @@ test.describe('shared model chat', () => {
       .poll(() =>
         page.evaluate(
           async (sourceSessionId) =>
-            (await window.aide.getTaskLibrary()).tasks.find(
+            (await window.aideSessions.listSessions()).tasks.find(
               (task) => task.sessionId !== sourceSessionId,
             ) ?? null,
           source.sessionId,
@@ -462,7 +458,7 @@ test.describe('shared model chat', () => {
       .not.toBeNull()
     const branched = await page.evaluate(
       async (sourceSessionId) =>
-        (await window.aide.getTaskLibrary()).tasks.find(
+        (await window.aideSessions.listSessions()).tasks.find(
           (task) => task.sessionId !== sourceSessionId,
         ) ?? null,
       source.sessionId,
@@ -470,11 +466,11 @@ test.describe('shared model chat', () => {
     if (!branched) throw new Error('Branched conversation was not saved.')
 
     const branchSnapshot = await page.evaluate(
-      (sessionId) => window.aide.getTaskTranscript(sessionId),
+      (sessionId) => window.aideSessions.getSavedSession(sessionId),
       branched.sessionId,
     )
     const sourceSnapshot = await page.evaluate(
-      (sessionId) => window.aide.getTaskTranscript(sessionId),
+      (sessionId) => window.aideSessions.getSavedSession(sessionId),
       source.sessionId,
     )
     const discussion = (snapshot: typeof sourceSnapshot) =>
@@ -493,7 +489,7 @@ test.describe('shared model chat', () => {
     await expect
       .poll(async () => {
         const snapshots = await page.evaluate(() =>
-          window.aide.getManagedSessionSnapshots(),
+          window.aideSessions.getSessions(),
         )
         return snapshots[source.sessionId]?.content.some((item) =>
           item.text.includes('take a different path'),
@@ -503,7 +499,7 @@ test.describe('shared model chat', () => {
     await expect
       .poll(async () => {
         const snapshots = await page.evaluate(() =>
-          window.aide.getManagedSessionSnapshots(),
+          window.aideSessions.getSessions(),
         )
         return branched.sessionId
           ? snapshots[branched.sessionId]?.content.some((item) =>
@@ -692,7 +688,7 @@ test.describe('shared model chat', () => {
       .poll(() =>
         page.evaluate(
           async (sessionId) =>
-            (await window.aide.getTaskLibrary()).tasks.find(
+            (await window.aideSessions.listSessions()).tasks.find(
               (task) => task.sessionId === sessionId,
             ),
           restoredSession.sessionId,
@@ -767,7 +763,7 @@ test.describe('shared model chat', () => {
     await prompt.press('Enter')
     await expect(prompt).toHaveValue('preserve this draft')
     expect(
-      await page.evaluate(() => window.aide.getManagedSessionSnapshots()),
+      await page.evaluate(() => window.aideSessions.getSessions()),
     ).toEqual({})
     await prompt.fill('/claude-test-skill')
     const skill = page.getByRole('option', { name: /\/claude-test-skill/ })
@@ -862,7 +858,7 @@ test.describe('shared model chat', () => {
     const { page } = launched
     await page.evaluate(
       ({ sessionId }) =>
-        window.aide.switchManagedSessionProvider(sessionId, {
+        window.aideSessions.setModel(sessionId, {
           effort: 'medium',
           mode: 'codex',
           model: 'gpt-5.6-terra',
@@ -895,9 +891,7 @@ test.describe('shared model chat', () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000)
     await expect(prompt).toHaveValue('draft typed during stream')
     const streamedText = await page.evaluate(async (sessionId) => {
-      const snapshot = (await window.aide.getManagedSessionSnapshots())[
-        sessionId
-      ]
+      const snapshot = (await window.aideSessions.getSessions())[sessionId]
       return snapshot?.content
         .filter(
           (item) => item.kind === 'assistant-text' && item.provider === 'codex',
@@ -918,7 +912,7 @@ test.describe('shared model chat', () => {
     const { page } = launched
     await page.evaluate(
       ({ sessionId }) =>
-        window.aide.switchManagedSessionProvider(sessionId, {
+        window.aideSessions.setModel(sessionId, {
           effort: 'medium',
           mode: 'codex',
           model: 'gpt-5.6-terra',
@@ -969,10 +963,7 @@ test.describe('shared model chat', () => {
     for (let index = 0; index < 60; index++) {
       await page.evaluate(
         async ({ id, index }) => {
-          await window.aide.sendManagedSessionInput(
-            id,
-            `Minimap message ${index}`,
-          )
+          await window.aideSessions.send(id, `Minimap message ${index}`)
         },
         { id: session.sessionId, index },
       )
@@ -1054,7 +1045,7 @@ test.describe('shared model chat', () => {
     const { page } = launched
     const session = await startSharedChat(page, app)
     await page.evaluate(
-      async (id) => window.aide.sendManagedSessionInput(id, 'approval'),
+      async (id) => window.aideSessions.send(id, 'approval'),
       session.sessionId,
     )
     // why: the pending approval is published after sendManagedSessionInput resolves, so a bare read can land on the snapshot before it.
@@ -1110,11 +1101,7 @@ test.describe('shared model chat', () => {
     await expect(page.getByText('Next message', { exact: true })).toBeVisible()
     await page.evaluate(
       async ({ sessionId, requestId }) =>
-        window.aide.resolveManagedSessionRequest(
-          sessionId,
-          requestId,
-          'accept',
-        ),
+        window.aideSessions.resolveApproval(sessionId, requestId, 'accept'),
       {
         sessionId: session.sessionId,
         requestId: waiting.pendingApprovals[0].id,
@@ -1169,7 +1156,7 @@ test.describe('shared model chat', () => {
       .poll(() => getOnlySnapshot(page))
       .toMatchObject({ effort: 'low' })
     await page.evaluate(async (sessionId) => {
-      await window.aide.switchManagedSessionProvider(sessionId, {
+      await window.aideSessions.setModel(sessionId, {
         mode: 'codex',
         model: 'gpt-5.6-terra',
         effort: 'medium',
@@ -1536,7 +1523,7 @@ test.describe('shared model chat', () => {
     const session = await startSharedChat(page, app)
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.evaluate(async (sessionId) => {
-      await window.aide.sendManagedSessionInput(sessionId, 'fleet plan')
+      await window.aideSessions.send(sessionId, 'fleet plan')
     }, session.sessionId)
     const drawer = page.getByTestId('fleet-drawer')
     const workspaceContent = page.getByTestId('workspace-content')
@@ -1627,7 +1614,7 @@ test.describe('shared model chat', () => {
       }
     })
     await page.evaluate((sessionId) => {
-      void window.aide.sendManagedSessionInput(sessionId, 'fleet consult')
+      void window.aideSessions.send(sessionId, 'fleet consult')
     }, session.sessionId)
     await expect(
       flow.getByRole('button', {
@@ -1804,7 +1791,7 @@ test.describe('shared model chat', () => {
     ).not.toBeVisible()
     await page.screenshot({ path: test.info().outputPath('task-history.png') })
     const snapshot = await page.evaluate(() =>
-      window.aide.getTaskLibrary('Handled: initialize'),
+      window.aideSessions.listSessions('Handled: initialize'),
     )
     expect(snapshot.tasks.map((entry) => entry.sessionId)).toEqual([
       session.sessionId,
@@ -1822,7 +1809,8 @@ test.describe('shared model chat', () => {
       .uncheck()
     expect(
       await page.evaluate(
-        async () => (await window.aide.getTaskLibrary()).notificationsEnabled,
+        async () =>
+          (await window.aideSessions.listSessions()).notificationsEnabled,
       ),
     ).toBe(false)
   })
@@ -1868,7 +1856,8 @@ test.describe('shared model chat', () => {
     await expect
       .poll(async () =>
         page.evaluate(
-          async () => (await window.aide.getTaskLibrary()).notificationsEnabled,
+          async () =>
+            (await window.aideSessions.listSessions()).notificationsEnabled,
         ),
       )
       .toBe(!wasEnabled)
@@ -2044,7 +2033,7 @@ test.describe('shared model chat', () => {
     const session = await startSharedChat(launched.page, app)
     const { page } = launched
     await page.evaluate(async (sessionId) => {
-      await window.aide.switchManagedSessionProvider(sessionId, {
+      await window.aideSessions.setModel(sessionId, {
         mode: 'codex',
         model: 'gpt-5.6-terra',
         effort: 'medium',

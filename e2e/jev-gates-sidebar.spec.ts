@@ -141,12 +141,10 @@ async function startFleetSession(
     { timeout: 20_000 },
   )
   await page.evaluate(async () => {
-    const snapshots = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )
+    const snapshots = Object.values(await window.aideSessions.getSessions())
     const session = snapshots[0]
     if (!session) throw new Error('Managed session did not start.')
-    await window.aide.configureManagedSessionAgents(session.sessionId, [
+    await window.aideSessions.setAgents(session.sessionId, [
       {
         alias: 'Claude',
         selection: {
