@@ -72,10 +72,11 @@ test.describe('task notifications', () => {
     if (repository) rmSync(repository, { force: true, recursive: true })
   })
 
-  test('names the thread, toasts when focused, notifies the OS otherwise, and badges waiting threads', async () => {
+  /** Opens a project with one Agent pane, notifications and the badge stubbed, and the window unfocused. */
+  async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     repository = createRepository()
     dataDirectory = mkdtempSync(path.join(tmpdir(), 'aide-notify-e2e-data-'))
-    app = await electron.launch({
+    const launched = await electron.launch({
       args: [workspaceDirectory, '--force-device-scale-factor=1'],
       executablePath: path.join(
         workspaceDirectory,
@@ -96,49 +97,52 @@ test.describe('task notifications', () => {
         XDG_SESSION_TYPE: 'x11',
       },
     })
-    await app.evaluate(({ app: electronApp, BrowserWindow, Notification }) => {
-      const scope = globalThis as unknown as {
-        __focused: boolean
-        __notify: Stubbed
-      }
-      scope.__focused = false
-      scope.__notify = { notifications: [], badges: [] }
-      Notification.isSupported = () => true
-      Notification.prototype.show = function (this: Electron.Notification) {
-        scope.__notify.notifications.push({
-          title: this.title,
-          body: this.body,
-          silent: this.silent,
-        })
-      }
-      electronApp.setBadgeCount = (count?: number) => {
-        scope.__notify.badges.push(count ?? 0)
-        return true
-      }
-      BrowserWindow.getFocusedWindow = () =>
-        scope.__focused ? (BrowserWindow.getAllWindows()[0] ?? null) : null
-      globalThis.fetch = async (url, options) => {
-        if (url !== 'https://api.typesafe.ai/v1/systemone')
-          throw new Error(`Unexpected request: ${url}`)
-        const request = JSON.parse(String(options?.body)) as {
-          questions: Record<string, unknown>
+    app = launched
+    await launched.evaluate(
+      ({ app: electronApp, BrowserWindow, Notification }) => {
+        const scope = globalThis as unknown as {
+          __focused: boolean
+          __notify: Stubbed
         }
-        return new Response(
-          JSON.stringify({
-            answers: Object.fromEntries(
-              Object.keys(request.questions).map((key) => [
-                key,
-                { noul: 0.8, type: 'noul' },
-              ]),
-            ),
-            model: 'jev-1.13.0',
-            usage: { input_tokens: 10, output_tokens: 1 },
-          }),
-          { headers: { 'content-type': 'application/json' } },
-        )
-      }
-    })
-    const page = await app.firstWindow()
+        scope.__focused = false
+        scope.__notify = { notifications: [], badges: [] }
+        Notification.isSupported = () => true
+        Notification.prototype.show = function (this: Electron.Notification) {
+          scope.__notify.notifications.push({
+            title: this.title,
+            body: this.body,
+            silent: this.silent,
+          })
+        }
+        electronApp.setBadgeCount = (count?: number) => {
+          scope.__notify.badges.push(count ?? 0)
+          return true
+        }
+        BrowserWindow.getFocusedWindow = () =>
+          scope.__focused ? (BrowserWindow.getAllWindows()[0] ?? null) : null
+        globalThis.fetch = async (url, options) => {
+          if (url !== 'https://api.typesafe.ai/v1/systemone')
+            throw new Error(`Unexpected request: ${url}`)
+          const request = JSON.parse(String(options?.body)) as {
+            questions: Record<string, unknown>
+          }
+          return new Response(
+            JSON.stringify({
+              answers: Object.fromEntries(
+                Object.keys(request.questions).map((key) => [
+                  key,
+                  { noul: 0.8, type: 'noul' },
+                ]),
+              ),
+              model: 'jev-1.13.0',
+              usage: { input_tokens: 10, output_tokens: 1 },
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          )
+        }
+      },
+    )
+    const page = await launched.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await page
       .getByRole('button', { name: /open project/i })
@@ -154,6 +158,12 @@ test.describe('task notifications', () => {
         allowProcessing: true,
       })
     })
+
+    return { app: launched, page }
+  }
+
+  test('names the thread, toasts when focused, notifies the OS otherwise, and badges waiting threads', async () => {
+    const { app, page } = await launch()
 
     await sendPrompt(page, 'Fix checkout')
     await expect
@@ -233,5 +243,52 @@ test.describe('task notifications', () => {
 
     await toast.getByRole('button', { name: 'Open', exact: true }).click()
     await expect.poll(activePaneId).toBe(session.paneId)
+  })
+  test('notifies and badges a pitwall chat that no aide pane shows', async () => {
+    const pitwall = process.env.AIDE_E2E_PITWALL
+    test.skip(
+      !pitwall,
+      'needs AIDE_E2E_PITWALL: only the daemon runs chats aide has no pane for',
+    )
+    const { app, page } = await launch()
+    const chat = (args: string[]) =>
+      execFileSync(pitwall as string, ['chat', ...args], {
+        encoding: 'utf8',
+        env: process.env,
+      }).trim()
+    const id = chat([
+      'new',
+      '--dir',
+      repository as string,
+      '--',
+      'Fix checkout',
+    ])
+    chat(['wait', id, '--until', 'done'])
+    // why: main stays quiet about what a chat did before aide first saw it.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async (chatId) =>
+            (await window.aideSessions.listSessions()).tasks.find((task) =>
+              task.sessionId.endsWith(chatId),
+            )?.activityKey ?? null,
+          id,
+        ),
+      )
+      .not.toBeNull()
+
+    chat(['send', id, '--', 'Ship it'])
+    await expect
+      .poll(async () => (await stubbed(app)).notifications)
+      .toEqual([{ title: 'Fix checkout', body: 'Done', silent: true }])
+    chat(['send', id, '--', 'input'])
+    await expect
+      .poll(async () => (await stubbed(app)).notifications.at(-1))
+      .toEqual({
+        title: 'Fix checkout',
+        body: 'Input needed: What should claude do next?',
+        silent: true,
+      })
+    await expect.poll(async () => (await stubbed(app)).badges.at(-1)).toBe(1)
   })
 })

@@ -947,6 +947,56 @@ describe('DaemonTransport', () => {
     expect(reports.at(-1)).toEqual([id, null])
   })
 
+  it("keeps reporting a chat in aide's workspaces that no pane shows, until pitwall drops it", async () => {
+    daemon.emit(fixture.deltas[0])
+    const id = `aide-workspace:agent::copy-pitwall-${SESSION_ID}`
+    const reports: [string, ManagedSessionSnapshot | null][] = []
+    start({
+      chatIds: { load: () => ({}), save: () => undefined },
+      reportSession: (sessionId, snapshot) =>
+        reports.push([sessionId, snapshot]),
+    })
+    await settle()
+    const chat = { id: SESSION_ID, workspaceId: 'workspace-1' }
+    daemon.latest.push({
+      type: 'sessions',
+      chats: [chat, { id: 'elsewhere', workspaceId: 'workspace-9' }],
+    })
+    await settle()
+    const subscribed = () =>
+      daemon.commands
+        .filter((frame) => frame.type === 'subscribe')
+        .map((frame) => frame.sessionId)
+    expect(subscribed()).toEqual([SESSION_ID])
+    daemon.emit(fixture.deltas[1])
+    expect(reports.at(-1)?.[0]).toBe(id)
+    expect(reports.at(-1)?.[1]?.revision).toBe(
+      daemon.state()?.snapshot.revision,
+    )
+
+    const stop = transport.subscribeSession(id, () => undefined)
+    stop()
+    expect(reports.at(-1)?.[1]).not.toBeNull()
+    daemon.latest.push({
+      type: 'sessionsChanged',
+      changed: [chat],
+      removed: [],
+    })
+    await settle()
+    expect(subscribed()).toEqual([SESSION_ID])
+
+    daemon.latest.push({
+      type: 'sessionsChanged',
+      changed: [],
+      removed: [SESSION_ID],
+    })
+    expect(reports.at(-1)).toEqual([id, null])
+    expect(daemon.commands.at(-1)).toMatchObject({
+      type: 'unsubscribe',
+      sessionId: SESSION_ID,
+    })
+  })
+
   it("takes attention and read state from aide's task library and marks a chat read there", async () => {
     daemon.emit(fixture.deltas[0])
     const id = 'aide-workspace:agent'
