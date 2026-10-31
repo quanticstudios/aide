@@ -14,14 +14,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   // shared-model-chat.spec.ts
   [
-    'keeps model and effort controls available during a reply and applies the next choice after it finishes',
-    'picks a Codex model while a turn waits on an approval; pitwall refuses a provider switch mid-turn, where aide holds it for the next message (ENG-2932)',
-  ],
-  [
-    'distinguishes Codex activity from the final response',
-    "injects a Codex snapshot through aide's own IPC (syncManagedSession, managed-session:event), which the daemon transport never reads",
-  ],
-  [
     'reopens a closed Agent conversation while New chat and other workspaces stay fresh',
     'closing the pane archives its pitwall chat, so the next Agent pane finds no open task to reopen',
   ],

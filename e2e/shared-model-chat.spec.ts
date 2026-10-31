@@ -166,6 +166,8 @@ async function startPlainChat(
   page: Page,
   app: ElectronApplication,
   provider: 'claude' | 'codex' = 'claude',
+  text = 'initialize shared chat',
+  reply = `Handled: ${text}`,
 ) {
   await expect(page.getByText('No project selected')).toBeVisible()
   await page
@@ -190,11 +192,9 @@ async function startPlainChat(
   const prompt = page.getByRole('textbox', {
     name: new RegExp(`${provider} prompt`, 'i'),
   })
-  await prompt.fill('initialize shared chat')
+  await prompt.fill(text)
   await prompt.press('Enter')
-  await expect(page.getByTestId('managed-session-content')).toContainText(
-    'Handled: initialize shared chat',
-  )
+  await expect(page.getByTestId('managed-session-content')).toContainText(reply)
   await expect
     .poll(() => getOnlySnapshot(page))
     .toMatchObject({
@@ -301,58 +301,69 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    await startPlainChat(page, app)
-    const snapshot = await getOnlySnapshot(page)
-    const response = snapshot.content.find(
-      (item) => item.kind === 'assistant-text',
-    )
-    if (!response) throw new Error('Missing assistant response')
-    snapshot.revision += 100
-    snapshot.content = [
-      ...snapshot.content.filter((item) => item.kind !== 'assistant-text'),
-      {
-        ...response,
-        provider: 'codex',
-        model: 'gpt-6-astra',
-        phase: 'commentary',
-        text: '`[aide · geography]` Checking the answer.',
-      },
-      {
-        ...response,
-        id: 'final-answer',
-        provider: 'codex',
-        model: 'gpt-6-astra',
-        phase: 'final_answer',
-        text: '`[aide · geography]` The capital of Japan is Tokyo.',
-      },
-    ]
-    const synced = await page.evaluate(
-      (sessionId) => window.aide.syncManagedSession(sessionId),
-      snapshot.sessionId,
-    )
-    await app.evaluate(
-      ({ BrowserWindow }, { seq, snapshot }) => {
-        BrowserWindow.getAllWindows()[0].webContents.send(
-          'managed-session:event',
-          {
-            deltas: [
-              {
-                revision: snapshot.revision,
-                seq,
-                sessionId: snapshot.sessionId,
-                snapshot,
-                type: 'snapshot',
-                updatedAt: snapshot.updatedAt,
-                version: 1,
-              },
-            ],
-            sessionId: snapshot.sessionId,
-            type: 'deltas',
-          },
-        )
-      },
-      { seq: (synced?.seq ?? 0) + 1, snapshot },
-    )
+    if (process.env.AIDE_E2E_PITWALL) {
+      // why: the daemon transport never reads aide's IPC below; pitwall's fake script streams both phases.
+      await startPlainChat(
+        page,
+        app,
+        'codex',
+        'codex commentary',
+        'The capital of Japan is Tokyo.',
+      )
+    } else {
+      await startPlainChat(page, app)
+      const snapshot = await getOnlySnapshot(page)
+      const response = snapshot.content.find(
+        (item) => item.kind === 'assistant-text',
+      )
+      if (!response) throw new Error('Missing assistant response')
+      snapshot.revision += 100
+      snapshot.content = [
+        ...snapshot.content.filter((item) => item.kind !== 'assistant-text'),
+        {
+          ...response,
+          provider: 'codex',
+          model: 'gpt-6-astra',
+          phase: 'commentary',
+          text: '`[aide · geography]` Checking the answer.',
+        },
+        {
+          ...response,
+          id: 'final-answer',
+          provider: 'codex',
+          model: 'gpt-6-astra',
+          phase: 'final_answer',
+          text: '`[aide · geography]` The capital of Japan is Tokyo.',
+        },
+      ]
+      const synced = await page.evaluate(
+        (sessionId) => window.aide.syncManagedSession(sessionId),
+        snapshot.sessionId,
+      )
+      await app.evaluate(
+        ({ BrowserWindow }, { seq, snapshot }) => {
+          BrowserWindow.getAllWindows()[0].webContents.send(
+            'managed-session:event',
+            {
+              deltas: [
+                {
+                  revision: snapshot.revision,
+                  seq,
+                  sessionId: snapshot.sessionId,
+                  snapshot,
+                  type: 'snapshot',
+                  updatedAt: snapshot.updatedAt,
+                  version: 1,
+                },
+              ],
+              sessionId: snapshot.sessionId,
+              type: 'deltas',
+            },
+          )
+        },
+        { seq: (synced?.seq ?? 0) + 1, snapshot },
+      )
+    }
     const messages = page.getByTestId('managed-content-assistant-text')
     await expect(messages).toHaveCount(2)
     const activity = page.getByTestId('assistant-activity')
