@@ -41,11 +41,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'shows the turn diff chip and expands the turn patch',
     'needs the turn diff; the web protocol has no checkpoint diff yet',
   ],
-  // composer-stash-history.spec.ts
-  [
-    'attaches a long paste and downscales a pasted screenshot',
-    'sends an image attachment, which pitwall refuses for now',
-  ],
   // diff-panel.spec.ts
   [
     'opens a turn file and switches between the three scopes',

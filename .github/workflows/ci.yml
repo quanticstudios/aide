@@ -83,8 +83,8 @@ jobs:
     name: Electron e2e on the pitwall daemon
     runs-on: ubuntu-24.04
     env:
-      # why: pitwall#250 adds snapshot fields on top of #245's pull requests and #247's fakes; move to the first release containing them.
-      PITWALL_COMMIT: 1b3e065adce2692571e41a8dce014875f375ce8a
+      # why: pitwall#254 adds attachments on top of #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
+      PITWALL_COMMIT: 7381f21f009cf12c6fa719017a4eb03e1365fb22
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
