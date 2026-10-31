@@ -106,12 +106,12 @@ async function openAgentPane(
   return { app, page }
 }
 
+// why: null until the session is listed, which on the daemon backend comes a socket round trip after Send; expect.poll retries a failed match but not a thrown error.
 async function getSnapshot(page: Page) {
-  return await page.evaluate(async () => {
-    const session = Object.values(await window.aideSessions.getSessions())[0]
-    if (!session) throw new Error('Managed session did not start.')
-    return session
-  })
+  return await page.evaluate(
+    async () =>
+      Object.values(await window.aideSessions.getSessions())[0] ?? null,
+  )
 }
 
 test.describe('agent pane hotkeys', () => {
