@@ -116,17 +116,18 @@ function SessionList({ transport }: { readonly transport: DaemonTransport }) {
   useEffect(() => {
     if (!isConnected) return
     let isStale = false
-    const load = () =>
-      void transport.listSessions().then(
-        (snapshot) => {
-          if (isStale) return
-          setTasks(snapshot.tasks.filter((task) => !task.archived))
-          setError(null)
-        },
-        (loadError) => !isStale && setError(errorMessage(loadError)),
-      )
-    load()
-    const unsubscribe = transport.subscribeSessionList(load)
+    async function load() {
+      try {
+        const snapshot = await transport.listSessions()
+        if (isStale) return
+        setTasks(snapshot.tasks.filter((task) => !task.archived))
+        setError(null)
+      } catch (loadError) {
+        if (!isStale) setError(errorMessage(loadError))
+      }
+    }
+    void load()
+    const unsubscribe = transport.subscribeSessionList(() => void load())
     return () => {
       isStale = true
       unsubscribe()
