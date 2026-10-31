@@ -121,6 +121,18 @@ export class JevSettings {
     return this.readCredential(settings.credential)
   }
 
+  /** The key and the workspaces without consent, for pitwall's daemon to gate the chats aide starts. */
+  public getDaemonSettings(): {
+    apiKey: string | null
+    disabledRoots: string[]
+  } {
+    const settings = this.read()
+    return {
+      apiKey: this.readCredential(settings.credential),
+      disabledRoots: settings.disabledRoots,
+    }
+  }
+
   public requireApiKey(workspaceRoot: string): string {
     const settings = this.read()
     if (settings.disabledRoots.includes(path.resolve(workspaceRoot))) {

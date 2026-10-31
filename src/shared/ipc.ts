@@ -249,6 +249,9 @@ export interface AvailableEditorDescriptor {
 export const SESSION_BACKEND_ARGUMENT = '--aide-session-backend='
 
 /** Where pitwall's daemon serves the web protocol, read from its `web.json`. */
+/** The `protocol` of pitwall's docs/web-protocol.md that aide speaks. */
+export const DAEMON_PROTOCOL = 1
+
 export interface PitwallEndpoint {
   readonly token: string
   readonly url: string

@@ -115,3 +115,19 @@ it('enables processing for existing settings while retaining explicit opt-outs',
   settings.update('/new', { allowProcessing: true })
   expect(settings.requireApiKey('/new')).toBe('environment-token')
 })
+
+it('hands the key and the workspaces without consent to the daemon', () => {
+  const { settings } = createSettings()
+  expect(settings.getDaemonSettings()).toEqual({
+    apiKey: null,
+    disabledRoots: [],
+  })
+  settings.update('/workspace', {
+    apiKey: 'secret-token',
+    allowProcessing: false,
+  })
+  expect(settings.getDaemonSettings()).toEqual({
+    apiKey: 'secret-token',
+    disabledRoots: ['/workspace'],
+  })
+})

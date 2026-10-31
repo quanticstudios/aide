@@ -45,6 +45,11 @@ export class JevGateSettings {
     )
   }
 
+  /** Every layer, for pitwall's daemon to resolve the gates of the chats aide starts. */
+  public getAll(): z.infer<typeof fileSchema> {
+    return this.read()
+  }
+
   public update(
     scope: JevGateScope,
     workspaceRoot: string | null,

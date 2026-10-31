@@ -1,5 +1,5 @@
 import type { TurnCheckpointPreview } from '../../../shared/checkpoints'
-import type { PitwallStatus } from '../../../shared/ipc'
+import { DAEMON_PROTOCOL, type PitwallStatus } from '../../../shared/ipc'
 import {
   type ManagedSessionDecision,
   type ManagedSessionSnapshot,
@@ -23,8 +23,7 @@ import {
 import type { PlanUsage } from './plan-usage'
 import type { SessionTransport } from './session-transport'
 
-/** The `protocol` of pitwall's docs/web-protocol.md that this transport speaks. */
-export const DAEMON_PROTOCOL = 1
+export { DAEMON_PROTOCOL }
 export const DAEMON_RECONNECT_MIN_MS = 500
 export const DAEMON_RECONNECT_MAX_MS = 10_000
 
