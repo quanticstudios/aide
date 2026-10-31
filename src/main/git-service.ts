@@ -97,11 +97,6 @@ export type GitHubCommandRunner = (
   cwd: string,
 ) => Promise<string>
 
-export type GitMessageGenerator = (input: {
-  prompt: string
-  workspaceId: string
-}) => Promise<string>
-
 const GIT_MESSAGE_KINDS: readonly WorkspaceGitMessageKind[] = [
   'commit',
   'pull-request-body',
@@ -134,45 +129,6 @@ function fallbackGitMessage(
   const list = formatPathList(paths)
 
   return kind === 'pull-request-body' ? `Updates ${list}.` : `Update ${list}`
-}
-
-function gitMessagePrompt(
-  kind: WorkspaceGitMessageKind,
-  paths: readonly string[],
-  diff: string,
-): string {
-  const goal =
-    kind === 'pull-request-body'
-      ? 'Return only a pull request description of at most three sentences for this change.'
-      : `Return only a ${kind === 'commit' ? 'commit subject line' : 'pull request title'} of at most 72 characters for this change.`
-
-  return [
-    goal,
-    'Use no tools, commands, files, or outside context.',
-    `Changed files: ${paths.join(', ') || 'none'}`,
-    'Diff:',
-    truncateDiffOutput(diff).patch,
-  ].join('\n')
-}
-
-function normalizeGeneratedMessage(
-  kind: WorkspaceGitMessageKind,
-  value: string,
-): string | null {
-  const text = value.trim()
-
-  if (kind === 'pull-request-body') {
-    return text.slice(0, MAX_PULL_REQUEST_BODY_LENGTH) || null
-  }
-
-  const subject = (text.split(/\r?\n/, 1)[0] ?? '')
-    .replace(/^["'`]+|["'`]+$/g, '')
-    .replace(/[.]+$/, '')
-    .trim()
-
-  return subject && subject.length <= MAX_PULL_REQUEST_TITLE_LENGTH
-    ? subject
-    : null
 }
 
 function featureBranchName(message: string, now: Date): string {
@@ -565,7 +521,6 @@ export class GitWorkspaceService {
   public constructor(
     private readonly store: GitWorkspaceStore,
     private readonly runGitHubCommand?: GitHubCommandRunner,
-    private readonly generateMessage?: GitMessageGenerator,
   ) {}
 
   public async runWorkspaceMutation<Result>(
@@ -1155,27 +1110,7 @@ export class GitWorkspaceService {
       return this.invalidInput('There are no changes to describe.')
     }
 
-    const fallback = fallbackGitMessage(input.kind, changes.paths)
-    if (
-      !this.generateMessage ||
-      process.env.AIDE_FAKE_MANAGED_PROVIDERS === '1'
-    ) {
-      return { message: fallback, ok: true }
-    }
-
-    try {
-      const generated = await this.generateMessage({
-        prompt: gitMessagePrompt(input.kind, changes.paths, changes.diff),
-        workspaceId: context.workspace.id,
-      })
-
-      return {
-        message: normalizeGeneratedMessage(input.kind, generated) ?? fallback,
-        ok: true,
-      }
-    } catch {
-      return { message: fallback, ok: true }
-    }
+    return { message: fallbackGitMessage(input.kind, changes.paths), ok: true }
   }
 
   public async createWorkspacePullRequest(
