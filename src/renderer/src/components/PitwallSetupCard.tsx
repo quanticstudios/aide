@@ -4,6 +4,7 @@ import type { PitwallStatus } from '../../../shared/ipc'
 
 interface PitwallSetupCardProps {
   readonly onCheckAgain: () => void
+  readonly onUseBuiltIn: () => void
   readonly pitwall: Exclude<PitwallStatus, { status: 'ready' }>
 }
 
@@ -47,9 +48,10 @@ function copyFor(pitwall: PitwallSetupCardProps['pitwall']): {
   }
 }
 
-/** Says why aide cannot reach pitwall and what to run, with a button to look again. */
+/** Says why aide cannot reach pitwall and what to run, with buttons to look again or fall back to built-in sessions. */
 export default function PitwallSetupCard({
   onCheckAgain,
+  onUseBuiltIn,
   pitwall,
 }: PitwallSetupCardProps) {
   const { commands, fix, title } = copyFor(pitwall)
@@ -72,10 +74,13 @@ export default function PitwallSetupCard({
               {command}
             </pre>
           ))}
-          <div className="mt-3">
+          <div className="mt-3 flex gap-2">
             <Button onPress={onCheckAgain} size="sm" variant="secondary">
               <RotateCcw className="size-3.5" />
               Check again
+            </Button>
+            <Button onPress={onUseBuiltIn} size="sm" variant="ghost">
+              Use built-in sessions
             </Button>
           </div>
         </div>

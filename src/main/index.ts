@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -27,6 +27,7 @@ import type {
   WorkspaceGitRevertInput,
 } from '../shared/git'
 import {
+  EXISTING_INSTALL_ARGUMENT,
   IPC_CHANNELS,
   type PitwallEndpoint,
   SESSION_BACKEND_ARGUMENT,
@@ -677,9 +678,20 @@ const renderingConfiguration = resolveRenderingConfiguration({
 applyRenderingConfiguration(app, renderingConfiguration, process.env)
 
 const windowManager = new WindowManager({
-  additionalArguments: process.env.AIDE_SESSION_BACKEND
-    ? [`${SESSION_BACKEND_ARGUMENT}${process.env.AIDE_SESSION_BACKEND}`]
-    : [],
+  additionalArguments: [
+    ...(process.env.AIDE_SESSION_BACKEND
+      ? [`${SESSION_BACKEND_ARGUMENT}${process.env.AIDE_SESSION_BACKEND}`]
+      : []),
+    // why: read before prepareDatabase creates the file on a fresh install.
+    ...(existsSync(
+      getAideDatabasePath({
+        databasePathOverride: process.env.AIDE_DATABASE_PATH,
+        userDataPath: app.getPath('userData'),
+      }),
+    )
+      ? [EXISTING_INSTALL_ARGUMENT]
+      : []),
+  ],
   createBrowserWindow: (options) =>
     new BrowserWindow({
       ...options,
