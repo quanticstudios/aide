@@ -83,8 +83,8 @@ jobs:
     name: Electron e2e on the pitwall daemon
     runs-on: ubuntu-24.04
     env:
-      # why: pitwall#245 (pull requests over the web protocol, on top of #247's fake scripts) merged after v0.1.7; move to the first release that has it.
-      PITWALL_COMMIT: 0b1156e2733b8f5270ed4138dd3a678f07d35c84
+      # why: pitwall#250 adds snapshot fields on top of #245's pull requests and #247's fakes; move to the first release containing them.
+      PITWALL_COMMIT: 1b3e065adce2692571e41a8dce014875f375ce8a
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

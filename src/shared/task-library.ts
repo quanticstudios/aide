@@ -34,6 +34,8 @@ export interface SavedTask extends TaskMetadata {
     | 'idle'
   activityKey: string | null
   unread: boolean
+  /** First prompt excerpt supplied by the daemon chat summary. */
+  recentPrompt?: string
   excerpt: string
 }
 

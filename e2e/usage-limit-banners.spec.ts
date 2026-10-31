@@ -178,6 +178,23 @@ test.describe('usage limit and provider error banners', () => {
 
   test('names the fix for a missing CLI', async () => {
     const page = await openAgentPane('missing-cli')
+    if (process.env.AIDE_E2E_PITWALL) {
+      await page.evaluate(() => {
+        const send = WebSocket.prototype.send
+        WebSocket.prototype.send = function (data) {
+          if (typeof data === 'string') {
+            const frame = JSON.parse(data)
+            if (frame.type === 'start') {
+              data = JSON.stringify({
+                ...frame,
+                fakeStartFailure: 'missing-cli',
+              })
+            }
+          }
+          send.call(this, data)
+        }
+      })
+    }
     const banner = page.getByTestId('thread-error-banner')
 
     await send(page, 'hello')

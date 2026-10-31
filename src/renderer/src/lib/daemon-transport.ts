@@ -134,6 +134,7 @@ export class DaemonCommandError extends Error {
 }
 
 interface DaemonChat {
+  recentPrompt?: string
   id: string
   pending: number
   pr?: DaemonPullRequest
@@ -650,7 +651,8 @@ export function createDaemonTransport(
           status: toTaskStatus(chat),
           activityKey: null,
           unread: false,
-          excerpt: '',
+          excerpt: chat.recentPrompt ?? '',
+          recentPrompt: chat.recentPrompt,
           pinned: false,
           archived: isArchived,
           readActivityKey: null,
@@ -810,7 +812,15 @@ export function createDaemonTransport(
     queue: async (sessionId, text, _recipients, attachments) => {
       await command('send', { sessionId, text, attachments, how: 'queue' })
     },
-    updateQueue: () => unsupported('queue editing'),
+    updateQueue: async (sessionId, action) => {
+      await command('updateQueue', {
+        sessionId,
+        action: action.type,
+        messageId: 'id' in action ? action.id : undefined,
+        text: 'text' in action ? action.text : undefined,
+        index: 'index' in action ? action.index : undefined,
+      })
+    },
     interrupt: async (sessionId) => {
       await command('interrupt', { sessionId })
     },

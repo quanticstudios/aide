@@ -41,20 +41,20 @@ daemon. The rows below call this "`startSharedChat`".
 | Task checklist and subagent row | `agent-tasks` | same | same |  |
 | Thinking live, then collapsed with duration | `agent-thinking` | same | same | Fixed here: pitwall fake `think-stream`. |
 | Empty reply marker | `agent-empty-state` | same | same | Fixed here: pitwall fake `empty reply`. |
-| Empty state recent prompts | `agent-empty-state` | same | gap | Recent prompts come from task excerpts; pitwall's chat list has no field for them (pitwall). |
+| Empty state recent prompts | `agent-empty-state` | same | same | Chat summaries carry the first-prompt excerpt; the existing empty-state UI reads it through DaemonTransport (ENG-2930). |
 | Plan card: Implement, Implement in a new thread, Refine | `plan-card` | same | same | Fixed here: pitwall reports plan mode as `interactionMode` and its fake carries aide's plan; aide's transport implements a plan in a new chat and opens it. |
 | Approvals: keys, command and diff | `agent-approval-cards` | same | same |  |
 | Approvals: counter, deny with feedback | `agent-approval-cards` | same | gap | Fixed here: several open approvals and the denial echo in pitwall's fake. The spec still switches to Codex mid-chat, which pitwall can't (pitwall). |
 | Full access and Auto-accept edits | `agent-full-access` | same | decision | pitwall passes the mode to the CLI, so a real agent never asks and there is no "Allowed by" line. Keep aide's line, or change the spec to expect no request? |
 | Input requests | `electron-navigation` structured runtime events | same | gap | The answer works; the sidebar's "Agent Input" attention comes from aide's task library, which pitwall chats don't update (aide). |
-| Steer and queue, interrupt | `agent-message-queue`, `agent-hotkeys` | same | gap | Interrupt and composer menus: same (pitwall calls a stopped turn `interrupted`, aide `cancelled`; the UI draws both alike and the spec takes either). Queue: pitwall keeps queued messages in the chat's config, not its snapshot, so no queued row shows, and it has no queue editing (pitwall). |
+| Steer and queue, interrupt | `agent-message-queue`, `agent-hotkeys` | same | same | Snapshots carry queuedInputs and queuePaused. Atomic queue edits, moves, deletes, resume and promotion to steer pass agent-message-queue, including renderer reload (ENG-2930). |
 | Rewind | `agent-rewind` | same | gap | Needs a rewind preview and conversation-only rewind in the web protocol (pitwall, after ENG-2691 #237). |
 | Branch a response | `shared-model-chat` branches a response | same | gap | `startSharedChat` (aide); fork goes through the provider after ENG-2691. |
 | Per-turn diff chip, changed-files panel | `agent-turn-diff`, `diff-panel`, `theme-switching` | same | gap | The web protocol has no checkpoint diff (pitwall). |
 | Pull request row: send failures or review, fix in a new thread, merge | `pitwall-pr-flow` | none | same | pitwall only (ENG-2708): the row reads pitwall's PR poll, and the built-in backend has none. Review threads under diff lines are covered by `DiffPanel.test.tsx`; the e2e can't open the diff on the daemon until the checkpoint diff row is fixed. |
 | Turn checkpoints API | `turn-checkpoints` | same | gap | The web protocol has no checkpoint list (pitwall). |
-| Usage-limit banner, resume at reset | `usage-limit-banners` | same | gap | pitwall's snapshot drops limit events, so there is no `usageLimit` (pitwall). The fake now has `usage limit <unix seconds>`. |
-| Auth and missing-CLI banners | `usage-limit-banners` | same | gap | Fixed here: auth (the pane names the fix from `lastError` when the snapshot has no kind). Missing CLI: the fake can only fail starts suite-wide (pitwall). |
+| Usage-limit banner, resume at reset | `usage-limit-banners` | same | same | Snapshots and limit deltas retain the rejected limit and clear it on the next turn. The local-time reset and draft-cancellation spec passes (ENG-2930). |
+| Auth and missing-CLI banners | `usage-limit-banners` | same | same | Auth retries and per-start fake missing-CLI failures pass through the existing error banner (ENG-2930). |
 | Notifications and unread | `task-notifications` | same | gap | Attention state lives in aide's task library; pitwall chats don't feed it (aide). |
 | Task history: search, open, rename | `pitwall-backend`, `shared-model-chat` saved tasks | same | gap | A `pitwall chat new` chat shows without a reload. A chat aide started opens in its own workspace and pane (fixed here); one started elsewhere opens as a new chat (aide). Search and attention: `startSharedChat`. |
 | Task history: archive and reopen | `shared-model-chat` saved tasks | same | gap | Owned by ENG-2707 (import, archived list and read). Reopening an archived chat showed "does not support unarchive"; ENG-2707's PR skips `unarchive` while pitwall lacks it and opens the chat as read-only history. |

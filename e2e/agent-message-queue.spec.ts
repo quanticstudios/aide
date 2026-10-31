@@ -132,7 +132,7 @@ async function startLongTurn(page: Page) {
   await prompt.fill('perf-stream')
   await page.getByRole('button', { name: 'Send prompt' }).click()
   await expect
-    .poll(() => getSnapshot(page))
+    .poll(() => getSnapshot(page).catch(() => null))
     .toMatchObject({ sessionState: 'running' })
   return prompt
 }
