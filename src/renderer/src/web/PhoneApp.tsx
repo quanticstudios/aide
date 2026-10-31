@@ -435,7 +435,12 @@ function NewSession({ transport }: { readonly transport: DaemonTransport }) {
   const [error, setError] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
 
+  const isConnected =
+    useSyncExternalStore(transport.subscribeConnection, transport.getConnection)
+      .status === 'connected'
+
   useEffect(() => {
+    if (!isConnected) return
     void transport.listProjects().then(
       (found) => {
         setProjects(found)
@@ -443,7 +448,7 @@ function NewSession({ transport }: { readonly transport: DaemonTransport }) {
       },
       () => undefined,
     )
-  }, [transport])
+  }, [isConnected, transport])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

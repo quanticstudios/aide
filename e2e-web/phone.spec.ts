@@ -103,6 +103,11 @@ test('starts a session on a phone and answers its approval from the sheet', asyn
   await page.getByRole('link', { name: 'Back to sessions' }).tap()
   await expect(page.getByTestId('phone-session')).not.toHaveCount(0)
   await expectPhoneFit(page)
+
+  // A cold load on New waits for the connection before it lists projects.
+  await page.goto(new URL('#/new', page.url()).href)
+  await page.reload()
+  await expect(page.getByLabel('Folder')).not.toHaveValue('')
 })
 
 test('steers a running turn from the composer, and stops another', async ({
