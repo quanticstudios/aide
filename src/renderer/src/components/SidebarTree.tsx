@@ -1366,7 +1366,7 @@ export default function SidebarTree({
                               </div>
                             </Tooltip.Trigger>
                             <Tooltip.Content
-                              className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
+                              className="rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs text-foreground"
                               placement="right"
                             >
                               {tooltipContent}
