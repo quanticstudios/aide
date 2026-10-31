@@ -18,6 +18,12 @@ const pressableStyle = document.createElement('meta')
 pressableStyle.id = 'react-aria-pressable-style'
 document.head.append(pressableStyle)
 
+const emptyLibrary = async () => ({
+  notificationSoundsEnabled: false,
+  notificationsEnabled: false,
+  tasks: [],
+})
+
 const transport = createDaemonTransport({
   clientVersion: version,
   getEndpoint: () => readBootstrap(),
@@ -26,11 +32,8 @@ const transport = createDaemonTransport({
   openTask: async (sessionId) => {
     window.location.hash = sessionHash(sessionId)
   },
-  // why: notification settings are Electron's; a browser shows none.
-  getNotificationSettings: async () => ({
-    notificationSoundsEnabled: false,
-    notificationsEnabled: false,
-  }),
+  // why: aide's task library (notifications, attention, read state) lives in Electron main; a browser has none.
+  aideTasks: { listSessions: emptyLibrary, updateSession: emptyLibrary },
 })
 // Shared components (the input panel, tool cards) reach the backend through this.
 setSessionTransport(transport)
