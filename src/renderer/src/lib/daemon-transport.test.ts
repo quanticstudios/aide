@@ -106,6 +106,7 @@ class MockDaemon {
     'reviewThreads',
     'prPrompt',
     'mergePR',
+    'fork',
   ]
   protocol = 1
   deltaVersion = 1
@@ -226,7 +227,7 @@ class MockDaemon {
     } else if (frame.type === 'pin') {
       this.pinned = frame.pinned === true
       ok()
-    } else if (frame.type === 'start') {
+    } else if (frame.type === 'start' || frame.type === 'fork') {
       ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
     } else if (frame.type === 'prPrompt') {
       ok({ text: `Fix the ${frame.what}.` })
@@ -753,6 +754,22 @@ describe('DaemonTransport', () => {
     expect(library.tasks).toMatchObject([
       { title: 'Daily review', pinned: true },
     ])
+  })
+
+  it('opens a branch in a pane of its own, as the built-in backend does', async () => {
+    for (const delta of fixture.deltas.slice(0, 17)) daemon.emit(delta)
+    start()
+    await settle()
+    opened = []
+    await transport.fork(SESSION_ID, 'answer-1')
+    expect(
+      daemon.commands.find((frame) => frame.type === 'fork'),
+    ).toMatchObject({ sessionId: SESSION_ID, turnId: 'turn-1' })
+    expect(opened).toEqual([
+      expect.stringMatching(/^aide-workspace:agent::copy-branch-/),
+    ])
+    await transport.interrupt(opened[0])
+    expect(daemon.commands.at(-1)).toMatchObject({ sessionId: SESSION_ID })
   })
 
   it('implements a pending plan in a new chat and denies it in the source', async () => {

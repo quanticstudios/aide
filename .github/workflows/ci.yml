@@ -83,7 +83,7 @@ jobs:
     name: Electron e2e on the pitwall daemon
     runs-on: ubuntu-24.04
     env:
-      # why: pitwall#259 (rename and pin) lands on #251 (checkpoints, turn diffs, rewind preview), #255 and #257 (switch provider); those land on top of #256's Jev gates, #254's attachments, #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
+      # why: pitwall#259 (rename and pin) lands on #251 (checkpoints, turn diffs, rewind preview), #255 and #257 (switch provider); those land on top of #256's Jev gates, #252's permission-mode fakes, #254's attachments, #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
       PITWALL_COMMIT: 1649787ce988818093d9ead5a968a1063971d5a5
     steps:
       # v7.0.1, pinned to the upstream release commit.
