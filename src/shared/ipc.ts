@@ -73,6 +73,7 @@ import type { ProviderCapabilitiesSnapshot } from './provider-capabilities'
 import type {
   ProviderSkillSelection,
   ProviderSkillsSnapshot,
+  ResolvedProviderSkill,
 } from './provider-skills'
 import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
@@ -188,6 +189,7 @@ export const IPC_CHANNELS = {
   openTask: 'tasks:open-request',
   getProviderCapabilities: 'app:get-provider-capabilities',
   getProviderSkills: 'app:get-provider-skills',
+  resolveProviderSkill: 'app:resolve-provider-skill',
   getWorkspacePreviewSnapshot: 'preview:get-workspace-snapshot',
   getWorkspacePreviewSnapshots: 'preview:get-workspace-snapshots',
   getWorkspaceSetupSnapshot: 'workspace-setup:get-snapshot',
@@ -453,6 +455,11 @@ export interface AideApi {
     workspaceId: string,
     forceReload?: boolean,
   ) => Promise<ProviderSkillsSnapshot>
+  /** A selected skill's native name and path, for the daemon backend, which sends them to pitwall. */
+  resolveProviderSkill: (
+    workspaceId: string,
+    skill: ProviderSkillSelection,
+  ) => Promise<ResolvedProviderSkill>
   getWorkspacePreviewSnapshot: (
     workspaceId: string,
   ) => Promise<WorkspacePreviewSnapshot>

@@ -1081,6 +1081,17 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
+    IPC_CHANNELS.resolveProviderSkill,
+    (event, workspaceId: unknown, skill: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      return providerCapabilityService.resolveProviderSkill(
+        workspace.id,
+        workspace.worktreePath,
+        skill,
+      )
+    },
+  )
+  ipcMain.handle(
     IPC_CHANNELS.getWorkspacePreviewSnapshot,
     (_event, workspaceId) => previewManager.ensure(workspaceId),
   )

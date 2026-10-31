@@ -1411,15 +1411,20 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
+    // why: opinion recipients need configured agents (setAgents), which stay on the built-in backend (ENG-2898).
+    const routing = !process.env.AIDE_E2E_PITWALL
+    if (routing) await startSharedChat(launched.page, app)
+    else await startPlainChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
 
-    await prompt.fill('@cod')
-    await page.getByRole('option', { name: /@codex/i }).click()
-    await expect(
-      page.getByRole('button', { name: /Remove @codex/i }),
-    ).toBeVisible()
+    if (routing) {
+      await prompt.fill('@cod')
+      await page.getByRole('option', { name: /@codex/i }).click()
+      await expect(
+        page.getByRole('button', { name: /Remove @codex/i }),
+      ).toBeVisible()
+    }
 
     await prompt.fill('/claude-test-skill')
     await expect(page.getByTestId('managed-slash-menu')).toBeVisible()
@@ -1428,9 +1433,11 @@ test.describe('shared model chat', () => {
     await expect(prompt).toHaveValue('/claude-test-skill')
     await prompt.fill('')
     await selectProviderSkill(page, 'claude-test-skill')
-    await expect(
-      page.getByRole('button', { name: /Remove @codex/i }),
-    ).toBeHidden()
+    if (routing) {
+      await expect(
+        page.getByRole('button', { name: /Remove @codex/i }),
+      ).toBeHidden()
+    }
     await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
       '@Claude · /claude-test-skill ×',
     )
@@ -1460,7 +1467,11 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    // why: opinion recipients need configured agents (setAgents), which stay on the built-in backend (ENG-2898).
+    const routing = !process.env.AIDE_E2E_PITWALL
+    const session = routing
+      ? await startSharedChat(launched.page, app)
+      : await startPlainChat(launched.page, app)
     const { page } = launched
     await page.setViewportSize({ width: 1100, height: 720 })
 
@@ -1468,8 +1479,10 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Terminal', exact: true }).click()
 
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await prompt.fill('@cla')
-    await page.getByRole('option', { name: /@claude/i }).click()
+    if (routing) {
+      await prompt.fill('@cla')
+      await page.getByRole('option', { name: /@claude/i }).click()
+    }
     await prompt.fill('/')
 
     const pane = page.getByTestId('managed-agent-pane')

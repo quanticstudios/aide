@@ -22,14 +22,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
   [
-    'runs a Claude skill with its owner and clears opinion recipients',
-    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
-  ],
-  [
-    'switches to a Codex skill owner and restores its draft in a narrow pane',
-    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
-  ],
-  [
     'opens fleet Plan first, accepts reported work, and shows actual routing after restart',
     'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],

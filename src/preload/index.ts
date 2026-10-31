@@ -208,6 +208,8 @@ const aideApi: AideApi = {
       workspaceId,
       forceReload,
     ),
+  resolveProviderSkill: (workspaceId: string, skill: ProviderSkillSelection) =>
+    ipcRenderer.invoke(IPC_CHANNELS.resolveProviderSkill, workspaceId, skill),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
   getWorkspacePreviewSnapshots: () =>

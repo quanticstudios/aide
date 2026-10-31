@@ -3,7 +3,11 @@ import {
   type TurnCheckpointChange,
   type TurnCheckpointPreview,
 } from '../../../shared/checkpoints'
-import { DAEMON_PROTOCOL, type PitwallStatus } from '../../../shared/ipc'
+import {
+  type AideApi,
+  DAEMON_PROTOCOL,
+  type PitwallStatus,
+} from '../../../shared/ipc'
 import {
   type ManagedSessionDecision,
   type ManagedSessionSnapshot,
@@ -25,6 +29,7 @@ import {
   type ManagedSessionUpdate,
   shareSnapshotContent,
 } from './managed-session-events'
+import type { ProviderSkillSelection } from '../../../shared/provider-skills'
 import type { PlanUsage } from './plan-usage'
 import type { SessionTransport } from './session-transport'
 
@@ -130,6 +135,8 @@ export interface DaemonTransportOptions {
       project?: string
     }[]
   >
+  /** Electron main's native name and path for a selected skill in aide's workspace; without it, a send with a skill is unsupported. */
+  readonly resolveSkill?: AideApi['resolveProviderSkill']
   /** Opens aide's session in its pane, as main's `taskOpen` does after it starts one. */
   readonly openTask: (sessionId: string) => Promise<void>
   /** aide's own task library: its notification settings, and the attention and read state of every chat reported to it. */
@@ -883,6 +890,28 @@ export function createDaemonTransport(
     return { dir, workspaceId }
   }
 
+  /** pitwall's `skill` for `selected`, which Electron main resolves in the chat's aide workspace. */
+  async function resolveSkill(
+    sessionId: string,
+    selected: ProviderSkillSelection | undefined,
+  ): Promise<
+    { id: string; name: string; path?: string; provider: string } | undefined
+  > {
+    if (!selected) return undefined
+    if (!options.resolveSkill) return unsupported('provider skills')
+    const { workspaceId } = await aideWorkspace(
+      (await currentSnapshot(sessionId)).workspaceId,
+      "The chat's workspace is not open in aide.",
+    )
+    const skill = await options.resolveSkill(workspaceId, selected)
+    return {
+      provider: skill.provider,
+      id: skill.id,
+      name: skill.nativeName,
+      path: skill.nativePath,
+    }
+  }
+
   async function set(
     sessionId: string,
     fields: Record<string, unknown>,
@@ -1045,7 +1074,8 @@ export function createDaemonTransport(
       }
       return readSnapshot(sessionId)
     },
-    send: async (sessionId, text, _recipients, attachments) => {
+    send: async (sessionId, text, _recipients, attachments, selectedSkill) => {
+      const skill = await resolveSkill(sessionId, selectedSkill)
       // aide's send steers a running turn; pitwall's default would queue it.
       const snapshot = sessions.get(chatId(sessionId))?.state?.snapshot
       // why: pitwall's busy(). `running` only says the session is alive, and a driver that just started can report ready during its first turn.
@@ -1057,11 +1087,19 @@ export function createDaemonTransport(
         sessionId,
         text,
         attachments,
+        skill,
         how: running ? 'steer' : undefined,
       })
     },
-    queue: async (sessionId, text, _recipients, attachments) => {
-      await command('send', { sessionId, text, attachments, how: 'queue' })
+    queue: async (sessionId, text, _recipients, attachments, selectedSkill) => {
+      const skill = await resolveSkill(sessionId, selectedSkill)
+      await command('send', {
+        sessionId,
+        text,
+        attachments,
+        skill,
+        how: 'queue',
+      })
     },
     updateQueue: async (sessionId, action) => {
       await command('updateQueue', {

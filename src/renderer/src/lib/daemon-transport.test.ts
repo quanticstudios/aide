@@ -698,6 +698,43 @@ describe('DaemonTransport', () => {
     })
   })
 
+  it('sends a selected skill with the native name and path main resolves', async () => {
+    daemon.emit(fixture.deltas[0])
+    const resolved: unknown[] = []
+    start({
+      resolveSkill: async (workspaceId, skill) => {
+        resolved.push([workspaceId, skill])
+        return {
+          ...skill,
+          nativeName: 'release',
+          nativePath: '/skills/release/SKILL.md',
+        }
+      },
+    })
+    await settle()
+    const selection = { provider: 'codex' as const, id: 'codex:skill:ab12' }
+    await transport.queue(SESSION_ID, 'ship it', [], [], selection)
+    expect(resolved).toEqual([['aide-workspace', selection]])
+    expect(daemon.commands.at(-1)).toMatchObject({
+      type: 'send',
+      text: 'ship it',
+      how: 'queue',
+      skill: {
+        provider: 'codex',
+        id: 'codex:skill:ab12',
+        name: 'release',
+        path: '/skills/release/SKILL.md',
+      },
+    })
+
+    transport.dispose()
+    start()
+    await settle()
+    await expect(
+      transport.send(SESSION_ID, 'x', [], [], selection),
+    ).rejects.toThrow('no provider skills')
+  })
+
   it('maps commands to the protocol', async () => {
     daemon.emit(fixture.deltas[0])
     start()
