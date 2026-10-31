@@ -25,7 +25,11 @@ import {
 
 const RECOVERY_DIRECTORY_NAME = 'recovery'
 
-type BackupKind = 'before-migration' | 'damaged' | 'known-good'
+type BackupKind =
+  | 'before-migration'
+  | 'before-session-drop'
+  | 'damaged'
+  | 'known-good'
 
 export type PersistedStateStartupResult =
   | {
@@ -302,6 +306,14 @@ function pruneKnownGoodBackups(paths: RecoveryPaths): void {
       rmSync(backup.path)
     }
   }
+}
+
+/** A copy of the database in `recovery/` before its session tables drop, which nothing prunes. */
+export function backupBeforeSessionDrop(databasePath: string): string {
+  const paths = getRecoveryPaths(databasePath)
+  const backupPath = getBackupPath(paths, 'before-session-drop')
+  createConsistentBackup(paths, paths.databasePath, backupPath)
+  return backupPath
 }
 
 export function inspectPersistedState(

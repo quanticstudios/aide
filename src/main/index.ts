@@ -83,6 +83,7 @@ import { validateManagedSessionAttachments } from './managed-session-attachments
 import { ManagedSessionIpcBroadcaster } from './managed-session-ipc'
 import { ManagedSessionManager } from './managed-session-manager'
 import {
+  backupBeforeSessionDrop,
   preparePersistedState,
   resetPersistedState,
   restoreKnownGoodPersistedState,
@@ -99,6 +100,7 @@ import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
+import { importSessions } from './session-import'
 import { TaskLibrary } from './task-library'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
@@ -353,6 +355,43 @@ function requireJevGateWorktree(
   }
 
   return requireWorkspaceForSetup(event, workspaceId).worktreePath
+}
+
+let sessionImport: Promise<void> | null = null
+
+/**
+ * Moves the sessions aide stored itself into pitwall, once per run, the first time the daemon transport finds the daemon.
+ * @remarks Only the daemon backend asks for the endpoint, so a built-in user keeps their tables. A run that cannot reach pitwall tries again at the next connect.
+ */
+function startSessionImport(endpoint: PitwallEndpoint): void {
+  if (sessionImport) return
+  sessionImport = importSessions({
+    appVersion: app.getVersion(),
+    backup: () =>
+      backupBeforeSessionDrop(
+        getAideDatabasePath({
+          databasePathOverride: process.env.AIDE_DATABASE_PATH,
+          userDataPath: app.getPath('userData'),
+        }),
+      ),
+    database,
+    endpoint,
+  }).then(
+    (result) => {
+      if (result.verified > 0 || result.dropped) {
+        windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
+      }
+      if (result.failed.length > 0) {
+        console.warn(
+          `aide kept ${result.failed.length} sessions pitwall could not import: ${result.failed.join(', ')}`,
+        )
+      }
+    },
+    (error: unknown) => {
+      console.warn('aide could not import its sessions into pitwall:', error)
+      sessionImport = null
+    },
+  )
 }
 
 function prepareDatabase(): boolean {
@@ -1121,6 +1160,7 @@ function registerIpcHandlers(): void {
     pitwallEndpoint = found.status === 'ready' ? found.endpoint : null
     // why: the daemon keeps Jev's settings in memory only, so each connection, a restarted daemon's included, starts after a sync.
     await syncJevToPitwall()
+    if (found.status === 'ready') startSessionImport(found.endpoint)
     return found
   })
   ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {
