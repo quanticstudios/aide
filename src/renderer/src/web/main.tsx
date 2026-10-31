@@ -24,6 +24,8 @@ const emptyLibrary = {
   tasks: [],
 }
 const transport = createDaemonTransport({
+  // why: a browser has no Electron main to hand pitwall aide's Jev key, so its chats take pitwall's ungated path, as other web clients' do.
+  clientName: 'aide-phone',
   clientVersion: version,
   getEndpoint: () => readBootstrap(),
   // why: a browser has no aide workspaces, so every chat keeps pitwall's own ids.

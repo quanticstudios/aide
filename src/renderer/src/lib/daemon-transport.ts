@@ -103,6 +103,8 @@ export interface DaemonTransportOptions {
     load: () => Record<string, string>
     save: (chatIds: Record<string, string>) => void
   }
+  /** The hello name; pitwall gates the chats an `aide` client starts with the Jev settings aide's main process hands over. */
+  readonly clientName?: string
   readonly clientVersion: string
   readonly createSocket?: (url: string) => WebSocket
   /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
@@ -305,7 +307,10 @@ export function createDaemonTransport(
           type: 'hello',
           protocol: DAEMON_PROTOCOL,
           token: endpoint.token,
-          client: { name: 'aide', version: options.clientVersion },
+          client: {
+            name: options.clientName ?? 'aide',
+            version: options.clientVersion,
+          },
         }),
       )
     }
