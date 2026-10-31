@@ -12,7 +12,7 @@ import path from 'node:path'
 
 /**
  * Starts a pitwall daemon of its own when `AIDE_E2E_PITWALL` names a pitwall binary, and points every spec's aide at it.
- * @remarks The daemon gets fresh config, state and runtime folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent or calls GitHub. Without the variable the suite runs on the built-in backend as before.
+ * @remarks The daemon gets fresh config, state, runtime and home folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent, calls GitHub or reads the user's session files. Without the variable the suite runs on the built-in backend as before.
  */
 export default async function globalSetup(): Promise<
   (() => Promise<void>) | undefined
@@ -22,6 +22,7 @@ export default async function globalSetup(): Promise<
   // why: os.tmpdir() keeps the socket path under the 108-byte limit of a Unix socket.
   const root = mkdtempSync(path.join(tmpdir(), 'aide-pitwall-'))
   const folders = {
+    HOME: path.join(root, 'home'),
     XDG_CONFIG_HOME: path.join(root, 'config'),
     XDG_RUNTIME_DIR: path.join(root, 'run'),
     XDG_STATE_HOME: path.join(root, 'state'),
@@ -29,6 +30,7 @@ export default async function globalSetup(): Promise<
   mkdirSync(path.join(folders.XDG_CONFIG_HOME, 'pitwall'), { recursive: true })
   mkdirSync(folders.XDG_RUNTIME_DIR, { mode: 0o700 })
   mkdirSync(folders.XDG_STATE_HOME)
+  mkdirSync(folders.HOME)
   writeFileSync(
     path.join(folders.XDG_CONFIG_HOME, 'pitwall', 'config.toml'),
     '[web]\nenabled = true\n',
@@ -62,6 +64,9 @@ export default async function globalSetup(): Promise<
   // Specs spread process.env into Electron's env, so these reach every aide they launch.
   process.env.AIDE_SESSION_BACKEND = 'pitwall'
   process.env.XDG_STATE_HOME = folders.XDG_STATE_HOME
+  // Where e2e/usage-page.spec.ts writes the session files and config the daemon's readUsage reads.
+  process.env.AIDE_E2E_PITWALL_HOME = folders.HOME
+  process.env.AIDE_E2E_PITWALL_CONFIG = folders.XDG_CONFIG_HOME
   process.env.PITWALL_SOCKET = path.join(
     folders.XDG_RUNTIME_DIR,
     'pitwall',
