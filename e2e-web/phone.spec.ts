@@ -134,6 +134,32 @@ test('steers a running turn from the composer, and stops another', async ({
   ).toBeVisible()
 })
 
+test('starts a new turn for a message sent after the turn ended', async ({
+  page,
+}) => {
+  const sends: unknown[] = []
+  page.on('websocket', (socket) =>
+    socket.on('framesent', ({ payload }) => {
+      const frame = JSON.parse(String(payload))
+      if (frame.type === 'send') sends.push(frame)
+    }),
+  )
+  // The socket opened in beforeEach, before this listener.
+  await page.reload()
+  await startSession(page, 'hello there')
+  await expect(page.getByTestId('phone-app')).toContainText(
+    'Handled: hello there',
+  )
+  const message = page.getByRole('textbox', { exact: true, name: 'Message' })
+  await message.fill('second prompt')
+  await page.getByRole('button', { name: 'Send' }).tap()
+  await expect(page.getByTestId('phone-app')).toContainText(
+    'Handled: second prompt',
+  )
+  // why: pitwall reports an idle chat as running, and a steer to it detours through the queue.
+  expect(sends.at(-1)).not.toHaveProperty('how')
+})
+
 test('answers an input request from the sheet', async ({ page }) => {
   await startSession(page, 'input')
   const sheet = page.getByRole('region', { name: 'Input required' })

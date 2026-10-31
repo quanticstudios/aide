@@ -963,8 +963,10 @@ export function createDaemonTransport(
       return readSnapshot(sessionId)
     },
     send: async (sessionId, text, _recipients, attachments) => {
-      // aide's send steers a running turn; pitwall's default would queue it.
-      const running = sessions.get(chatId(sessionId))?.state?.snapshot.running
+      // aide's send steers a running turn; pitwall's default would queue it. `running` only says the session is alive.
+      const running =
+        sessions.get(chatId(sessionId))?.state?.snapshot.sessionState ===
+        'running'
       await command('send', {
         sessionId,
         text,

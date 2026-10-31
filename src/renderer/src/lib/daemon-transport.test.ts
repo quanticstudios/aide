@@ -595,6 +595,42 @@ describe('DaemonTransport', () => {
     expect(lastSnapshot(updates)?.usageLimit).toBeUndefined()
   })
 
+  it('steers only a running turn, though an idle chat stays running', async () => {
+    daemon.emit(fixture.deltas[0])
+    start()
+    watch()
+    await settle()
+    // The fixture's chat is idle: sessionState ready, running true (the session is alive).
+    await transport.send(SESSION_ID, 'next prompt')
+    daemon.emit({
+      version: 1,
+      sessionId: SESSION_ID,
+      revision: 2,
+      updatedAt: '2030-01-01T00:00:00.000Z',
+      type: 'status',
+      seq: 2,
+      status: 'working',
+      sessionState: 'running',
+      running: true,
+      detail: null,
+      lastCompletedAt: null,
+    })
+    await transport.send(SESSION_ID, 'look at the tests first')
+    expect(
+      daemon.commands
+        .filter(({ type }) => type === 'send')
+        .map(({ id: _id, ...frame }) => frame),
+    ).toEqual([
+      { type: 'send', sessionId: SESSION_ID, text: 'next prompt' },
+      {
+        type: 'send',
+        sessionId: SESSION_ID,
+        text: 'look at the tests first',
+        how: 'steer',
+      },
+    ])
+  })
+
   it('maps every queue action to an atomic daemon command', async () => {
     daemon.emit(fixture.deltas[0])
     start()
