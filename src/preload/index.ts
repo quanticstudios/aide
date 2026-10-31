@@ -7,6 +7,7 @@ import {
   type AideApi,
   IPC_CHANNELS,
   type ManagedSessionIpcEvent,
+  SESSION_BACKEND_ARGUMENT,
 } from '../shared/ipc'
 import type {
   ManagedSessionAttachment,
@@ -178,6 +179,9 @@ const aideApi: AideApi = {
   getDiagnosticsSnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticsSnapshot),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
+  defaultSessionBackend: process.argv
+    .find((argument) => argument.startsWith(SESSION_BACKEND_ARGUMENT))
+    ?.slice(SESSION_BACKEND_ARGUMENT.length),
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
   getUpdatePreferences: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdatePreferences),

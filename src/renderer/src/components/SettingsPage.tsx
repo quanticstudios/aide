@@ -30,6 +30,7 @@ import {
   type SendWhileRunning,
   setSendWhileRunning,
 } from '../lib/send-while-running'
+import { setSessionBackend, useSessionBackend } from '../lib/session-backend'
 import { getSessionTransport } from '../lib/session-transport'
 import {
   getThemePreference,
@@ -277,6 +278,7 @@ export default function SettingsPage({
   const [selectedTheme, setSelectedTheme] =
     useState<ThemePreference>(getThemePreference)
   const fonts = useFontPreference()
+  const sessionBackend = useSessionBackend()
   const [sendWhileRunning, setSendWhileRunningState] =
     useState<SendWhileRunning>(getSendWhileRunning)
 
@@ -390,6 +392,8 @@ export default function SettingsPage({
         'Background task notifications',
         'Show a desktop notification when a background task needs attention',
         'Notification sounds',
+        'Run sessions on the pitwall daemon',
+        'Session backend',
         'Queue messages while the agent works',
         'steer',
       ),
@@ -604,6 +608,15 @@ export default function SettingsPage({
                   }
                   label="Notification sounds"
                   onChange={(isEnabled) => void saveSounds(isEnabled)}
+                />
+                <PreferenceRow
+                  checked={sessionBackend === 'pitwall'}
+                  description="Show pitwall's chats and start new sessions there. Off uses aide's built-in sessions, which stay saved either way."
+                  disabled={false}
+                  label="Run sessions on the pitwall daemon"
+                  onChange={(isPitwall) =>
+                    setSessionBackend(isPitwall ? 'pitwall' : 'built-in')
+                  }
                 />
                 <PreferenceRow
                   checked={sendWhileRunning === 'queue'}

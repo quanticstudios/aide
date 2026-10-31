@@ -26,7 +26,7 @@ import type {
   WorkspaceGitPullRequestInput,
   WorkspaceGitRevertInput,
 } from '../shared/git'
-import { IPC_CHANNELS } from '../shared/ipc'
+import { IPC_CHANNELS, SESSION_BACKEND_ARGUMENT } from '../shared/ipc'
 import { JevGateOverridesSchema } from '../shared/jev-gates'
 import type {
   ManagedSessionDecision,
@@ -677,6 +677,9 @@ const renderingConfiguration = resolveRenderingConfiguration({
 applyRenderingConfiguration(app, renderingConfiguration, process.env)
 
 const windowManager = new WindowManager({
+  additionalArguments: process.env.AIDE_SESSION_BACKEND
+    ? [`${SESSION_BACKEND_ARGUMENT}${process.env.AIDE_SESSION_BACKEND}`]
+    : [],
   createBrowserWindow: (options) =>
     new BrowserWindow({
       ...options,

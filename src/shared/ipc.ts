@@ -244,6 +244,9 @@ export interface AvailableEditorDescriptor {
   readonly label: string
 }
 
+/** How Electron main hands `AIDE_SESSION_BACKEND` to the preload, as `--aide-session-backend=pitwall`. */
+export const SESSION_BACKEND_ARGUMENT = '--aide-session-backend='
+
 /** Where pitwall's daemon serves the web protocol, read from its `web.json`. */
 export interface PitwallEndpoint {
   readonly token: string
@@ -417,6 +420,8 @@ export interface AideApi {
   >
   syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
+  /** The session backend to use until the user picks one in Settings, from `AIDE_SESSION_BACKEND`. */
+  defaultSessionBackend?: string
   /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
   getPitwallEndpoint: () => Promise<PitwallStatus>
   getTaskTranscript: (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
+import { useSessionBackend } from '../lib/session-backend'
 import { getSessionTransport } from '../lib/session-transport'
 
 export function useManagedSessionState(
@@ -10,9 +11,13 @@ export function useManagedSessionState(
     null,
   )
   const revisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
+  const backend = useSessionBackend()
 
   useEffect(() => {
     if (!sessionId) return
+    // why: a backend switch resubscribes through the new transport, whose revisions start over.
+    void backend
+    revisionRef.current = { revision: -1, runtimeGeneration: -1 }
 
     const transport = getSessionTransport()
     if (!transport) return
@@ -55,7 +60,7 @@ export function useManagedSessionState(
     })
 
     return unsubscribe
-  }, [sessionId])
+  }, [backend, sessionId])
 
   return state
 }

@@ -12,6 +12,7 @@ import {
   DAEMON_RECONNECT_MAX_MS,
   DAEMON_RECONNECT_MIN_MS,
   type DaemonTransport,
+  type DaemonTransportOptions,
 } from './daemon-transport'
 import type { ManagedSessionUpdate } from './managed-session-events'
 
@@ -75,6 +76,7 @@ class MockDaemon {
     'resolveInput',
     'set',
     'archive',
+    'start',
   ]
   protocol = 1
   deltaVersion = 1
@@ -147,8 +149,17 @@ class MockDaemon {
     if (frame.type === 'read') {
       if (state) ok({ seq: state.seq, snapshot: state.snapshot, deltas: [] })
       else fail('not-found', 'no chat')
-    } else if (frame.type === 'listSessions') ok({ chats: [] })
-    else if (frame.type === 'resolveApproval') {
+    } else if (frame.type === 'listSessions') {
+      if (frame.archived) {
+        fail('unsupported', 'pitwall does not list archived chats yet')
+      } else {
+        ok({ chats: state ? [{ id: SESSION_ID, title: 'Chat' }] : [] })
+      }
+    } else if (frame.type === 'archive' && frame.sessionId !== SESSION_ID) {
+      fail('not-found', `no chat ${frame.sessionId}`)
+    } else if (frame.type === 'start') {
+      ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
+    } else if (frame.type === 'resolveApproval') {
       fail('conflict', 'toolu_01 was answered from cli')
     } else ok()
     if (frame.type !== 'subscribe') return
@@ -204,7 +215,9 @@ async function settle(ms = 0): Promise<void> {
   await vi.advanceTimersByTimeAsync(ms)
 }
 
-function start(): DaemonTransport {
+function start(
+  overrides: Partial<DaemonTransportOptions> = {},
+): DaemonTransport {
   transport = createDaemonTransport({
     clientVersion: '0.0.3',
     createSocket: (url) => daemon.open(url) as unknown as WebSocket,
@@ -213,6 +226,7 @@ function start(): DaemonTransport {
       notificationsEnabled: true,
       notificationSoundsEnabled: false,
     }),
+    ...overrides,
   })
   return transport
 }
@@ -504,5 +518,54 @@ describe('DaemonTransport', () => {
       'hello',
       'subscribeSessions',
     ])
+  })
+
+  it('lists live chats while pitwall refuses to list archived ones', async () => {
+    daemon.emit(fixture.deltas[0])
+    start()
+    await settle()
+    const library = await transport.listSessions()
+    expect(library.tasks.map((task) => task.sessionId)).toEqual([SESSION_ID])
+  })
+
+  it('binds the session id aide started with to the chat pitwall picked', async () => {
+    daemon.emit(fixture.deltas[0])
+    const saved: Record<string, string>[] = []
+    start({ chatIds: { load: () => ({}), save: (ids) => saved.push(ids) } })
+    await settle()
+    const updates = watch('pane-1')
+    await settle()
+    await transport.start({
+      cwd: '/repo',
+      mode: 'claude',
+      sessionId: 'pane-1',
+    } as Parameters<DaemonTransport['start']>[0])
+    await settle()
+    daemon.emit(fixture.deltas[1])
+    expect(lastSnapshot(updates)).toEqual(daemon.state()?.snapshot)
+    await transport.interrupt('pane-1')
+    expect(daemon.commands.at(-1)).toMatchObject({
+      type: 'interrupt',
+      sessionId: SESSION_ID,
+    })
+    expect(Object.keys(await transport.getSessions())).toEqual([
+      SESSION_ID,
+      'pane-1',
+    ])
+    expect(saved).toEqual([{ 'pane-1': SESSION_ID }])
+
+    transport.dispose()
+    start({ chatIds: { load: () => saved[0], save: () => undefined } })
+    await settle()
+    await transport.interrupt('pane-1')
+    expect(daemon.commands.at(-1)).toMatchObject({ sessionId: SESSION_ID })
+  })
+
+  it('closes a pane that has no chat without an error', async () => {
+    start()
+    await settle()
+    await expect(transport.close('workspace-1:terminal-1')).resolves.toBe(
+      undefined,
+    )
   })
 })

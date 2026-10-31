@@ -79,6 +79,74 @@ jobs:
       - name: Run Electron end-to-end tests under Xvfb
         run: bun run test:e2e
 
+  e2e-pitwall:
+    name: Electron e2e on the pitwall daemon
+    runs-on: ubuntu-24.04
+    env:
+      # why: pitwall#241 (PITWALL_FAKE_PROVIDERS in the daemon) merged after v0.1.7; move to the first release that has it.
+      PITWALL_COMMIT: 528f669fcb5ef953ea9bad0a4de25e55067a3474
+    steps:
+      # v7.0.1, pinned to the upstream release commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # v7.0.1, pinned to the upstream release commit.
+      - name: Check out pitwall
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: quanticstudios/pitwall
+          ref: ${{ env.PITWALL_COMMIT }}
+          path: .pitwall
+          persist-credentials: false
+
+      # v7, the commit pitwall's own CI pins.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: .pitwall/go.mod
+          cache-dependency-path: .pitwall/go.sum
+
+      - name: Install pitwall's native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
+
+      - name: Build pitwall
+        working-directory: .pitwall
+        # why: pitwall's CI and release build Gio's OpenGL path; Vulkan needs headers this runner lacks.
+        env:
+          GOFLAGS: -tags=novulkan
+        run: go build -o "$RUNNER_TEMP/pitwall" ./cmd/pitwall
+
+      # v7.1.0, pinned to the upstream release commit; package.json requires Node 26.13.0.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+
+      # v2.2.0, pinned to the upstream release commit; package.json locks Bun 1.4.4.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.4
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Rebuild native dependencies for Electron
+        run: bun run rebuild:native
+
+      # why: the electron package downloads its binary on first require, and this is the first.
+      - name: Verify native PTY Electron ABI
+        run: bun run test:native
+
+      - name: Install Chromium and its Linux dependencies
+        run: bun run playwright install --with-deps chromium
+
+      # e2e/pitwall-daemon.ts starts the daemon with fake providers in temp folders.
+      - name: Run Electron end-to-end tests on the pitwall daemon under Xvfb
+        run: AIDE_E2E_PITWALL="$RUNNER_TEMP/pitwall" bun run test:e2e
+
   perf-budget:
     name: Perf budget
     runs-on: ubuntu-24.04
