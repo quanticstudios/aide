@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       # why: pitwall#259 (rename and pin) lands on #251 (checkpoints, turn diffs, rewind preview), #255 and #257 (switch provider); those land on top of #256's Jev gates, #252's permission-mode fakes, #254's attachments, #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
-      PITWALL_COMMIT: a0abd4a8bfc72e214dbdc751aa256501b9d94357
+      PITWALL_COMMIT: db58e2bfeb5e418fafc190261da1459e0c03155c
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
