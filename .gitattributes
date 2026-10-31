@@ -1,3 +1,6 @@
 
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads
+
+# why: SHA256SUMS checks these byte for byte, so no checkout may change their line endings.
+fixtures/web-protocol/** -text
