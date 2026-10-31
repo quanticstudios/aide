@@ -1,6 +1,7 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { useSyncExternalStore } from 'react'
 import type { DaemonTransport } from '../lib/daemon-transport'
+import { setSessionBackend } from '../lib/session-backend'
 import PitwallSetupCard from './PitwallSetupCard'
 
 interface DaemonConnectionBannerProps {
@@ -24,6 +25,7 @@ export default function DaemonConnectionBanner({
     return (
       <PitwallSetupCard
         onCheckAgain={transport.checkAgain}
+        onUseBuiltIn={() => setSessionBackend('built-in')}
         pitwall={connection.pitwall}
       />
     )

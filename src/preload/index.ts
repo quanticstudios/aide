@@ -5,6 +5,7 @@ import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import {
   type AideApi,
+  EXISTING_INSTALL_ARGUMENT,
   IPC_CHANNELS,
   type ManagedSessionIpcEvent,
   SESSION_BACKEND_ARGUMENT,
@@ -182,6 +183,7 @@ const aideApi: AideApi = {
   defaultSessionBackend: process.argv
     .find((argument) => argument.startsWith(SESSION_BACKEND_ARGUMENT))
     ?.slice(SESSION_BACKEND_ARGUMENT.length),
+  isExistingInstall: process.argv.includes(EXISTING_INSTALL_ARGUMENT),
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
   reportDaemonSession: (sessionId, snapshot) =>
     ipcRenderer.invoke(IPC_CHANNELS.reportDaemonSession, sessionId, snapshot),

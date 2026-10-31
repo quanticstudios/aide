@@ -3,17 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AideApi } from '../../../shared/ipc'
 import { isDaemonTransport } from './daemon-transport'
 import {
+  dismissDaemonDefaultNotice,
   getSessionBackend,
   initializeSessionBackend,
+  isDaemonDefaultNoticeDue,
   setSessionBackend,
 } from './session-backend'
 import { getSessionTransport } from './session-transport'
 
-function stubWindow(defaultSessionBackend?: string) {
+function stubWindow(defaultSessionBackend?: string, isExistingInstall = true) {
   const storage = new Map<string, string>()
   const api = {
     closeManagedSession: vi.fn(),
     defaultSessionBackend,
+    isExistingInstall,
     getPitwallEndpoint: vi.fn(async () => null),
   }
   vi.stubGlobal('window', {
@@ -37,13 +40,36 @@ afterEach(() => {
 })
 
 describe('session backend', () => {
-  it('is built-in unless the user or AIDE_SESSION_BACKEND picks pitwall', () => {
+  it('is pitwall unless the user or AIDE_SESSION_BACKEND picks built-in', () => {
     stubWindow()
-    expect(getSessionBackend()).toBe('built-in')
-    stubWindow('pitwall')
     expect(getSessionBackend()).toBe('pitwall')
+    stubWindow('built-in')
+    expect(getSessionBackend()).toBe('built-in')
+    stubWindow()
     setSessionBackend('built-in')
     expect(getSessionBackend()).toBe('built-in')
+  })
+
+  it('shows the default notice once to an upgraded install on the default', () => {
+    stubWindow()
+    initializeSessionBackend()
+    expect(isDaemonDefaultNoticeDue()).toBe(true)
+    dismissDaemonDefaultNotice()
+    initializeSessionBackend()
+    expect(isDaemonDefaultNoticeDue()).toBe(false)
+  })
+
+  it('skips the default notice on a fresh install, a picked backend or an override', () => {
+    stubWindow(undefined, false)
+    initializeSessionBackend()
+    expect(isDaemonDefaultNoticeDue()).toBe(false)
+
+    stubWindow()
+    setSessionBackend('pitwall')
+    expect(isDaemonDefaultNoticeDue()).toBe(false)
+
+    stubWindow('built-in')
+    expect(isDaemonDefaultNoticeDue()).toBe(false)
   })
 
   it('swaps the transport both ways without closing built-in sessions', () => {

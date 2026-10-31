@@ -250,6 +250,9 @@ export interface AvailableEditorDescriptor {
 /** How Electron main hands `AIDE_SESSION_BACKEND` to the preload, as `--aide-session-backend=pitwall`. */
 export const SESSION_BACKEND_ARGUMENT = '--aide-session-backend='
 
+/** Set by Electron main when aide's database existed before this launch, so an upgrade and not a fresh install. */
+export const EXISTING_INSTALL_ARGUMENT = '--aide-existing-install'
+
 /** Where pitwall's daemon serves the web protocol, read from its `web.json`. */
 /** The `protocol` of pitwall's docs/web-protocol.md that aide speaks. */
 export const DAEMON_PROTOCOL = 1
@@ -428,6 +431,8 @@ export interface AideApi {
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
   /** The session backend to use until the user picks one in Settings, from `AIDE_SESSION_BACKEND`. */
   defaultSessionBackend?: string
+  /** Whether aide's database existed before this launch. */
+  isExistingInstall?: boolean
   /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
   getPitwallEndpoint: () => Promise<PitwallStatus>
   /** Hands main a pitwall chat's snapshot under aide's ids, or null once it is gone, for sidebar activity, notifications, badge and unread. */

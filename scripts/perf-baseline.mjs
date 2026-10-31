@@ -206,6 +206,8 @@ const app = await electron.launch({
     AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
     AIDE_FAKE_MANAGED_PROVIDERS: '1',
     AIDE_FAKE_STREAM_SECONDS: String(config.durationSeconds + 60),
+    // why: the budget measures aide's own fake providers, and CI has no pitwall daemon.
+    AIDE_SESSION_BACKEND: 'built-in',
     AIDE_SOFTWARE_RENDERING: '1',
     AIDE_TEST_PROJECT_PICK_PATH: repository,
     ELECTRON_OZONE_PLATFORM_HINT: 'x11',

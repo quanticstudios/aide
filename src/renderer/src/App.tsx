@@ -42,6 +42,7 @@ import type {
 } from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
 import DaemonConnectionBanner from './components/DaemonConnectionBanner'
+import DaemonDefaultNotice from './components/DaemonDefaultNotice'
 import OverlayLoadBoundary from './components/OverlayLoadBoundary'
 import PaneCloseDialog from './components/PaneCloseDialog'
 import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
@@ -3039,7 +3040,10 @@ function WorkspaceApp() {
           snapshots={previewSnapshots}
         />
         {isDaemonTransport(sessionTransport) ? (
-          <DaemonConnectionBanner transport={sessionTransport} />
+          <>
+            <DaemonConnectionBanner transport={sessionTransport} />
+            <DaemonDefaultNotice />
+          </>
         ) : null}
       </>
     </AppShell>

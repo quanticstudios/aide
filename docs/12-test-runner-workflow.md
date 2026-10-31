@@ -22,6 +22,10 @@ This repo uses multiple test entrypoints on purpose.
   - The Electron launch helper sets `AIDE_SOFTWARE_RENDERING=1` so headless CI
     uses the same explicit software fallback available to support.
   - Use this for desktop navigation behavior and Electron-only regressions.
+  - Runs on the built-in session backend: `e2e/pitwall-daemon.ts` sets
+    `AIDE_SESSION_BACKEND=built-in`, since pitwall is the default and this run
+    has no daemon. `e2e/session-backend-default.spec.ts` clears it to test the
+    default.
 
 - `AIDE_E2E_PITWALL=/path/to/pitwall xvfb-run -a bun run test:e2e`
   - Runs the same suite on the pitwall daemon backend, as CI's

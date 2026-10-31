@@ -10,6 +10,7 @@ export type SessionBackend = 'built-in' | 'pitwall'
 const STORAGE_KEY = 'aide.session-backend'
 const CHAT_IDS_KEY = 'aide.pitwall-chat-ids'
 const CLOSED_CHATS_KEY = 'aide.pitwall-closed-chats'
+const NOTICE_KEY = 'aide.pitwall-default-notice-seen'
 const listeners = new Set<() => void>()
 const taskOpenListeners = new Set<(sessionId: string) => void>()
 let daemon: DaemonTransport | null = null
@@ -27,16 +28,38 @@ export function onDaemonTaskOpen(
   }
 }
 
-/** The stored choice, else the default Electron main passed (`AIDE_SESSION_BACKEND`), else built-in. */
+/** The stored choice, else the default Electron main passed (`AIDE_SESSION_BACKEND`), else pitwall. */
 export function getSessionBackend(): SessionBackend {
   try {
     const stored =
       window.localStorage.getItem(STORAGE_KEY) ??
       window.aide?.defaultSessionBackend
-    return stored === 'pitwall' ? 'pitwall' : 'built-in'
+    return stored === 'built-in' ? 'built-in' : 'pitwall'
   } catch {
-    return 'built-in'
+    return 'pitwall'
   }
+}
+
+function isOnDefaultBackend(): boolean {
+  return (
+    window.localStorage.getItem(STORAGE_KEY) === null &&
+    !window.aide?.defaultSessionBackend
+  )
+}
+
+/** Whether to tell an upgraded install, once, that its sessions moved to pitwall and how to switch back. */
+export function isDaemonDefaultNoticeDue(): boolean {
+  try {
+    return (
+      isOnDefaultBackend() && window.localStorage.getItem(NOTICE_KEY) === null
+    )
+  } catch {
+    return false
+  }
+}
+
+export function dismissDaemonDefaultNotice(): void {
+  window.localStorage.setItem(NOTICE_KEY, '1')
 }
 
 function applySessionBackend(): void {
@@ -107,6 +130,12 @@ export function setSessionBackend(backend: SessionBackend): void {
 }
 
 export function initializeSessionBackend(): void {
+  try {
+    // why: a fresh install never had built-in sessions, so nothing changed for it.
+    if (isOnDefaultBackend() && !window.aide?.isExistingInstall) {
+      dismissDaemonDefaultNotice()
+    }
+  } catch {}
   applySessionBackend()
 }
 

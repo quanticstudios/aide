@@ -12,13 +12,17 @@ import path from 'node:path'
 
 /**
  * Starts a pitwall daemon of its own when `AIDE_E2E_PITWALL` names a pitwall binary, and points every spec's aide at it.
- * @remarks The daemon gets fresh config, state, runtime and home folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent, calls GitHub or reads the user's session files. Without the variable the suite runs on the built-in backend as before.
+ * @remarks The daemon gets fresh config, state, runtime and home folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent, calls GitHub or reads the user's session files. Without the variable the suite runs on the built-in backend, through `AIDE_SESSION_BACKEND=built-in`.
  */
 export default async function globalSetup(): Promise<
   (() => Promise<void>) | undefined
 > {
   const binary = process.env.AIDE_E2E_PITWALL
-  if (!binary) return undefined
+  if (!binary) {
+    // why: pitwall is aide's default backend, and this run has no daemon.
+    process.env.AIDE_SESSION_BACKEND ??= 'built-in'
+    return undefined
+  }
   // why: os.tmpdir() keeps the socket path under the 108-byte limit of a Unix socket.
   const root = mkdtempSync(path.join(tmpdir(), 'aide-pitwall-'))
   const folders = {
