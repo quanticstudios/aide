@@ -33,7 +33,7 @@ daemon. The rows below call this "`startSharedChat`".
 
 | Journey | e2e | Built-in | pitwall | Cause and owner |
 | --- | --- | --- | --- | --- |
-| Start Claude or Codex, pick model, effort, mode | `shared-model-chat` reasoning, model and effort specs; `composer-settings-persistence` | same | gap | `startSharedChat` (aide). Switching a running chat to the other provider: pitwall's protocol has no command (pitwall). |
+| Start Claude or Codex, pick model, effort, mode | `shared-model-chat` reasoning, model and effort specs; `composer-settings-persistence` | same | gap | `startSharedChat` (aide). Switching a running chat to the other provider: same, through `set` with `provider` (ENG-2932); pitwall refuses it mid-turn, where aide queues it, but the picker is disabled then anyway. |
 | Start in a folder without Git | `shared-model-chat` ordinary folder | same | same | Fixed by ENG-2934: the daemon checks Jev consent (Jev row). |
 | Start in a new worktree | `electron-navigation` worktree setup, new chat | same | same |  |
 | Streaming reply, follow and minimap | `transcript-follow`, `agent-long-transcript`, `shared-model-chat` stream specs | same | gap | Fixed in ENG-2935: the 2,000-item follow. pitwall streams a long turn in frames, so a commit that adds rows can clamp `scrollTop` a few pixels up for one layout, and the follow hook took that for the reader scrolling away (aide). Stream and minimap specs: `startSharedChat` (aide). |
@@ -44,7 +44,7 @@ daemon. The rows below call this "`startSharedChat`".
 | Empty state recent prompts | `agent-empty-state` | same | same | Chat summaries carry the first-prompt excerpt; the existing empty-state UI reads it through DaemonTransport (ENG-2930). |
 | Plan card: Implement, Implement in a new thread, Refine | `plan-card` | same | same | Fixed here: pitwall reports plan mode as `interactionMode` and its fake carries aide's plan; aide's transport implements a plan in a new chat and opens it. |
 | Approvals: keys, command and diff | `agent-approval-cards` | same | same |  |
-| Approvals: counter, deny with feedback | `agent-approval-cards` | same | gap | Fixed here: several open approvals and the denial echo in pitwall's fake. The spec still switches to Codex mid-chat, which pitwall can't (pitwall). |
+| Approvals: counter, deny with feedback | `agent-approval-cards` | same | same | Several open approvals and the denial echo in pitwall's fake; the switch to Codex mid-chat is `set` with `provider` (ENG-2932). |
 | Full access and Auto-accept edits | `agent-full-access` | same | decision | pitwall passes the mode to the CLI, so a real agent never asks and there is no "Allowed by" line. Keep aide's line, or change the spec to expect no request? |
 | Input requests | `electron-navigation` structured runtime events | same | same | Fixed here (ENG-2929): the daemon transport reports each chat in an aide pane to main, which feeds the sidebar's "Agent Input" from it. |
 | Steer and queue, interrupt | `agent-message-queue`, `agent-hotkeys` | same | same | Snapshots carry queuedInputs and queuePaused. Atomic queue edits, moves, deletes, resume and promotion to steer pass agent-message-queue, including renderer reload (ENG-2930). |

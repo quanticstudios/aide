@@ -904,16 +904,13 @@ export function createDaemonTransport(
         ),
       })
     },
-    setModel: async (sessionId, selection) => {
-      const snapshot = await currentSnapshot(sessionId)
-      if (snapshot.provider !== selection.mode) {
-        return unsupported('switching a chat to another provider')
-      }
-      return set(sessionId, {
+    // why: pitwall switches the chat when `provider` differs from its own, and ignores it otherwise.
+    setModel: (sessionId, selection) =>
+      set(sessionId, {
+        provider: selection.mode,
         model: selection.model,
         effort: selection.effort,
-      })
-    },
+      }),
     setMode: (sessionId, interactionMode) =>
       set(sessionId, {
         permissionMode: interactionMode === 'plan' ? 'plan' : 'default',
