@@ -177,6 +177,7 @@ export const IPC_CHANNELS = {
   getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
   getTaskLibrary: 'tasks:list',
   getTaskTranscript: 'tasks:transcript',
+  getPitwallEndpoint: 'pitwall:get-endpoint',
   updateTaskMetadata: 'tasks:update',
   setTaskNotifications: 'tasks:notifications',
   setTaskNotificationSounds: 'tasks:notification-sounds',
@@ -241,6 +242,12 @@ export interface AvailableEditorDescriptor {
   readonly command: string
   readonly id: string
   readonly label: string
+}
+
+/** Where pitwall's daemon serves the web protocol, read from its `web.json`. */
+export interface PitwallEndpoint {
+  readonly token: string
+  readonly url: string
 }
 
 export interface AideApi {
@@ -398,6 +405,8 @@ export interface AideApi {
   >
   syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
+  /** The daemon's endpoint and token, for the daemon transport only; null when pitwall has not written one. */
+  getPitwallEndpoint: () => Promise<PitwallEndpoint | null>
   getTaskTranscript: (
     sessionId: string,
   ) => Promise<ManagedSessionSnapshot | null>

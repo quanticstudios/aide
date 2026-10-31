@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { appendFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 
 import {
@@ -11,6 +12,7 @@ import {
   Menu,
   Notification,
   safeStorage,
+  session,
   shell,
 } from 'electron'
 import type { CheckpointRestoreMode } from '../shared/checkpoints'
@@ -79,6 +81,11 @@ import {
   resetPersistedState,
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
+import {
+  allowPitwallOrigin,
+  getPitwallStateDir,
+  readPitwallEndpoint,
+} from './pitwall-endpoint'
 import { writePlanFile } from './plan-file'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile, searchProjectFiles } from './project-files'
@@ -691,6 +698,8 @@ const windowManager = new WindowManager({
 })
 
 let badgeCount = 0
+/** The daemon URL last handed to the renderer, the only one whose upgrade loses its Origin. */
+let pitwallUrl: string | null = null
 
 function showTaskNotification(notification: TaskNotification) {
   const focusedWindow = BrowserWindow.getFocusedWindow()
@@ -1007,6 +1016,16 @@ function registerIpcHandlers(): void {
     previewManager.list(),
   )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
+  ipcMain.handle(IPC_CHANNELS.getPitwallEndpoint, async () => {
+    const endpoint = await readPitwallEndpoint(
+      path.join(
+        getPitwallStateDir(process.env, process.platform, homedir()),
+        'web.json',
+      ),
+    )
+    pitwallUrl = endpoint?.url ?? null
+    return endpoint
+  })
   ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {
     requireTrustedRenderer(event)
     return updateManager.getSnapshot()
@@ -1858,6 +1877,7 @@ app.on('second-instance', () => {
 app.whenReady().then(() => {
   if (!hasInstanceLock) return
   Menu.setApplicationMenu(null)
+  allowPitwallOrigin(session.defaultSession, () => pitwallUrl)
   registerRecoveryHandlers()
   if (prepareDatabase()) startReadyRuntime()
   else windowManager.createMainWindow()

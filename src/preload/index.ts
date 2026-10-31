@@ -178,6 +178,7 @@ const aideApi: AideApi = {
   getDiagnosticsSnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticsSnapshot),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
+  getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
   getUpdatePreferences: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdatePreferences),
   getUpdateSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateSnapshot),

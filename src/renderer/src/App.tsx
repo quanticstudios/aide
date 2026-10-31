@@ -41,6 +41,7 @@ import type {
   WorkspaceSetupSnapshot,
 } from '../../shared/workspace-setup'
 import AppShell from './components/AppShell'
+import DaemonConnectionBanner from './components/DaemonConnectionBanner'
 import OverlayLoadBoundary from './components/OverlayLoadBoundary'
 import PaneCloseDialog from './components/PaneCloseDialog'
 import PersistedStateRecoveryScreen from './components/PersistedStateRecoveryScreen'
@@ -52,6 +53,7 @@ import WorkspaceCanvas from './components/WorkspaceCanvas'
 import WorkspaceSetupStatus from './components/WorkspaceSetupStatus'
 import { useJevGates } from './hooks/useJevGates'
 import { buildCommandList } from './lib/command-registry'
+import { isDaemonTransport } from './lib/daemon-transport'
 import {
   getPaneCatalogEntryForTemplate,
   getPaneTemplateId,
@@ -2738,6 +2740,7 @@ function WorkspaceApp() {
         (project) => project.id === projectSetupProjectId,
       ) ?? null)
     : null
+  const sessionTransport = getSessionTransport()
 
   return (
     <AppShell
@@ -3022,6 +3025,9 @@ function WorkspaceApp() {
           presentation={previewPresentation}
           snapshots={previewSnapshots}
         />
+        {isDaemonTransport(sessionTransport) ? (
+          <DaemonConnectionBanner transport={sessionTransport} />
+        ) : null}
       </>
     </AppShell>
   )
