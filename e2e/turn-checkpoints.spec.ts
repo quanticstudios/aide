@@ -130,7 +130,7 @@ test.describe('turn checkpoints', () => {
         (turn) => turn.checkpointId,
       )?.checkpointId
       if (!session || !checkpointId) throw new Error('Checkpoint unavailable.')
-      // warn: the snapshot reports the turn terminal before the main process has recorded its checkpoint, so only the preview call itself reports an idle session.
+      // warn: the snapshot reports the turn terminal before the checkpoint is recorded (built-in) or the chat is idle (pitwall), so only the preview call itself reports an idle session.
       const previewWhenIdle = async () => {
         const deadline = Date.now() + 15_000
         for (;;) {
@@ -144,7 +144,7 @@ test.describe('turn checkpoints', () => {
               error instanceof Error ? error.message : String(error)
             if (
               Date.now() > deadline ||
-              !message.includes('Stop the running task')
+              !/Stop the running task|a turn is running/.test(message)
             ) {
               throw error
             }
@@ -164,8 +164,9 @@ test.describe('turn checkpoints', () => {
     expect(readFileSync(path.join(repository, 'README.md'), 'utf8')).toBe(
       'before\n',
     )
+    // pitwall rewinds the chat in place; aide's built-in backend restores into a copy.
     expect(
       (await page.evaluate(() => window.aideSessions.listSessions())).tasks,
-    ).toHaveLength(2)
+    ).toHaveLength(process.env.AIDE_SESSION_BACKEND === 'pitwall' ? 1 : 2)
   })
 })

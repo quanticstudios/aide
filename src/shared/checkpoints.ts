@@ -81,3 +81,55 @@ export interface ManagedTurnCheckpointRecorder {
   captureTurn(input: TurnCheckpointCaptureInput): Promise<TurnCheckpointSummary>
   completeTurn(checkpointId: string): Promise<void>
 }
+
+function readPatchPath(section: string): string | null {
+  const newPath = /^\+\+\+ (.+)$/m.exec(section)?.[1]
+  const oldPath = /^--- (.+)$/m.exec(section)?.[1]
+  const chosen =
+    newPath && newPath !== '/dev/null'
+      ? newPath
+      : oldPath && oldPath !== '/dev/null'
+        ? oldPath
+        : null
+  return chosen ? chosen.replace(/^[ab]\//, '') : null
+}
+
+function readPatchStatus(section: string): TurnCheckpointChange['status'] {
+  if (/^new file mode /m.test(section)) return 'added'
+  if (/^deleted file mode /m.test(section)) return 'deleted'
+  return 'modified'
+}
+
+/** Splits a multi-file turn patch into per-file entries with their line counts. */
+export function parseTurnDiffPatch(patch: string): TurnCheckpointDiffFile[] {
+  const files: TurnCheckpointDiffFile[] = []
+
+  for (const section of patch.split(/^(?=diff --git )/m)) {
+    if (!section.startsWith('diff --git ')) continue
+    const filePath = readPatchPath(section)
+    if (!filePath) continue
+
+    let additions = 0
+    let deletions = 0
+    let insideHunk = false
+    for (const line of section.split('\n')) {
+      if (line.startsWith('@@')) {
+        insideHunk = true
+        continue
+      }
+      if (!insideHunk) continue
+      if (line.startsWith('+')) additions += 1
+      else if (line.startsWith('-')) deletions += 1
+    }
+
+    files.push({
+      additions,
+      deletions,
+      patch: section.replace(/\n+$/, ''),
+      path: filePath,
+      status: readPatchStatus(section),
+    })
+  }
+
+  return files
+}

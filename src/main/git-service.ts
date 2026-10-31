@@ -44,7 +44,7 @@ import type {
 } from '../shared/persistence'
 import { isLinkedWorktree } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
-import { parseTurnDiffPatch } from './turn-checkpoints'
+import { parseTurnDiffPatch } from '../shared/checkpoints'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000

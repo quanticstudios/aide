@@ -15,7 +15,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { TurnCheckpointCaptureInput } from '../shared/checkpoints'
 import type { ManagedSessionSnapshot } from '../shared/managed-session'
-import { parseTurnDiffPatch, TurnCheckpointService } from './turn-checkpoints'
+import { parseTurnDiffPatch } from '../shared/checkpoints'
+import { TurnCheckpointService } from './turn-checkpoints'
 
 const gitEnvironment = {
   ...process.env,
