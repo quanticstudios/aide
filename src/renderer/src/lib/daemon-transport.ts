@@ -1,4 +1,8 @@
-import type { TurnCheckpointPreview } from '../../../shared/checkpoints'
+import {
+  parseTurnDiffPatch,
+  type TurnCheckpointChange,
+  type TurnCheckpointPreview,
+} from '../../../shared/checkpoints'
 import { DAEMON_PROTOCOL, type PitwallStatus } from '../../../shared/ipc'
 import {
   type ManagedSessionDecision,
@@ -224,6 +228,19 @@ function toTaskStatus(chat: DaemonChat): SavedTask['status'] {
   if (chat.state === 'error') return 'failed'
   if (chat.state === 'stopped') return 'interrupted'
   return chat.turns > 0 ? 'completed' : 'idle'
+}
+
+/** A file in pitwall's `checkpointDiff` and `rewindPreview` answers. */
+interface PitwallFile {
+  from?: string
+  path: string
+  status: TurnCheckpointChange['status']
+}
+
+function toChange(file: PitwallFile): TurnCheckpointChange {
+  return file.from
+    ? { path: file.path, previousPath: file.from, status: file.status }
+    : { path: file.path, status: file.status }
 }
 
 function unsupported(name: string): Promise<never> {
@@ -583,6 +600,19 @@ export function createDaemonTransport(
   }
 
   /** The snapshot this transport holds for a subscribed chat, else a fresh `read`. */
+  /** The turn whose checkpoint is `checkpointId`, or whose id it is. */
+  async function checkpointTurn(sessionId: string, checkpointId: string) {
+    const snapshot = await currentSnapshot(sessionId)
+    const turn =
+      snapshot.turns.find(
+        (candidate) => candidate.checkpointId === checkpointId,
+      ) ?? snapshot.turns.find((candidate) => candidate.id === checkpointId)
+    if (!turn) {
+      throw new DaemonCommandError('not-found', `No turn for ${checkpointId}.`)
+    }
+    return { snapshot, turn }
+  }
+
   async function currentSnapshot(
     sessionId: string,
   ): Promise<ManagedSessionSnapshot> {
@@ -990,30 +1020,48 @@ export function createDaemonTransport(
       })
       await options.openTask(newId)
     },
-    getCheckpointDiff: () => unsupported('checkpoint diffs'),
-    previewRewind: async (sessionId, checkpointId) => {
-      const snapshot = await currentSnapshot(sessionId)
-      const turn =
-        snapshot.turns.find(
-          (candidate) => candidate.checkpointId === checkpointId,
-        ) ?? snapshot.turns.find((candidate) => candidate.id === checkpointId)
-      if (!turn) {
-        throw new DaemonCommandError(
-          'not-found',
-          `No turn for ${checkpointId}.`,
-        )
+    getCheckpointDiff: async (sessionId, checkpointId) => {
+      const { turn } = await checkpointTurn(sessionId, checkpointId)
+      const diff = await command<{ files: PitwallFile[]; patch: string }>(
+        'checkpointDiff',
+        { sessionId, turnId: turn.id },
+      )
+      const status = new Map(diff.files.map((file) => [file.path, file.status]))
+      const files = parseTurnDiffPatch(diff.patch).map((file) => ({
+        ...file,
+        status: status.get(file.path) ?? file.status,
+      }))
+      return {
+        additions: files.reduce((total, file) => total + file.additions, 0),
+        deletions: files.reduce((total, file) => total + file.deletions, 0),
+        files,
       }
-      // pitwall rewinds in one step, so the preview names the turn and lists no changes.
+    },
+    previewRewind: async (sessionId, checkpointId) => {
+      const { snapshot, turn } = await checkpointTurn(sessionId, checkpointId)
+      const found = await command<{
+        files: PitwallFile[]
+        patch: string
+        turnFiles: PitwallFile[]
+        turnPatch: string
+      }>('rewindPreview', { sessionId, turnId: turn.id })
+      // pitwall keeps no preview: rewind names the turn.
       const previewId = `rewind-${++nextId}`
       previews.set(previewId, {
         checkpointId,
-        prompt: turn.requestText ?? '',
+        // pitwall leaves requestText unset; the turn's prompt is its user-prompt item.
+        prompt:
+          turn.requestText ??
+          snapshot.content.find(
+            (item) => item.kind === 'user-prompt' && item.turnId === turn.id,
+          )?.text ??
+          '',
         sessionId,
         turnId: turn.id,
       })
       const now = new Date().toISOString()
       return {
-        changes: [],
+        changes: found.files.map(toChange),
         checkpoint: {
           capturedAt: turn.startedAt,
           checkpointId,
@@ -1023,10 +1071,10 @@ export function createDaemonTransport(
         createdAt: now,
         expiresAt: now,
         previewId,
-        restorePatch: '',
+        restorePatch: found.patch,
         sessionRevision: snapshot.revision,
-        turnChanges: null,
-        turnPatch: null,
+        turnChanges: found.turnFiles.map(toChange),
+        turnPatch: found.turnPatch,
       } satisfies TurnCheckpointPreview
     },
     rewind: async (previewId, mode) => {
@@ -1037,12 +1085,10 @@ export function createDaemonTransport(
           'This rewind preview expired.',
         )
       }
-      if (mode !== 'code-and-conversation') {
-        return unsupported('rewinding the conversation without the code')
-      }
       await command('rewind', {
         sessionId: preview.sessionId,
         turnId: preview.turnId,
+        keepFiles: mode === 'conversation-only',
       })
       previews.delete(previewId)
       return {

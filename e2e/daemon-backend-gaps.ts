@@ -8,29 +8,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'auto-allows requests the permission mode covers and still asks for the rest',
     'pitwall hands the mode to the provider, so a real CLI never asks; the fake asks anyway and nothing auto-allows it or writes aide\'s "Allowed by" line',
   ],
-  // agent-rewind.spec.ts
-  [
-    'rewinds to a user message and keeps workspace files',
-    'rewind needs a preview with the changed files and conversation-only rewind; the web protocol has neither',
-  ],
-  [
-    'reverts workspace files when the rewind asks for them',
-    'rewind needs a preview with the changed files and conversation-only rewind; the web protocol has neither',
-  ],
-  [
-    'disables the rewind action while a turn runs',
-    'rewind needs a preview with the changed files and conversation-only rewind; the web protocol has neither',
-  ],
-  // agent-turn-diff.spec.ts
-  [
-    'shows the turn diff chip and expands the turn patch',
-    'needs the turn diff; the web protocol has no checkpoint diff yet',
-  ],
-  // diff-panel.spec.ts
-  [
-    'opens a turn file and switches between the three scopes',
-    'needs the turn diff; the web protocol has no checkpoint diff yet',
-  ],
   // jev-gates-sidebar.spec.ts
   [
     'draws a gate node for every gate turned on and keeps the choice after a relaunch',
@@ -148,15 +125,5 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   [
     'rounds the settings select menu and the model selector popover to 8px',
     'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  // theme-switching.spec.ts
-  [
-    'repaints the canvas, code, diff and terminal without a reload',
-    'needs the turn diff; the web protocol has no checkpoint diff yet',
-  ],
-  // turn-checkpoints.spec.ts
-  [
-    'keeps checkpoints available through the API without conversation buttons',
-    'reads checkpoints through window.aide; the web protocol has no checkpoint list',
   ],
 ]

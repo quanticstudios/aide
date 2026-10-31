@@ -117,6 +117,8 @@ class MockDaemon {
   workspacePath = '/repo'
   /** Command types the daemon takes but never answers. */
   readonly silent = new Set<string>()
+  /** The data a command type answers with, when the type has no case below. */
+  readonly answers = new Map<string, unknown>()
 
   /** What main reports: pitwall `missing`, or a daemon that is not running and could not be started. */
   missing = false
@@ -226,7 +228,7 @@ class MockDaemon {
       fail('conflict', 'toolu_01 was answered from cli')
     } else if (frame.type === 'readUsage') {
       ok({ usage: { showCost: true } })
-    } else ok()
+    } else ok(this.answers.get(frame.type))
     if (frame.type !== 'subscribe') return
 
     this.subscribed.add(socket)
@@ -759,9 +761,67 @@ describe('DaemonTransport', () => {
       'This pitwall does not support interrupt yet.',
     )
     await expect(
-      transport.getCheckpointDiff(SESSION_ID, 'c'),
+      transport.acceptFleetNode({
+        sessionId: SESSION_ID,
+        nodeId: 'n',
+        accepted: true,
+      }),
     ).rejects.toMatchObject({ code: 'unsupported' })
     expect(daemon.commands).toEqual([])
+  })
+
+  it("reads a turn's diff, previews a rewind and rewinds the conversation alone", async () => {
+    daemon.capabilities.push('checkpointDiff', 'rewindPreview', 'rewind')
+    for (const delta of fixture.deltas) daemon.emit(delta)
+    const turn = fixture.deltas.find((delta) => delta.type === 'turn')
+    if (turn?.type !== 'turn') throw new Error('the fixture has no turn')
+    daemon.emit({
+      ...turn,
+      seq: (fixture.deltas.at(-1)?.seq ?? 0) + 1,
+      turn: { ...turn.turn, checkpointId: 'cp-1' },
+    })
+    const renamed = { from: 'old.md', path: 'new.md', status: 'renamed' }
+    daemon.answers.set('checkpointDiff', {
+      files: [renamed],
+      patch:
+        'diff --git a/old.md b/new.md\nsimilarity index 50%\nrename from old.md\nrename to new.md\n--- a/old.md\n+++ b/new.md\n@@ -1 +1 @@\n-before\n+after\n',
+    })
+    daemon.answers.set('rewindPreview', {
+      files: [renamed],
+      patch: 'back',
+      turnFiles: [],
+      turnPatch: '',
+    })
+    start()
+    await settle()
+    const diff = await transport.getCheckpointDiff(SESSION_ID, 'cp-1')
+    expect(diff).toMatchObject({
+      additions: 1,
+      deletions: 1,
+      files: [{ path: 'new.md', status: 'renamed' }],
+    })
+    const preview = await transport.previewRewind(SESSION_ID, 'cp-1')
+    expect(preview).toMatchObject({
+      changes: [{ path: 'new.md', previousPath: 'old.md', status: 'renamed' }],
+      restorePatch: 'back',
+      turnChanges: [],
+      turnPatch: '',
+    })
+    await transport.rewind(preview.previewId, 'conversation-only')
+    expect(
+      daemon.commands
+        .filter((frame) => frame.type !== 'read')
+        .map(({ id: _id, ...frame }) => frame),
+    ).toEqual([
+      { type: 'checkpointDiff', sessionId: SESSION_ID, turnId: 'turn-1' },
+      { type: 'rewindPreview', sessionId: SESSION_ID, turnId: 'turn-1' },
+      {
+        type: 'rewind',
+        sessionId: SESSION_ID,
+        turnId: 'turn-1',
+        keepFiles: true,
+      },
+    ])
   })
 
   it('resubscribes the session list after a reconnect', async () => {

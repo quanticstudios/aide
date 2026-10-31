@@ -714,22 +714,6 @@ export default function ManagedAgentPane({
     [sendPromptText],
   )
 
-  const handleRewindRestored = useCallback(
-    async (result: TurnCheckpointRestoreResult) => {
-      const api = getAideApi()
-      if (!api) {
-        throw new Error('Managed provider bridge did not load.')
-      }
-      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
-        attachments: [...(rewindTarget?.attachments ?? [])],
-        recipients: [],
-        text: result.editedPrompt,
-      })
-      await api.openTask(result.sessionId)
-    },
-    [rewindTarget],
-  )
-
   const handleBranchConversation = useCallback(
     async (responseContentItemId: string) => {
       const transport = getSessionTransport()
@@ -884,6 +868,23 @@ export default function ManagedAgentPane({
   })
   const { draftLoadError, hydrateManagedDraft, setDraftInput, textareaRef } =
     composer
+  const handleRewindRestored = useCallback(
+    async (result: TurnCheckpointRestoreResult) => {
+      const api = getAideApi()
+      if (!api) {
+        throw new Error('Managed provider bridge did not load.')
+      }
+      await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
+        attachments: [...(rewindTarget?.attachments ?? [])],
+        recipients: [],
+        text: result.editedPrompt,
+      })
+      // pitwall rewinds this chat in place, so this composer takes the draft; aide's backend opens a copy.
+      if (result.sessionId === sessionId) await hydrateManagedDraft()
+      await api.openTask(result.sessionId)
+    },
+    [hydrateManagedDraft, rewindTarget, sessionId],
+  )
   const handlePickRecentPrompt = useCallback(
     (text: string) => {
       setDraftInput(text)
