@@ -71,7 +71,7 @@ export default function ContextWindowMeter({
   const isWarn = percentage !== null && percentage >= 80
   const chipClass = isWarn
     ? 'bg-accent-yellow-soft text-accent-yellow'
-    : 'bg-surface-elevated text-foreground'
+    : 'bg-surface-2 text-foreground'
 
   const headline =
     percentageLabel && maxLabel

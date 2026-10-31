@@ -83,7 +83,7 @@ export function resolveWorkspaceActivityAccentClassName(
   activity: WorkspaceActivitySnapshot | null | undefined,
 ): string {
   if (!activity) {
-    return 'text-muted-foreground/70'
+    return 'text-muted-foreground'
   }
 
   if (activity.state === 'pending-approval') {

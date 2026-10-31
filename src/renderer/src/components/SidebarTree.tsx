@@ -389,7 +389,7 @@ function getWorkspaceBackgroundClassName(
   if (activity?.state === 'working') return 'sidebar-working-shimmer'
   if (activity?.state === 'connecting') return 'sidebar-working-shimmer'
   if (activity?.state === 'plan-ready') return 'bg-accent-purple-soft'
-  if (isActive) return 'bg-surface-elevated'
+  if (isActive) return 'bg-primary/12'
   return ''
 }
 
@@ -1366,7 +1366,7 @@ export default function SidebarTree({
                               </div>
                             </Tooltip.Trigger>
                             <Tooltip.Content
-                              className="rounded-md border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-foreground"
+                              className="rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs text-foreground"
                               placement="right"
                             >
                               {tooltipContent}

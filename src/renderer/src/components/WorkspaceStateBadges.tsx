@@ -12,7 +12,7 @@ function getActivityChipClassName(
   activity: WorkspaceSummary['activity'] | null | undefined,
 ): string {
   if (!activity) {
-    return 'border-border bg-surface-elevated text-muted-foreground'
+    return 'border-border bg-surface-2 text-muted-foreground'
   }
 
   if (activity.state === 'pending-approval') {
@@ -67,7 +67,7 @@ export default function WorkspaceStateBadges({
 
       {hiddenActivityCount > 0 ? (
         <Chip
-          className="border-border bg-surface-elevated text-muted-foreground"
+          className="border-border bg-surface-2 text-muted-foreground"
           size="sm"
           title={`${hiddenActivityCount} more active sessions`}
           variant="secondary"
