@@ -7,7 +7,6 @@ import {
   GitBranch,
   Layers,
   PanelLeft,
-  PanelRight,
   Plus,
   Shrink,
   SquareTerminal,
@@ -43,7 +42,6 @@ export interface CommandContext {
   readonly onSelectProject: (projectId: string) => void
   readonly onSelectWorkspace: (workspaceId: string) => void
   readonly onToggleSidebar: () => void
-  readonly onToggleFleet: () => void
   readonly projects: readonly ProjectRecord[]
   readonly updateAction?: {
     readonly id:
@@ -61,14 +59,6 @@ export function buildCommandList(context: CommandContext): PaletteCommand[] {
   const commands: PaletteCommand[] = []
   const activePaneId = context.activePaneId
 
-  commands.push({
-    group: 'view',
-    icon: PanelRight,
-    id: 'toggle-fleet',
-    keywords: ['fleet', 'plan', 'drawer'],
-    label: 'Toggle right sidebar',
-    onSelect: context.onToggleFleet,
-  })
   commands.push({
     group: 'view',
     icon: PanelLeft,

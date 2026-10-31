@@ -1,12 +1,15 @@
 # Performance baseline
 
-`scripts/perf-baseline.mjs` launches the built app against fake providers, opens
+`scripts/perf-baseline.mjs` starts a pitwall daemon with fake providers (the
+same one the e2e suite uses, `e2e/pitwall-daemon.ts`), launches the built app
+against it, opens
 one project, adds five agent panes, sends each `perf-stream`, and measures for
 two minutes. It prints a Markdown table and writes `perf-baseline.json`.
 
 ## Running it
 
 Build first. The script runs `out/`, and Electron needs the native rebuild.
+`AIDE_E2E_PITWALL` names the pitwall binary the script starts.
 
 ```bash
 bun run build && bun run rebuild:native
@@ -15,14 +18,14 @@ bun run build && bun run rebuild:native
 In CI, or anywhere with `xvfb-run`:
 
 ```bash
-env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a bun run perf:baseline
+AIDE_E2E_PITWALL=/path/to/pitwall env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a bun run perf:baseline
 ```
 
 On a desktop, run it inside a private display so no window reaches your screen
 (see the `agent-desktop` skill):
 
 ```bash
-agent-ws run perf --wait -- bun run perf:baseline
+agent-ws run perf --wait -- env AIDE_E2E_PITWALL=/path/to/pitwall bun run perf:baseline
 agent-ws down perf
 ```
 
@@ -49,8 +52,9 @@ artifact. When the run fails its final check, it also uploads
 A token is one whitespace-delimited word of a fixed Markdown passage with a
 heading, bold text, a fenced code block and a list. Each tool call emits a
 `running` and a `completed` event, then the reply continues in a new text item.
-The fake backend reads these variables whenever `AIDE_FAKE_MANAGED_PROVIDERS=1`
-and the prompt is exactly `perf-stream`, so e2e specs can use the same stream.
+pitwall's fake providers (`PITWALL_FAKE_PROVIDERS=1`) read these variables from
+the daemon's environment when the prompt is exactly `perf-stream`, so e2e specs
+can use the same stream.
 
 ## What each metric means
 
@@ -64,7 +68,7 @@ rates below cover the steady stream, not pane setup.
 | `frameTimeP50Ms`, `frameTimeP95Ms`          | Intervals between the renderer's `DrawFrame` trace events, while a 1px canary changes every animation frame so the compositor always has something to draw. 16.7 ms is 60 fps |
 | `framesPerSecond`                           | `DrawFrame` events per traced second                                                                                                                                          |
 | `longTasksOver100Ms`, `longestTaskMs`       | `RunTask` trace events on the renderer main thread                                                                                                                            |
-| `ipcBytesPerSecond`, `ipcMessagesPerSecond` | Every `webContents.send` from main, sized as the JSON of its arguments. Replies to `invoke` calls are not counted                                                             |
+| `ipcBytesPerSecond`, `ipcMessagesPerSecond` | Every `webContents.send` from main, sized as the JSON of its arguments. Replies to `invoke` calls are not counted, nor is the daemon's WebSocket, which carries the chat streams                                                             |
 | `reactCommitsPerSecond`                     | React commits across the window, counted through a stub `__REACT_DEVTOOLS_GLOBAL_HOOK__` installed before React loads                                                         |
 | `chatPaneRendersPerSecond`                  | Commits that re-rendered a chat pane's `managed-session-content` element, summed over all panes                                                                               |
 

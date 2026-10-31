@@ -1,4 +1,3 @@
-import { Button } from '@heroui/react'
 import {
   ArrowUp,
   Check,
@@ -27,12 +26,7 @@ import {
   useState,
 } from 'react'
 import type { ComposerDefaults } from '../../../shared/composer-defaults'
-import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
-import {
-  extractExplicitRecipientAliases,
-  getNextRecipientSuggestionIndex,
-  getRecipientSuggestions,
-} from '../../../shared/conversation-routing'
+import { getNextRecipientSuggestionIndex } from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
 import type {
   ManagedSessionAttachment,
@@ -86,7 +80,6 @@ import {
   WorkspaceFileMentionSearch,
 } from '../lib/workspace-file-mentions'
 import ComposerStashMenu from './ComposerStashMenu'
-import ConfiguredAgentSettings from './ConfiguredAgentSettings'
 import ContextWindowMeter from './ContextWindowMeter'
 import ManagedComposerAttachments, {
   ManagedComposerAttachmentButton,
@@ -238,7 +231,6 @@ interface ManagedComposerPaneState {
   readonly canChangeProviderSelection: boolean
   readonly capabilities: ProviderCapabilitiesSnapshot | null
   readonly composerDefaults: ComposerDefaults | null | undefined
-  readonly configuredAgents: readonly ManagedSessionAgentConfig[]
   readonly effort: ManagedSessionEffort | undefined
   readonly handleProviderSelectionChange: (
     newMode: ManagedSessionMode,
@@ -255,7 +247,6 @@ interface ManagedComposerPaneState {
   readonly selectedProvider: ManagedSessionMode
   readonly sendPromptText: (
     text: string,
-    recipients?: readonly string[],
     promptAttachments?: readonly ManagedSessionAttachment[],
     providerSkill?: ProviderSkill,
     queue?: boolean,
@@ -263,9 +254,6 @@ interface ManagedComposerPaneState {
   readonly serviceTier: string | null
   readonly sessionId: string
   readonly setAgentMode: Dispatch<SetStateAction<'build' | 'plan'>>
-  readonly setConfiguredAgents: Dispatch<
-    SetStateAction<readonly ManagedSessionAgentConfig[]>
-  >
   readonly setError: Dispatch<SetStateAction<string | null>>
   readonly setIsSubmitting: Dispatch<SetStateAction<boolean>>
   readonly setPermissionMode: Dispatch<
@@ -283,7 +271,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     agentMode,
     canChangeProviderSelection,
     composerDefaults,
-    configuredAgents,
     effort,
     handleProviderSelectionChange,
     isActive,
@@ -295,7 +282,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     serviceTier,
     sessionId,
     setAgentMode,
-    setConfiguredAgents,
     setError,
     setIsSubmitting,
     setPermissionMode,
@@ -317,23 +303,18 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   useEffect(() => {
     draftInputRef.current = draftInput
   }, [draftInput])
-  const [selectedRecipientAliases, setSelectedRecipientAliases] = useState<
-    readonly string[]
-  >([])
   const [selectedSkill, setSelectedSkill] = useState<ProviderSkill | null>(null)
   const composerMetadataRef = useRef({
     attachments: [] as readonly ManagedSessionAttachment[],
-    recipients: [] as readonly string[],
     skill: null as ProviderSkill | null,
   })
 
   useEffect(() => {
     composerMetadataRef.current = {
       attachments,
-      recipients: selectedRecipientAliases,
       skill: selectedSkill,
     }
-  }, [attachments, selectedRecipientAliases, selectedSkill])
+  }, [attachments, selectedSkill])
 
   const [providerSkills, setProviderSkills] =
     useState<ProviderSkillsSnapshot | null>(null)
@@ -364,16 +345,14 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   const currentDraft = useMemo(
     (): ManagedDraft => ({
       attachments: [...attachments],
-      recipients: [...selectedRecipientAliases],
       ...(selectedSkill ? { selectedSkill } : {}),
       text: draftInput,
     }),
-    [attachments, draftInput, selectedRecipientAliases, selectedSkill],
+    [attachments, draftInput, selectedSkill],
   )
   const applyDraft = useCallback((draft: ManagedDraft) => {
     setDraftInput(draft.text)
     setAttachments(draft.attachments)
-    setSelectedRecipientAliases(draft.recipients)
     setSelectedSkill(draft.selectedSkill ?? null)
     textareaRef.current?.focus()
   }, [])
@@ -424,7 +403,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       if (draftLoadGenerationRef.current !== generation) return
       setDraftInput(draft?.text ?? '')
       setAttachments(draft?.attachments ?? [])
-      setSelectedRecipientAliases(draft?.recipients ?? [])
       setSelectedSkill(draft?.selectedSkill ?? null)
       setIsDraftHydrated(true)
     } catch (draftError) {
@@ -446,14 +424,12 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     if (!isDraftHydrated) return
     const draft = {
       attachments: [...attachments],
-      recipients: [...selectedRecipientAliases],
       ...(selectedSkill ? { selectedSkill } : {}),
       text: draftInput,
     }
     const persistDraft = async () => {
       if (
         !draft.text &&
-        draft.recipients.length === 0 &&
         draft.attachments.length === 0 &&
         !draft.selectedSkill
       ) {
@@ -473,7 +449,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     composerStorageKey,
     draftInput,
     isDraftHydrated,
-    selectedRecipientAliases,
     selectedSkill,
     setError,
   ])
@@ -502,34 +477,12 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       }
       return
     }
-    const submittedRecipientAliases = selectedRecipientAliases
     const submittedAttachments = attachments
     const submittedSkill = selectedSkill
     let clearedSubmission = false
-    const parsed = extractExplicitRecipientAliases(
-      submittedDraft,
-      configuredAgents.map((agent) => agent.alias),
-    )
-
-    if (parsed.error) {
-      setError(parsed.error)
-      return
-    }
-
     if (submittedSkill && selectedProvider !== submittedSkill.provider) {
       setError(
         `/${submittedSkill.name} runs with ${submittedSkill.owner}. Select it again to switch providers.`,
-      )
-      return
-    }
-
-    const recipients = Array.from(
-      new Set([...submittedRecipientAliases, ...parsed.aliases]),
-    )
-
-    if (submittedSkill && recipients.length > 0) {
-      setError(
-        `/${submittedSkill.name} runs with ${submittedSkill.owner} and cannot be combined with opinion recipients.`,
       )
       return
     }
@@ -539,14 +492,10 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       draftInputRef.current = ''
       composerMetadataRef.current = {
         attachments: [],
-        recipients: [],
         skill: null,
       }
       setDraftInput((currentDraft) =>
         currentDraft === submittedDraft ? '' : currentDraft,
-      )
-      setSelectedRecipientAliases((currentAliases) =>
-        currentAliases === submittedRecipientAliases ? [] : currentAliases,
       )
       setAttachments((currentAttachments) =>
         currentAttachments === submittedAttachments ? [] : currentAttachments,
@@ -557,8 +506,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     }
 
     const sent = await sendPromptText(
-      parsed.text,
-      recipients,
+      submittedDraft,
       submittedAttachments,
       submittedSkill ?? undefined,
       shouldQueueSend(
@@ -575,26 +523,21 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       clearedSubmission &&
       draftInputRef.current === '' &&
       currentMetadata.attachments.length === 0 &&
-      currentMetadata.recipients.length === 0 &&
       currentMetadata.skill === null
     ) {
       draftInputRef.current = submittedDraft
       composerMetadataRef.current = {
         attachments: submittedAttachments,
-        recipients: submittedRecipientAliases,
         skill: submittedSkill,
       }
       setDraftInput(submittedDraft)
-      setSelectedRecipientAliases(submittedRecipientAliases)
       setAttachments(submittedAttachments)
       setSelectedSkill(submittedSkill)
     }
   }, [
     attachments,
     composerHistory,
-    configuredAgents,
     draftInput,
-    selectedRecipientAliases,
     selectedProvider,
     selectedSkill,
     sendPromptText,
@@ -718,39 +661,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       setError(getErrorMessage(attachmentError))
     }
   }, [attachments, workspace.id, setError])
-
-  const handleConfiguredAgentsChange = useCallback(
-    async (agents: readonly ManagedSessionAgentConfig[]) => {
-      setConfiguredAgents(agents)
-      setSelectedRecipientAliases((aliases) =>
-        aliases.filter((alias) =>
-          agents.some(
-            (agent) => agent.alias.toLowerCase() === alias.toLowerCase(),
-          ),
-        ),
-      )
-
-      if (!startedSessionRef.current) {
-        return
-      }
-
-      const transport = getSessionTransport()
-
-      if (!transport) {
-        setError('Managed provider bridge did not load.')
-        return
-      }
-
-      try {
-        const updated = await transport.setAgents(sessionId, agents)
-        setSnapshot(updated)
-        setError(null)
-      } catch (configurationError) {
-        setError(getErrorMessage(configurationError))
-      }
-    },
-    [sessionId, setError, setSnapshot, startedSessionRef, setConfiguredAgents],
-  )
 
   const applyPermissionMode = useCallback(
     async (nextPermissionMode: ManagedSessionPermissionMode) => {
@@ -918,36 +828,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     [draftAnswers, sessionId, snapshot?.pendingUserInputs, setError],
   )
 
-  const selectRecipient = useCallback(
-    (agent: ManagedSessionAgentConfig) => {
-      const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
-      if (!mention) return
-
-      const alias = agent.alias.toLowerCase()
-      setDraftInput(removeWorkspaceFileMention(draftInput, mention))
-      setComposerCursorIndex(mention.startIndex)
-      setSelectedRecipientAliases((aliases) =>
-        aliases.includes(alias) ? aliases : [...aliases, alias],
-      )
-      if (selectedSkill) {
-        setSelectedSkill(null)
-        setSelectionNotice(
-          `Removed /${selectedSkill.name} because opinion recipients use their configured models.`,
-        )
-      }
-      setIsRecipientMenuDismissed(true)
-      textareaRef.current?.focus()
-      setError(null)
-    },
-    [
-      composerCursorIndex,
-      draftInput,
-      selectedSkill,
-      setSelectionNotice,
-      setError,
-    ],
-  )
-
   const selectWorkspaceFileFromMention = useCallback(
     (filePath: string) => {
       const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
@@ -1061,17 +941,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     composerCursorIndex,
   )
   const workspaceFileMentionQuery = workspaceFileMention?.query ?? null
-  const recipientMentionQuery = workspaceFileMentionQuery
-  const recipientSuggestions = useMemo(
-    () =>
-      getRecipientSuggestions(recipientMentionQuery, configuredAgents).filter(
-        (agent) =>
-          !selectedRecipientAliases.some(
-            (alias) => alias.toLowerCase() === agent.alias.toLowerCase(),
-          ),
-      ),
-    [configuredAgents, recipientMentionQuery, selectedRecipientAliases],
-  )
   const slashQuery = extractSlashQuery(draftInput)
 
   useEffect(() => {
@@ -1141,9 +1010,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
   const providerSkillErrors = Object.entries(providerSkills?.errors ?? {})
   const slashMenuOpen = slashQuery !== null && !isSlashMenuDismissed
   const recipientMenuOpen =
-    !isRecipientMenuDismissed &&
-    !slashMenuOpen &&
-    (recipientMentionQuery !== null || workspaceFileMention !== null)
+    !isRecipientMenuDismissed && !slashMenuOpen && workspaceFileMention !== null
   const workspaceFileSearchQuery = recipientMenuOpen
     ? (workspaceFileMentionQuery?.trim() ?? '')
     : ''
@@ -1155,9 +1022,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     workspaceFileSearchQuery !== '' &&
     workspaceFileSearchResult?.query !== workspaceFileSearchQuery
   const recipientMenuItemCount =
-    recipientSuggestions.length +
-    recipientSkillSuggestions.length +
-    workspaceFileSuggestions.length
+    recipientSkillSuggestions.length + workspaceFileSuggestions.length
 
   useEffect(() => {
     const query = workspaceFileSearchQuery
@@ -1230,21 +1095,16 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         return
       }
 
-      const clearedRecipients = selectedRecipientAliases.length > 0
-      setSelectedRecipientAliases([])
       setSelectedSkill(skill)
       setDraftInput(nextDraft)
       setIsRecipientMenuDismissed(true)
-      setSelectionNotice(
-        `/${skill.name} runs with ${skill.owner}.${clearedRecipients ? ' Opinion recipients were cleared.' : ''}`,
-      )
+      setSelectionNotice(`/${skill.name} runs with ${skill.owner}.`)
       textareaRef.current?.focus()
     },
     [
       canChangeProviderSelection,
       composerDefaults,
       handleProviderSelectionChange,
-      selectedRecipientAliases.length,
       setSelectionNotice,
       setError,
     ],
@@ -1274,7 +1134,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     handleComposerDrop,
     handleComposerPaste,
     handlePasteInline,
-    handleConfiguredAgentsChange,
     handleDraftAnswerChange,
     handleEffortChange,
     handleModelSwitch,
@@ -1296,12 +1155,9 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     recipientMenuItemCount,
     recipientMenuOpen,
     recipientSkillSuggestions,
-    recipientSuggestions,
     runSlashCommand,
-    selectedRecipientAliases,
     selectedSkill,
     selectProviderSkill,
-    selectRecipient,
     selectSkillFromMention,
     selectWorkspaceFileFromMention,
     setAttachments,
@@ -1311,7 +1167,6 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
     setIsSlashMenuDismissed,
     setOpenComposerMenu,
     setRecipientActiveIndex,
-    setSelectedRecipientAliases,
     setSelectedSkill,
     setSlashActiveIndex,
     slashActiveIndex,
@@ -1335,13 +1190,11 @@ export default function ManagedComposer({
   canChangeProviderSelection,
   capabilities,
   composerHistory,
-  configuredAgents,
   draftInput,
   effort,
   handleComposerDrop,
   handleComposerPaste,
   handlePasteInline,
-  handleConfiguredAgentsChange,
   handleDraftAnswerChange,
   handleEffortChange,
   handleModelSwitch,
@@ -1367,14 +1220,11 @@ export default function ManagedComposer({
   recipientMenuItemCount,
   recipientMenuOpen,
   recipientSkillSuggestions,
-  recipientSuggestions,
   runSlashCommand,
   selectedModel,
   selectedProvider,
-  selectedRecipientAliases,
   selectedSkill,
   selectProviderSkill,
-  selectRecipient,
   selectSkillFromMention,
   selectWorkspaceFileFromMention,
   serviceTier,
@@ -1386,7 +1236,6 @@ export default function ManagedComposer({
   setIsSlashMenuDismissed,
   setOpenComposerMenu,
   setRecipientActiveIndex,
-  setSelectedRecipientAliases,
   setSelectedSkill,
   setSlashActiveIndex,
   slashActiveIndex,
@@ -1410,11 +1259,9 @@ export default function ManagedComposer({
       {recipientMenuOpen ? (
         <RecipientMentionMenu
           activeIndex={recipientActiveIndex}
-          agents={recipientSuggestions}
           filePaths={workspaceFileSuggestions}
           isFileSearchLoading={isWorkspaceFileSearchLoading}
           onActiveIndexChange={setRecipientActiveIndex}
-          onSelectAgent={selectRecipient}
           onSelectFile={selectWorkspaceFileFromMention}
           onSelectSkill={selectSkillFromMention}
           skills={recipientSkillSuggestions}
@@ -1613,37 +1460,10 @@ export default function ManagedComposer({
         </div>
       ) : null}
 
-      {selectedRecipientAliases.length > 0 ? (
-        <div
-          className="flex flex-wrap gap-1.5 px-4 pt-3"
-          data-testid="managed-recipient-chips"
-        >
-          {selectedRecipientAliases.map((alias) => (
-            <Button
-              aria-label={`Remove @${alias}`}
-              className="h-6 rounded-full border border-primary/40 bg-primary/10 px-2 text-xs font-semibold text-primary hover:bg-primary/20"
-              key={alias}
-              onPress={() => {
-                setSelectedRecipientAliases((aliases) =>
-                  aliases.filter((value) => value !== alias),
-                )
-                textareaRef.current?.focus()
-              }}
-              size="sm"
-              variant="ghost"
-            >
-              @{alias} ×
-            </Button>
-          ))}
-        </div>
-      ) : null}
-
       <p aria-live="polite" className="sr-only">
         {selectedSkill
           ? `Selected skill /${selectedSkill.name}; runs with ${selectedSkill.owner}`
-          : selectedRecipientAliases.length > 0
-            ? `Recipients: ${selectedRecipientAliases.map((alias) => `@${alias}`).join(', ')}`
-            : 'Conversation default recipient'}
+          : 'Conversation default recipient'}
       </p>
 
       <textarea
@@ -1669,20 +1489,6 @@ export default function ManagedComposer({
           el.style.height = `${el.scrollHeight}px`
         }}
         onKeyDown={(event) => {
-          if (
-            !activeQuestion &&
-            event.key === 'Backspace' &&
-            draftInput.length === 0 &&
-            selectedRecipientAliases.length > 0 &&
-            !event.metaKey &&
-            !event.ctrlKey &&
-            !event.altKey
-          ) {
-            event.preventDefault()
-            setSelectedRecipientAliases((aliases) => aliases.slice(0, -1))
-            return
-          }
-
           if (
             activeQuestion &&
             /^[1-9]$/.test(event.key) &&
@@ -1730,14 +1536,10 @@ export default function ManagedComposer({
               event.preventDefault()
               const selection = resolveMentionMenuSelection(
                 recipientActiveIndex,
-                recipientSuggestions.length,
                 recipientSkillSuggestions.length,
                 workspaceFileSuggestions,
               )
-              if (selection?.kind === 'agent') {
-                const agent = recipientSuggestions[selection.agentIndex]
-                if (agent) selectRecipient(agent)
-              } else if (selection?.kind === 'file') {
+              if (selection?.kind === 'file') {
                 selectWorkspaceFileFromMention(selection.filePath)
               } else if (selection?.kind === 'skill') {
                 const skill = recipientSkillSuggestions[selection.skillIndex]
@@ -1890,12 +1692,6 @@ export default function ManagedComposer({
             Next message
           </span>
         ) : null}
-        <ConfiguredAgentSettings
-          agents={configuredAgents}
-          capabilities={capabilities}
-          isDisabled={!canChangeProviderSelection || isSubmitting}
-          onChange={(agents) => void handleConfiguredAgentsChange(agents)}
-        />
         <ReasoningExtrasDropdown
           capabilities={capabilities}
           effort={effort}

@@ -10,7 +10,6 @@ import {
 import type { UpdateStateStore, UpdateStopOptions } from './update-manager'
 
 interface FakeUpdateServiceOptions {
-  readonly activeManagedSessions?: number
   readonly activeTerminalSessions?: number
   readonly activeWorkspaceSetups?: number
   readonly checkFailures?: number
@@ -179,9 +178,6 @@ export class FakeUpdateService {
     }
 
     const status = {
-      activeManagedSessions: nonNegativeInteger(
-        this.options.activeManagedSessions,
-      ),
       activeTerminalSessions: nonNegativeInteger(
         this.options.activeTerminalSessions,
       ),
@@ -192,10 +188,7 @@ export class FakeUpdateService {
       restarting: false,
     }
     const hasActiveWork =
-      status.activeManagedSessions +
-        status.activeTerminalSessions +
-        status.activeWorkspaceSetups >
-      0
+      status.activeTerminalSessions + status.activeWorkspaceSetups > 0
     if (hasActiveWork && !confirmed) {
       return Promise.resolve({ ...status, confirmationRequired: true })
     }

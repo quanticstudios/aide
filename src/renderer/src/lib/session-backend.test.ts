@@ -1,56 +1,45 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AideApi } from '../../../shared/ipc'
 import { isDaemonTransport } from './daemon-transport'
 import {
   dismissDaemonDefaultNotice,
-  getSessionBackend,
   initializeSessionBackend,
   isDaemonDefaultNoticeDue,
-  setSessionBackend,
 } from './session-backend'
-import { getSessionTransport } from './session-transport'
+import { getSessionTransport, setSessionTransport } from './session-transport'
 
-function stubWindow(defaultSessionBackend?: string, isExistingInstall = true) {
-  const storage = new Map<string, string>()
-  const api = {
-    closeManagedSession: vi.fn(),
-    defaultSessionBackend,
-    isExistingInstall,
-    getPitwallEndpoint: vi.fn(async () => null),
-  }
+function stubWindow(
+  isExistingInstall = true,
+  storage = new Map<string, string>(),
+) {
   vi.stubGlobal('window', {
-    aide: api as unknown as AideApi,
+    aide: {
+      getPitwallEndpoint: vi.fn(async () => null),
+      isExistingInstall,
+    } as unknown as AideApi,
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
+      removeItem: (key: string) => storage.delete(key),
       setItem: (key: string, value: string) => storage.set(key, value),
     },
   })
-  return api
 }
 
-beforeEach(() => {
-  vi.useFakeTimers()
-})
-
 afterEach(() => {
-  setSessionBackend('built-in')
-  vi.useRealTimers()
+  setSessionTransport(null)
   vi.unstubAllGlobals()
 })
 
 describe('session backend', () => {
-  it('is pitwall unless the user or AIDE_SESSION_BACKEND picks built-in', () => {
+  it('runs every session on the daemon transport', () => {
     stubWindow()
-    expect(getSessionBackend()).toBe('pitwall')
-    stubWindow('built-in')
-    expect(getSessionBackend()).toBe('built-in')
-    stubWindow()
-    setSessionBackend('built-in')
-    expect(getSessionBackend()).toBe('built-in')
+    expect(getSessionTransport()).toBeNull()
+    initializeSessionBackend()
+    expect(isDaemonTransport(getSessionTransport())).toBe(true)
   })
 
-  it('shows the default notice once to an upgraded install on the default', () => {
+  it('shows the default notice once to an upgraded install', () => {
     stubWindow()
     initializeSessionBackend()
     expect(isDaemonDefaultNoticeDue()).toBe(true)
@@ -59,30 +48,23 @@ describe('session backend', () => {
     expect(isDaemonDefaultNoticeDue()).toBe(false)
   })
 
-  it('skips the default notice on a fresh install, a picked backend or an override', () => {
-    stubWindow(undefined, false)
+  it('skips the default notice on a fresh install', () => {
+    stubWindow(false)
     initializeSessionBackend()
-    expect(isDaemonDefaultNoticeDue()).toBe(false)
-
-    stubWindow()
-    setSessionBackend('pitwall')
-    expect(isDaemonDefaultNoticeDue()).toBe(false)
-
-    stubWindow('built-in')
     expect(isDaemonDefaultNoticeDue()).toBe(false)
   })
 
-  it('swaps the transport both ways without closing built-in sessions', () => {
-    const api = stubWindow('pitwall')
+  it('shows the notice again to an install that went back to built-in', () => {
+    stubWindow(
+      true,
+      new Map([
+        ['aide.pitwall-default-notice-seen', '1'],
+        ['aide.session-backend', 'built-in'],
+      ]),
+    )
     initializeSessionBackend()
-    const daemon = getSessionTransport()
-    expect(isDaemonTransport(daemon)).toBe(true)
-
-    setSessionBackend('built-in')
-    expect(isDaemonTransport(getSessionTransport())).toBe(false)
-    setSessionBackend('pitwall')
-    const next = getSessionTransport()
-    expect(isDaemonTransport(next) && next !== daemon).toBe(true)
-    expect(api.closeManagedSession).not.toHaveBeenCalled()
+    expect(isDaemonDefaultNoticeDue()).toBe(true)
+    dismissDaemonDefaultNotice()
+    expect(isDaemonDefaultNoticeDue()).toBe(false)
   })
 })

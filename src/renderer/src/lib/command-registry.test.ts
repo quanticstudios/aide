@@ -16,7 +16,6 @@ function createContext(
     onResizePane: vi.fn(),
     onSelectProject: vi.fn(),
     onSelectWorkspace: vi.fn(),
-    onToggleFleet: vi.fn(),
     onToggleSidebar: vi.fn(),
     projects: [],
     workspaces: [],
@@ -53,7 +52,6 @@ describe('buildCommandList', () => {
     expect(ids).toContain('open-project')
     expect(ids).toContain('open-overview')
     expect(ids).toContain('open-software-update')
-    expect(ids).toContain('toggle-fleet')
   })
 
   it('omits Git workspace creation for folder projects', () => {

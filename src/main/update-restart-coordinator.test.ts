@@ -4,7 +4,6 @@ import { UpdateRestartCoordinator } from './update-restart-coordinator'
 
 function createCoordinator(
   overrides: {
-    activeManagedSessions?: number
     activeTerminalSessions?: number
     activeWorkspaceSetups?: number
     revalidate?: () => Promise<boolean>
@@ -16,10 +15,6 @@ function createCoordinator(
   const markInstallStarted = vi.fn()
   const quitAndInstall = vi.fn()
   const terminateAfterShutdownFailure = vi.fn()
-  const managed = {
-    beginQuiescing: vi.fn(() => vi.fn()),
-    getActiveSessionCount: () => overrides.activeManagedSessions ?? 0,
-  }
   const terminals = {
     beginQuiescing: vi.fn(() => vi.fn()),
     getActiveSessionCount: () => overrides.activeTerminalSessions ?? 0,
@@ -30,7 +25,6 @@ function createCoordinator(
   }
   const coordinator = new UpdateRestartCoordinator({
     applicationRuntime: { shutdown },
-    managedSessions: managed,
     terminals,
     terminateAfterShutdownFailure,
     updates: {
@@ -45,7 +39,6 @@ function createCoordinator(
 
   return {
     coordinator,
-    managed,
     markInstallStarted,
     quitAndInstall,
     setups,
@@ -58,13 +51,11 @@ function createCoordinator(
 describe('UpdateRestartCoordinator', () => {
   it('requires an explicit confirmation while work is active', async () => {
     const { coordinator, shutdown, quitAndInstall } = createCoordinator({
-      activeManagedSessions: 1,
       activeTerminalSessions: 2,
       activeWorkspaceSetups: 3,
     })
 
     await expect(coordinator.requestRestart(false)).resolves.toEqual({
-      activeManagedSessions: 1,
       activeTerminalSessions: 2,
       activeWorkspaceSetups: 3,
       confirmationRequired: true,
@@ -91,7 +82,6 @@ describe('UpdateRestartCoordinator', () => {
 
   it('lets a confirmed restart quiesce and gracefully close pre-existing work', async () => {
     const { coordinator, quitAndInstall, shutdown } = createCoordinator({
-      activeManagedSessions: 1,
       activeTerminalSessions: 1,
       activeWorkspaceSetups: 1,
     })
@@ -127,21 +117,14 @@ describe('UpdateRestartCoordinator', () => {
   })
 
   it('quiesces, rechecks, validates, then shuts down and installs exactly once', async () => {
-    const {
-      coordinator,
-      managed,
-      setups,
-      shutdown,
-      quitAndInstall,
-      terminals,
-    } = createCoordinator()
+    const { coordinator, setups, shutdown, quitAndInstall, terminals } =
+      createCoordinator()
 
     await expect(coordinator.requestRestart(true)).resolves.toMatchObject({
       confirmationRequired: false,
       restarting: true,
     })
 
-    expect(managed.beginQuiescing).toHaveBeenCalledOnce()
     expect(terminals.beginQuiescing).toHaveBeenCalledOnce()
     expect(setups.beginQuiescing).toHaveBeenCalledOnce()
     expect(shutdown).toHaveBeenCalledOnce()

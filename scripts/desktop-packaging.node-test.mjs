@@ -61,10 +61,7 @@ test('locks a reproducible desktop packaging configuration', () => {
   )
   assert.equal(updaterConfig, 'updaterCacheDirName: aide-updater\n')
   assert.doesNotMatch(updaterConfig, /provider|url|https?|channel|auth|trust/i)
-  assert.deepEqual(build.asarUnpack, [
-    'node_modules/node-pty/**',
-    'node_modules/@anthropic-ai/claude-agent-sdk-*/**',
-  ])
+  assert.deepEqual(build.asarUnpack, ['node_modules/node-pty/**'])
   assert.deepEqual(build.linux.target, [
     { target: 'AppImage', arch: ['x64'] },
     { target: 'tar.gz', arch: ['x64'] },

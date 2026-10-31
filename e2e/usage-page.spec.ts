@@ -105,7 +105,6 @@ test.describe('usage page', () => {
         ...process.env,
         AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
         AIDE_FAKE_MANAGED_PROVIDERS: '1',
-        AIDE_SESSION_BACKEND: 'pitwall',
         AIDE_SOFTWARE_RENDERING: '1',
         ELECTRON_OZONE_PLATFORM_HINT: 'x11',
         HYPRLAND_INSTANCE_SIGNATURE: '',

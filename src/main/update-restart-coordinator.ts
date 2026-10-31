@@ -1,11 +1,6 @@
 import type { ApplicationShutdownReason } from './application-runtime'
 import type { UpdateRestartStatus } from '../shared/update'
 
-export interface QuiesceableManagedSessions {
-  beginQuiescing: () => () => void
-  getActiveSessionCount: () => number
-}
-
 export interface QuiesceableTerminals {
   beginQuiescing: () => () => void
   getActiveSessionCount: () => number
@@ -27,7 +22,6 @@ export interface UpdateRestartCoordinatorOptions {
   applicationRuntime: {
     shutdown: (reason: ApplicationShutdownReason) => Promise<void>
   }
-  managedSessions: QuiesceableManagedSessions
   terminals: QuiesceableTerminals
   /** Ends the now-shut-down process without ever invoking the updater. */
   terminateAfterShutdownFailure: () => void
@@ -57,7 +51,6 @@ export class UpdateRestartCoordinator {
 
   private async restart(confirmed: boolean): Promise<UpdateRestartStatus> {
     const releases = [
-      this.options.managedSessions.beginQuiescing(),
       this.options.terminals.beginQuiescing(),
       this.options.workspaceSetups.beginQuiescing(),
     ]
@@ -99,8 +92,6 @@ export class UpdateRestartCoordinator {
 
   private getStatus(restarting: boolean): UpdateRestartStatus {
     return {
-      activeManagedSessions:
-        this.options.managedSessions.getActiveSessionCount(),
       activeTerminalSessions: this.options.terminals.getActiveSessionCount(),
       activeWorkspaceSetups: this.options.workspaceSetups.getActiveSetupCount(),
       confirmationRequired: false,
@@ -109,10 +100,6 @@ export class UpdateRestartCoordinator {
   }
 
   private hasActiveWork(status: UpdateRestartStatus): boolean {
-    return (
-      status.activeManagedSessions > 0 ||
-      status.activeTerminalSessions > 0 ||
-      status.activeWorkspaceSetups > 0
-    )
+    return status.activeTerminalSessions > 0 || status.activeWorkspaceSetups > 0
   }
 }

@@ -47,14 +47,11 @@
     "package:mac:arm64": "bun run package:mac -- --arm64"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.282",
-    "@anthropic-ai/sdk": "0.110.0",
     "@fontsource-variable/geist": "5.3.0",
     "@fontsource-variable/geist-mono": "5.3.0",
     "@git-diff-view/react": "0.1.8",
     "@heroui/react": "3.2.2",
     "@heroui/styles": "3.2.2",
-    "@modelcontextprotocol/sdk": "1.32.1",
     "@tailwindcss/vite": "4.3.3",
     "@tanstack/react-virtual": "3.14.20",
     "@xterm/addon-fit": "0.11.0",
@@ -95,10 +92,7 @@
     "wrangler": "4.151.1"
   },
   "overrides": {
-    "body-parser": "2.4.0",
     "fast-uri": "3.1.8",
-    "hono": "4.12.25",
-    "ip-address": "10.3.1",
     "picomatch": "4.0.4",
     "postcss": "8.5.19",
     "sharp": "0.35.5",
@@ -135,8 +129,7 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "node_modules/node-pty/**",
-      "node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+      "node_modules/node-pty/**"
     ],
     "linux": {
       "syncDesktopName": true,

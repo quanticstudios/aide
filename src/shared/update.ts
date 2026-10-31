@@ -128,7 +128,6 @@ export interface UpdateHealthEvent {
 }
 
 export interface UpdateRestartStatus {
-  activeManagedSessions: number
   activeTerminalSessions: number
   activeWorkspaceSetups: number
   confirmationRequired: boolean

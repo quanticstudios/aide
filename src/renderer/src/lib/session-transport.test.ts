@@ -1,10 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it, vi } from 'vitest'
-
-import type { AideApi } from '../../../shared/ipc'
-import { createIpcTransport } from './session-transport'
+import { describe, expect, it } from 'vitest'
 
 const rendererRoot = fileURLToPath(new URL('..', import.meta.url))
 const ipcTypes = readFileSync(
@@ -12,8 +9,8 @@ const ipcTypes = readFileSync(
   'utf8',
 )
 
-// why: workspace file pickers, task notifications and onTaskOpen/openTask are app-shell calls, not session ones, so they stay on window.aide.
-const SESSION_BRIDGE_METHODS = [
+// why: sessions run on pitwall's daemon; main no longer answers any of these (ENG-2898).
+const REMOVED_SESSION_BRIDGE_METHODS = [
   'acceptManagedFleetNode',
   'branchManagedSession',
   'closeManagedSession',
@@ -23,14 +20,11 @@ const SESSION_BRIDGE_METHODS = [
   'configureManagedSessionPermissionMode',
   'createManagedSession',
   'getManagedSessionSnapshots',
-  'getTaskLibrary',
-  'getTaskTranscript',
   'getTurnCheckpointDiff',
   'implementManagedSessionPlanInNewThread',
   'interruptManagedSession',
   'listTurnCheckpoints',
   'onManagedSessionEvent',
-  'onTaskLibraryChanged',
   'previewTurnCheckpointRestore',
   'queueManagedSessionInput',
   'resolveManagedSessionRequest',
@@ -40,29 +34,37 @@ const SESSION_BRIDGE_METHODS = [
   'switchManagedSessionProvider',
   'syncManagedSession',
   'updateManagedSessionQueue',
+]
+
+// aide's own task library (titles, pins, archive, unread), which the daemon transport merges into pitwall's list.
+const TASK_LIBRARY_BRIDGE_METHODS = [
+  'getTaskLibrary',
+  'getTaskTranscript',
+  'onTaskLibraryChanged',
   'updateTaskMetadata',
 ]
 
-// IpcTransport and the delta hub it feeds from the bridge.
-const ALLOWED_FILES = [
-  'lib/session-transport.ts',
-  'lib/managed-session-events.ts',
-]
-
-describe('session bridge calls', () => {
-  it('names methods the bridge still has', () => {
-    for (const method of SESSION_BRIDGE_METHODS) {
-      expect(ipcTypes).toMatch(new RegExp(`\\b${method}:`))
+describe('session bridge', () => {
+  it('has none of the built-in backend session methods', () => {
+    for (const method of REMOVED_SESSION_BRIDGE_METHODS) {
+      expect(ipcTypes).not.toMatch(new RegExp(`\\b${method}:`))
     }
   })
 
-  it('happen only inside IpcTransport', () => {
-    const pattern = new RegExp(`\\b(${SESSION_BRIDGE_METHODS.join('|')})\\b`)
+  it('reaches the task library only from the transport types and the daemon wiring', () => {
+    const pattern = new RegExp(
+      `\\b(${TASK_LIBRARY_BRIDGE_METHODS.join('|')})\\b`,
+    )
     const offenders = readdirSync(rendererRoot, { recursive: true })
       .map(String)
       .filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file))
       .map((file) => relative(rendererRoot, join(rendererRoot, file)))
-      .filter((file) => !ALLOWED_FILES.includes(file))
+      .filter(
+        (file) =>
+          !['lib/session-backend.ts', 'lib/session-transport.ts'].includes(
+            file,
+          ),
+      )
       .flatMap((file) => {
         const match = pattern.exec(
           readFileSync(join(rendererRoot, file), 'utf8'),
@@ -71,23 +73,5 @@ describe('session bridge calls', () => {
       })
 
     expect(offenders).toEqual([])
-  })
-})
-
-describe('createIpcTransport', () => {
-  it('forwards commands with the arguments it was given', async () => {
-    const api = {
-      interruptManagedSession: vi.fn(async () => undefined),
-      sendManagedSessionInput: vi.fn(async () => undefined),
-    } as unknown as AideApi
-    const transport = createIpcTransport(api)
-
-    await transport.send('session-1', 'hi')
-    await transport.interrupt('session-1')
-
-    expect(api.sendManagedSessionInput).toHaveBeenCalledWith('session-1', 'hi')
-    expect(vi.mocked(api.interruptManagedSession).mock.calls).toEqual([
-      ['session-1'],
-    ])
   })
 })

@@ -300,22 +300,13 @@ function SessionView({
                       canBranch={false}
                       checkpointId={null}
                       isCompleted={turn?.state === 'completed'}
-                      isFailed={turn?.state === 'failed'}
                       isRunning={turn?.state === 'running'}
                       onBranch={() => undefined}
                       onEditFromHere={() => undefined}
-                      onInterrupt={() =>
-                        void run(() => transport.interrupt(sessionId))
-                      }
                       onOpenDiff={() => undefined}
-                      onRetry={(text) =>
-                        void run(() => transport.send(sessionId, text))
-                      }
                       providerLabel={
                         snapshot.provider === 'codex' ? 'Codex' : 'Claude'
                       }
-                      recipientAlias={null}
-                      requestText={null}
                       rewindDisabledReason={null}
                       row={row}
                       sessionId={sessionId}

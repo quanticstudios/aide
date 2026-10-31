@@ -1530,8 +1530,8 @@ test.describe('electron spatial navigation', () => {
 
     await page.getByRole('button', { name: /add pane/i }).click()
     await expect(page.getByRole('button', { name: /^git/i })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /agent/i })).toBeVisible()
-    await expect(page.getByRole('button', { name: /terminal/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^agent/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^terminal/i })).toBeVisible()
     await page.getByRole('button', { name: /^terminal/i }).click()
     await expect(page.getByTestId('active-pane-name')).toHaveText(
       'Workspace terminal',
@@ -1735,7 +1735,6 @@ test.describe('electron spatial navigation', () => {
 
   test('presents update lifecycle, progress, and controls accessibly', async () => {
     const launched = await launchAideApp({
-      AIDE_FAKE_UPDATE_ACTIVE_MANAGED: '2',
       AIDE_FAKE_UPDATE_ACTIVE_SETUPS: '1',
       AIDE_FAKE_UPDATE_ACTIVE_TERMINALS: '1',
       AIDE_FAKE_UPDATE_CHECK_FAILURES: '1',
@@ -1818,9 +1817,9 @@ test.describe('electron spatial navigation', () => {
       page.getByRole('button', { name: 'Restart to update' }),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Restart to update' }).click()
-    await expect(modal).toContainText('4 active tasks')
+    await expect(modal).toContainText('2 active tasks')
     await page
-      .getByRole('button', { name: 'Restart and stop 4 active tasks' })
+      .getByRole('button', { name: 'Restart and stop 2 active tasks' })
       .click()
     await expect(modal).toContainText('Restart requested')
 

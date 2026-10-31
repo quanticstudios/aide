@@ -19,7 +19,7 @@ describe('addStashedDraft', () => {
   it('puts the newest stash first and keeps 20', () => {
     const stash = (id: string) => ({
       createdAt: '2026-10-30T00:00:00Z',
-      draft: { attachments: [], recipients: [], text: id },
+      draft: { attachments: [], text: id },
       id,
     })
     const full = Array.from({ length: 20 }, (_, index) => stash(`s${index}`))

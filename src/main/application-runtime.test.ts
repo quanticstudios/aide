@@ -7,20 +7,11 @@ describe('ApplicationRuntime', () => {
     const initializeServices = vi.fn()
     const registerIpcHandlers = vi.fn()
     const createMainWindow = vi.fn()
-    const reapStoppedManagedSessions = vi.fn()
-    const unref = vi.fn()
-    let reaperCallback: (() => void) | undefined
-    const startReaper = vi.fn((callback: () => void) => {
-      reaperCallback = callback
-      return { unref }
-    })
     const runtime = new ApplicationRuntime({
       createMainWindow,
       hasWindows: () => false,
       initializeServices,
       registerIpcHandlers,
-      reapStoppedManagedSessions,
-      startReaper,
       shutdownServices: vi.fn(),
     })
 
@@ -29,13 +20,6 @@ describe('ApplicationRuntime', () => {
     expect(initializeServices).toHaveBeenCalledOnce()
     expect(registerIpcHandlers).toHaveBeenCalledOnce()
     expect(createMainWindow).toHaveBeenCalledOnce()
-    expect(startReaper).toHaveBeenCalledWith(expect.any(Function), 5 * 60_000)
-    expect(unref).toHaveBeenCalledOnce()
-    if (!reaperCallback) {
-      throw new Error('expected the runtime to register a reaper')
-    }
-    reaperCallback()
-    expect(reapStoppedManagedSessions).toHaveBeenCalledOnce()
     expect(
       vi.mocked(initializeServices).mock.invocationCallOrder[0],
     ).toBeLessThan(
@@ -56,8 +40,6 @@ describe('ApplicationRuntime', () => {
       hasWindows: () => hasWindows,
       initializeServices: vi.fn(),
       registerIpcHandlers: vi.fn(),
-      reapStoppedManagedSessions: vi.fn(),
-      startReaper: () => ({ unref: vi.fn() }),
       shutdownServices: vi.fn(),
     })
 
@@ -75,8 +57,6 @@ describe('ApplicationRuntime', () => {
       hasWindows: () => false,
       initializeServices: vi.fn(),
       registerIpcHandlers: vi.fn(),
-      reapStoppedManagedSessions: vi.fn(),
-      startReaper: () => ({ unref: vi.fn() }),
       shutdownServices,
     })
 

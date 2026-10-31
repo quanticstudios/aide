@@ -92,17 +92,12 @@ function Transcript({
       canBranch={false}
       checkpointId="checkpoint"
       isCompleted={false}
-      isFailed={false}
       isRunning={row.group.turnId === 'turn-2'}
       key={row.key}
       onBranch={noop}
       onEditFromHere={noop}
-      onInterrupt={noop}
       onOpenDiff={noop}
-      onRetry={noop}
       providerLabel="Claude"
-      recipientAlias={null}
-      requestText={null}
       rewindDisabledReason={null}
       row={row}
       sessionId="session"

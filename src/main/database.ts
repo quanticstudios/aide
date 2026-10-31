@@ -545,7 +545,6 @@ const persistedAgentConfig = z.object({
   selection: persistedProviderSelection,
 })
 const persistedComposerDefaults = z.object({
-  agents: z.array(persistedAgentConfig).max(8),
   effort: z.string().max(200).optional(),
   model: z.string().min(1).max(200),
   permissionMode: z.enum([

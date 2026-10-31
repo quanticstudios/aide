@@ -17,25 +17,20 @@ This repo uses multiple test entrypoints on purpose.
   - Runs the full Vitest suite under Node.
   - Use this when touching SQLite-backed database code.
 
-- `xvfb-run -a bun run test:e2e`
-  - Runs the headless Electron Playwright suite.
+- `AIDE_E2E_PITWALL=/path/to/pitwall xvfb-run -a bun run test:e2e`
+  - Runs the headless Electron Playwright suite on the pitwall daemon, as
+    CI's "Electron e2e on the pitwall daemon" job does. aide has no other
+    session backend (ENG-2898), so the suite refuses to start without the
+    variable.
   - The Electron launch helper sets `AIDE_SOFTWARE_RENDERING=1` so headless CI
     uses the same explicit software fallback available to support.
   - Use this for desktop navigation behavior and Electron-only regressions.
-  - Runs on the built-in session backend: `e2e/pitwall-daemon.ts` sets
-    `AIDE_SESSION_BACKEND=built-in`, since pitwall is the default and this run
-    has no daemon. `e2e/session-backend-default.spec.ts` clears it to test the
-    default.
-
-- `AIDE_E2E_PITWALL=/path/to/pitwall xvfb-run -a bun run test:e2e`
-  - Runs the same suite on the pitwall daemon backend, as CI's
-    "Electron e2e on the pitwall daemon" job does.
   - `e2e/pitwall-daemon.ts` starts the daemon with `PITWALL_FAKE_PROVIDERS=1`
     in temp config, state and runtime folders, so it never meets your own
     daemon. The binary needs `PITWALL_FAKE_PROVIDERS` wired into the daemon
     (pitwall#241).
-  - `e2e/daemon-backend-gaps.ts` lists the tests this run skips until the
-    daemon backend reaches parity (ENG-2704).
+  - A test that cannot pass on the daemon yet is `test.fixme`, with a
+    `// why:` line naming its ticket.
 
 - `AIDE_E2E_PITWALL=/path/to/pitwall bun run test:e2e:web`
   - Builds the browser client (`bun run build:web`, into `out/web`) and

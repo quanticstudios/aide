@@ -10,7 +10,6 @@ import {
 } from 'react'
 import type { TurnCheckpointRestoreResult } from '../../../shared/checkpoints'
 import type { ComposerDefaults } from '../../../shared/composer-defaults'
-import type { ManagedSessionAgentConfig } from '../../../shared/conversation-routing'
 import type { AideApi } from '../../../shared/ipc'
 import {
   JEV_CONSENT_REQUIRED_MESSAGE,
@@ -23,7 +22,6 @@ import type {
   ManagedSessionEffort,
   ManagedSessionPermissionMode,
   ManagedSessionSnapshot,
-  ManagedSessionTurnSummary,
 } from '../../../shared/managed-session'
 import { readPlanText } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
@@ -36,7 +34,6 @@ import { classifyProviderError } from '../../../shared/provider-errors'
 import type { ProviderSkill } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useTranscriptFollow } from '../hooks/useTranscriptFollow'
-import { isEqualValue } from '../lib/deep-equal'
 import { requestFrameFlush } from '../lib/frame-flush'
 import { saveManagedDraft } from '../lib/managed-draft-storage'
 import type { ManagedSessionUpdate } from '../lib/managed-session-events'
@@ -163,7 +160,6 @@ function readLegacyComposerDefaults(
   }
 
   return {
-    agents: [],
     ...(selection.effort ? { effort: selection.effort } : {}),
     model: selection.modelId,
     permissionMode: 'default',
@@ -172,39 +168,6 @@ function readLegacyComposerDefaults(
   }
 }
 
-function getDefaultConfiguredAgents(
-  capabilities: ProviderCapabilitiesSnapshot,
-): readonly ManagedSessionAgentConfig[] {
-  return (['claude', 'codex'] as const).flatMap((mode) => {
-    const resolution = resolveProviderSelection(
-      capabilities.providers[mode],
-      {},
-    )
-
-    if (!resolution.modelId) {
-      return []
-    }
-
-    return [
-      {
-        alias: mode === 'claude' ? 'Claude' : 'Codex',
-        selection: {
-          ...(resolution.effort ? { effort: resolution.effort } : {}),
-          mode,
-          model: resolution.modelId,
-          ...(resolution.serviceTier
-            ? { serviceTier: resolution.serviceTier }
-            : {}),
-        },
-      },
-    ]
-  })
-}
-
-interface RecipientTurnSummary extends ManagedSessionTurnSummary {
-  readonly recipientAlias?: string
-  readonly requestText?: string
-}
 export default function ManagedAgentPane({
   isActive,
   onOpenJevSettings,
@@ -234,9 +197,6 @@ export default function ManagedAgentPane({
   const [selectionNotice, setSelectionNotice] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<ManagedSessionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [configuredAgents, setConfiguredAgents] = useState<
-    readonly ManagedSessionAgentConfig[]
-  >([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [agentMode, setAgentMode] = useState<'build' | 'plan'>('build')
   const [effort, setEffort] = useState<ManagedSessionEffort | undefined>(
@@ -258,7 +218,6 @@ export default function ManagedAgentPane({
     readonly checkpointId: string
   } | null>(null)
   const startedSessionRef = useRef(false)
-  const configuredAgentsInitializedRef = useRef(false)
   const hydratedProviderSelectionKeyRef = useRef<string | null>(null)
   const snapshotRevisionRef = useRef({ revision: -1, runtimeGeneration: -1 })
   const paneRef = useRef<HTMLElement>(null)
@@ -333,10 +292,6 @@ export default function ManagedAgentPane({
         if (isUnifiedPane) {
           setSelectedProvider(stored.provider)
         }
-        if (stored.agents.length > 0) {
-          configuredAgentsInitializedRef.current = true
-          setConfiguredAgents(stored.agents)
-        }
       }
 
       setComposerDefaults(stored)
@@ -401,7 +356,6 @@ export default function ManagedAgentPane({
     // why: a settings write failure must not stop an available provider from running.
     void api
       .setComposerDefaults(workspace.id, {
-        agents: configuredAgents,
         ...(effort ? { effort } : {}),
         model: selectedModel,
         permissionMode,
@@ -411,7 +365,6 @@ export default function ManagedAgentPane({
       .catch(() => undefined)
   }, [
     composerDefaults,
-    configuredAgents,
     effort,
     isSelectionHydrated,
     permissionMode,
@@ -420,15 +373,6 @@ export default function ManagedAgentPane({
     serviceTier,
     workspace.id,
   ])
-
-  useEffect(() => {
-    if (!capabilities || configuredAgentsInitializedRef.current) {
-      return
-    }
-
-    configuredAgentsInitializedRef.current = true
-    setConfiguredAgents(getDefaultConfiguredAgents(capabilities))
-  }, [capabilities])
 
   const ensureSession = useCallback(async () => {
     if (startedSessionRef.current) return true
@@ -448,10 +392,6 @@ export default function ManagedAgentPane({
         setSnapshot(existing)
         setAgentMode(existing.interactionMode)
         setPermissionMode(existing.permissionMode)
-        if (existing.agents) {
-          setConfiguredAgents(existing.agents)
-          configuredAgentsInitializedRef.current = true
-        }
         const composerSelection = getComposerProviderSelection(existing)
         setSelectedModel(composerSelection.model)
         setEffort(composerSelection.effort)
@@ -473,7 +413,6 @@ export default function ManagedAgentPane({
       }
 
       const created = await transport.start({
-        agents: configuredAgents,
         contextWindow,
         cwd: workspace.worktreePath || '~',
         effort,
@@ -508,7 +447,6 @@ export default function ManagedAgentPane({
   }, [
     agentMode,
     contextWindow,
-    configuredAgents,
     error,
     effort,
     isSelectionHydrated,
@@ -558,14 +496,6 @@ export default function ManagedAgentPane({
       setSnapshot(nextSnapshot)
       setAgentMode(nextSnapshot.interactionMode)
       setPermissionMode(nextSnapshot.permissionMode)
-      if (nextSnapshot.agents) {
-        const agents = nextSnapshot.agents
-        // why: a fresh array on every snapshot re-runs the effect that writes composer defaults to the database.
-        setConfiguredAgents((current) =>
-          isEqualValue(current, agents) ? current : agents,
-        )
-        configuredAgentsInitializedRef.current = true
-      }
       const composerSelection = getComposerProviderSelection(nextSnapshot)
       setSelectedModel(composerSelection.model)
       setEffort(composerSelection.effort)
@@ -630,7 +560,6 @@ export default function ManagedAgentPane({
   const sendPromptText = useCallback(
     async (
       text: string,
-      recipients: readonly string[] = [],
       promptAttachments: readonly ManagedSessionAttachment[] = [],
       providerSkill?: ProviderSkill,
       queue = false,
@@ -655,13 +584,7 @@ export default function ManagedAgentPane({
           : undefined
         if (queue) {
           // why: a queued message reaches the transcript only when main sends it, so there is no row to pin yet.
-          await transport.queue(
-            sessionId,
-            trimmed,
-            recipients,
-            promptAttachments,
-            skill,
-          )
+          await transport.queue(sessionId, trimmed, promptAttachments, skill)
           setError(null)
           return true
         }
@@ -678,13 +601,8 @@ export default function ManagedAgentPane({
           )
         }
         pinNextMessage()
-        await transport.send(
-          sessionId,
-          trimmed,
-          recipients,
-          promptAttachments,
-          skill,
-        )
+        await transport.send(sessionId, trimmed, promptAttachments, skill)
+        void window.aide?.requestWorkspaceTitle(workspace.id, trimmed)
         setError(null)
         return true
       } catch (sendError) {
@@ -694,7 +612,7 @@ export default function ManagedAgentPane({
         setIsSubmitting(false)
       }
     },
-    [ensureSession, pinNextMessage, scrollToLatest, sessionId],
+    [ensureSession, pinNextMessage, scrollToLatest, sessionId, workspace.id],
   )
 
   // why: Fix in a new thread queues its prompt before this pane mounts, and the session can start only once the provider selection is known.
@@ -706,13 +624,6 @@ export default function ManagedAgentPane({
 
   const pullRequest = usePullRequest(sessionId, isActive)
   const startThread = useContext(NewThreadContext)
-
-  const handleRetryTurn = useCallback(
-    async (text: string, recipientAlias: string) => {
-      await sendPromptText(text, [recipientAlias])
-    },
-    [sendPromptText],
-  )
 
   const handleBranchConversation = useCallback(
     async (responseContentItemId: string) => {
@@ -730,25 +641,6 @@ export default function ManagedAgentPane({
     [sessionId],
   )
 
-  const handleInterruptRecipient = useCallback(
-    (recipientAlias: string) => {
-      const transport = getSessionTransport()
-      if (transport) {
-        void transport.interrupt(sessionId, recipientAlias)
-      }
-    },
-    [sessionId],
-  )
-
-  const retryTurnRef = useRef(handleRetryTurn)
-  useLayoutEffect(() => {
-    retryTurnRef.current = handleRetryTurn
-  })
-  const handleTurnRetry = useCallback(
-    (text: string, recipientAlias: string) =>
-      void retryTurnRef.current(text, recipientAlias),
-    [],
-  )
   const handleOpenDiff = useCallback(
     (checkpointId: string, path: string | null) =>
       setDiffPanelTarget({ checkpointId, path }),
@@ -840,7 +732,6 @@ export default function ManagedAgentPane({
     canChangeProviderSelection,
     capabilities,
     composerDefaults,
-    configuredAgents,
     effort,
     handleProviderSelectionChange,
     isActive,
@@ -856,7 +747,6 @@ export default function ManagedAgentPane({
     serviceTier,
     sessionId,
     setAgentMode,
-    setConfiguredAgents,
     setError,
     setIsSubmitting,
     setPermissionMode,
@@ -876,7 +766,6 @@ export default function ManagedAgentPane({
       }
       await saveManagedDraft(`aide:managed-composer:${result.sessionId}`, {
         attachments: [...(rewindTarget?.attachments ?? [])],
-        recipients: [],
         text: result.editedPrompt,
       })
       // pitwall rewinds this chat in place, so this composer takes the draft; aide's backend opens a copy.
@@ -939,23 +828,9 @@ export default function ManagedAgentPane({
     () => groupContentByTurn(snapshot?.content ?? []),
     [snapshot?.content],
   )
-  const visibleTurnGroups = useMemo(() => {
-    const contentTurnIds = new Set(
-      turnGroups
-        .map((group) => group.turnId)
-        .filter((turnId): turnId is string => turnId !== null),
-    )
-    const emptyOpinionGroups = (snapshot?.turns ?? [])
-      .filter(
-        (turn) => Boolean(turn.recipientAlias) && !contentTurnIds.has(turn.id),
-      )
-      .map((turn) => ({ items: [], turnId: turn.id }))
-
-    return [...turnGroups, ...emptyOpinionGroups]
-  }, [snapshot?.turns, turnGroups])
   const transcriptRows = useMemo(
-    () => buildTranscriptRows(visibleTurnGroups),
-    [visibleTurnGroups],
+    () => buildTranscriptRows(turnGroups),
+    [turnGroups],
   )
   const minimapAnchors = useMemo(
     () =>
@@ -1055,20 +930,17 @@ export default function ManagedAgentPane({
                   renderRow={(row) => {
                     const turn = snapshot?.turns.find(
                       (candidate) => candidate.id === row.group.turnId,
-                    ) as RecipientTurnSummary | undefined
+                    )
 
                     return (
                       <TurnGroupBlock
                         canBranch={turn?.state === 'completed'}
                         checkpointId={turn?.checkpointId ?? null}
                         isCompleted={turn?.state === 'completed'}
-                        isFailed={turn?.state === 'failed'}
                         isRunning={turn?.state === 'running'}
                         onBranch={handleTurnBranch}
                         onEditFromHere={handleTurnEditFromHere}
-                        onInterrupt={handleInterruptRecipient}
                         onOpenDiff={handleOpenDiff}
-                        onRetry={handleTurnRetry}
                         providerLabel={
                           turn?.provider === 'claude'
                             ? 'Claude'
@@ -1076,8 +948,6 @@ export default function ManagedAgentPane({
                               ? 'Codex'
                               : workingProviderLabel
                         }
-                        recipientAlias={turn?.recipientAlias ?? null}
-                        requestText={turn?.requestText ?? null}
                         rewindDisabledReason={rewindDisabledReason}
                         row={row}
                         sessionId={sessionId}
@@ -1200,13 +1070,7 @@ export default function ManagedAgentPane({
           onFixInNewThread={(prompt) => startThread?.(workspace.id, prompt)}
           onSend={(prompt) =>
             // why: pitwall holds a message for a busy agent until its turn ends; queueing does the same here.
-            sendPromptText(
-              prompt,
-              [],
-              [],
-              undefined,
-              snapshot?.running ?? false,
-            )
+            sendPromptText(prompt, [], undefined, snapshot?.running ?? false)
           }
           sessionId={sessionId}
           state={pullRequest}

@@ -1094,7 +1094,7 @@ export function createDaemonTransport(
       }
       return readSnapshot(sessionId)
     },
-    send: async (sessionId, text, _recipients, attachments, selectedSkill) => {
+    send: async (sessionId, text, attachments, selectedSkill) => {
       const skill = await resolveSkill(sessionId, selectedSkill)
       // aide's send steers a running turn; pitwall's default would queue it.
       const snapshot = sessions.get(chatId(sessionId))?.state?.snapshot
@@ -1111,7 +1111,7 @@ export function createDaemonTransport(
         how: running ? 'steer' : undefined,
       })
     },
-    queue: async (sessionId, text, _recipients, attachments, selectedSkill) => {
+    queue: async (sessionId, text, attachments, selectedSkill) => {
       const skill = await resolveSkill(sessionId, selectedSkill)
       await command('send', {
         sessionId,
@@ -1166,7 +1166,6 @@ export function createDaemonTransport(
       }),
     setPermissionMode: (sessionId, permissionMode) =>
       set(sessionId, { permissionMode }),
-    setAgents: () => unsupported('multi-agent routing'),
     fork: async (sessionId, responseContentItemId) => {
       const snapshot = await currentSnapshot(sessionId)
       const turnId = snapshot.content.find(
@@ -1330,6 +1329,5 @@ export function createDaemonTransport(
           throw error
       }
     },
-    acceptFleetNode: () => unsupported('fleet nodes'),
   }
 }

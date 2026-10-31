@@ -158,10 +158,7 @@ async function getOnlySnapshot(page: Page) {
   })
 }
 
-/**
- * Opens the project and starts one Claude or Codex chat, the way a user does.
- * @remarks Use it unless the spec tests multi-agent routing; startSharedChat's setAgents stays built-in only (ENG-2706).
- */
+/** Opens the project and starts one Claude or Codex chat, the way a user does. */
 async function startPlainChat(
   page: Page,
   app: ElectronApplication,
@@ -203,43 +200,6 @@ async function startPlainChat(
     })
 
   return await getOnlySnapshot(page)
-}
-
-async function startSharedChat(page: Page, app: ElectronApplication) {
-  const session = await startPlainChat(page, app)
-
-  return await page.evaluate(async (sessionId) => {
-    return await window.aideSessions.setAgents(sessionId, [
-      {
-        alias: 'Claude',
-        selection: {
-          effort: 'medium',
-          mode: 'claude',
-          model: 'claude-sonnet-5',
-        },
-      },
-      {
-        alias: 'Codex',
-        selection: {
-          effort: 'medium',
-          mode: 'codex',
-          model: 'gpt-5.6-terra',
-          serviceTier: 'priority',
-        },
-      },
-    ])
-  }, session.sessionId)
-}
-
-async function selectPlanMode(page: Page): Promise<void> {
-  const prompt = page.getByRole('textbox', { name: /prompt/i })
-  await prompt.fill('/plan')
-  await page.getByRole('option', { name: /\/plan/ }).click()
-  await expect
-    .poll(() => getOnlySnapshot(page))
-    .toMatchObject({
-      interactionMode: 'plan',
-    })
 }
 
 async function selectProviderSkill(
@@ -640,12 +600,7 @@ test.describe('shared model chat', () => {
       path: 'docs/verification/chat-polish-2026-09-18.png',
     })
     const session = await getOnlySnapshot(page)
-    expect(
-      await page.evaluate(
-        (id) => window.aide.listTurnCheckpoints(id),
-        session.sessionId,
-      ),
-    ).toEqual([])
+    expect(session.turns.filter((turn) => turn.checkpointId)).toEqual([])
     expect(existsSync(path.join(repository, '.git'))).toBe(false)
     await app.close()
     const restarted = await launchAideApp(repository, dataDirectory)
@@ -825,76 +780,6 @@ test.describe('shared model chat', () => {
     await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
       '@Claude · /claude-test-skill',
     )
-  })
-
-  test('selects the highlighted agent mention with the keyboard', async () => {
-    repository = createGitRepository()
-    writeFileSync(
-      path.join(repository, 'fleet.ts'),
-      'export const fleet = true\n',
-    )
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await prompt.fill('@')
-    await expect(
-      page.getByRole('option', { name: /@claude/i }),
-    ).toHaveAttribute('aria-selected', 'true')
-    await page.screenshot({ path: test.info().outputPath('mention-menu.png') })
-    await prompt.press('ArrowDown')
-    await expect(page.getByRole('option', { name: /@codex/i })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    await prompt.press('Enter')
-
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeVisible()
-    await expect(prompt).toHaveValue('')
-    await expect(page.getByTestId('managed-recipient-menu')).toHaveCount(0)
-
-    await page.screenshot({ path: test.info().outputPath('recipient-tag.png') })
-    await prompt.press('Backspace')
-    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
-    await prompt.fill('@')
-    await prompt.press('Enter')
-    await page.getByRole('button', { name: 'Remove @claude' }).click()
-    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
-    await expect(prompt).toBeFocused()
-    await prompt.fill('Please inspect @flee')
-    await expect(
-      page.getByRole('option', { name: /fleet\.ts/ }),
-    ).toHaveAttribute('aria-selected', 'true')
-    await page.screenshot({
-      path: test.info().outputPath('inline-file-search.png'),
-    })
-    await prompt.press('Enter')
-    await expect(page.getByTestId('composer-attachments')).toContainText(
-      'fleet.ts',
-    )
-    await expect(prompt).toHaveValue('Please inspect ')
-
-    await prompt.fill('@claude-test')
-    const skill = page.getByRole('option', { name: /\/claude-test-skill/ })
-    await expect(skill).toHaveAttribute('aria-selected', 'true')
-    await page.screenshot({
-      path: test.info().outputPath('inline-skill-search.png'),
-    })
-    await prompt.press('Tab')
-    await expect(page.getByTestId('managed-provider-skill-chip')).toContainText(
-      '@Claude · /claude-test-skill',
-    )
-    await prompt.fill('Please ask @cod')
-    await prompt.press('Enter')
-    await expect(prompt).toHaveValue('Please ask ')
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeVisible()
-    await expect(page.getByTestId('managed-provider-skill-chip')).toHaveCount(0)
   })
 
   test('keeps the composer responsive during a sustained Codex stream', async () => {
@@ -1223,125 +1108,6 @@ test.describe('shared model chat', () => {
     await expect(trigger).toBeFocused()
   })
 
-  test('clears accepted drafts and restores only an untouched failed submission', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-
-    await app.evaluate(({ ipcMain }) => {
-      const rejectors: Array<(reason: Error) => void> = []
-      ipcMain.removeHandler('managed-session:send-input')
-      ipcMain.handle(
-        'managed-session:send-input',
-        () =>
-          new Promise<void>((_resolve, reject) => {
-            rejectors.push(reject)
-          }),
-      )
-      Reflect.set(
-        globalThis,
-        'pendingManagedInputCount',
-        () => rejectors.length,
-      )
-      Reflect.set(globalThis, 'rejectManagedInput', () => {
-        const reject = rejectors.shift()
-        if (!reject) throw new Error('No managed input is waiting.')
-        reject(new Error('Synthetic rejected input.'))
-      })
-    })
-
-    await prompt.fill('@cod')
-    await page.getByRole('option', { name: /@codex/i }).click()
-    await prompt.fill('first submitted draft')
-    await prompt.press('Enter')
-    await expect(prompt).toHaveValue('')
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeHidden()
-    await expect
-      .poll(() =>
-        app.evaluate(() =>
-          Reflect.get(globalThis, 'pendingManagedInputCount')(),
-        ),
-      )
-      .toBe(1)
-
-    await prompt.fill('new draft survives the failed send')
-    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
-    await expect(prompt).toHaveValue('new draft survives the failed send')
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeHidden()
-
-    await prompt.fill('@cod')
-    await page.getByRole('option', { name: /@codex/i }).click()
-    await prompt.fill('@README')
-    await page.getByRole('option', { name: /README\.md/ }).click()
-    await expect(page.getByTestId('composer-attachments')).toContainText(
-      'README.md',
-    )
-    await prompt.fill('restore this failed submission')
-    await prompt.press('Enter')
-    await expect(prompt).toHaveValue('')
-    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
-    await expect(page.getByTestId('composer-attachments')).toHaveCount(0)
-    await expect
-      .poll(() =>
-        app.evaluate(() =>
-          Reflect.get(globalThis, 'pendingManagedInputCount')(),
-        ),
-      )
-      .toBe(1)
-
-    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
-    await expect(prompt).toHaveValue('restore this failed submission')
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeVisible()
-    await expect(page.getByTestId('composer-attachments')).toContainText(
-      'README.md',
-    )
-
-    await prompt.press('Enter')
-    await expect(prompt).toHaveValue('')
-    await expect(page.getByTestId('managed-recipient-chips')).toHaveCount(0)
-    await expect(page.getByTestId('composer-attachments')).toHaveCount(0)
-    await expect
-      .poll(() =>
-        app.evaluate(() =>
-          Reflect.get(globalThis, 'pendingManagedInputCount')(),
-        ),
-      )
-      .toBe(1)
-
-    await prompt.fill('@cla')
-    await page.getByRole('option', { name: /@claude/i }).click()
-    await prompt.fill('@README')
-    await page.getByRole('option', { name: /README\.md/ }).click()
-    await expect(
-      page.getByRole('button', { name: 'Remove @claude' }),
-    ).toBeVisible()
-    await expect(page.getByTestId('composer-attachments')).toContainText(
-      'README.md',
-    )
-
-    await app.evaluate(() => Reflect.get(globalThis, 'rejectManagedInput')())
-    await expect(prompt).toHaveValue('')
-    await expect(
-      page.getByRole('button', { name: 'Remove @claude' }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('button', { name: 'Remove @codex' }),
-    ).toBeHidden()
-    await expect(page.getByTestId('composer-attachments')).toContainText(
-      'README.md',
-    )
-  })
-
   test('ranks skill names first and removes stale suggestions while typing', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
@@ -1406,25 +1172,14 @@ test.describe('shared model chat', () => {
     await expect(menu).toContainText('No matching commands or skills.')
   })
 
-  test('runs a Claude skill with its owner and clears opinion recipients', async () => {
+  test('runs a Claude skill with its owner', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    // why: opinion recipients need configured agents (setAgents), which stay on the built-in backend (ENG-2898).
-    const routing = !process.env.AIDE_E2E_PITWALL
-    if (routing) await startSharedChat(launched.page, app)
-    else await startPlainChat(launched.page, app)
+    await startPlainChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-
-    if (routing) {
-      await prompt.fill('@cod')
-      await page.getByRole('option', { name: /@codex/i }).click()
-      await expect(
-        page.getByRole('button', { name: /Remove @codex/i }),
-      ).toBeVisible()
-    }
 
     await prompt.fill('/claude-test-skill')
     await expect(page.getByTestId('managed-slash-menu')).toBeVisible()
@@ -1433,11 +1188,6 @@ test.describe('shared model chat', () => {
     await expect(prompt).toHaveValue('/claude-test-skill')
     await prompt.fill('')
     await selectProviderSkill(page, 'claude-test-skill')
-    if (routing) {
-      await expect(
-        page.getByRole('button', { name: /Remove @codex/i }),
-      ).toBeHidden()
-    }
     await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
       '@Claude · /claude-test-skill ×',
     )
@@ -1467,11 +1217,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    // why: opinion recipients need configured agents (setAgents), which stay on the built-in backend (ENG-2898).
-    const routing = !process.env.AIDE_E2E_PITWALL
-    const session = routing
-      ? await startSharedChat(launched.page, app)
-      : await startPlainChat(launched.page, app)
+    const session = await startPlainChat(launched.page, app)
     const { page } = launched
     await page.setViewportSize({ width: 1100, height: 720 })
 
@@ -1479,10 +1225,6 @@ test.describe('shared model chat', () => {
     await page.getByRole('button', { name: 'Terminal', exact: true }).click()
 
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    if (routing) {
-      await prompt.fill('@cla')
-      await page.getByRole('option', { name: /@claude/i }).click()
-    }
     await prompt.fill('/')
 
     const pane = page.getByTestId('managed-agent-pane')
@@ -1508,9 +1250,6 @@ test.describe('shared model chat', () => {
         name: /\/codex-test-skill.*Runs with Codex/i,
       })
       .click()
-    await expect(
-      page.getByRole('button', { name: /Remove @claude/i }),
-    ).toBeHidden()
     await expect(page.getByTestId('managed-provider-skill-chip')).toHaveText(
       '@Codex · /codex-test-skill ×',
     )
@@ -1556,250 +1295,6 @@ test.describe('shared model chat', () => {
       'Codex · gpt-5.6-terra',
     )
     await expect(page.getByTestId('managed-provider-skill-chip')).toBeHidden()
-  })
-
-  test('opens fleet Plan first, accepts reported work, and shows actual routing after restart', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    const { page } = launched
-    const session = await startSharedChat(page, app)
-    await page.setViewportSize({ width: 1280, height: 800 })
-    await page.evaluate(async (sessionId) => {
-      await window.aideSessions.send(sessionId, 'fleet plan')
-    }, session.sessionId)
-    const drawer = page.getByTestId('fleet-drawer')
-    const workspaceContent = page.getByTestId('workspace-content')
-    const fullContentWidth = await workspaceContent.evaluate(
-      (element) => element.getBoundingClientRect().width,
-    )
-    const closedPosition = await drawer.evaluate((element) => ({
-      left: element.getBoundingClientRect().left,
-      parentRight: element.parentElement?.getBoundingClientRect().right ?? 0,
-    }))
-    expect(closedPosition.left).toBeGreaterThanOrEqual(
-      closedPosition.parentRight,
-    )
-    await page.getByRole('button', { name: 'Open agent fleet' }).click()
-    await expect
-      .poll(() =>
-        drawer.evaluate((element) => element.parentElement?.scrollLeft),
-      )
-      .toBe(0)
-    await expect
-      .poll(() =>
-        drawer.evaluate((element) =>
-          Math.round(new DOMMatrix(getComputedStyle(element).transform).m41),
-        ),
-      )
-      .toBe(0)
-    await expect
-      .poll(() =>
-        workspaceContent.evaluate(
-          (element) => element.getBoundingClientRect().width,
-        ),
-      )
-      .toBeLessThan(fullContentWidth - 300)
-    const contentRight = await workspaceContent.evaluate(
-      (element) => element.getBoundingClientRect().right,
-    )
-    expect(
-      await drawer.evaluate((element) => element.getBoundingClientRect().left),
-    ).toBeGreaterThanOrEqual(contentRight - 1)
-    await expect(
-      drawer.getByRole('tab', { name: 'Plan', exact: true }),
-    ).toHaveAttribute('aria-selected', 'true')
-    await drawer.getByRole('button', { name: 'Close agent fleet' }).click()
-    await expect(drawer).toBeHidden()
-    await page.getByRole('button', { name: 'Open agent fleet' }).click()
-    await expect(drawer).toBeVisible()
-    await expect(drawer.getByTestId('fleet-plan-flow')).toContainText(
-      'Persist plan',
-    )
-    await drawer.getByRole('button', { name: /Render drawer/ }).click()
-    await expect(drawer).toContainText('Show saved nodes and routing events.')
-    await expect(
-      drawer.getByRole('button', {
-        name: 'Accept completed work',
-        exact: true,
-      }),
-    ).toBeDisabled()
-    await drawer.getByRole('button', { name: /Persist plan/ }).click()
-    await drawer
-      .getByRole('button', { name: 'Accept completed work', exact: true })
-      .click()
-    await expect(drawer).toContainText('1 / 2 accepted')
-    await page.screenshot({
-      path: 'docs/verification/fleet-plan-2026-09-18.png',
-    })
-    await drawer.getByRole('tab', { name: 'Live flow', exact: true }).click()
-    await expect(drawer).toContainText('Jev')
-    const flow = drawer.getByTestId('fleet-live-flow')
-    await expect(flow).toBeVisible()
-    await expect(flow.locator('[data-state="running"]')).toHaveCount(0)
-    await app.evaluate(() => {
-      const runtime = globalThis as typeof globalThis & {
-        releaseFleetPreparation?: () => void
-      }
-      const fetch = runtime.fetch
-      let isFirstRequest = true
-      runtime.fetch = async (url, options) => {
-        if (url === 'https://api.typesafe.ai/v1/systemone' && isFirstRequest) {
-          isFirstRequest = false
-          await new Promise<void>((resolve) => {
-            runtime.releaseFleetPreparation = resolve
-            options?.signal?.addEventListener('abort', () => resolve(), {
-              once: true,
-            })
-          })
-        }
-        return fetch(url, options)
-      }
-    })
-    await page.evaluate((sessionId) => {
-      void window.aideSessions.send(sessionId, 'fleet consult')
-    }, session.sessionId)
-    await expect(
-      flow.getByRole('button', {
-        name: 'Required Jev context, running',
-        exact: true,
-      }),
-    ).toBeVisible()
-    await page.emulateMedia({ reducedMotion: 'reduce' })
-    await expect
-      .poll(() =>
-        flow
-          .locator('path[data-state="running"]')
-          .first()
-          .evaluate((element) => getComputedStyle(element).animationName),
-      )
-      .toBe('none')
-    await app.evaluate(() => {
-      const runtime = globalThis as typeof globalThis & {
-        releaseFleetPreparation?: () => void
-      }
-      runtime.releaseFleetPreparation?.()
-      delete runtime.releaseFleetPreparation
-    })
-    await page.emulateMedia({ reducedMotion: 'no-preference' })
-    await expect(
-      flow.getByRole('button', { name: 'Agent claude, running', exact: true }),
-    ).toBeVisible()
-    await flow.getByRole('button', { name: /^Routing decision,/ }).click()
-    await expect(flow).toContainText(
-      'Check the drawer accessibility before implementation.',
-    )
-    await expect(drawer).toContainText('remainder unknown')
-    await page.screenshot({
-      path: 'docs/verification/fleet-live-2026-09-18.png',
-    })
-    await drawer
-      .getByRole('button', { name: 'Close agent fleet', exact: true })
-      .click()
-    await page.getByRole('button', { name: 'Interrupt @claude' }).click()
-    await page
-      .getByRole('button', { name: 'Open agent fleet', exact: true })
-      .click()
-    await expect(flow.locator('[data-state="running"]')).toHaveCount(0)
-    await expect(
-      flow.getByTestId('fleet-live-edge-return-agent-claude'),
-    ).toHaveAttribute('data-state', 'cancelled')
-    await page.emulateMedia({ reducedMotion: 'reduce' })
-    await expect(flow).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(drawer).toBeHidden()
-    await expect
-      .poll(() =>
-        workspaceContent.evaluate(
-          (element) => element.getBoundingClientRect().width,
-        ),
-      )
-      .toBe(fullContentWidth)
-    await expect(
-      page.getByRole('button', { name: 'Open agent fleet', exact: true }),
-    ).toBeFocused()
-    await page.getByRole('button', { name: /add pane/i }).click()
-    await page
-      .getByRole('dialog', { name: 'Add pane' })
-      .getByRole('button', { name: /^agent\b/i })
-      .click()
-    await page
-      .getByRole('button', { name: 'Open agent fleet', exact: true })
-      .click()
-    await expect
-      .poll(() =>
-        page.evaluate(
-          async ({ workspaceId, paneId }) => {
-            const storage = await window.aide.getStorageSnapshot()
-            const activePaneId =
-              storage.lastActivePaneIdsByWorkspace[workspaceId]
-            return Boolean(
-              activePaneId &&
-                activePaneId !== paneId &&
-                activePaneId.startsWith('agent::copy-'),
-            )
-          },
-          { workspaceId: session.workspaceId, paneId: session.paneId },
-        ),
-      )
-      .toBe(true)
-    await page
-      .getByTestId('fleet-drawer')
-      .getByRole('tab', { name: 'Plan', exact: true })
-      .click()
-    await expect(page.getByTestId('fleet-drawer')).toContainText(
-      'No fleet plan has been recorded',
-    )
-    await page
-      .getByRole('toolbar', { name: 'Pane selector' })
-      .getByRole('button')
-      .first()
-      .click()
-    await expect(page.getByTestId('fleet-drawer')).toContainText(
-      '1 / 2 accepted',
-    )
-    await app.close()
-    app = null
-    const reopened = await launchAideApp(repository, dataDirectory)
-    app = reopened.app
-    await reopened.page
-      .getByRole('button', { name: 'Open agent fleet', exact: true })
-      .click()
-    await expect(reopened.page.getByTestId('fleet-drawer')).toContainText(
-      '1 / 2 accepted',
-    )
-    await reopened.page.setViewportSize({ width: 760, height: 620 })
-    await expect(
-      reopened.page
-        .getByTestId('fleet-drawer')
-        .getByRole('button', { name: 'Close agent fleet', exact: true }),
-    ).toBeVisible()
-    await reopened.page
-      .getByTestId('fleet-drawer')
-      .getByRole('tab', { name: 'Live flow', exact: true })
-      .click()
-    await expect(
-      reopened.page
-        .getByTestId('fleet-live-flow')
-        .locator('[data-state="running"]'),
-    ).toHaveCount(0)
-    await expect(
-      reopened.page
-        .getByTestId('fleet-live-flow')
-        .getByRole('button', { name: /^Agent claude,/ }),
-    ).toBeVisible()
-    await expect(
-      reopened.page
-        .getByTestId('fleet-live-flow')
-        .getByRole('button', { name: /^Agent codex,/ }),
-    ).toBeVisible()
-    expect(
-      await reopened.page.evaluate(() => document.documentElement.scrollWidth),
-    ).toBeLessThanOrEqual(760)
-    await reopened.page.screenshot({
-      path: 'docs/verification/fleet-narrow-2026-09-18.png',
-    })
   })
 
   test('searches, archives and reopens saved tasks with durable attention state', async () => {
@@ -2095,33 +1590,6 @@ test.describe('shared model chat', () => {
     )
   })
 
-  test('labels a running Codex opinion response under a Claude parent', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-
-    await prompt.fill('@Codex wait-codex')
-    await page.getByRole('button', { name: 'Send prompt' }).click()
-    await expect(page.getByText('Codex is working...')).toBeVisible()
-    await expect(page.getByText('Claude is working...')).toHaveCount(0)
-
-    await page.getByRole('button', { name: 'Interrupt @codex' }).click()
-    await expect
-      .poll(() => getOnlySnapshot(page))
-      .toMatchObject({
-        turns: expect.arrayContaining([
-          expect.objectContaining({
-            recipientAlias: 'codex',
-            state: 'cancelled',
-          }),
-        ]),
-      })
-  })
-
   test('attaches a selected workspace file to a required-Jev turn', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)
@@ -2214,186 +1682,6 @@ test.describe('shared model chat', () => {
     )
   })
 
-  test('keeps the orchestrator while tagged opinions retain model attribution in Build and Plan', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    const configured = await startSharedChat(launched.page, app)
-    const { page } = launched
-
-    expect(configured.agents).toEqual([
-      expect.objectContaining({ alias: 'claude' }),
-      expect.objectContaining({ alias: 'codex' }),
-    ])
-    const orchestrator = {
-      model: configured.model,
-      selection: configured.orchestratorSelection,
-    }
-
-    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await prompt.fill('@cla')
-    await page.getByRole('option', { name: /@claude/i }).click()
-    await expect(
-      page.getByRole('button', { name: /Remove @claude/i }),
-    ).toBeVisible()
-    await prompt.fill('@cod')
-    await prompt.press('Enter')
-    await expect(
-      page.getByRole('button', { name: /Remove @codex/i }),
-    ).toBeVisible()
-    await prompt.fill('compare the implementation')
-    await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Handled: compare the implementation',
-    )
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Claude · claude-sonnet-5',
-    )
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Codex · gpt-5.6-terra',
-    )
-    await expect
-      .poll(() => getOnlySnapshot(page))
-      .toMatchObject({
-        agents: configured.agents,
-        model: orchestrator.model,
-        orchestratorSelection: orchestrator.selection,
-      })
-
-    await selectPlanMode(page)
-    await page.reload()
-    await page.waitForLoadState('domcontentloaded')
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Claude · claude-sonnet-5',
-    )
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Codex · gpt-5.6-terra',
-    )
-    await expect
-      .poll(() => getOnlySnapshot(page))
-      .toMatchObject({
-        agents: configured.agents,
-        interactionMode: 'plan',
-        model: orchestrator.model,
-        orchestratorSelection: orchestrator.selection,
-      })
-  })
-  test('closes the configured agents popover on an outside click', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-
-    const trigger = page.getByRole('button', { name: 'Agents', exact: true })
-    const popover = page.getByText('Configured agents', { exact: true })
-
-    await trigger.click()
-    await expect(popover).toBeVisible()
-    await page.getByText('@claude', { exact: true }).click()
-    await expect(popover).toBeVisible()
-
-    await page.getByTestId('managed-session-content').click()
-    await expect(popover).toBeHidden()
-
-    await trigger.click()
-    await expect(popover).toBeVisible()
-    await trigger.click()
-    await expect(popover).toBeHidden()
-  })
-
-  test('closes the configured agents popover on Escape and refocuses the trigger', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-
-    const trigger = page.getByRole('button', { name: 'Agents', exact: true })
-    const popover = page.getByText('Configured agents', { exact: true })
-
-    await trigger.click()
-    await expect(popover).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(popover).toBeHidden()
-    await expect(trigger).toBeFocused()
-  })
-
-  test('preserves a completed opinion when a peer fails, then interrupts only the pending peer', async () => {
-    repository = createGitRepository()
-    const launched = await launchAideApp(repository)
-    app = launched.app
-    dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
-    const { page } = launched
-    await selectPlanMode(page)
-
-    // why: a peer's turn state lands after its reply is visible, so the fake provider's agent runs can outlast the 5 s default poll deadline under load.
-    const peerTurnPoll = { timeout: 15_000 }
-
-    const prompt = page.getByRole('textbox', { name: /claude prompt/i })
-    await prompt.fill('@Claude @Codex fail-claude')
-    await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(page.getByTestId('managed-session-content')).toContainText(
-      'Handled: fail-claude',
-    )
-    await expect
-      .poll(() => getOnlySnapshot(page), peerTurnPoll)
-      .toMatchObject({
-        turns: expect.arrayContaining([
-          expect.objectContaining({
-            recipientAlias: 'claude',
-            state: 'failed',
-          }),
-          expect.objectContaining({
-            recipientAlias: 'codex',
-            state: 'completed',
-          }),
-        ]),
-      })
-    const retryTurn = page.getByRole('button', { name: 'Retry turn' })
-    await expect(retryTurn).toBeVisible()
-    await retryTurn.locator('xpath=../..').hover()
-    await retryTurn.click()
-    await expect
-      .poll(() => getOnlySnapshot(page), peerTurnPoll)
-      .toMatchObject({
-        turns: expect.arrayContaining([
-          expect.objectContaining({
-            recipientAlias: 'codex',
-            state: 'completed',
-          }),
-          expect.objectContaining({
-            recipientAlias: 'claude',
-            state: 'failed',
-          }),
-        ]),
-      })
-
-    await prompt.fill('@Claude @Codex wait-claude')
-    await page.getByRole('button', { name: /send prompt/i }).click()
-    await expect(
-      page.getByRole('button', { name: 'Interrupt @claude' }),
-    ).toBeVisible()
-    await page.getByRole('button', { name: 'Interrupt @claude' }).click()
-    await expect
-      .poll(() => getOnlySnapshot(page), peerTurnPoll)
-      .toMatchObject({
-        turns: expect.arrayContaining([
-          expect.objectContaining({
-            recipientAlias: 'claude',
-            state: 'cancelled',
-          }),
-          expect.objectContaining({
-            recipientAlias: 'codex',
-            state: 'completed',
-          }),
-        ]),
-      })
-  })
   test('rounds the settings select menu and the model selector popover to 8px', async () => {
     repository = createGitRepository()
     const launched = await launchAideApp(repository)

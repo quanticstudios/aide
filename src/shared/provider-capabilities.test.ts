@@ -1,220 +1,45 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  formatClaudeModelLabel,
-  normalizeClaudeModelList,
-  normalizeCodexModelList,
+  PROVIDER_CAPABILITIES,
   resolveProviderSelection,
 } from './provider-capabilities'
 
 describe('provider capabilities', () => {
-  it('labels Claude models with family and version from the resolved id', () => {
-    expect(
-      formatClaudeModelLabel({
-        displayName: 'Fable',
-        resolvedModel: 'claude-fable-5-1',
-        value: 'fable',
-      }),
-    ).toBe('Claude Fable 5.1')
-    expect(
-      formatClaudeModelLabel({
-        displayName: 'Haiku',
-        resolvedModel: 'claude-haiku-4-5-20251001',
-        value: 'haiku',
-      }),
-    ).toBe('Claude Haiku 4.5')
-    expect(
-      formatClaudeModelLabel({
-        displayName: 'Default (recommended)',
-        resolvedModel: 'claude-opus-5[1m]',
-        value: 'default',
-      }),
-    ).toBe('Claude Opus 5 · 1M (default)')
-    expect(
-      formatClaudeModelLabel({
-        displayName: 'Legacy thing',
-        resolvedModel: 'claude-3-5-sonnet-20241022',
-        value: 'legacy',
-      }),
-    ).toBe('Legacy thing')
+  it('offers one default model with efforts for each provider', () => {
+    for (const capabilities of Object.values(PROVIDER_CAPABILITIES.providers)) {
+      expect(capabilities.error).toBeNull()
+      expect(
+        capabilities.models.filter((model) => model.isDefault),
+      ).toHaveLength(1)
+      expect(capabilities.defaultModelId).toBe(
+        capabilities.models.find((model) => model.isDefault)?.id,
+      )
+      for (const model of capabilities.models) {
+        expect(model.reasoningEfforts.map((effort) => effort.id)).toContain(
+          model.defaultReasoningEffort,
+        )
+      }
+    }
   })
 
-  it('normalizes the Claude SDK model list and preserves effortless models', () => {
-    const capabilities = normalizeClaudeModelList([
-      {
-        description: 'Opus 5 with 1M context',
-        displayName: 'Default (recommended)',
-        resolvedModel: 'claude-opus-5[1m]',
-        supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        supportsEffort: true,
-        value: 'default',
-      },
-      {
-        description: 'Opus 5 with 1M context',
-        displayName: 'Opus (1M context)',
-        resolvedModel: 'claude-opus-5[1m]',
-        supportedEffortLevels: ['high'],
-        supportsEffort: true,
-        value: 'opus[1m]',
-      },
-      {
-        description: 'Fastest for quick answers',
-        displayName: 'Haiku',
-        resolvedModel: 'claude-haiku-4-5-20251001',
-        value: 'haiku',
-      },
-    ])
+  it('keeps a listed selection and explains one that is no longer offered', () => {
+    const claude = PROVIDER_CAPABILITIES.providers.claude
 
-    expect(capabilities.defaultModelId).toBe('default')
-    expect(capabilities.models.map((model) => model.id)).toEqual([
-      'default',
-      'opus[1m]',
-      'haiku',
-    ])
-    expect(capabilities.models[0]).toMatchObject({
-      aliases: [
-        {
-          explanation:
-            'The saved model “claude-opus-5[1m]” is available as Claude Opus 5 · 1M (default).',
-          id: 'claude-opus-5[1m]',
-        },
-      ],
-      defaultReasoningEffort: 'high',
-      isDefault: true,
-    })
-    expect(capabilities.models[1]?.aliases).toEqual([])
-    expect(capabilities.models[2]).toMatchObject({
-      defaultReasoningEffort: null,
-      reasoningEfforts: [],
-    })
-  })
-
-  it('updates the bundled Fable 5 discovery row to the current provider id', () => {
-    const capabilities = normalizeClaudeModelList([
-      {
-        description:
-          'Fable 5 · Most capable for your hardest and longest-running tasks',
-        displayName: 'Fable',
-        resolvedModel: 'claude-fable-5',
-        supportedEffortLevels: ['high', 'max'],
-        supportsEffort: true,
-        value: 'claude-fable-5[1m]',
-      },
-    ])
-
-    expect(capabilities.models[0]).toMatchObject({
-      aliases: [
-        { id: 'claude-fable-5-1' },
-        { id: 'claude-fable-5[1m]' },
-        { id: 'claude-fable-5' },
-      ],
-      description:
-        'Fable 5.1 · Most capable for your hardest and longest-running tasks',
-      id: 'claude-fable-5-1[1m]',
-      label: 'Claude Fable 5.1',
-    })
     expect(
-      resolveProviderSelection(capabilities, {
-        modelId: 'claude-fable-5[1m]',
-      }).modelId,
-    ).toBe('claude-fable-5-1[1m]')
-  })
-
-  it('normalizes the structured Codex model/list response without inventing capabilities', () => {
-    const capabilities = normalizeCodexModelList({
-      data: [
-        {
-          defaultReasoningEffort: 'medium',
-          defaultServiceTier: 'priority',
-          description: 'Fast coding model',
-          displayName: 'GPT-5.6 Terra',
-          hidden: false,
-          id: 'gpt-5.6-terra',
-          isDefault: true,
-          model: 'gpt-5.6-terra',
-          serviceTiers: [
-            {
-              description: 'Higher priority',
-              id: 'priority',
-              name: 'Fast',
-            },
-          ],
-          supportedReasoningEfforts: [
-            { description: 'Fast', reasoningEffort: 'low' },
-            { description: 'Balanced', reasoningEffort: 'medium' },
-            { description: 'Deep', reasoningEffort: 'ultra' },
-          ],
-        },
-        {
-          defaultReasoningEffort: 'high',
-          description: 'Hidden model',
-          displayName: 'Hidden',
-          hidden: true,
-          id: 'hidden',
-          isDefault: false,
-          model: 'hidden',
-          supportedReasoningEfforts: [],
-        },
-      ],
-    })
-
-    expect(capabilities.defaultModelId).toBe('gpt-5.6-terra')
-    expect(capabilities.models).toEqual([
-      {
-        aliases: [],
-        defaultReasoningEffort: 'medium',
-        defaultServiceTier: 'priority',
-        description: 'Fast coding model',
-        id: 'gpt-5.6-terra',
-        isDefault: true,
-        label: 'GPT-5.6 Terra',
-        reasoningEfforts: [
-          { description: 'Fast', id: 'low', label: 'Low' },
-          { description: 'Balanced', id: 'medium', label: 'Medium' },
-          { description: 'Deep', id: 'ultra', label: 'Ultra' },
-        ],
-        serviceTiers: [
-          { description: 'Higher priority', id: 'priority', label: 'Fast' },
-        ],
-      },
-    ])
-    expect(
-      resolveProviderSelection(capabilities, {
-        modelId: 'gpt-5.6-terra',
-        serviceTier: null,
+      resolveProviderSelection(claude, {
+        effort: 'max',
+        modelId: 'claude-sonnet-5-5',
       }),
-    ).toMatchObject({
-      effort: 'medium',
+    ).toEqual({
+      effort: 'max',
+      explanation: null,
+      modelId: 'claude-sonnet-5-5',
       serviceTier: null,
     })
-  })
-
-  it('migrates known aliases and explains a persisted selection that is no longer supported', () => {
-    const capabilities = normalizeClaudeModelList([
-      {
-        description: 'Opus 5 with 1M context',
-        displayName: 'Default (recommended)',
-        resolvedModel: 'claude-opus-5[1m]',
-        supportedEffortLevels: ['low', 'high', 'max'],
-        supportsEffort: true,
-        value: 'default',
-      },
-    ])
 
     expect(
-      resolveProviderSelection(capabilities, {
-        effort: 'max',
-        modelId: 'claude-opus-5[1m]',
-      }),
-    ).toMatchObject({
-      effort: 'max',
-      explanation:
-        'The saved model “claude-opus-5[1m]” is available as Claude Opus 5 · 1M (default).',
-      modelId: 'default',
-    })
-
-    expect(
-      resolveProviderSelection(capabilities, {
+      resolveProviderSelection(claude, {
         effort: 'not-supported',
         modelId: 'retired-model',
         serviceTier: 'retired-tier',
@@ -222,32 +47,8 @@ describe('provider capabilities', () => {
     ).toMatchObject({
       effort: 'high',
       explanation:
-        'The saved model “retired-model” is not supported by this Claude installation. Using Claude Opus 5 · 1M (default) instead.',
-      modelId: 'default',
-      serviceTier: null,
-    })
-  })
-
-  it('does not invent an effort for a Claude model that advertises none', () => {
-    const capabilities = normalizeClaudeModelList([
-      {
-        description: 'Fastest for quick answers',
-        displayName: 'Haiku',
-        resolvedModel: 'claude-haiku-4-5-20251001',
-        value: 'haiku',
-      },
-    ])
-
-    expect(
-      resolveProviderSelection(capabilities, {
-        effort: 'high',
-        modelId: 'haiku',
-      }),
-    ).toEqual({
-      effort: null,
-      explanation:
-        'Claude Haiku 4.5 does not support reasoning levels. Using the provider default instead.',
-      modelId: 'haiku',
+        'The saved model “retired-model” is not supported by this Claude installation. Using Claude Opus 5.5 instead.',
+      modelId: 'claude-opus-5-5',
       serviceTier: null,
     })
   })

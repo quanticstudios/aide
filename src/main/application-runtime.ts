@@ -2,13 +2,8 @@ export interface ApplicationRuntimeDependencies {
   createMainWindow: () => void
   hasWindows: () => boolean
   initializeServices: () => void
-  reapStoppedManagedSessions: () => void
   registerIpcHandlers: () => void
   shutdownServices: (reason: ApplicationShutdownReason) => Promise<void>
-  startReaper: (
-    callback: () => void,
-    interval: number,
-  ) => { unref?: () => void }
 }
 
 export type ApplicationShutdownReason = 'normal' | 'update-install'
@@ -23,13 +18,6 @@ export class ApplicationRuntime {
     this.dependencies.initializeServices()
     this.dependencies.registerIpcHandlers()
     this.dependencies.createMainWindow()
-
-    this.dependencies
-      .startReaper(
-        () => this.dependencies.reapStoppedManagedSessions(),
-        5 * 60_000,
-      )
-      .unref?.()
   }
 
   ensureMainWindow(): void {

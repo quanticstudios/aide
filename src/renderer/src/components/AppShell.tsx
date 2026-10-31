@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import {
   lazy,
   Suspense,
-  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -24,9 +23,6 @@ import type {
 } from '../../../shared/jev-gates'
 import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
 import type { SavedTask } from '../../../shared/task-library'
-import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
-import FleetDrawer from './FleetDrawer'
-import SessionLayer from './SessionLayer'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
@@ -46,10 +42,8 @@ interface AppShellProps {
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isSidebarOpen: boolean
   readonly onToggleSidebar: () => void
-  readonly isFleetOpen: boolean
   readonly jevGates: JevGateSnapshot | null
   readonly onUpdateWorkspaceJevGates: (overrides: JevGateOverrides) => void
-  readonly onFleetOpenChange: (isOpen: boolean) => void
   readonly onClosePane: (paneId: string) => void
   readonly onCloseSurface: (surfaceId: string) => void
   readonly onCreatePane: () => void
@@ -96,10 +90,8 @@ export default function AppShell({
   activeWorkspace,
   isSidebarOpen,
   onToggleSidebar,
-  isFleetOpen,
   jevGates,
   onUpdateWorkspaceJevGates,
-  onFleetOpenChange,
   onClosePane,
   onCloseSurface,
   onCreatePane,
@@ -125,7 +117,6 @@ export default function AppShell({
   workspaceSummaries,
   children,
 }: AppShellProps) {
-  const fleetToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarToggleRef = useRef<HTMLButtonElement | null>(null)
   const sidebarShellRef = useRef<HTMLDivElement | null>(null)
 
@@ -147,18 +138,6 @@ export default function AppShell({
       sidebarToggleRef.current?.focus({ preventScroll: true })
     }
   }, [isSidebarOpen])
-  const activeManagedSessionId =
-    activeWorkspace &&
-    activePaneId &&
-    resolveTerminalLaunchModeForPaneId(activePaneId) !== 'shell'
-      ? `${activeWorkspace.id}:${activePaneId}`
-      : null
-
-  const closeFleet = useCallback((): void => {
-    onFleetOpenChange(false)
-    window.requestAnimationFrame(() => fleetToggleRef.current?.focus())
-  }, [onFleetOpenChange])
-
   useEffect(() => {
     window.localStorage.setItem(
       TERMINAL_DRAWER_STORAGE_KEY,
@@ -252,9 +231,6 @@ export default function AppShell({
           activeSurfaceId={activeSurfaceId}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
-          fleetToggleRef={fleetToggleRef}
-          isFleetAvailable={Boolean(activeManagedSessionId)}
-          isFleetOpen={isFleetOpen}
           isSidebarOpen={isSidebarExpanded}
           isTerminalAvailable={Boolean(activeWorkspace)}
           isTerminalOpen={isTerminalOpen}
@@ -265,9 +241,6 @@ export default function AppShell({
           onOpenDiagnostics={onOpenDiagnostics}
           onOpenTask={onOpenTask}
           onOpenUpdate={onOpenUpdate}
-          onToggleFleet={() =>
-            isFleetOpen ? closeFleet() : onFleetOpenChange(true)
-          }
           onToggleSidebar={onToggleSidebar}
           onToggleTerminal={() => setIsTerminalOpen((current) => !current)}
           onResizePane={onResizePane}
@@ -338,16 +311,6 @@ export default function AppShell({
                 </div>
               </section>
             ) : null}
-          </div>
-          <div className="fleet-drawer-shell" data-open={isFleetOpen}>
-            <SessionLayer>
-              <FleetDrawer
-                isOpen={isFleetOpen}
-                jevGates={jevGates?.effective ?? null}
-                onClose={closeFleet}
-                sessionId={activeManagedSessionId}
-              />
-            </SessionLayer>
           </div>
         </main>
       </div>

@@ -1,12 +1,4 @@
-import type {
-  CheckpointRestoreMode,
-  TurnCheckpointDiff,
-  TurnCheckpointPreview,
-  TurnCheckpointRestoreResult,
-  TurnCheckpointSummary,
-} from './checkpoints'
 import type { ComposerDefaults } from './composer-defaults'
-import type { ManagedSessionAgentConfig } from './conversation-routing'
 import type {
   DiagnosticEventType,
   DiagnosticsSnapshot,
@@ -45,16 +37,7 @@ import type {
   JevGateScope,
   JevGateSnapshot,
 } from './jev-gates'
-import type {
-  ManagedSessionAttachment,
-  ManagedSessionConfig,
-  ManagedSessionDecision,
-  ManagedSessionInteractionMode,
-  ManagedSessionPermissionMode,
-  ManagedSessionProviderSelection,
-  ManagedSessionQueueAction,
-  ManagedSessionSnapshot,
-} from './managed-session'
+import type { ManagedSessionSnapshot } from './managed-session'
 import type {
   PersistenceSnapshot,
   ProjectAppearance,
@@ -77,7 +60,6 @@ import type {
 } from './provider-skills'
 import type { PersistedStateRecovery } from './recovery'
 import type { RuntimeSnapshot } from './runtime'
-import type { SessionDelta, SessionDeltaState } from './session-delta'
 import type { AppShortcutEvent } from './shortcuts'
 import type { TaskLibrarySnapshot, TaskMetadataUpdate } from './task-library'
 import type { TaskNotificationEvent } from './task-notification'
@@ -104,11 +86,6 @@ import type {
   WorkspaceSetupEvent,
   WorkspaceSetupSnapshot,
 } from './workspace-setup'
-
-/** What main sends on `managedSessionEvent`: one frame's deltas for a session, or its removal. */
-export type ManagedSessionIpcEvent =
-  | { deltas: SessionDelta[]; sessionId: string; type: 'deltas' }
-  | { revision: number; sessionId: string; type: 'removed' }
 
 export const IPC_CHANNELS = {
   getPersistedStateRecovery: 'app:get-persisted-state-recovery',
@@ -175,7 +152,6 @@ export const IPC_CHANNELS = {
   saveWorkspaceSurfaceState: 'storage:save-workspace-surface-state',
   getStorageSnapshot: 'storage:get-snapshot',
   getWorkspaceActivitySnapshot: 'app:get-workspace-activity-snapshot',
-  getManagedSessionSnapshots: 'app:get-managed-session-snapshots',
   getTaskLibrary: 'tasks:list',
   getTaskTranscript: 'tasks:transcript',
   getPitwallEndpoint: 'pitwall:get-endpoint',
@@ -188,6 +164,7 @@ export const IPC_CHANNELS = {
   taskLibraryChanged: 'tasks:changed',
   taskOpen: 'tasks:open',
   openTask: 'tasks:open-request',
+  requestWorkspaceTitle: 'workspace:request-title',
   getProviderCapabilities: 'app:get-provider-capabilities',
   getProviderSkills: 'app:get-provider-skills',
   resolveProviderSkill: 'app:resolve-provider-skill',
@@ -203,32 +180,9 @@ export const IPC_CHANNELS = {
   updateProjectAppearance: 'storage:update-project-appearance',
   runWorkspaceSetup: 'workspace-setup:run',
   cancelWorkspaceSetup: 'workspace-setup:cancel',
-  managedSessionCreate: 'managed-session:create',
-  managedSessionBranch: 'managed-session:branch',
-  managedSessionImplementPlanInNewThread:
-    'managed-session:implement-plan-in-new-thread',
   managedSessionSavePlan: 'managed-session:save-plan',
-  managedFleetAcceptNode: 'managed-session:accept-fleet-node',
-  managedSessionClose: 'managed-session:close',
-  managedSessionConfigureAgents: 'managed-session:configure-agents',
-  managedSessionConfigureJevGates: 'managed-session:configure-jev-gates',
-  managedSessionConfigureMode: 'managed-session:set-interaction-mode',
-  managedSessionConfigurePermissionMode: 'managed-session:set-permission-mode',
-  managedSessionEvent: 'managed-session:event',
-  managedSessionSync: 'managed-session:sync',
-  managedSessionInterrupt: 'managed-session:interrupt',
   managedSessionPickFiles: 'managed-session:pick-files',
   managedSessionSearchFiles: 'managed-session:search-files',
-  managedSessionResolveRequest: 'managed-session:resolve-request',
-  managedSessionResolveUserInput: 'managed-session:resolve-user-input',
-  managedSessionQueueInput: 'managed-session:queue-input',
-  managedSessionSendInput: 'managed-session:send-input',
-  managedSessionUpdateQueue: 'managed-session:update-queue',
-  managedSessionSwitchProvider: 'managed-session:switch-provider',
-  turnCheckpointDiff: 'turn-checkpoint:diff',
-  turnCheckpointList: 'turn-checkpoint:list',
-  turnCheckpointPreviewRestore: 'turn-checkpoint:preview-restore',
-  turnCheckpointRestore: 'turn-checkpoint:restore',
   previewCloseTab: 'preview:close-tab',
   previewEvent: 'preview:event',
   previewNavigate: 'preview:navigate',
@@ -247,9 +201,6 @@ export interface AvailableEditorDescriptor {
   readonly id: string
   readonly label: string
 }
-
-/** How Electron main hands `AIDE_SESSION_BACKEND` to the preload, as `--aide-session-backend=pitwall`. */
-export const SESSION_BACKEND_ARGUMENT = '--aide-session-backend='
 
 /** Set by Electron main when aide's database existed before this launch, so an upgrade and not a fresh install. */
 export const EXISTING_INSTALL_ARGUMENT = '--aide-existing-install'
@@ -276,11 +227,6 @@ export type PitwallStatus =
   | { readonly status: 'noEndpoint' }
 
 export interface AideApi {
-  acceptManagedFleetNode: (input: {
-    sessionId: string
-    nodeId: string
-    accepted: boolean
-  }) => Promise<void>
   getPersistedStateRecovery: () => Promise<PersistedStateRecovery | null>
   openPersistedStateDataFolder: () => Promise<void>
   quitPersistedStateRecovery: () => Promise<void>
@@ -425,13 +371,7 @@ export interface AideApi {
   getStorageSnapshot: () => Promise<PersistenceSnapshot>
   getWorkspaceActivitySnapshot: () => Promise<WorkspaceActivityCollectionSnapshot>
   getWorkspaceSetupSnapshot: () => Promise<WorkspaceSetupCollectionSnapshot>
-  getManagedSessionSnapshots: () => Promise<
-    Record<string, ManagedSessionSnapshot>
-  >
-  syncManagedSession: (sessionId: string) => Promise<SessionDeltaState | null>
   getTaskLibrary: (query?: string) => Promise<TaskLibrarySnapshot>
-  /** The session backend to use until the user picks one in Settings, from `AIDE_SESSION_BACKEND`. */
-  defaultSessionBackend?: string
   /** Whether aide's database existed before this launch. */
   isExistingInstall?: boolean
   /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
@@ -458,6 +398,8 @@ export interface AideApi {
   onTaskLibraryChanged: (callback: () => void) => () => void
   onTaskOpen: (callback: (sessionId: string) => void) => () => void
   openTask: (sessionId: string) => Promise<void>
+  /** Names a still-default workspace after this prompt, once. */
+  requestWorkspaceTitle: (workspaceId: string, prompt: string) => Promise<void>
   getProviderCapabilities: () => Promise<ProviderCapabilitiesSnapshot>
   getProviderSkills: (
     workspaceId: string,
@@ -485,38 +427,11 @@ export interface AideApi {
   createTerminalSession: (
     input: TerminalSessionConfig,
   ) => Promise<TerminalSessionSnapshot>
-  createManagedSession: (
-    input: ManagedSessionConfig,
-  ) => Promise<ManagedSessionSnapshot>
-  branchManagedSession: (
-    sessionId: string,
-    responseContentItemId: string,
-  ) => Promise<void>
-  implementManagedSessionPlanInNewThread: (
-    sessionId: string,
-    requestId: string,
-  ) => Promise<void>
   /** Asks where to save the plan inside the workspace; resolves to the saved path, or null if cancelled. */
   saveManagedSessionPlan: (
     workspaceId: string,
     plan: string,
   ) => Promise<string | null>
-  configureManagedSessionAgents: (
-    sessionId: string,
-    agents: readonly ManagedSessionAgentConfig[],
-  ) => Promise<ManagedSessionSnapshot>
-  configureManagedSessionJevGates: (
-    sessionId: string,
-    overrides: JevGateOverrides | null,
-  ) => Promise<ManagedSessionSnapshot>
-  configureManagedSessionMode: (
-    sessionId: string,
-    interactionMode: ManagedSessionInteractionMode,
-  ) => Promise<ManagedSessionSnapshot>
-  configureManagedSessionPermissionMode: (
-    sessionId: string,
-    permissionMode: ManagedSessionPermissionMode,
-  ) => Promise<ManagedSessionSnapshot>
   updateProjectSetupCommand: (
     projectId: string,
     command: string | null,
@@ -527,20 +442,12 @@ export interface AideApi {
   ) => Promise<PersistenceSnapshot>
   runWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
   cancelWorkspaceSetup: (workspaceId: string) => Promise<WorkspaceSetupSnapshot>
-  closeManagedSession: (sessionId: string) => Promise<void>
-  interruptManagedSession: (
-    sessionId: string,
-    recipientAlias?: string,
-  ) => Promise<void>
   pickManagedSessionFiles: (workspaceId: string) => Promise<string[]>
   searchManagedSessionFiles: (
     workspaceId: string,
     query: string,
   ) => Promise<string[]>
   killTerminalSession: (sessionId: string) => Promise<void>
-  onManagedSessionEvent: (
-    callback: (event: ManagedSessionIpcEvent) => void,
-  ) => () => void
   onPreviewEvent: (
     callback: (event: WorkspacePreviewEvent) => void,
   ) => () => void
@@ -583,45 +490,5 @@ export interface AideApi {
     workspaceId: string,
     tabId: string,
   ) => Promise<WorkspacePreviewSnapshot>
-  resolveManagedSessionRequest: (
-    sessionId: string,
-    requestId: string,
-    decision: ManagedSessionDecision,
-    reason?: string,
-  ) => Promise<void>
-  resolveManagedSessionUserInput: (
-    sessionId: string,
-    requestId: string,
-    answers: Record<string, string | string[]>,
-  ) => Promise<void>
-  sendManagedSessionInput: (
-    sessionId: string,
-    text: string,
-    recipients?: readonly string[],
-    attachments?: readonly ManagedSessionAttachment[],
-    selectedSkill?: ProviderSkillSelection,
-  ) => Promise<void>
-  queueManagedSessionInput: AideApi['sendManagedSessionInput']
-  updateManagedSessionQueue: (
-    sessionId: string,
-    action: ManagedSessionQueueAction,
-  ) => Promise<void>
-  getTurnCheckpointDiff: (
-    sessionId: string,
-    checkpointId: string,
-  ) => Promise<TurnCheckpointDiff>
-  listTurnCheckpoints: (sessionId: string) => Promise<TurnCheckpointSummary[]>
-  previewTurnCheckpointRestore: (
-    sessionId: string,
-    checkpointId: string,
-  ) => Promise<TurnCheckpointPreview>
-  restoreTurnCheckpoint: (
-    previewId: string,
-    mode: CheckpointRestoreMode,
-  ) => Promise<TurnCheckpointRestoreResult>
-  switchManagedSessionProvider: (
-    sessionId: string,
-    selection: ManagedSessionProviderSelection,
-  ) => Promise<ManagedSessionSnapshot>
   writeTerminalInput: (sessionId: string, data: string) => Promise<void>
 }
