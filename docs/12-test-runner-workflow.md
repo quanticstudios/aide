@@ -33,6 +33,14 @@ This repo uses multiple test entrypoints on purpose.
   - `e2e/daemon-backend-gaps.ts` lists the tests this run skips until the
     daemon backend reaches parity (ENG-2704).
 
+- `AIDE_E2E_PITWALL=/path/to/pitwall bun run test:e2e:web`
+  - Builds the browser client (`bun run build:web`, into `out/web`) and
+    drives it in a 390x844 touch Chromium, headless, through the same
+    daemon, which serves it with its strict CSP (`e2e-web/`).
+  - Signs in the way `pitwall web open` does, then fails on a blocked
+    inline style or script, a page wider than the screen, or a control
+    under 44px.
+
 ## Linux software-rendering fallback
 
 Linux desktop launches use hardware acceleration and Electron's GPU sandbox by

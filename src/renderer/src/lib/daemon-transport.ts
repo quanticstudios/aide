@@ -59,6 +59,8 @@ export interface DaemonTransport extends SessionTransport {
   mergePullRequest: (sessionId: string) => Promise<void>
   /** pitwall's plan limits and token use over the `days` days ending today, 30 when left out. */
   readUsage: (days?: number) => Promise<PlanUsage>
+  /** The repos pitwall has tabs in, for starting a chat in one. */
+  listProjects: () => Promise<DaemonProject[]>
 }
 
 /** pitwall's `pr` on a chat's list entry (web-protocol.md, Pull requests). */
@@ -149,8 +151,10 @@ interface DaemonChat {
   workspaceId: string
 }
 
-interface DaemonProject {
+/** A repo with tabs in pitwall (web-protocol.md, listProjects). */
+export interface DaemonProject {
   name: string
+  root: string
   workspaces: { branch: string; id: string; label: string; path: string }[]
 }
 
@@ -721,6 +725,8 @@ export function createDaemonTransport(
       await command('mergePR', { sessionId })
     },
 
+    listProjects: async () =>
+      (await command<{ projects: DaemonProject[] }>('listProjects')).projects,
     listSessions,
     subscribeSessionList: (listener) => {
       listListeners.add(listener)

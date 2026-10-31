@@ -147,6 +147,10 @@ jobs:
       - name: Run Electron end-to-end tests on the pitwall daemon under Xvfb
         run: AIDE_E2E_PITWALL="$RUNNER_TEMP/pitwall" bun run test:e2e
 
+      # The browser build at phone size, against the same pitwall (e2e-web/).
+      - name: Run phone web end-to-end tests on the pitwall daemon
+        run: AIDE_E2E_PITWALL="$RUNNER_TEMP/pitwall" bun run test:e2e:web
+
   perf-budget:
     name: Perf budget
     runs-on: ubuntu-24.04
