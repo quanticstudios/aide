@@ -94,6 +94,10 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   // shared-model-chat.spec.ts
   [
+    'waits for model discovery before selecting a skill or sending with Enter',
+    "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
+  ],
+  [
     'distinguishes Codex activity from the final response',
     "getSessions lists every chat in the suite's one daemon, not only this aide's, so the spec reads another test's chat",
   ],
