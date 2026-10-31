@@ -80,7 +80,7 @@ export default memo(function ContentItemBlock({
           >
             <time
               dateTime={item.updatedAt}
-              className="text-[11px] tabular-nums text-muted-foreground/70"
+              className="text-[11px] tabular-nums text-muted-foreground"
             >
               {formatMessageTime(item.updatedAt)}
             </time>
