@@ -1,6 +1,6 @@
 import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   formatJevGateThresholds,
   JEV_GATE_ROWS,
@@ -39,6 +39,8 @@ import {
 } from '../lib/theme-preference'
 import JevSetup from './JevSetup'
 import ThemePicker from './ThemePicker'
+
+const LazyUsageSection = lazy(() => import('./UsageSection'))
 
 const FONT_ROWS = [
   {
@@ -400,6 +402,12 @@ export default function SettingsPage({
       showKeyboard: normalizedQuery
         ? shortcutGroups.length > 0
         : selectedSection === 'keyboard-shortcuts',
+      showUsage: containsQuery(
+        'usage-settings',
+        'Usage',
+        'Plan limits',
+        'tokens cost sessions reset',
+      ),
       showUpdates: containsQuery(
         'update-settings',
         'Software updates',
@@ -546,6 +554,7 @@ export default function SettingsPage({
             { id: 'jev-settings', label: 'Jev' },
             { id: 'jev-gate-settings', label: 'Jev gates' },
             { id: 'keyboard-shortcuts', label: 'Keyboard shortcuts' },
+            { id: 'usage-settings', label: 'Usage' },
             { id: 'update-settings', label: 'Updates' },
           ].map((section) => (
             <Button
@@ -915,6 +924,25 @@ export default function SettingsPage({
             </section>
           ) : null}
 
+          {searchResults.showUsage ? (
+            <section
+              aria-labelledby="usage-settings-heading"
+              className="mt-10 scroll-mt-6 first:mt-0"
+              id="usage-settings"
+            >
+              <h2 className="text-xl font-medium" id="usage-settings-heading">
+                Usage
+              </h2>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                Plan limits and tokens on this machine, as pitwall reads them
+                from the agents' session files.
+              </p>
+              <Suspense fallback={null}>
+                <LazyUsageSection />
+              </Suspense>
+            </section>
+          ) : null}
+
           {searchResults.showUpdates ? (
             <section
               aria-labelledby="update-settings-heading"
@@ -981,6 +1009,7 @@ export default function SettingsPage({
           !searchResults.showJev &&
           !searchResults.showJevGates &&
           !searchResults.showKeyboard &&
+          !searchResults.showUsage &&
           !searchResults.showUpdates ? (
             <p className="rounded-lg border border-border bg-surface-2 px-4 py-10 text-center text-[13px] text-muted-foreground">
               No settings match "{query}".

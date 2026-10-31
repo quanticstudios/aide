@@ -223,6 +223,8 @@ class MockDaemon {
       frame.requestId === 'toolu_01'
     ) {
       fail('conflict', 'toolu_01 was answered from cli')
+    } else if (frame.type === 'readUsage') {
+      ok({ usage: { showCost: true } })
     } else ok()
     if (frame.type !== 'subscribe') return
 
@@ -702,6 +704,20 @@ describe('DaemonTransport', () => {
     await expect(
       transport.implementPlanInNewThread(SESSION_ID, 'missing'),
     ).rejects.toThrow('The plan is no longer pending.')
+  })
+
+  it('reads usage only from a pitwall that lists readUsage', async () => {
+    start()
+    await settle()
+    await expect(transport.readUsage()).rejects.toThrow(
+      'This pitwall does not support readUsage yet.',
+    )
+    transport.dispose()
+    daemon.capabilities = [...daemon.capabilities, 'readUsage']
+    start()
+    await settle()
+    await expect(transport.readUsage(7)).resolves.toEqual({ showCost: true })
+    expect(daemon.commands.at(-1)).toMatchObject({ type: 'readUsage', days: 7 })
   })
 
   it('refuses a command the server did not list, or the protocol lacks', async () => {

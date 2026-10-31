@@ -20,6 +20,7 @@ import {
   type ManagedSessionUpdate,
   shareSnapshotContent,
 } from './managed-session-events'
+import type { PlanUsage } from './plan-usage'
 import type { SessionTransport } from './session-transport'
 
 /** The `protocol` of pitwall's docs/web-protocol.md that this transport speaks. */
@@ -56,6 +57,8 @@ export interface DaemonTransport extends SessionTransport {
   ) => Promise<string>
   /** Merges the session's pull request by pitwall's `[git] merge_method`. */
   mergePullRequest: (sessionId: string) => Promise<void>
+  /** pitwall's plan limits and token use over the `days` days ending today, 30 when left out. */
+  readUsage: (days?: number) => Promise<PlanUsage>
 }
 
 /** pitwall's `pr` on a chat's list entry (web-protocol.md, Pull requests). */
@@ -701,6 +704,13 @@ export function createDaemonTransport(
       if (timer) clearTimeout(timer)
       socket?.close(1000)
     },
+    readUsage: async (days) =>
+      (
+        await command<{ usage: PlanUsage }>(
+          'readUsage',
+          days === undefined ? {} : { days },
+        )
+      ).usage,
 
     getPullRequest: (sessionId) => chats.get(chatId(sessionId))?.pr ?? null,
     reviewThreads: (sessionId) =>
