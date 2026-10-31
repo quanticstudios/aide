@@ -299,7 +299,7 @@ export default function AppShell({
                     <span className="flex items-center gap-1.5">
                       <TerminalIcon aria-hidden="true" className="size-3.5" />
                       Terminal
-                      <span className="ml-1 font-mono text-[11px] font-normal text-muted-foreground/70">
+                      <span className="ml-1 font-mono text-[11px] font-normal text-muted-foreground">
                         {activeWorkspace.name}
                       </span>
                     </span>

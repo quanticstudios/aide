@@ -301,7 +301,7 @@ function TurnGroupBlockContent({
           {responseItem ? (
             <time
               dateTime={responseItem.updatedAt}
-              className="ml-1 text-[11px] tabular-nums text-muted-foreground/70"
+              className="ml-1 text-[11px] tabular-nums text-muted-foreground"
             >
               {formatMessageTime(responseItem.updatedAt)}
             </time>
