@@ -186,9 +186,7 @@ test.describe('task notifications', () => {
       .toBe(0)
 
     const session = await page.evaluate(async () => {
-      const snapshot = Object.values(
-        await window.aide.getManagedSessionSnapshots(),
-      )[0]
+      const snapshot = Object.values(await window.aideSessions.getSessions())[0]
       if (!snapshot) throw new Error('Managed session did not start.')
       return {
         paneId: snapshot.paneId,
@@ -215,7 +213,7 @@ test.describe('task notifications', () => {
     await setFocused(app, true)
     // Sent over IPC so the git pane keeps focus until the toast is clicked.
     await page.evaluate(
-      (sessionId) => window.aide.sendManagedSessionInput(sessionId, 'input'),
+      (sessionId) => window.aideSessions.send(sessionId, 'input'),
       session.sessionId,
     )
     const toast = page.locator('[data-slot="toast-region"]')

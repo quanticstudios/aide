@@ -44,15 +44,13 @@ async function sendPrompt(page: Page, text: string): Promise<void> {
 /** Every live session with its mode, so a test can follow the source and any new thread. */
 async function sessions(page: Page) {
   return await page.evaluate(async () =>
-    Object.values(await window.aide.getManagedSessionSnapshots()).map(
-      (session) => ({
-        content: session.content.map((item) => item.text).join('\n'),
-        interactionMode: session.interactionMode,
-        paneId: session.paneId,
-        pendingApprovals: session.pendingApprovals.length,
-        sessionId: session.sessionId,
-      }),
-    ),
+    Object.values(await window.aideSessions.getSessions()).map((session) => ({
+      content: session.content.map((item) => item.text).join('\n'),
+      interactionMode: session.interactionMode,
+      paneId: session.paneId,
+      pendingApprovals: session.pendingApprovals.length,
+      sessionId: session.sessionId,
+    })),
   )
 }
 
@@ -67,7 +65,7 @@ async function sourceSession(page: Page) {
 async function enterPlanMode(page: Page): Promise<void> {
   const { sessionId } = await sourceSession(page)
   await page.evaluate(
-    (id) => window.aide.configureManagedSessionMode(id, 'plan'),
+    (id) => window.aideSessions.setMode(id, 'plan'),
     sessionId,
   )
   await expect

@@ -125,9 +125,7 @@ test.describe('turn checkpoints', () => {
       page.getByRole('button', { name: 'Restore checkpoint' }),
     ).toHaveCount(0)
     const result = await page.evaluate(async () => {
-      const session = Object.values(
-        await window.aide.getManagedSessionSnapshots(),
-      )[0]
+      const session = Object.values(await window.aideSessions.getSessions())[0]
       const checkpointId = session?.turns.find(
         (turn) => turn.checkpointId,
       )?.checkpointId
@@ -137,7 +135,7 @@ test.describe('turn checkpoints', () => {
         const deadline = Date.now() + 15_000
         for (;;) {
           try {
-            return await window.aide.previewTurnCheckpointRestore(
+            return await window.aideSessions.previewRewind(
               session.sessionId,
               checkpointId,
             )
@@ -157,7 +155,7 @@ test.describe('turn checkpoints', () => {
       const preview = await previewWhenIdle()
       if (!preview.changes.some((change) => change.path === 'README.md'))
         throw new Error('README missing from restore preview.')
-      return await window.aide.restoreTurnCheckpoint(
+      return await window.aideSessions.rewind(
         preview.previewId,
         'code-and-conversation',
       )
@@ -167,7 +165,7 @@ test.describe('turn checkpoints', () => {
       'before\n',
     )
     expect(
-      (await page.evaluate(() => window.aide.getTaskLibrary())).tasks,
+      (await page.evaluate(() => window.aideSessions.listSessions())).tasks,
     ).toHaveLength(2)
   })
 })

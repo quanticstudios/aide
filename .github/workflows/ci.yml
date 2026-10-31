@@ -83,8 +83,8 @@ jobs:
     name: Electron e2e on the pitwall daemon
     runs-on: ubuntu-24.04
     env:
-      # why: pitwall#241 (PITWALL_FAKE_PROVIDERS in the daemon) merged after v0.1.7; move to the first release that has it.
-      PITWALL_COMMIT: 528f669fcb5ef953ea9bad0a4de25e55067a3474
+      # why: pitwall#247 (the fake scripts aide's daemon e2e uses) merged after v0.1.7; move to the first release that has it.
+      PITWALL_COMMIT: 219efbd241fa204fc75a5ced282f8dfeb1db3a3f
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

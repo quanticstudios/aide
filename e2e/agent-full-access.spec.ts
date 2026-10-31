@@ -56,9 +56,7 @@ async function selectPermissionMode(
 
 async function pendingApprovalCount(page: Page): Promise<number> {
   return await page.evaluate(async () => {
-    const session = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )[0]
+    const session = Object.values(await window.aideSessions.getSessions())[0]
     return session?.pendingApprovals.length ?? 0
   })
 }

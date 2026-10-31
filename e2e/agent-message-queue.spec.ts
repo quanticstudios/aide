@@ -111,9 +111,7 @@ async function openAgentPane(
 
 async function getSnapshot(page: Page) {
   return await page.evaluate(async () => {
-    const session = Object.values(
-      await window.aide.getManagedSessionSnapshots(),
-    )[0]
+    const session = Object.values(await window.aideSessions.getSessions())[0]
     if (!session) throw new Error('Managed session did not start.')
     return session
   })

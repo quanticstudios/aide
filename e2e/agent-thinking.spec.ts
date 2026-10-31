@@ -151,7 +151,7 @@ test.describe('agent thinking', () => {
     await expect(reasoning).not.toContainText('step 0')
 
     const firstDeltaToLiveRow = await page.evaluate(async () => {
-      const snapshots = await window.aide.getManagedSessionSnapshots()
+      const snapshots = await window.aideSessions.getSessions()
       const item = Object.values(snapshots)
         .flatMap((snapshot) => snapshot.content)
         .find((entry) => entry.kind === 'reasoning-text')
