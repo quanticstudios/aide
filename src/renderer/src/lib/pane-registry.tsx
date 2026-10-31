@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/persistence'
 import type { WorkspacePreviewSnapshot } from '../../../shared/preview'
 import { PaneLoadBoundary } from '../components/PaneLoadBoundary'
+import SessionLayer from '../components/SessionLayer'
 import type {
   PreviewBrowserControl,
   PreviewPresentation,
@@ -85,12 +86,14 @@ const terminalRenderer = (args: PaneRenderArgs): ReactNode =>
       paneId={args.pane.id}
       paneName={args.pane.label}
     >
-      <LazyManagedAgentPane
-        isActive={args.pane.id === args.activePaneId}
-        onOpenJevSettings={args.onOpenJevSettings}
-        paneId={args.pane.id}
-        workspace={args.workspace}
-      />
+      <SessionLayer>
+        <LazyManagedAgentPane
+          isActive={args.pane.id === args.activePaneId}
+          onOpenJevSettings={args.onOpenJevSettings}
+          paneId={args.pane.id}
+          workspace={args.workspace}
+        />
+      </SessionLayer>
     </PaneLoadBoundary>
   )
 

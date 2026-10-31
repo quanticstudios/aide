@@ -3,12 +3,14 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { initializeAnimationPreference } from './lib/animation-preference'
 import { initializeFontPreference } from './lib/font-preference'
+import { initializeSessionBackend } from './lib/session-backend'
 import { initializeThemePreference } from './lib/theme-preference'
 import './styles.css'
 
 initializeAnimationPreference()
 initializeThemePreference()
 initializeFontPreference()
+initializeSessionBackend()
 
 function reportRendererFault(
   type: 'renderer-exception' | 'renderer-unhandled-rejection',

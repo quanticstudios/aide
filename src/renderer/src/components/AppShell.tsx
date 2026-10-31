@@ -26,6 +26,7 @@ import { isTerminalDrawerToggle } from '../../../shared/shortcuts'
 import type { SavedTask } from '../../../shared/task-library'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import FleetDrawer from './FleetDrawer'
+import SessionLayer from './SessionLayer'
 import SidebarTree from './SidebarTree'
 import TopBar from './TopBar'
 
@@ -339,12 +340,14 @@ export default function AppShell({
             ) : null}
           </div>
           <div className="fleet-drawer-shell" data-open={isFleetOpen}>
-            <FleetDrawer
-              isOpen={isFleetOpen}
-              jevGates={jevGates?.effective ?? null}
-              onClose={closeFleet}
-              sessionId={activeManagedSessionId}
-            />
+            <SessionLayer>
+              <FleetDrawer
+                isOpen={isFleetOpen}
+                jevGates={jevGates?.effective ?? null}
+                onClose={closeFleet}
+                sessionId={activeManagedSessionId}
+              />
+            </SessionLayer>
           </div>
         </main>
       </div>

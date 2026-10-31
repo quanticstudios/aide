@@ -12,6 +12,8 @@ import { isTrustedRendererUrl } from './trusted-renderer'
 const PREVIEW_PARTITION = 'persist:aide-preview'
 
 export interface WindowManagerDependencies {
+  /** Appended to the renderer's `process.argv`, where the sandboxed preload reads them. */
+  additionalArguments?: string[]
   createBrowserWindow: (
     options: BrowserWindowConstructorOptions,
   ) => BrowserWindow
@@ -45,6 +47,7 @@ export class WindowManager {
       backgroundColor: '#18181b',
       title: 'aIDE',
       webPreferences: {
+        additionalArguments: this.dependencies.additionalArguments,
         contextIsolation: true,
         nodeIntegration: false,
         preload: this.dependencies.mainPreloadPath,

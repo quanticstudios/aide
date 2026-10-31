@@ -47,6 +47,11 @@ export interface DaemonTransport extends SessionTransport {
 }
 
 export interface DaemonTransportOptions {
+  /** Keeps the chat id pitwall picked for each session aide started, so a pane finds its chat after a restart. */
+  readonly chatIds?: {
+    load: () => Record<string, string>
+    save: (chatIds: Record<string, string>) => void
+  }
   readonly clientVersion: string
   readonly createSocket?: (url: string) => WebSocket
   /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
@@ -197,6 +202,13 @@ export function createDaemonTransport(
   let nextId = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
+  // shortcut: entries are never dropped; prune archived chats once pitwall lists them.
+  const chatIds = new Map(Object.entries(options.chatIds?.load() ?? {}))
+
+  /** pitwall's id for a session: the chat it started for aide's id, else the id itself. */
+  function chatId(sessionId: string): string {
+    return chatIds.get(sessionId) ?? sessionId
+  }
 
   function setConnection(next: DaemonConnection): void {
     connection = next
@@ -369,9 +381,13 @@ export function createDaemonTransport(
     }
     const id = String(++nextId)
     const ws = socket
+    const message: Record<string, unknown> = { ...fields, type, id }
+    if (typeof fields.sessionId === 'string') {
+      message.sessionId = chatId(fields.sessionId)
+    }
     return new Promise((resolve, reject) => {
       pending.set(id, { reject, resolve: (data) => resolve(data as T) })
-      ws.send(JSON.stringify({ ...fields, type, id }))
+      ws.send(JSON.stringify(message))
     })
   }
 
@@ -472,13 +488,23 @@ export function createDaemonTransport(
   async function currentSnapshot(
     sessionId: string,
   ): Promise<ManagedSessionSnapshot> {
-    return sessions.get(sessionId)?.state?.snapshot ?? readSnapshot(sessionId)
+    return (
+      sessions.get(chatId(sessionId))?.state?.snapshot ??
+      readSnapshot(sessionId)
+    )
   }
 
   async function listSessions(query?: string): Promise<TaskLibrarySnapshot> {
     const [live, archived, projects, settings] = await Promise.all([
       command<{ chats: DaemonChat[] }>('listSessions'),
-      command<{ chats: DaemonChat[] }>('listSessions', { archived: true }),
+      // why: pitwall answers `unsupported` for archived chats until it lists them (CHANGELOG, web clients).
+      command<{ chats: DaemonChat[] }>('listSessions', {
+        archived: true,
+      }).catch((error) => {
+        if (error instanceof DaemonCommandError && error.code === 'unsupported')
+          return { chats: [] }
+        throw error
+      }),
       command<{ projects: DaemonProject[] }>('listProjects').catch(() => ({
         projects: [],
       })),
@@ -581,11 +607,12 @@ export function createDaemonTransport(
       return listSessions()
     },
     subscribeSession: (sessionId, listener) => {
-      let entry = sessions.get(sessionId)
+      const key = chatId(sessionId)
+      let entry = sessions.get(key)
       if (!entry) {
         entry = { listeners: new Set(), resyncing: false, state: null }
-        sessions.set(sessionId, entry)
-        if (connection.status === 'connected') subscribe(sessionId, 0)
+        sessions.set(key, entry)
+        if (connection.status === 'connected') subscribe(key, 0)
       } else if (entry.state) {
         listener({ snapshot: entry.state.snapshot, type: 'snapshot' })
       }
@@ -593,9 +620,11 @@ export function createDaemonTransport(
       listeners.add(listener)
       return () => {
         if (!listeners.delete(listener) || listeners.size > 0) return
-        if (sessions.get(sessionId)?.listeners !== listeners) return
-        sessions.delete(sessionId)
-        void quietly('unsubscribe', { sessionId })
+        // why: start may have moved the entry to the chat pitwall picked.
+        const current = chatId(sessionId)
+        if (sessions.get(current)?.listeners !== listeners) return
+        sessions.delete(current)
+        void quietly('unsubscribe', { sessionId: current })
       }
     },
     getSessions: async () => {
@@ -604,6 +633,9 @@ export function createDaemonTransport(
       const snapshots: Record<string, ManagedSessionSnapshot> = {}
       for (const state of states) {
         if (state) snapshots[state.snapshot.sessionId] = state.snapshot
+      }
+      for (const [sessionId, chat] of chatIds) {
+        if (snapshots[chat]) snapshots[sessionId] = snapshots[chat]
       }
       return snapshots
     },
@@ -619,11 +651,22 @@ export function createDaemonTransport(
         permissionMode:
           config.interactionMode === 'plan' ? 'plan' : config.permissionMode,
       })
+      if (sessionId !== config.sessionId) {
+        chatIds.set(config.sessionId, sessionId)
+        options.chatIds?.save(Object.fromEntries(chatIds))
+        // The pane subscribed under its own id before the chat existed.
+        const entry = sessions.get(config.sessionId)
+        if (entry && !sessions.has(sessionId)) {
+          sessions.delete(config.sessionId)
+          sessions.set(sessionId, entry)
+          subscribe(sessionId, 0)
+        }
+      }
       return readSnapshot(sessionId)
     },
     send: async (sessionId, text, _recipients, attachments) => {
       // aide's send steers a running turn; pitwall's default would queue it.
-      const running = sessions.get(sessionId)?.state?.snapshot.running
+      const running = sessions.get(chatId(sessionId))?.state?.snapshot.running
       await command('send', {
         sessionId,
         text,
@@ -754,7 +797,15 @@ export function createDaemonTransport(
       }
     },
     close: async (sessionId) => {
-      await command('archive', { sessionId })
+      try {
+        await command('archive', { sessionId })
+      } catch (error) {
+        // why: aide closes every pane through here, terminals too, and most have no chat.
+        if (
+          !(error instanceof DaemonCommandError && error.code === 'not-found')
+        )
+          throw error
+      }
     },
     acceptFleetNode: () => unsupported('fleet nodes'),
   }

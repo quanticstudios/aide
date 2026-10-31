@@ -70,6 +70,7 @@ import {
   resolvePaneCloseConfirmation,
 } from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
+import { useSessionBackend } from './lib/session-backend'
 import { getSessionTransport } from './lib/session-transport'
 import {
   readGlobalSidebarOpen,
@@ -2740,6 +2741,7 @@ function WorkspaceApp() {
         (project) => project.id === projectSetupProjectId,
       ) ?? null)
     : null
+  useSessionBackend()
   const sessionTransport = getSessionTransport()
 
   return (

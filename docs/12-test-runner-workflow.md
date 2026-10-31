@@ -23,6 +23,16 @@ This repo uses multiple test entrypoints on purpose.
     uses the same explicit software fallback available to support.
   - Use this for desktop navigation behavior and Electron-only regressions.
 
+- `AIDE_E2E_PITWALL=/path/to/pitwall xvfb-run -a bun run test:e2e`
+  - Runs the same suite on the pitwall daemon backend, as CI's
+    "Electron e2e on the pitwall daemon" job does.
+  - `e2e/pitwall-daemon.ts` starts the daemon with `PITWALL_FAKE_PROVIDERS=1`
+    in temp config, state and runtime folders, so it never meets your own
+    daemon. The binary needs `PITWALL_FAKE_PROVIDERS` wired into the daemon
+    (pitwall#241).
+  - `e2e/daemon-backend-gaps.ts` lists the tests this run skips until the
+    daemon backend reaches parity (ENG-2704).
+
 ## Linux software-rendering fallback
 
 Linux desktop launches use hardware acceleration and Electron's GPU sandbox by
