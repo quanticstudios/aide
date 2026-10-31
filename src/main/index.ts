@@ -31,6 +31,7 @@ import { JevGateOverridesSchema } from '../shared/jev-gates'
 import type {
   ManagedSessionDecision,
   ManagedSessionQueueAction,
+  ManagedSessionSnapshot,
 } from '../shared/managed-session'
 import type {
   ProjectColor,
@@ -516,25 +517,19 @@ function initializeServices(): void {
     },
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
-        workspaceActivityService.handleManagedSessionSnapshot(event.snapshot)
-        const notification = taskLibrary?.nextNotification(event.snapshot)
-        if (notification) showTaskNotification(notification)
-        const attentionCount = taskLibrary?.attentionCount() ?? 0
-        if (attentionCount !== badgeCount) {
-          badgeCount = attentionCount
-          app.setBadgeCount(attentionCount)
-        }
+        handleSessionSnapshot(event.snapshot)
         managedSessionBroadcaster.update(event.snapshot)
       } else {
-        workspaceActivityService.handleManagedSessionRemoved(event.sessionId)
+        handleSessionRemoved(event.sessionId)
         managedSessionBroadcaster.remove(event.sessionId, event.revision)
       }
       windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
     },
   })
-  taskLibrary = new TaskLibrary(database, () =>
-    managedSessionManager.getSnapshots(),
-  )
+  taskLibrary = new TaskLibrary(database, () => ({
+    ...managedSessionManager.getSnapshots(),
+    ...Object.fromEntries(daemonSnapshots),
+  }))
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
       windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
@@ -698,6 +693,28 @@ const windowManager = new WindowManager({
 })
 
 let badgeCount = 0
+/** pitwall chats the renderer's daemon transport reports, by aide's session id, so attention state covers them. */
+const daemonSnapshots = new Map<string, ManagedSessionSnapshot>()
+
+/** Sidebar activity, notification and badge for a session's new snapshot, on either backend. */
+function handleSessionSnapshot(snapshot: ManagedSessionSnapshot) {
+  workspaceActivityService.handleManagedSessionSnapshot(snapshot)
+  const notification = taskLibrary?.nextNotification(snapshot)
+  if (notification) showTaskNotification(notification)
+  updateBadge()
+}
+
+function handleSessionRemoved(sessionId: string) {
+  workspaceActivityService.handleManagedSessionRemoved(sessionId)
+  updateBadge()
+}
+
+function updateBadge() {
+  const attentionCount = taskLibrary?.attentionCount() ?? 0
+  if (attentionCount === badgeCount) return
+  badgeCount = attentionCount
+  app.setBadgeCount(attentionCount)
+}
 /** The daemon URL last handed to the renderer, the only one whose upgrade loses its Origin. */
 let pitwallUrl: string | null = null
 
@@ -753,6 +770,7 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
 
 function getSavedTaskSnapshot(sessionId: string) {
   return (
+    daemonSnapshots.get(sessionId) ??
     managedSessionManager.getSnapshots()[sessionId] ??
     database
       .listManagedSessions()
@@ -865,6 +883,24 @@ function registerIpcHandlers(): void {
         throw new Error('Invalid conversation identifier.')
       }
       return getSavedTaskSnapshot(sessionId)
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.reportDaemonSession,
+    (_event, sessionId: unknown, snapshot: ManagedSessionSnapshot | null) => {
+      const id = requireRuntimeId(sessionId, 'conversation id')
+      if (!snapshot) {
+        if (daemonSnapshots.delete(id)) handleSessionRemoved(id)
+      } else {
+        if (snapshot.sessionId !== id)
+          throw new Error('The snapshot belongs to another conversation.')
+        requireRuntimeId(snapshot.workspaceId, 'workspace id')
+        // why: a chat aide sees for the first time (a restart, a backend switch) has nothing new to tell.
+        if (!daemonSnapshots.has(id)) taskLibrary.markNotified(snapshot)
+        daemonSnapshots.set(id, snapshot)
+        handleSessionSnapshot(snapshot)
+      }
+      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
     },
   )
   ipcMain.handle(

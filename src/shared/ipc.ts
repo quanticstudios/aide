@@ -178,6 +178,7 @@ export const IPC_CHANNELS = {
   getTaskLibrary: 'tasks:list',
   getTaskTranscript: 'tasks:transcript',
   getPitwallEndpoint: 'pitwall:get-endpoint',
+  reportDaemonSession: 'pitwall:report-session',
   updateTaskMetadata: 'tasks:update',
   setTaskNotifications: 'tasks:notifications',
   setTaskNotificationSounds: 'tasks:notification-sounds',
@@ -424,6 +425,11 @@ export interface AideApi {
   defaultSessionBackend?: string
   /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
   getPitwallEndpoint: () => Promise<PitwallStatus>
+  /** Hands main a pitwall chat's snapshot under aide's ids, or null once it is gone, for sidebar activity, notifications, badge and unread. */
+  reportDaemonSession: (
+    sessionId: string,
+    snapshot: ManagedSessionSnapshot | null,
+  ) => Promise<void>
   getTaskTranscript: (
     sessionId: string,
   ) => Promise<ManagedSessionSnapshot | null>

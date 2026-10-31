@@ -131,6 +131,11 @@ export class TaskLibrary {
     return this.getSnapshot()
   }
 
+  /** Takes the thread's current activity as told, so only what comes after it notifies. */
+  markNotified(snapshot: ManagedSessionSnapshot): void {
+    this.notified.set(snapshot.sessionId, getTaskActivity(snapshot).activityKey)
+  }
+
   /** The message for new activity on this thread, or null when there is nothing new to tell. */
   nextNotification(snapshot: ManagedSessionSnapshot): TaskNotification | null {
     const activity = getTaskActivity(snapshot)

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PitwallStatus } from '../../../shared/ipc'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
+import type { SavedTask } from '../../../shared/task-library'
 import {
   applyDelta,
   type SessionDelta,
@@ -291,10 +292,16 @@ function start(
     openTask: async (sessionId) => {
       opened.push(sessionId)
     },
-    getNotificationSettings: async () => ({
-      notificationsEnabled: true,
-      notificationSoundsEnabled: false,
-    }),
+    aideTasks: {
+      listSessions: async () => ({
+        tasks: [],
+        notificationsEnabled: true,
+        notificationSoundsEnabled: false,
+      }),
+      updateSession: async () => {
+        throw new Error('unexpected updateSession')
+      },
+    },
     ...overrides,
   })
   return transport
@@ -800,7 +807,110 @@ describe('DaemonTransport', () => {
     start()
     await settle()
     const library = await transport.listSessions()
-    expect(library.tasks.map((task) => task.sessionId)).toEqual([SESSION_ID])
+    expect(library.tasks.map((task) => task.sessionId)).toEqual([
+      `aide-workspace:agent::copy-pitwall-${SESSION_ID}`,
+    ])
+  })
+
+  it('opens a chat started outside aide in an Agent pane of its own workspace', async () => {
+    daemon.emit(fixture.deltas[0])
+    const saved: Record<string, string>[] = []
+    start({ chatIds: { load: () => ({}), save: (ids) => saved.push(ids) } })
+    await settle()
+    const id = `aide-workspace:agent::copy-pitwall-${SESSION_ID}`
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      {
+        sessionId: id,
+        paneId: `agent::copy-pitwall-${SESSION_ID}`,
+        workspaceId: 'aide-workspace',
+      },
+    ])
+    expect(saved.at(-1)).toEqual({ [id]: SESSION_ID })
+    expect(Object.keys(await transport.getSessions())).toEqual([id])
+    await transport.interrupt(id)
+    expect(daemon.commands.at(-1)).toMatchObject({
+      type: 'interrupt',
+      sessionId: SESSION_ID,
+    })
+  })
+
+  it("reports a pane's chat to main under aide's ids, with only the first prompt", async () => {
+    daemon.emit(fixture.deltas[0])
+    const id = 'aide-workspace:agent'
+    const reports: [string, ManagedSessionSnapshot | null][] = []
+    start({
+      chatIds: { load: () => ({ [id]: SESSION_ID }), save: () => undefined },
+      reportSession: (sessionId, snapshot) =>
+        reports.push([sessionId, snapshot]),
+    })
+    await settle()
+    const stop = transport.subscribeSession(id, () => undefined)
+    await settle()
+    for (const delta of fixture.deltas.slice(1)) daemon.emit(delta)
+    const [sessionId, snapshot] = reports.at(-1) ?? []
+    expect(sessionId).toBe(id)
+    expect(snapshot).toMatchObject({
+      sessionId: id,
+      paneId: 'agent',
+      workspaceId: 'aide-workspace',
+      revision: daemon.state()?.snapshot.revision,
+    })
+    expect(snapshot?.content).toEqual(
+      daemon
+        .state()
+        ?.snapshot.content.filter((item) => item.kind === 'user-prompt')
+        .slice(0, 1),
+    )
+    stop()
+    expect(reports.at(-1)).toEqual([id, null])
+  })
+
+  it("takes attention and read state from aide's task library and marks a chat read there", async () => {
+    daemon.emit(fixture.deltas[0])
+    const id = 'aide-workspace:agent'
+    const marked: unknown[] = []
+    start({
+      chatIds: { load: () => ({ [id]: SESSION_ID }), save: () => undefined },
+      aideTasks: {
+        listSessions: async () => ({
+          tasks: [
+            {
+              sessionId: id,
+              status: 'input',
+              activityKey: 'input:1:q',
+              unread: true,
+              readActivityKey: null,
+            } as SavedTask,
+          ],
+          notificationsEnabled: false,
+          notificationSoundsEnabled: true,
+        }),
+        updateSession: async (...args) => {
+          marked.push(args)
+          return {
+            tasks: [],
+            notificationsEnabled: false,
+            notificationSoundsEnabled: true,
+          }
+        },
+      },
+    })
+    await settle()
+    const library = await transport.listSessions()
+    expect(library).toMatchObject({
+      notificationsEnabled: false,
+      notificationSoundsEnabled: true,
+      tasks: [
+        {
+          sessionId: id,
+          status: 'input',
+          activityKey: 'input:1:q',
+          unread: true,
+        },
+      ],
+    })
+    await transport.updateSession(id, { readActivityKey: 'input:1:q' })
+    expect(marked).toEqual([[id, { readActivityKey: 'input:1:q' }]])
   })
 
   it('binds the session id aide started with to the chat pitwall picked', async () => {

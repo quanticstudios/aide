@@ -183,6 +183,8 @@ const aideApi: AideApi = {
     .find((argument) => argument.startsWith(SESSION_BACKEND_ARGUMENT))
     ?.slice(SESSION_BACKEND_ARGUMENT.length),
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
+  reportDaemonSession: (sessionId, snapshot) =>
+    ipcRenderer.invoke(IPC_CHANNELS.reportDaemonSession, sessionId, snapshot),
   getUpdatePreferences: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdatePreferences),
   getUpdateSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateSnapshot),

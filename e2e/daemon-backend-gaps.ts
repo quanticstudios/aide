@@ -46,10 +46,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'persists explicit Jev workspace consent without exposing credentials',
     "Jev preparation and its consent check run in aide's session manager, which the daemon backend skips",
   ],
-  [
-    'renders managed Claude states from structured runtime events',
-    'the sidebar\'s "Agent Input" attention comes from aide\'s task library, which pitwall chats do not update',
-  ],
   // jev-gates-sidebar.spec.ts
   [
     'draws a gate node for every gate turned on and keeps the choice after a relaunch',
@@ -171,11 +167,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   [
     'rounds the settings select menu and the model selector popover to 8px',
     'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  // task-notifications.spec.ts
-  [
-    'names the thread, toasts when focused, notifies the OS otherwise, and badges waiting threads',
-    "notifications come from aide's task library attention state, which pitwall's chat list has no field for",
   ],
   // theme-switching.spec.ts
   [
