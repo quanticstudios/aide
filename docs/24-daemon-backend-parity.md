@@ -36,7 +36,7 @@ daemon. The rows below call this "`startSharedChat`".
 | Start Claude or Codex, pick model, effort, mode | `shared-model-chat` reasoning, model and effort specs; `composer-settings-persistence` | same | gap | `startSharedChat` (aide). Switching a running chat to the other provider: pitwall's protocol has no command (pitwall). |
 | Start in a folder without Git | `shared-model-chat` ordinary folder | same | gap | Jev consent is checked in aide's session manager, which the daemon backend skips (Jev row). |
 | Start in a new worktree | `electron-navigation` worktree setup, new chat | same | same |  |
-| Streaming reply, follow and minimap | `transcript-follow`, `agent-long-transcript`, `shared-model-chat` stream specs | same | gap | 2,000-item follow fails, cause not traced. Stream specs: `startSharedChat` (aide). |
+| Streaming reply, follow and minimap | `transcript-follow`, `agent-long-transcript`, `shared-model-chat` stream specs | same | gap | Fixed in ENG-2935: the 2,000-item follow. pitwall streams a long turn in frames, so a commit that adds rows can clamp `scrollTop` a few pixels up for one layout, and the follow hook took that for the reader scrolling away (aide). Stream and minimap specs: `startSharedChat` (aide). |
 | Tool cards, every tool kind, timers, red exit | `agent-tool-timeline` | same | same | Fixed here: pitwall fake `tool kinds`; pitwall's Claude driver now folds a subagent's calls into its Task row (they reached the main transcript before). |
 | Task checklist and subagent row | `agent-tasks` | same | same |  |
 | Thinking live, then collapsed with duration | `agent-thinking` | same | same | Fixed here: pitwall fake `think-stream`. |

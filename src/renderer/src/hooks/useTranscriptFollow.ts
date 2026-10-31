@@ -28,6 +28,30 @@ export function pinSpacerHeight({
   return Math.max(0, Math.ceil(pinTop + clientHeight - contentEnd))
 }
 
+/**
+ * Whether a scroll took the reader up and away from the bottom, measured against both the current height and the height the previous scroll saw.
+ * @remarks A commit that splits a streaming turn into more rows can shrink the content for one layout, so Chromium clamps `scrollTop` a few pixels up, and the next stream chunk has grown the content again by the time the scroll event fires. Against the old height that clamp stays near the bottom.
+ */
+export function leftBottom({
+  clientHeight,
+  previousScrollHeight,
+  previousScrollTop,
+  scrollHeight,
+  scrollTop,
+}: {
+  readonly clientHeight: number
+  readonly previousScrollHeight: number
+  readonly previousScrollTop: number
+  readonly scrollHeight: number
+  readonly scrollTop: number
+}): boolean {
+  return (
+    scrollTop < previousScrollTop &&
+    scrollHeight - scrollTop - clientHeight > FOLLOW_THRESHOLD_PX &&
+    previousScrollHeight - scrollTop - clientHeight > FOLLOW_THRESHOLD_PX
+  )
+}
+
 interface PinState {
   active: boolean
   pending: { readonly previous: Element | null } | null
@@ -92,6 +116,7 @@ export function useTranscriptFollow({
   )
   const followingRef = useRef(true)
   const lastScrollTopRef = useRef(0)
+  const lastScrollHeightRef = useRef(0)
   const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pinRef = useRef<PinState>({ active: false, pending: null, spacer: 0 })
   const sessionIdRef = useRef(sessionId)
@@ -200,9 +225,17 @@ export function useTranscriptFollow({
     const handleScroll = () => {
       const movedUp = scroll.scrollTop < lastScrollTopRef.current
       const distance = distanceFromBottom(scroll)
+      const left = leftBottom({
+        clientHeight: scroll.clientHeight,
+        previousScrollHeight: lastScrollHeightRef.current,
+        previousScrollTop: lastScrollTopRef.current,
+        scrollHeight: scroll.scrollHeight,
+        scrollTop: scroll.scrollTop,
+      })
       lastScrollTopRef.current = scroll.scrollTop
+      lastScrollHeightRef.current = scroll.scrollHeight
       // why: content growth never moves scrollTop, so only a real upward scroll (minimap, arrow keys) unfollows here.
-      if (movedUp && distance > FOLLOW_THRESHOLD_PX) unfollow()
+      if (left) unfollow()
       else if (!movedUp && distance <= FOLLOW_THRESHOLD_PX) {
         followingRef.current = true
       }

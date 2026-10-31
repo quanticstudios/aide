@@ -18,11 +18,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
     'steers a running Codex turn with the next message',
     "pitwall's web protocol cannot switch a chat to another provider",
   ],
-  // agent-long-transcript.spec.ts
-  [
-    'opens, scrolls and follows a 2,000-item transcript',
-    'fails on the daemon backend, cause not traced yet: the last of 4,000 items never scrolls into view',
-  ],
   // agent-rewind.spec.ts
   [
     'rewinds to a user message and keeps workspace files',
