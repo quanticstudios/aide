@@ -805,6 +805,25 @@ export function createDaemonTransport(
     }
   }
 
+  /** The folder of pitwall workspace `id` and the aide workspace open on it; throws `missing` when aide has none. */
+  async function aideWorkspace(
+    id: string,
+    missing: string,
+  ): Promise<{ dir: string; workspaceId: string }> {
+    const [{ projects }, aideWorkspaces] = await Promise.all([
+      command<{ projects: DaemonProject[] }>('listProjects'),
+      options.getWorkspaces(),
+    ])
+    const dir = projects
+      .flatMap((project) => project.workspaces)
+      .find((workspace) => workspace.id === id)?.path
+    const workspaceId = aideWorkspaces.find(
+      (workspace) => workspace.path === dir,
+    )?.id
+    if (!dir || !workspaceId) throw new DaemonCommandError('not-found', missing)
+    return { dir, workspaceId }
+  }
+
   async function set(
     sessionId: string,
     fields: Record<string, unknown>,
@@ -1032,7 +1051,19 @@ export function createDaemonTransport(
           `No turn holds ${responseContentItemId}.`,
         )
       }
-      await command('fork', { sessionId, turnId })
+      const { sessionId: chat, workspaceId } = await command<{
+        sessionId: string
+        workspaceId: string
+      }>('fork', { sessionId, turnId })
+      // Same ids as aide's built-in backend, which opens the branch in a pane of its own.
+      const { workspaceId: aideId } = await aideWorkspace(
+        workspaceId,
+        "The branch's workspace is not open in aide.",
+      )
+      const newId = `${aideId}:agent::copy-branch-${crypto.randomUUID()}`
+      chatIds.set(newId, chat)
+      options.chatIds?.save(Object.fromEntries(chatIds))
+      await options.openTask(newId)
     },
     implementPlanInNewThread: async (sessionId, requestId) => {
       const source = await currentSnapshot(sessionId)
@@ -1049,22 +1080,10 @@ export function createDaemonTransport(
           'The plan is no longer pending.',
         )
       }
-      const [{ projects }, aideWorkspaces] = await Promise.all([
-        command<{ projects: DaemonProject[] }>('listProjects'),
-        options.getWorkspaces(),
-      ])
-      const dir = projects
-        .flatMap((project) => project.workspaces)
-        .find((workspace) => workspace.id === source.workspaceId)?.path
-      const workspaceId = aideWorkspaces.find(
-        (workspace) => workspace.path === dir,
-      )?.id
-      if (!dir || !workspaceId) {
-        throw new DaemonCommandError(
-          'not-found',
-          "The plan's workspace is not open in aide.",
-        )
-      }
+      const { dir, workspaceId } = await aideWorkspace(
+        source.workspaceId,
+        "The plan's workspace is not open in aide.",
+      )
       // Same ids as aide's built-in backend, so the new chat lists under its own pane.
       const paneId = `agent::copy-plan-${crypto.randomUUID()}`
       const { sessionId: chat } = await command<{ sessionId: string }>(

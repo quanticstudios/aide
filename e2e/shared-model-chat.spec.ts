@@ -132,17 +132,27 @@ async function prepareSyntheticJev(
 
 async function getOnlySnapshot(page: Page) {
   return await page.evaluate(async () => {
-    const snapshots = Object.values(await window.aideSessions.getSessions())
+    const snapshots = Object.entries(await window.aideSessions.getSessions())
 
     if (snapshots.length !== 1) {
       throw new Error(`Expected one managed session, got ${snapshots.length}.`)
     }
 
-    return snapshots[0]
+    // why: the daemon backend keys a chat by aide's pane session id, while its snapshot carries pitwall's chat id; panes, drafts and tasks use aide's.
+    const [[sessionId, snapshot]] = snapshots
+    return { ...snapshot, sessionId }
   })
 }
 
-async function startSharedChat(page: Page, app: ElectronApplication) {
+/**
+ * Opens the project and starts one Claude or Codex chat, the way a user does.
+ * @remarks Use it unless the spec tests multi-agent routing; startSharedChat's setAgents stays built-in only (ENG-2706).
+ */
+async function startPlainChat(
+  page: Page,
+  app: ElectronApplication,
+  provider: 'claude' | 'codex' = 'claude',
+) {
   await expect(page.getByText('No project selected')).toBeVisible()
   await page
     .getByRole('button', { name: /open project/i })
@@ -152,7 +162,20 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
   await page.getByRole('button', { name: /add pane/i }).click()
   await page.getByRole('button', { name: /^agent\b/i }).click()
   await prepareSyntheticJev(app, page)
-  const prompt = page.getByRole('textbox', { name: /claude prompt/i })
+  if (provider === 'codex') {
+    await page
+      .getByRole('button', { name: 'Claude Sonnet 5', exact: true })
+      .click()
+    const picker = page.locator('[data-model-selector-menu]')
+    await picker.getByRole('button', { name: 'Codex', exact: true }).click()
+    await picker
+      .getByRole('button')
+      .filter({ hasText: 'GPT-5.6 Terra' })
+      .click()
+  }
+  const prompt = page.getByRole('textbox', {
+    name: new RegExp(`${provider} prompt`, 'i'),
+  })
   await prompt.fill('initialize shared chat')
   await prompt.press('Enter')
   await expect(page.getByTestId('managed-session-content')).toContainText(
@@ -161,18 +184,18 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
   await expect
     .poll(() => getOnlySnapshot(page))
     .toMatchObject({
+      provider,
       sessionState: 'ready',
     })
 
-  return await page.evaluate(async () => {
-    const snapshots = Object.values(await window.aideSessions.getSessions())
-    const session = snapshots[0]
+  return await getOnlySnapshot(page)
+}
 
-    if (!session) {
-      throw new Error('Managed session did not start.')
-    }
+async function startSharedChat(page: Page, app: ElectronApplication) {
+  const session = await startPlainChat(page, app)
 
-    return await window.aideSessions.setAgents(session.sessionId, [
+  return await page.evaluate(async (sessionId) => {
+    return await window.aideSessions.setAgents(sessionId, [
       {
         alias: 'Claude',
         selection: {
@@ -191,7 +214,7 @@ async function startSharedChat(page: Page, app: ElectronApplication) {
         },
       },
     ])
-  })
+  }, session.sessionId)
 }
 
 async function selectPlanMode(page: Page): Promise<void> {
@@ -264,7 +287,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    await startSharedChat(page, app)
+    await startPlainChat(page, app)
     const snapshot = await getOnlySnapshot(page)
     const response = snapshot.content.find(
       (item) => item.kind === 'assistant-text',
@@ -368,7 +391,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    await startSharedChat(page, app)
+    await startPlainChat(page, app)
     const reply = page.getByTestId('managed-content-assistant-text').last()
     const actions = page.getByTestId('response-actions').last()
     const userMessage = page.getByTestId('managed-content-user-prompt').last()
@@ -437,7 +460,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    const source = await startSharedChat(page, app)
+    const source = await startPlainChat(page, app)
 
     await page
       .getByTestId('response-actions')
@@ -618,7 +641,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const restoredSession = await startSharedChat(launched.page, app)
+    const restoredSession = await startPlainChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await app.evaluate(
@@ -854,18 +877,8 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    const session = await startPlainChat(launched.page, app, 'codex')
     const { page } = launched
-    await page.evaluate(
-      ({ sessionId }) =>
-        window.aideSessions.setModel(sessionId, {
-          effort: 'medium',
-          mode: 'codex',
-          model: 'gpt-5.6-terra',
-          serviceTier: 'priority',
-        }),
-      { sessionId: session.sessionId },
-    )
     const prompt = page.getByRole('textbox', { name: /codex prompt/i })
     await prompt.fill('stream-codex')
     const startedAt = Date.now()
@@ -908,18 +921,8 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app, 'codex')
     const { page } = launched
-    await page.evaluate(
-      ({ sessionId }) =>
-        window.aideSessions.setModel(sessionId, {
-          effort: 'medium',
-          mode: 'codex',
-          model: 'gpt-5.6-terra',
-          serviceTier: 'priority',
-        }),
-      { sessionId: session.sessionId },
-    )
     const prompt = page.getByRole('textbox', { name: /codex prompt/i })
     await prompt.fill('stream-codex')
     await prompt.press('Enter')
@@ -929,14 +932,16 @@ test.describe('shared model chat', () => {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
 
-    await expect
-      .poll(() => getOnlySnapshot(page), { timeout: 10_000 })
-      .toMatchObject({ sessionState: 'ready' })
+    // why: the daemon transport refuses reads while it reconnects after the reload, so wait for the pane first.
     await expect(
       page.getByTestId('managed-content-assistant-text').last(),
     ).toContainText(
       `${Array.from({ length: 120 }, (_, index) => `${index.toString().padStart(3, '0')} `).join('')}complete`,
+      { timeout: 10_000 },
     )
+    await expect
+      .poll(() => getOnlySnapshot(page))
+      .toMatchObject({ sessionState: 'ready' })
   })
 
   test('navigates the conversation minimap with scrolling, clicks and keyboard', async () => {
@@ -957,7 +962,7 @@ test.describe('shared model chat', () => {
     await expect
       .poll(() => page.evaluate(() => globalThis.innerHeight))
       .toBeLessThanOrEqual(920)
-    const session = await startSharedChat(page, app)
+    const session = await startPlainChat(page, app)
     const rail = page.getByRole('navigation', { name: 'Conversation minimap' })
     await expect(rail).toBeHidden()
     for (let index = 0; index < 60; index++) {
@@ -1043,7 +1048,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    const session = await startSharedChat(page, app)
+    const session = await startPlainChat(page, app)
     await page.evaluate(
       async (id) => window.aideSessions.send(id, 'approval'),
       session.sessionId,
@@ -1126,7 +1131,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    const session = await startSharedChat(page, app)
+    const session = await startPlainChat(page, app)
     const trigger = page.getByRole('button', {
       name: 'Reasoning settings',
       exact: true,
@@ -1316,7 +1321,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app)
     const { page } = launched
     await app.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('app:get-provider-skills')
@@ -1763,7 +1768,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    const session = await startPlainChat(launched.page, app)
     const { page } = launched
     await page.getByRole('button', { name: 'Open task history' }).click()
     const task = page.getByTestId('saved-task')
@@ -1820,7 +1825,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app)
     const { page } = launched
     await page.setViewportSize({ width: 1100, height: 720 })
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
@@ -1930,7 +1935,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app)
     const { page } = launched
     await page.setViewportSize({ width: 1100, height: 720 })
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
@@ -2030,15 +2035,8 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app, 'codex')
     const { page } = launched
-    await page.evaluate(async (sessionId) => {
-      await window.aideSessions.setModel(sessionId, {
-        mode: 'codex',
-        model: 'gpt-5.6-terra',
-        effort: 'medium',
-      })
-    }, session.sessionId)
     const prompt = page.getByRole('textbox', { name: /codex prompt/i })
     await prompt.fill('wait-codex')
     await page.getByRole('button', { name: 'Send prompt' }).click()
@@ -2084,7 +2082,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    await startSharedChat(launched.page, app)
+    await startPlainChat(launched.page, app)
     const { page } = launched
     await app.evaluate(
       ({ dialog }, filePath) => {
@@ -2113,7 +2111,7 @@ test.describe('shared model chat', () => {
     const launched = await launchAideApp(repository)
     app = launched.app
     dataDirectory = launched.dataDirectory
-    const session = await startSharedChat(launched.page, app)
+    const session = await startPlainChat(launched.page, app)
     const { page } = launched
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('Keep these screenshots for later')
@@ -2357,7 +2355,7 @@ test.describe('shared model chat', () => {
     app = launched.app
     dataDirectory = launched.dataDirectory
     const { page } = launched
-    await startSharedChat(page, app)
+    await startPlainChat(page, app)
 
     await page.locator('button.composer-tool.max-w-full').first().click()
     const picker = page.locator('[data-model-selector-menu]')

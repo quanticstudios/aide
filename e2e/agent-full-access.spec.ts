@@ -12,6 +12,8 @@ import {
 } from '@playwright/test'
 
 const workspaceDirectory = path.resolve(import.meta.dirname, '..')
+// why: the daemon hands the mode to the CLI, which goes ahead without asking, so aide never sees the request or writes its "Allowed by" line (ENG-2928).
+const daemon = Boolean(process.env.AIDE_E2E_PITWALL)
 const gitEnvironment = {
   ...process.env,
   GIT_AUTHOR_EMAIL: 'aide@example.com',
@@ -52,6 +54,33 @@ async function selectPermissionMode(
   await expect(
     page.getByRole('button', { exact: true, name: next }),
   ).toBeVisible()
+}
+
+/** Waits for the `turns`th turn to finish without a request, saying `allowed` on the built-in backend. */
+async function expectAllowed(
+  page: Page,
+  allowed: string,
+  turns: number,
+): Promise<void> {
+  if (!daemon) {
+    await expect(page.getByTestId('managed-session-content')).toContainText(
+      allowed,
+    )
+    return
+  }
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        const session = Object.values(
+          await window.aideSessions.getSessions(),
+        )[0]
+        return session?.sessionState === 'ready' ? session.turns.length : -1
+      }),
+    )
+    .toBe(turns)
+  await expect(page.getByTestId('managed-session-content')).not.toContainText(
+    'Allowed by',
+  )
 }
 
 async function pendingApprovalCount(page: Page): Promise<number> {
@@ -141,16 +170,20 @@ test.describe('agent full access', () => {
 
     await selectPermissionMode(page, 'Supervised', 'Full access')
     await sendPrompt(page, 'approval')
-    await expect(page.getByTestId('managed-session-content')).toContainText(
+    await expectAllowed(
+      page,
       'Allowed by Full access: Bash: rm -rf build && bun run build',
+      1,
     )
     await expect(page.getByTestId('managed-approval-command')).toHaveCount(0)
     expect(await pendingApprovalCount(page)).toBe(0)
 
     await selectPermissionMode(page, 'Full access', 'Auto-accept edits')
     await sendPrompt(page, 'edit approval')
-    await expect(page.getByTestId('managed-session-content')).toContainText(
+    await expectAllowed(
+      page,
       'Allowed by Auto-accept edits: Edit: README.md',
+      2,
     )
     await expect(page.getByTestId('managed-approval-diff')).toHaveCount(0)
     expect(await pendingApprovalCount(page)).toBe(0)

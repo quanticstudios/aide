@@ -3,11 +3,6 @@
  * @remarks Found by running the whole suite with `AIDE_E2E_PITWALL` on 2026-10-31. Delete an entry once its test passes on the daemon.
  */
 export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
-  // agent-full-access.spec.ts
-  [
-    'auto-allows requests the permission mode covers and still asks for the rest',
-    'pitwall hands the mode to the provider, so a real CLI never asks; the fake asks anyway and nothing auto-allows it or writes aide\'s "Allowed by" line',
-  ],
   // jev-gates-sidebar.spec.ts
   [
     'draws a gate node for every gate turned on and keeps the choice after a relaunch',
@@ -20,110 +15,70 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   // shared-model-chat.spec.ts
   [
     'distinguishes Codex activity from the final response',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'keeps copy actions below the response and copies only reply text',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'branches a response into an independent same-workspace conversation',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "injects a Codex snapshot through aide's own IPC (syncManagedSession, managed-session:event), which the daemon transport never reads",
   ],
   [
     'reopens a closed Agent conversation while New chat and other workspaces stay fresh',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'selects the highlighted agent mention with the keyboard',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'keeps the composer responsive during a sustained Codex stream',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'reattaches to a Codex stream after a renderer reload with the same transcript',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'navigates the conversation minimap with scrolling, clicks and keyboard',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'closing the pane archives its pitwall chat, so the next Agent pane finds no open task to reopen',
   ],
   [
     'keeps model and effort controls available during a reply and applies the next choice after it finishes',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "picks a Codex model in a Claude chat; pitwall's web protocol cannot switch a chat to another provider (ENG-2932)",
   ],
   [
     'shows provider reasoning options and applies keyboard selections',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'clears accepted drafts and restores only an untouched failed submission',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'ranks skill names first and removes stale suggestions while typing',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'runs a Claude skill with its owner and clears opinion recipients',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'switches to a Codex skill owner and restores its draft in a narrow pane',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'opens fleet Plan first, accepts reported work, and shows actual routing after restart',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "picks a Codex model in a Claude chat; pitwall's web protocol cannot switch a chat to another provider (ENG-2932)",
   ],
   [
     'searches, archives and reopens saved tasks with durable attention state',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706); Restore needs unarchive, which pitwall lacks (ENG-2707). Rename and pin pass on the daemon in pitwall-backend.spec.ts',
-  ],
-  [
-    'opens settings with searchable shortcuts and persists preferences without losing the draft',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "task history lists the suite's other daemon chats too, and Restore needs unarchive, which pitwall lacks (ENG-2707). Rename and pin pass on the daemon in pitwall-backend.spec.ts",
   ],
   [
     'hands a follow-up with images to the running agent',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'sends Codex follow-ups immediately through required Jev preparation',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'labels a running Codex opinion response under a Claude parent',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "pitwall answers every attachment with 'attachments are not supported yet' (ENG-2933)",
   ],
   [
     'attaches a selected workspace file to a required-Jev turn',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    "pitwall answers every attachment with 'attachments are not supported yet' (ENG-2933)",
   ],
   [
-    'preserves a ten-megabyte image draft across renderer reload',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'selects the highlighted agent mention with the keyboard',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
+  ],
+  [
+    'clears accepted drafts and restores only an untouched failed submission',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
+  ],
+  [
+    'runs a Claude skill with its owner and clears opinion recipients',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
+  ],
+  [
+    'switches to a Codex skill owner and restores its draft in a narrow pane',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
+  ],
+  [
+    'opens fleet Plan first, accepts reported work, and shows actual routing after restart',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
+  ],
+  [
+    'labels a running Codex opinion response under a Claude parent',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
   [
     'keeps the orchestrator while tagged opinions retain model attribution in Build and Plan',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
   [
     'closes the configured agents popover on an outside click',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
   [
     'closes the configured agents popover on Escape and refocuses the trigger',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
   [
     'preserves a completed opinion when a peer fails, then interrupts only the pending peer',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
-  ],
-  [
-    'rounds the settings select menu and the model selector popover to 8px',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],
 ]
