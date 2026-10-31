@@ -7,6 +7,7 @@ function render(connection: DaemonConnection): string {
   return renderToStaticMarkup(
     <DaemonConnectionBanner
       transport={{
+        checkAgain: () => undefined,
         getConnection: () => connection,
         subscribeConnection: () => () => undefined,
       }}
@@ -25,6 +26,35 @@ describe('DaemonConnectionBanner', () => {
       'Reconnecting to pitwall... Read-only until it is back.',
     )
     expect(markup).toContain('role="status"')
+  })
+
+  it.each([
+    [
+      { status: 'missing', platform: 'linux' },
+      'pitwall is not installed',
+      'scripts/get.sh | sh',
+    ],
+    [
+      { status: 'missing', platform: 'win32' },
+      'pitwall is not installed',
+      'scripts/get.ps1 | iex',
+    ],
+    [
+      { status: 'outdated', required: '0.1.7', version: 'v0.1.6' },
+      'aide needs pitwall 0.1.7 or newer, and this one is v0.1.6.',
+      'pitwall update',
+    ],
+    [
+      { status: 'noEndpoint' },
+      'pitwall is not listening for aide',
+      'enabled = true',
+    ],
+  ] as const)('tells the user what to run when pitwall is %o', (pitwall, text, command) => {
+    const markup = render({ status: 'unavailable', pitwall })
+    expect(markup).toContain(text)
+    expect(markup).toContain(command)
+    expect(markup).toContain('Check again')
+    expect(markup).toContain('role="alert"')
   })
 
   it('shows the version mismatch as an alert', () => {

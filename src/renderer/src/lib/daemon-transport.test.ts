@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PitwallStatus } from '../../../shared/ipc'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import {
   applyDelta,
@@ -86,10 +87,19 @@ class MockDaemon {
   /** Command types the daemon takes but never answers. */
   readonly silent = new Set<string>()
 
+  /** What main reports: pitwall `missing`, or a daemon that is not running and could not be started. */
+  missing = false
+
   endpoint() {
     return this.running
       ? { url: `ws://127.0.0.1:${this.port}/ws`, token: TOKEN }
       : null
+  }
+
+  status(): PitwallStatus {
+    if (this.missing) return { status: 'missing', platform: 'linux' }
+    const endpoint = this.endpoint()
+    return endpoint ? { status: 'ready', endpoint } : { status: 'noEndpoint' }
   }
 
   open(url: string): FakeSocket {
@@ -198,7 +208,7 @@ function start(): DaemonTransport {
   transport = createDaemonTransport({
     clientVersion: '0.0.3',
     createSocket: (url) => daemon.open(url) as unknown as WebSocket,
-    getEndpoint: async () => daemon.endpoint(),
+    getEndpoint: async () => daemon.status(),
     getNotificationSettings: async () => ({
       notificationsEnabled: true,
       notificationSoundsEnabled: false,
@@ -270,7 +280,10 @@ describe('DaemonTransport', () => {
     // Deltas the chat loop produced while aide was away.
     daemon.log.push(...rest.slice(half, half + 2))
     await settle(DAEMON_RECONNECT_MIN_MS)
-    expect(transport.getConnection().status).toBe('reconnecting')
+    expect(transport.getConnection()).toEqual({
+      status: 'unavailable',
+      pitwall: { status: 'noEndpoint' },
+    })
 
     daemon.restart()
     await settle(DAEMON_RECONNECT_MIN_MS * 2)
@@ -283,6 +296,32 @@ describe('DaemonTransport', () => {
     for (const delta of rest.slice(half + 2)) daemon.emit(delta)
 
     expect(lastSnapshot(updates)).toEqual(fixture.snapshot)
+  })
+
+  it('says pitwall is missing, keeps checking, and checks again at once when asked', async () => {
+    daemon.missing = true
+    start()
+    await settle()
+    expect(transport.getConnection()).toEqual({
+      status: 'unavailable',
+      pitwall: { status: 'missing', platform: 'linux' },
+    })
+    expect(daemon.sockets).toHaveLength(0)
+
+    daemon.missing = false
+    transport.checkAgain()
+    expect(transport.getConnection().status).toBe('connecting')
+    await settle()
+    expect(transport.getConnection().status).toBe('connected')
+  })
+
+  it('connects once pitwall turns up, without a click', async () => {
+    daemon.missing = true
+    start()
+    await settle()
+    daemon.missing = false
+    await settle(DAEMON_RECONNECT_MIN_MS)
+    expect(transport.getConnection().status).toBe('connected')
   })
 
   it('resyncs from a fresh snapshot when a delta skips a seq', async () => {

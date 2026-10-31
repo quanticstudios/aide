@@ -1,5 +1,5 @@
 import type { TurnCheckpointPreview } from '../../../shared/checkpoints'
-import type { PitwallEndpoint } from '../../../shared/ipc'
+import type { PitwallStatus } from '../../../shared/ipc'
 import type {
   ManagedSessionDecision,
   ManagedSessionSnapshot,
@@ -31,19 +31,26 @@ export type DaemonConnection =
   | { readonly status: 'connected'; readonly server: string }
   | { readonly status: 'reconnecting'; readonly reason: string }
   | { readonly status: 'incompatible'; readonly message: string }
+  /** Main found no pitwall, one too old, or one with no web endpoint; the transport keeps checking. */
+  | {
+      readonly status: 'unavailable'
+      readonly pitwall: Exclude<PitwallStatus, { status: 'ready' }>
+    }
 
 /** A `SessionTransport` over pitwall's web protocol, plus the connection state the banner shows. */
 export interface DaemonTransport extends SessionTransport {
   getConnection: () => DaemonConnection
   subscribeConnection: (listener: () => void) => () => void
+  /** Looks for pitwall now instead of at the next retry. */
+  checkAgain: () => void
   dispose: () => void
 }
 
 export interface DaemonTransportOptions {
   readonly clientVersion: string
   readonly createSocket?: (url: string) => WebSocket
-  /** Asks Electron main to read `web.json`; called before every connect, since a restarted daemon may listen on a new port. */
-  readonly getEndpoint: () => Promise<PitwallEndpoint | null>
+  /** Asks Electron main to find pitwall and its daemon, starting one if none runs; called before every connect, since a restarted daemon may listen on a new port. */
+  readonly getEndpoint: () => Promise<PitwallStatus>
   /** aide's own notification settings, which the task library shows beside pitwall's chats. */
   readonly getNotificationSettings: () => Promise<
     Pick<
@@ -198,12 +205,18 @@ export function createDaemonTransport(
 
   async function connect(): Promise<void> {
     timer = null
-    const endpoint = await options.getEndpoint().catch(() => null)
+    const found = await options.getEndpoint().catch(() => null)
     if (disposed) return
-    if (!endpoint) {
+    if (!found) {
       retry('pitwall is not running')
       return
     }
+    if (found.status !== 'ready') {
+      setConnection({ status: 'unavailable', pitwall: found })
+      schedule()
+      return
+    }
+    const { endpoint } = found
     let ws: WebSocket
     try {
       ws = createSocket(endpoint.url)
@@ -233,6 +246,10 @@ export function createDaemonTransport(
   function retry(reason: string): void {
     if (disposed) return
     setConnection({ status: 'reconnecting', reason })
+    schedule()
+  }
+
+  function schedule(): void {
     const delay = Math.min(
       DAEMON_RECONNECT_MAX_MS,
       DAEMON_RECONNECT_MIN_MS * 2 ** attempt,
@@ -531,6 +548,14 @@ export function createDaemonTransport(
     subscribeConnection: (listener) => {
       connectionListeners.add(listener)
       return () => connectionListeners.delete(listener)
+    },
+    checkAgain: () => {
+      // No timer means a connect is under way.
+      if (disposed || !timer) return
+      clearTimeout(timer)
+      attempt = 0
+      setConnection({ status: 'connecting' })
+      void connect()
     },
     dispose: () => {
       disposed = true
