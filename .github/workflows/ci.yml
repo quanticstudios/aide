@@ -112,6 +112,9 @@ jobs:
 
       - name: Build pitwall
         working-directory: .pitwall
+        # why: pitwall's CI and release build Gio's OpenGL path; Vulkan needs headers this runner lacks.
+        env:
+          GOFLAGS: -tags=novulkan
         run: go build -o "$RUNNER_TEMP/pitwall" ./cmd/pitwall
 
       # v7.1.0, pinned to the upstream release commit; package.json requires Node 26.13.0.
