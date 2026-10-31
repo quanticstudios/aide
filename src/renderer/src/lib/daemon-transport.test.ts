@@ -100,6 +100,8 @@ class MockDaemon {
     'resolveInput',
     'set',
     'archive',
+    'rename',
+    'pin',
     'start',
     'reviewThreads',
     'prPrompt',
@@ -110,6 +112,8 @@ class MockDaemon {
   /** A protocol that refuses `hello` with 4002, as a pitwall at another protocol does. */
   refuseProtocol: number | null = null
   port = 4100
+  pinned = false
+  title = 'Chat'
   running = true
   readonly subscribed = new Set<FakeSocket>()
   readonly commands: Frame[] = []
@@ -189,7 +193,8 @@ class MockDaemon {
             ? [
                 {
                   id: SESSION_ID,
-                  title: 'Chat',
+                  title: this.title,
+                  pinned: this.pinned,
                   workspaceId: 'workspace-1',
                   recentPrompt: 'Explain the build setup',
                 },
@@ -215,6 +220,12 @@ class MockDaemon {
       })
     } else if (frame.type === 'archive' && frame.sessionId !== SESSION_ID) {
       fail('not-found', `no chat ${frame.sessionId}`)
+    } else if (frame.type === 'rename') {
+      this.title = String(frame.title)
+      ok()
+    } else if (frame.type === 'pin') {
+      this.pinned = frame.pinned === true
+      ok()
     } else if (frame.type === 'start') {
       ok({ sessionId: SESSION_ID, workspaceId: 'workspace-1' })
     } else if (frame.type === 'prPrompt') {
@@ -675,6 +686,30 @@ describe('DaemonTransport', () => {
         requestId: 'toolu_01',
         decision: 'allow-session',
       },
+    ])
+  })
+
+  it('renames and pins a chat before archiving it, and lists both', async () => {
+    daemon.emit(fixture.deltas[0])
+    start()
+    await settle()
+    await transport.updateSession(SESSION_ID, {
+      title: 'Daily review',
+      pinned: true,
+      archived: true,
+    })
+    expect(
+      daemon.commands
+        .filter((frame) => ['rename', 'pin', 'archive'].includes(frame.type))
+        .map(({ id: _id, ...frame }) => frame),
+    ).toEqual([
+      { type: 'rename', sessionId: SESSION_ID, title: 'Daily review' },
+      { type: 'pin', sessionId: SESSION_ID, pinned: true },
+      { type: 'archive', sessionId: SESSION_ID },
+    ])
+    const library = await transport.listSessions()
+    expect(library.tasks).toMatchObject([
+      { title: 'Daily review', pinned: true },
     ])
   })
 

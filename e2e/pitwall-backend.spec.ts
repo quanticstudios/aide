@@ -124,6 +124,40 @@ test.describe('pitwall daemon backend', () => {
     await expect(page.getByTestId('active-pane-name')).toHaveText('Agent')
   })
 
+  test('renames and pins a chat in task history, and keeps both after a reload', async () => {
+    const page = await launch('pitwall')
+    execFileSync(
+      pitwall as string,
+      ['chat', 'new', '--dir', repository as string, '--', 'rename me'],
+      { env: process.env },
+    )
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    const task = page
+      .getByLabel('Saved tasks')
+      .getByTestId('saved-task')
+      .filter({ hasText: /rename me|Renamed on the daemon/ })
+    await expect(task).toContainText('rename me')
+    await task.getByRole('button', { name: 'Rename', exact: true }).click()
+    await page
+      .getByRole('textbox', { name: 'Task title' })
+      .fill('Renamed on the daemon')
+    await page.getByRole('button', { name: 'Save title' }).click()
+    await task.getByRole('button', { name: 'Pin', exact: true }).click()
+    await expect(task).toContainText('Pinned · Renamed on the daemon')
+
+    // why: the daemon transport keeps neither, so a new renderer reads both back from pitwall.
+    await page.reload()
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    await expect(task).toContainText('Pinned · Renamed on the daemon')
+    await expect(task.getByRole('button', { name: 'Unpin' })).toBeVisible()
+    const found = await page.evaluate(() =>
+      window.aideSessions.listSessions('renamed on the daemon'),
+    )
+    expect(found.tasks.map((entry) => [entry.title, entry.pinned])).toEqual([
+      ['Renamed on the daemon', true],
+    ])
+  })
+
   test('keeps built-in sessions across a switch to pitwall and back', async () => {
     const page = await launch('built-in')
     await page.getByRole('button', { name: /add pane/i }).click()

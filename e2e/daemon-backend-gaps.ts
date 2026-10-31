@@ -80,7 +80,7 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   [
     'searches, archives and reopens saved tasks with durable attention state',
-    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706)',
+    'startSharedChat configures Claude and Codex agents with setAgents, which pitwall answers unsupported (multi-agent routing is dropped, ENG-2706); Restore needs unarchive, which pitwall lacks (ENG-2707). Rename and pin pass on the daemon in pitwall-backend.spec.ts',
   ],
   [
     'opens settings with searchable shortcuts and persists preferences without losing the draft',

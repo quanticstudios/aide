@@ -147,6 +147,7 @@ interface DaemonChat {
   recentPrompt?: string
   id: string
   pending: number
+  pinned?: boolean
   pr?: DaemonPullRequest
   provider: string
   state: string
@@ -784,7 +785,7 @@ export function createDaemonTransport(
           unread: own?.unread ?? false,
           excerpt: chat.recentPrompt ?? '',
           recentPrompt: chat.recentPrompt,
-          pinned: false,
+          pinned: chat.pinned ?? false,
           archived: isArchived,
           readActivityKey: own?.readActivityKey ?? null,
         })
@@ -869,7 +870,13 @@ export function createDaemonTransport(
       }
     },
     updateSession: async (sessionId, input) => {
-      // shortcut: title and pinned have no web command in v1 (web-protocol.md, Left open 2); they are dropped until pitwall adds them.
+      // why: before archive, since pitwall renames and pins only a live chat.
+      if (input.title !== undefined) {
+        await command('rename', { sessionId, title: input.title })
+      }
+      if (input.pinned !== undefined) {
+        await command('pin', { sessionId, pinned: input.pinned })
+      }
       if (input.archived !== undefined) {
         await command(input.archived ? 'archive' : 'unarchive', { sessionId })
       }
