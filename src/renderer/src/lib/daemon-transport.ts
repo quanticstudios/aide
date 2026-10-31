@@ -45,6 +45,52 @@ export interface DaemonTransport extends SessionTransport {
   /** Looks for pitwall now instead of at the next retry. */
   checkAgain: () => void
   dispose: () => void
+  /** The pull request of the session's tab as pitwall's poll last saw it, null for none; current while `subscribeSessionList` has a listener. */
+  getPullRequest: (sessionId: string) => DaemonPullRequest | null
+  /** The unresolved review threads and standing change requests of the session's pull request. */
+  reviewThreads: (sessionId: string) => Promise<DaemonReviewThreads>
+  /** pitwall's capped message asking the agent to fix the failed checks or address the review; empty when there is nothing to send. */
+  pullRequestPrompt: (
+    sessionId: string,
+    what: 'failures' | 'review',
+  ) => Promise<string>
+  /** Merges the session's pull request by pitwall's `[git] merge_method`. */
+  mergePullRequest: (sessionId: string) => Promise<void>
+}
+
+/** pitwall's `pr` on a chat's list entry (web-protocol.md, Pull requests). */
+export interface DaemonPullRequest {
+  readonly checks: readonly {
+    readonly name: string
+    readonly state: '' | 'fail' | 'pass' | 'pending' | 'skip'
+  }[]
+  readonly conflicts: boolean
+  readonly detail: string
+  readonly draft: boolean
+  readonly head: string
+  readonly number: number
+  readonly reason: string
+  readonly review: '' | 'approved' | 'changes' | 'required'
+  readonly state: 'closed' | 'merged' | 'open'
+  readonly url: string
+}
+
+export interface DaemonReviewComment {
+  readonly author: string
+  readonly body: string
+}
+
+export interface DaemonReviewThread {
+  readonly comments: readonly DaemonReviewComment[]
+  /** The line on the branch's version of the file; 0 for a comment on the whole file. */
+  readonly line: number
+  readonly more: number
+  readonly path: string
+}
+
+export interface DaemonReviewThreads {
+  readonly changeRequests: readonly DaemonReviewComment[]
+  readonly threads: readonly DaemonReviewThread[]
 }
 
 export interface DaemonTransportOptions {
@@ -90,6 +136,7 @@ export class DaemonCommandError extends Error {
 interface DaemonChat {
   id: string
   pending: number
+  pr?: DaemonPullRequest
   provider: string
   state: string
   title: string
@@ -127,7 +174,8 @@ type ServerMessage =
     }
   | ({ type: 'deltas'; sessionId: string } & DeltasPayload)
   | { type: 'removed'; sessionId: string }
-  | { type: 'sessions' | 'sessionsChanged' }
+  | { type: 'sessions'; chats: DaemonChat[] }
+  | { type: 'sessionsChanged'; changed: DaemonChat[]; removed: string[] }
 
 interface SessionEntry {
   readonly listeners: Set<(update: ManagedSessionUpdate) => void>
@@ -189,6 +237,8 @@ export function createDaemonTransport(
   const connectionListeners = new Set<() => void>()
   const listListeners = new Set<() => void>()
   const sessions = new Map<string, SessionEntry>()
+  /** The session list as pitwall last pushed it, by chat id. */
+  const chats = new Map<string, DaemonChat>()
   const pending = new Map<
     string,
     {
@@ -357,6 +407,15 @@ export function createDaemonTransport(
         return
       case 'sessions':
       case 'sessionsChanged':
+        if (message.type === 'sessions') chats.clear()
+        for (const chat of message.type === 'sessions'
+          ? message.chats
+          : message.changed) {
+          chats.set(chat.id, chat)
+        }
+        if (message.type === 'sessionsChanged') {
+          for (const id of message.removed) chats.delete(id)
+        }
         for (const listener of listListeners) listener()
         return
     }
@@ -639,6 +698,15 @@ export function createDaemonTransport(
       disposed = true
       if (timer) clearTimeout(timer)
       socket?.close(1000)
+    },
+
+    getPullRequest: (sessionId) => chats.get(chatId(sessionId))?.pr ?? null,
+    reviewThreads: (sessionId) =>
+      command<DaemonReviewThreads>('reviewThreads', { sessionId }),
+    pullRequestPrompt: async (sessionId, what) =>
+      (await command<{ text: string }>('prPrompt', { sessionId, what })).text,
+    mergePullRequest: async (sessionId) => {
+      await command('mergePR', { sessionId })
     },
 
     listSessions,

@@ -51,6 +51,7 @@ daemon. The rows below call this "`startSharedChat`".
 | Rewind | `agent-rewind` | same | gap | Needs a rewind preview and conversation-only rewind in the web protocol (pitwall, after ENG-2691 #237). |
 | Branch a response | `shared-model-chat` branches a response | same | gap | `startSharedChat` (aide); fork goes through the provider after ENG-2691. |
 | Per-turn diff chip, changed-files panel | `agent-turn-diff`, `diff-panel`, `theme-switching` | same | gap | The web protocol has no checkpoint diff (pitwall). |
+| Pull request row: send failures or review, fix in a new thread, merge | `pitwall-pr-flow` | none | same | pitwall only (ENG-2708): the row reads pitwall's PR poll, and the built-in backend has none. Review threads under diff lines are covered by `DiffPanel.test.tsx`; the e2e can't open the diff on the daemon until the checkpoint diff row is fixed. |
 | Turn checkpoints API | `turn-checkpoints` | same | gap | The web protocol has no checkpoint list (pitwall). |
 | Usage-limit banner, resume at reset | `usage-limit-banners` | same | gap | pitwall's snapshot drops limit events, so there is no `usageLimit` (pitwall). The fake now has `usage limit <unix seconds>`. |
 | Auth and missing-CLI banners | `usage-limit-banners` | same | gap | Fixed here: auth (the pane names the fix from `lastError` when the snapshot has no kind). Missing CLI: the fake can only fail starts suite-wide (pitwall). |

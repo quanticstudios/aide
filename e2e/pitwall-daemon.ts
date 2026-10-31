@@ -12,9 +12,11 @@ import path from 'node:path'
 
 /**
  * Starts a pitwall daemon of its own when `AIDE_E2E_PITWALL` names a pitwall binary, and points every spec's aide at it.
- * @remarks The daemon gets fresh config, state and runtime folders and `PITWALL_FAKE_PROVIDERS=1`, so it never meets the user's daemon or runs an agent. Without the variable the suite runs on the built-in backend as before.
+ * @remarks The daemon gets fresh config, state and runtime folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent or calls GitHub. Without the variable the suite runs on the built-in backend as before.
  */
-export default async function globalSetup(): Promise<(() => void) | undefined> {
+export default async function globalSetup(): Promise<
+  (() => Promise<void>) | undefined
+> {
   const binary = process.env.AIDE_E2E_PITWALL
   if (!binary) return undefined
   // why: os.tmpdir() keeps the socket path under the 108-byte limit of a Unix socket.
@@ -37,7 +39,13 @@ export default async function globalSetup(): Promise<(() => void) | undefined> {
   }
   const log = openSync(path.join(root, 'daemon.log'), 'a')
   const daemon: ChildProcess = spawn(path.resolve(binary), ['daemon'], {
-    env: { ...process.env, ...folders, PITWALL_FAKE_PROVIDERS: '1' },
+    env: {
+      ...process.env,
+      ...folders,
+      // why: e2e/fake-gh/gh answers the daemon's PR poll from a spec's fixtures instead of GitHub.
+      PATH: `${path.join(import.meta.dirname, 'fake-gh')}${path.delimiter}${process.env.PATH}`,
+      PITWALL_FAKE_PROVIDERS: '1',
+    },
     stdio: ['ignore', log, log],
   })
   const webFile = path.join(folders.XDG_STATE_HOME, 'pitwall', 'web.json')
@@ -59,8 +67,11 @@ export default async function globalSetup(): Promise<(() => void) | undefined> {
     'pitwall',
     'pitwall.sock',
   )
-  return () => {
+  return async () => {
+    // why: the daemon saves its state as it exits, so removing its folder before then fails with ENOTEMPTY.
+    const exited = new Promise((resolve) => daemon.once('exit', resolve))
     daemon.kill()
+    if (daemon.exitCode === null) await exited
     rmSync(root, { force: true, recursive: true })
   }
 }

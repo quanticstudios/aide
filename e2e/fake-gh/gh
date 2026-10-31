@@ -1,0 +1,16 @@
+#!/bin/sh
+# The gh the e2e daemon runs (e2e/pitwall-daemon.ts). It answers from the
+# files a spec writes to its repository's .git/aide-e2e-gh, and finds no
+# pull request in any other folder, so the daemon never reaches GitHub.
+dir="$(git rev-parse --absolute-git-dir 2>/dev/null)/aide-e2e-gh"
+if [ ! -d "$dir" ]; then
+  echo "no pull requests found for branch" >&2
+  exit 1
+fi
+case "$1 $2" in
+"pr view") cat "$dir/pr.json" ;;
+"pr checks") cat "$dir/checks.json"; exit 1 ;; # gh exits 1 when a check failed
+"api graphql") cat "$dir/reviews.json" ;;
+"pr merge") echo "$3 $4" >>"$dir/merged" ;;
+*) echo "fake gh cannot $*" >&2; exit 1 ;;
+esac

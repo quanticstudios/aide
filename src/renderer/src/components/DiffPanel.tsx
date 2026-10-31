@@ -1,7 +1,9 @@
 import { X } from 'lucide-react'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import type { TurnCheckpointDiff } from '../../../shared/checkpoints'
 import type { WorkspaceDiffScope } from '../../../shared/git'
+import type { DaemonReviewThread } from '../lib/daemon-transport'
+import { threadsByLine } from '../lib/pull-request'
 import { getSessionTransport } from '../lib/session-transport'
 import { cn } from '../lib/utils'
 import ChangedFilesTree from './ChangedFilesTree'
@@ -30,17 +32,55 @@ async function loadScopeDiff(
   return result.diff
 }
 
+/** A pull request's review threads on one line, as GitHub shows them under it. */
+function ReviewThreads({
+  threads,
+}: {
+  readonly threads: readonly DaemonReviewThread[]
+}) {
+  return (
+    <div className="space-y-2 border-y border-border bg-surface-2 px-3 py-2 font-sans text-xs">
+      {threads.map((thread, index) => (
+        <div
+          className="space-y-1"
+          data-testid="diff-review-thread"
+          // biome-ignore lint/suspicious/noArrayIndexKey: threads have no id, and a line's list only changes as a whole.
+          key={index}
+        >
+          {thread.comments.map((comment, commentIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: comments have no id either.
+            <p className="whitespace-pre-wrap text-body" key={commentIndex}>
+              <span className="font-medium text-foreground">
+                {comment.author}
+              </span>{' '}
+              {comment.body}
+            </p>
+          ))}
+          {thread.more > 0 ? (
+            <p className="text-muted-foreground">
+              {thread.more} more on GitHub
+            </p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** Changed files and the selected file's diff for one turn, the branch against its base, or uncommitted work. */
 export default function DiffPanel({
   checkpointId,
   initialPath,
   onClose,
+  reviewThreads,
   sessionId,
   workspaceId,
 }: {
   readonly checkpointId: string
   readonly initialPath: string | null
   readonly onClose: () => void
+  /** The pull request's unresolved review threads, shown on their lines. */
+  readonly reviewThreads?: readonly DaemonReviewThread[]
   readonly sessionId: string
   readonly workspaceId: string
 }) {
@@ -76,6 +116,28 @@ export default function DiffPanel({
   const files = current?.diff?.files ?? []
   const selectedFile =
     files.find((file) => file.path === selectedPath) ?? files[0]
+  const fileThreads = useMemo(
+    () =>
+      selectedFile && reviewThreads
+        ? threadsByLine(reviewThreads, selectedFile.path)
+        : null,
+    [reviewThreads, selectedFile],
+  )
+  const annotations = useMemo(
+    () =>
+      fileThreads
+        ? Object.fromEntries(
+            [...fileThreads]
+              .filter(([line]) => line > 0)
+              .map(([line, threads]) => [
+                line,
+                <ReviewThreads key={line} threads={threads} />,
+              ]),
+          )
+        : undefined,
+    [fileThreads],
+  )
+  const wholeFileThreads = fileThreads?.get(0)
 
   return (
     <aside
@@ -140,9 +202,13 @@ export default function DiffPanel({
           className="min-w-0 flex-1 overflow-auto"
           data-testid="diff-panel-file"
         >
+          {wholeFileThreads ? (
+            <ReviewThreads threads={wholeFileThreads} />
+          ) : null}
           {selectedFile ? (
             <Suspense fallback={null}>
               <LazyGitDiffView
+                annotations={annotations}
                 filePath={selectedFile.path}
                 key={`${scope}:${selectedFile.path}`}
                 outputFormat="line-by-line"
