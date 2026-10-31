@@ -29,6 +29,8 @@
     "check": "biome check . --assist-enabled=false",
     "check:bundle": "node scripts/renderer-bundle-budget.mjs out/renderer",
     "check:dependencies": "node scripts/check-dependency-policy.mjs",
+    "check:web-protocol": "node scripts/vendor-web-protocol.mjs --check",
+    "vendor:web-protocol": "node scripts/vendor-web-protocol.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs",
     "format": "biome format --write .",
     "doctor": "react-doctor .",
