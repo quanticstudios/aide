@@ -14,14 +14,6 @@ export const DAEMON_BACKEND_GAPS: readonly (readonly [string, string])[] = [
   ],
   // shared-model-chat.spec.ts
   [
-    'reopens a closed Agent conversation while New chat and other workspaces stay fresh',
-    'closing the pane archives its pitwall chat, so the next Agent pane finds no open task to reopen',
-  ],
-  [
-    'searches, archives and reopens saved tasks with durable attention state',
-    "task history lists the suite's other daemon chats too, and Restore needs unarchive, which pitwall lacks (ENG-2707). Rename and pin pass on the daemon in pitwall-backend.spec.ts",
-  ],
-  [
     'selects the highlighted agent mention with the keyboard',
     'routing-only: tests multi-agent routing through setAgents, which stays on the built-in backend (ENG-2898)',
   ],

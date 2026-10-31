@@ -9,6 +9,7 @@ export type SessionBackend = 'built-in' | 'pitwall'
 
 const STORAGE_KEY = 'aide.session-backend'
 const CHAT_IDS_KEY = 'aide.pitwall-chat-ids'
+const CLOSED_CHATS_KEY = 'aide.pitwall-closed-chats'
 const listeners = new Set<() => void>()
 const taskOpenListeners = new Set<(sessionId: string) => void>()
 let daemon: DaemonTransport | null = null
@@ -58,16 +59,34 @@ function applySessionBackend(): void {
         save: (chatIds) =>
           window.localStorage.setItem(CHAT_IDS_KEY, JSON.stringify(chatIds)),
       },
+      closedChats: {
+        load: () => {
+          try {
+            return JSON.parse(
+              window.localStorage.getItem(CLOSED_CHATS_KEY) ?? '[]',
+            ) as string[]
+          } catch {
+            return []
+          }
+        },
+        save: (chats) =>
+          window.localStorage.setItem(CLOSED_CHATS_KEY, JSON.stringify(chats)),
+      },
       clientVersion: version,
       getEndpoint: () => api.getPitwallEndpoint(),
       openTask: async (sessionId) => {
         for (const listener of taskOpenListeners) listener(sessionId)
       },
-      getWorkspaces: async () =>
-        (await api.getStorageSnapshot()).workspaces.map((workspace) => ({
+      getWorkspaces: async () => {
+        const { projects, workspaces } = await api.getStorageSnapshot()
+        return workspaces.map((workspace) => ({
           id: workspace.id,
           path: workspace.worktreePath,
-        })),
+          label: workspace.name,
+          branch: workspace.branchName,
+          project: projects.find((p) => p.id === workspace.projectId)?.name,
+        }))
+      },
       aideTasks: ipc,
       reportSession: (sessionId, snapshot) =>
         void api
