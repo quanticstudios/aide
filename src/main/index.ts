@@ -952,6 +952,9 @@ function registerIpcHandlers(): void {
       return getSavedTaskSnapshot(sessionId)
     },
   )
+  ipcMain.handle(IPC_CHANNELS.takeImportedOpenSessions, () =>
+    database.takeImportedOpenSessions(),
+  )
   ipcMain.handle(
     IPC_CHANNELS.reportDaemonSession,
     (_event, sessionId: unknown, snapshot: ManagedSessionSnapshot | null) => {

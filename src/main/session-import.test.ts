@@ -295,6 +295,22 @@ describe('importSessions', () => {
     })
   })
 
+  it('hands the daemon transport each session aide had open, once, also after the tables drop', async () => {
+    database.updateTaskMetadata('session-1', { archived: true })
+    const pitwall = new FakePitwall()
+    expect(database.takeImportedOpenSessions()).toEqual([])
+    await run(pitwall)
+    expect(database.takeImportedOpenSessions()).toEqual(['session-2'])
+    expect(database.takeImportedOpenSessions()).toEqual([])
+
+    database.saveManagedSession(
+      session(workspaceId, 'session-3', ['Add a test', 'Added.']),
+    )
+    expect((await run(pitwall, '0.0.4')).dropped).toBeNull()
+    expect((await run(pitwall, '0.0.5')).dropped).not.toBeNull()
+    expect(database.takeImportedOpenSessions()).toEqual(['session-3'])
+  })
+
   it('keeps every session in aide when pitwall refuses one or loses part of a transcript, and finishes on a later run', async () => {
     const broken = new FakePitwall({
       refuse: new Set(['session-1']),
