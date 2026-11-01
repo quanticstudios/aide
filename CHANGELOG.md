@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.3 (2026-11-01)
 
 ### Sessions run on the pitwall daemon by default
 
