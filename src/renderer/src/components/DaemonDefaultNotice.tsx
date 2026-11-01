@@ -4,18 +4,16 @@ import { useState } from 'react'
 import {
   dismissDaemonDefaultNotice,
   isDaemonDefaultNoticeDue,
-  setSessionBackend,
 } from '../lib/session-backend'
 
-/** Tells an upgraded install, once, that sessions now run on pitwall's daemon and how to go back to built-in. */
+/** Tells an upgraded install, once, that sessions now run on pitwall's daemon. */
 export default function DaemonDefaultNotice() {
   const [isOpen, setIsOpen] = useState(isDaemonDefaultNoticeDue)
   if (!isOpen) return null
 
-  const close = (switchBack: boolean) => {
+  const close = () => {
     dismissDaemonDefaultNotice()
     setIsOpen(false)
-    if (switchBack) setSessionBackend('built-in')
   }
   return (
     <div
@@ -33,16 +31,11 @@ export default function DaemonDefaultNotice() {
           <p className="mt-1 text-sm text-foreground">
             New sessions run in pitwall's daemon, so they keep going when you
             close aide or restart, and resume where they left off. Your earlier
-            sessions are still saved in aide's built-in backend. To go back,
-            switch off "Run sessions on the pitwall daemon" in Settings &gt;
-            General.
+            sessions move into pitwall too, and stay in task history.
           </p>
-          <div className="mt-3 flex gap-2">
-            <Button onPress={() => close(false)} size="sm" variant="primary">
+          <div className="mt-3">
+            <Button onPress={close} size="sm" variant="primary">
               Got it
-            </Button>
-            <Button onPress={() => close(true)} size="sm" variant="secondary">
-              Switch back to built-in
             </Button>
           </div>
         </div>

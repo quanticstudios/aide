@@ -8,6 +8,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 
 import { _electron as electron } from '@playwright/test'
 
+import startPitwallDaemon from '../e2e/pitwall-daemon.ts'
+
 // see: docs/perf-baseline.md — options, metric definitions and the JSON shape
 const root = path.resolve(import.meta.dirname, '..')
 const config = {
@@ -196,6 +198,10 @@ writeFileSync(path.join(repository, 'README.md'), '# aide\n')
 git(repository, 'add', 'README.md')
 git(repository, 'commit', '-m', 'Initial commit')
 
+// why: the daemon's fake providers read the stream knobs from its own environment.
+process.env.AIDE_FAKE_STREAM_SECONDS = String(config.durationSeconds + 60)
+const stopDaemon = await startPitwallDaemon()
+
 const launchedAt = performance.now()
 const app = await electron.launch({
   args: [root, '--force-device-scale-factor=1'],
@@ -204,10 +210,6 @@ const app = await electron.launch({
   env: {
     ...process.env,
     AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
-    AIDE_FAKE_MANAGED_PROVIDERS: '1',
-    AIDE_FAKE_STREAM_SECONDS: String(config.durationSeconds + 60),
-    // why: the budget measures aide's own fake providers, and CI has no pitwall daemon.
-    AIDE_SESSION_BACKEND: 'built-in',
     AIDE_SOFTWARE_RENDERING: '1',
     AIDE_TEST_PROJECT_PICK_PATH: repository,
     ELECTRON_OZONE_PLATFORM_HINT: 'x11',
@@ -319,7 +321,7 @@ try {
         .reduce((sum, entry) => sum + entry.memory.workingSetSize, 0) / 1024,
     )
   const states = await page.evaluate(async () =>
-    Object.values(await window.aide.getManagedSessionSnapshots()).map(
+    Object.values(await window.aideSessions.getSessions()).map(
       (snapshot) => snapshot.sessionState,
     ),
   )
@@ -389,6 +391,7 @@ try {
   console.log(`\nWrote ${output}`)
 } finally {
   await app.close()
+  await stopDaemon()
   rmSync(repository, { force: true, recursive: true })
   rmSync(dataDirectory, { force: true, recursive: true })
 }

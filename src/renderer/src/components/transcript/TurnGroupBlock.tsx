@@ -1,5 +1,5 @@
 import { Button } from '@heroui/react'
-import { ChevronRight, GitBranch, LoaderCircle, RefreshCw } from 'lucide-react'
+import { ChevronRight, GitBranch, LoaderCircle } from 'lucide-react'
 import { Fragment, memo, Suspense, useEffect, useState } from 'react'
 import type { TurnCheckpointDiff } from '../../../../shared/checkpoints'
 import type { ManagedSessionContentItem } from '../../../../shared/managed-session'
@@ -51,16 +51,11 @@ function TurnGroupBlockContent({
   canBranch,
   checkpointId,
   isCompleted,
-  isFailed,
   isRunning,
   onBranch,
   onEditFromHere,
-  onInterrupt,
   onOpenDiff,
-  onRetry,
   providerLabel,
-  recipientAlias,
-  requestText,
   rewindDisabledReason,
   sessionId,
   workedForMs,
@@ -69,19 +64,14 @@ function TurnGroupBlockContent({
   readonly canBranch: boolean
   readonly checkpointId: string | null
   readonly isCompleted: boolean
-  readonly isFailed: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
   readonly onEditFromHere: (
     checkpointId: string,
     item: ManagedSessionContentItem,
   ) => void
-  readonly onInterrupt: (recipientAlias: string) => void
   readonly onOpenDiff: (checkpointId: string, path: string | null) => void
-  readonly onRetry: (text: string, recipientAlias: string) => void
   readonly providerLabel: string
-  readonly recipientAlias: string | null
-  readonly requestText: string | null
   readonly rewindDisabledReason: string | null
   readonly sessionId: string
   /** How long a finished turn ran, or null while it runs. */
@@ -90,7 +80,6 @@ function TurnGroupBlockContent({
   const [turnDiff, setTurnDiff] = useState<TurnCheckpointDiff | null>(null)
   const [isTurnDiffOpen, setIsTurnDiffOpen] = useState(false)
   const { group, isLast } = row
-  const canRetry = isFailed && Boolean(requestText) && Boolean(recipientAlias)
   // why: the checklist renders once per turn, so its tool row drops out of the timeline.
   const tasks = row.isFirst
     ? group.items.filter((item) => item.tool?.tasks).at(-1)?.tool?.tasks
@@ -188,15 +177,6 @@ function TurnGroupBlockContent({
         <div className="flex items-center gap-2 px-1 text-[13px] text-muted-foreground">
           <LoaderCircle className="size-3.5 animate-spin text-primary-on-dark" />
           {providerLabel} is working...
-          {recipientAlias ? (
-            <button
-              className="ml-auto text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => onInterrupt(recipientAlias)}
-              type="button"
-            >
-              Interrupt @{recipientAlias}
-            </button>
-          ) : null}
         </div>
       ) : null}
       {isLast &&
@@ -242,7 +222,7 @@ function TurnGroupBlockContent({
           />
         </div>
       ) : null}
-      {isLast && !isRunning && (canRetry || responseItem) ? (
+      {isLast && !isRunning && responseItem ? (
         <div
           className="response-actions flex items-center gap-1 px-1 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
           data-testid="response-actions"
@@ -271,17 +251,6 @@ function TurnGroupBlockContent({
                 · {turnDiff.files.length}{' '}
                 {turnDiff.files.length === 1 ? 'file' : 'files'}
               </span>
-            </button>
-          ) : null}
-          {canRetry && requestText && recipientAlias ? (
-            <button
-              aria-label="Retry turn"
-              className="flex items-center gap-1 rounded-md border border-[var(--border-soft)] bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted-foreground shadow-sm transition-colors hover:text-foreground"
-              onClick={() => onRetry(requestText, recipientAlias)}
-              type="button"
-            >
-              <RefreshCw className="size-3" />
-              Retry
             </button>
           ) : null}
           {canBranch && responseContentItemId ? (

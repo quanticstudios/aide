@@ -76,12 +76,6 @@ describe('createAideDatabase', () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'aide-composer-db-'))
     const databasePath = path.join(directory, 'aide.sqlite3')
     const codexDefaults = {
-      agents: [
-        {
-          alias: 'Claude',
-          selection: { mode: 'claude' as const, model: 'claude-opus-5' },
-        },
-      ],
       effort: 'low',
       model: 'gpt-5.6-terra',
       permissionMode: 'bypassPermissions' as const,
@@ -89,7 +83,6 @@ describe('createAideDatabase', () => {
       serviceTier: 'priority',
     }
     const claudeDefaults = {
-      agents: [],
       model: 'claude-sonnet-5',
       permissionMode: 'acceptEdits' as const,
       provider: 'claude' as const,
@@ -99,8 +92,12 @@ describe('createAideDatabase', () => {
     try {
       const database = createAideDatabase(databasePath)
       expect(database.getComposerDefaults('workspace-1')).toBeNull()
+      // why: older aide versions stored the @agent roster here; it is dropped, not refused.
       expect(
-        database.setComposerDefaults('workspace-1', codexDefaults),
+        database.setComposerDefaults('workspace-1', {
+          ...codexDefaults,
+          agents: [{ alias: 'Claude', selection: { mode: 'claude' } }],
+        } as typeof codexDefaults),
       ).toEqual(codexDefaults)
       database.setComposerDefaults('workspace-2', claudeDefaults)
       database.close()

@@ -7,7 +7,6 @@ import {
   PanelBottom,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRight,
   Plus,
   Rows2,
   Shrink,
@@ -30,7 +29,6 @@ import type {
 import type { SavedTask } from '../../../shared/task-library'
 import { useManagedSessionState } from '../hooks/useManagedSessionState'
 import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
-import SessionLayer from './SessionLayer'
 import TaskLibraryControl from './TaskLibraryControl'
 import TaskNotificationToasts from './TaskNotificationToasts'
 import UpdateIndicator from './UpdateIndicator'
@@ -41,9 +39,6 @@ interface TopBarProps {
   readonly activeSurfaceId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
-  readonly fleetToggleRef: RefObject<HTMLButtonElement | null>
-  readonly isFleetAvailable: boolean
-  readonly isFleetOpen: boolean
   readonly isSidebarOpen: boolean
   readonly isTerminalAvailable: boolean
   readonly isTerminalOpen: boolean
@@ -53,7 +48,6 @@ interface TopBarProps {
   readonly onOpenDiagnostics: () => void
   readonly onOpenTask: (task: SavedTask) => Promise<void>
   readonly onOpenUpdate: () => void
-  readonly onToggleFleet: () => void
   readonly onToggleSidebar: () => void
   readonly onToggleTerminal: () => void
   readonly onResizePane: (paneId: string, delta: number) => void
@@ -291,9 +285,6 @@ export default function TopBar({
   activeSurfaceId,
   activeProject,
   activeWorkspace,
-  fleetToggleRef,
-  isFleetAvailable,
-  isFleetOpen,
   isSidebarOpen,
   isTerminalAvailable,
   isTerminalOpen,
@@ -303,7 +294,6 @@ export default function TopBar({
   onOpenDiagnostics,
   onOpenTask,
   onOpenUpdate,
-  onToggleFleet,
   onToggleSidebar,
   onToggleTerminal,
   onResizePane,
@@ -398,9 +388,7 @@ export default function TopBar({
           onSplitPane={onSplitPane}
           projectKind={activeProject?.kind ?? 'git'}
         />
-        <SessionLayer>
-          <TaskLibraryControl onOpenTask={onOpenTask} />
-        </SessionLayer>
+        <TaskLibraryControl onOpenTask={onOpenTask} />
         <TaskNotificationToasts activePaneId={activePaneId} />
         <IconTooltip
           label={
@@ -423,22 +411,6 @@ export default function TopBar({
             variant={isTerminalOpen ? 'secondary' : 'ghost'}
           >
             <PanelBottom aria-hidden="true" className="size-4" />
-          </Button>
-        </IconTooltip>
-        <IconTooltip
-          label={isFleetOpen ? 'Hide agent fleet' : 'Show agent fleet'}
-        >
-          <Button
-            aria-label={isFleetOpen ? 'Close agent fleet' : 'Open agent fleet'}
-            className="size-8 shrink-0 rounded-md"
-            isDisabled={!isFleetAvailable && !isFleetOpen}
-            isIconOnly
-            onPress={onToggleFleet}
-            ref={fleetToggleRef}
-            size="sm"
-            variant={isFleetOpen ? 'secondary' : 'ghost'}
-          >
-            <PanelRight aria-hidden="true" className="size-4" />
           </Button>
         </IconTooltip>
         <UpdateIndicator

@@ -53,14 +53,6 @@ export async function verifyMacosPackage(
     'Release',
     'pty.node',
   )
-  const claude = join(
-    resources,
-    'app.asar.unpacked',
-    'node_modules',
-    '@anthropic-ai',
-    `claude-agent-sdk-darwin-${target}`,
-    'claude',
-  )
 
   if (
     (await readFile(join(resources, 'app-update.yml'), 'utf8')) !==
@@ -74,12 +66,6 @@ export async function verifyMacosPackage(
     target,
   )
   await assertNativeArchitecture(nodePty, target)
-  await assertNativeArchitecture(claude, target)
-  if (!((await stat(claude)).mode & 0o111)) {
-    throw new Error(
-      'The packaged Claude Agent SDK executable is not executable.',
-    )
-  }
   if (verifySignature) {
     await executeFile('codesign', [
       '--verify',

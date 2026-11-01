@@ -140,7 +140,6 @@ test.describe('pull request flow on the pitwall daemon', () => {
       env: {
         ...process.env,
         AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
-        AIDE_SESSION_BACKEND: 'pitwall',
         AIDE_SOFTWARE_RENDERING: '1',
         AIDE_TEST_PROJECT_PICK_PATH: repository,
         ELECTRON_OZONE_PLATFORM_HINT: 'x11',

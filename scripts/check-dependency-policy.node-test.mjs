@@ -102,7 +102,7 @@ test('rejects invalid TOML without crashing the policy report', () => {
 })
 
 test('rejects an unpinned security override or a lockfile that did not resolve it', () => {
-  const overrides = { ...REQUIRED_OVERRIDES, hono: '^4.12.25' }
+  const overrides = { ...REQUIRED_OVERRIDES, undici: '^7.30.1' }
   const lockfile = createLockfile()
   lockfile.packages['fast-uri'] = ['fast-uri@3.1.1']
 
@@ -112,7 +112,7 @@ test('rejects an unpinned security override or a lockfile that did not resolve i
     lockfile,
   }).join('\n')
 
-  assert.match(errors, /overrides.hono must be exactly 4\.12\.25/)
+  assert.match(errors, /overrides.undici must be exactly 7\.30\.1/)
   assert.match(errors, /bun.lock must resolve fast-uri to exactly 3\.1\.8/)
 })
 
@@ -130,4 +130,26 @@ test('rejects an unpinned Worker deployment CLI or mismatched lockfile', () => {
 
   assert.match(errors, /devDependencies\.wrangler must be exactly 4\.151\.1/)
   assert.match(errors, /bun\.lock must resolve wrangler to exactly 4\.151\.1/)
+})
+
+test('rejects a removed provider SDK as a direct or transitive dependency', () => {
+  const packageJson = createPackageJson()
+  packageJson.dependencies['@anthropic-ai/sdk'] = '0.110.0'
+  const lockfile = createLockfile()
+  lockfile.packages['@modelcontextprotocol/sdk'] = [
+    '@modelcontextprotocol/sdk@1.32.1',
+  ]
+  lockfile.packages['@anthropic-ai/claude-agent-sdk-linux-x64'] = [
+    '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.282',
+  ]
+
+  const errors = validateDependencyPolicy({
+    packageJson,
+    bunfig: validBunfig,
+    lockfile,
+  }).join('\n')
+
+  assert.match(errors, /@anthropic-ai\/sdk was removed/)
+  assert.match(errors, /@modelcontextprotocol\/sdk was removed/)
+  assert.match(errors, /claude-agent-sdk-linux-x64 was removed/)
 })

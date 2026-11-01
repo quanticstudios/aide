@@ -1,5 +1,4 @@
-import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -15,8 +14,6 @@ import {
   session,
   shell,
 } from 'electron'
-import type { CheckpointRestoreMode } from '../shared/checkpoints'
-import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type {
   AttachWorkspaceRequest,
   CreateWorkspaceRequest,
@@ -30,14 +27,8 @@ import {
   EXISTING_INSTALL_ARGUMENT,
   IPC_CHANNELS,
   type PitwallEndpoint,
-  SESSION_BACKEND_ARGUMENT,
 } from '../shared/ipc'
-import { JevGateOverridesSchema } from '../shared/jev-gates'
-import type {
-  ManagedSessionDecision,
-  ManagedSessionQueueAction,
-  ManagedSessionSnapshot,
-} from '../shared/managed-session'
+import type { ManagedSessionSnapshot } from '../shared/managed-session'
 import type {
   ProjectColor,
   ProjectIcon,
@@ -46,6 +37,7 @@ import type {
   SetActiveSelectionInput,
 } from '../shared/persistence'
 import { PROJECT_COLOR_IDS } from '../shared/persistence'
+import { PROVIDER_CAPABILITIES } from '../shared/provider-capabilities'
 import type { PersistedStateRecovery } from '../shared/recovery'
 import type { RuntimeSnapshot } from '../shared/runtime'
 import type { TaskMetadataUpdate } from '../shared/task-library'
@@ -58,7 +50,6 @@ import type { UpdateEvent } from '../shared/update'
 import { normalizeProjectSetupCommand } from '../shared/workspace-setup'
 import { getAideDatabasePath, migrateLegacyDatabase } from './app-storage'
 import { ApplicationRuntime } from './application-runtime'
-import { ContextPreparation } from './context-preparation'
 import type { AideDatabase } from './database'
 import { DiagnosticsService } from './diagnostics-service'
 import {
@@ -77,11 +68,7 @@ import {
 } from './fake-update-service'
 import { GitWorkspaceService } from './git-service'
 import { JevGateSettings } from './jev-gate-settings'
-import { JevGates } from './jev-gates'
 import { JevSettings } from './jev-settings'
-import { validateManagedSessionAttachments } from './managed-session-attachments'
-import { ManagedSessionIpcBroadcaster } from './managed-session-ipc'
-import { ManagedSessionManager } from './managed-session-manager'
 import {
   backupBeforeSessionDrop,
   preparePersistedState,
@@ -95,17 +82,25 @@ import { writePlanFile } from './plan-file'
 import { PreviewManager } from './preview-manager'
 import { readProjectFile, searchProjectFiles } from './project-files'
 import { pickProjectRoot } from './project-picker'
-import { ProviderCapabilityService } from './provider-capability-service'
+import {
+  resolveProviderSkill,
+  scanProviderSkills,
+  scanSkillFiles,
+} from './provider-skill-scan'
 import {
   applyRenderingConfiguration,
   resolveRenderingConfiguration,
 } from './rendering'
 import { importSessions } from './session-import'
 import { TaskLibrary } from './task-library'
+import {
+  FAKE_PROVIDER_CAPABILITIES,
+  FAKE_SKILL_FILES,
+  isFakeProviderCatalogEnabled,
+} from './fake-provider-catalog'
 import { TerminalSessionManager } from './terminal-session-manager'
 import { createTrustedIpcRegistrar } from './trusted-ipc'
 import { isTrustedRendererUrl } from './trusted-renderer'
-import { TurnCheckpointService } from './turn-checkpoints'
 import { configuredUpdateHealthEndpoint } from './update-health-config'
 import { UpdateHealthReporter } from './update-health-reporter'
 import { UpdateManager, type UpdateReleaseOptions } from './update-manager'
@@ -132,15 +127,10 @@ let persistedStateRecovery: PersistedStateRecovery | null = null
 let runtimeInitialized = false
 let gitWorkspaceService: GitWorkspaceService
 let workspaceActivityService: WorkspaceActivityService
-let managedSessionManager: ManagedSessionManager
-let managedSessionBroadcaster: ManagedSessionIpcBroadcaster
 let taskLibrary: TaskLibrary
-let turnCheckpoints: TurnCheckpointService
-const restoringWorkspaces = new Set<string>()
-const checkpointPreviews = new Map<string, string>()
 let jevSettings: JevSettings
 let jevGateSettings: JevGateSettings
-let providerCapabilityService: ProviderCapabilityService
+let workspaceTitleService: WorkspaceTitleService
 let previewManager: PreviewManager
 let terminalSessionManager: TerminalSessionManager
 let diagnosticsService: DiagnosticsService
@@ -153,8 +143,6 @@ const rendererLocation = {
   rendererHtmlPath: path.join(import.meta.dirname, '../renderer/index.html'),
 }
 const lastRendererFaultAt = new Map<string, number>()
-const AGENT_ALIAS_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
-const MAX_CONFIGURED_AGENTS = 2
 
 function releaseConfiguration(): UpdateReleaseOptions | null {
   return configuredUpdateRelease()
@@ -232,102 +220,6 @@ function requireTerminalSize(value: unknown): TerminalResizeInput {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object'
-}
-
-async function resolveConfiguredAgents(
-  value: unknown,
-): Promise<readonly ManagedSessionAgentConfig[]> {
-  if (!Array.isArray(value) || value.length > MAX_CONFIGURED_AGENTS) {
-    throw new Error('Invalid configured agents.')
-  }
-
-  const aliases = new Set<string>()
-  return await Promise.all(
-    value.map(async (entry) => {
-      if (!isRecord(entry) || !isRecord(entry.selection)) {
-        throw new Error('Invalid configured agent.')
-      }
-
-      const alias = requireRuntimeId(entry.alias, 'agent alias')
-      const normalizedAlias = alias.toLowerCase()
-      if (!AGENT_ALIAS_PATTERN.test(alias) || aliases.has(normalizedAlias)) {
-        throw new Error('Configured agent aliases must be unique.')
-      }
-      aliases.add(normalizedAlias)
-
-      const requestedModel = entry.selection.model
-      if (typeof requestedModel !== 'string' || requestedModel.trim() === '') {
-        throw new Error(`Configured agent @${alias} requires a model.`)
-      }
-
-      const selection =
-        await providerCapabilityService.resolveManagedSessionProviderSelection(
-          entry.selection,
-        )
-      if (selection.model !== requestedModel.trim()) {
-        throw new Error(
-          `Configured agent @${alias} selected an unavailable model.`,
-        )
-      }
-
-      return {
-        alias: normalizedAlias,
-        selection: {
-          effort: selection.effort,
-          mode: selection.mode,
-          model: selection.model,
-          ...(selection.serviceTier !== undefined
-            ? { serviceTier: selection.serviceTier }
-            : {}),
-        },
-      }
-    }),
-  )
-}
-
-function requireRecipientAliases(value: unknown): readonly string[] {
-  if (value === undefined) {
-    return []
-  }
-  if (!Array.isArray(value) || value.length > MAX_CONFIGURED_AGENTS) {
-    throw new Error('Invalid managed-session recipients.')
-  }
-
-  const aliases = new Set<string>()
-  for (const entry of value) {
-    const alias = requireRuntimeId(entry, 'recipient alias')
-    const normalizedAlias = alias.toLowerCase()
-    if (!AGENT_ALIAS_PATTERN.test(alias) || aliases.has(normalizedAlias)) {
-      throw new Error('Managed-session recipients must be unique aliases.')
-    }
-    aliases.add(normalizedAlias)
-  }
-  return [...aliases]
-}
-
-function requireQueueAction(value: unknown): ManagedSessionQueueAction {
-  const action = (value ?? {}) as Record<string, unknown>
-  if (action.type === 'resume') return { type: 'resume' }
-  const id = requireRuntimeId(action.id, 'queued message id')
-  if (action.type === 'remove' || action.type === 'steer') {
-    return { type: action.type, id }
-  }
-  if (
-    action.type === 'move' &&
-    Number.isInteger(action.index) &&
-    (action.index as number) >= 0
-  ) {
-    return { type: 'move', id, index: action.index as number }
-  }
-  if (
-    action.type === 'edit' &&
-    typeof action.text === 'string' &&
-    action.text.trim() &&
-    action.text.length <= 65_536
-  ) {
-    return { type: 'edit', id, text: action.text }
-  }
-  throw new Error('Invalid queue action.')
 }
 
 function requireWorkspaceForSetup(event: IpcMainInvokeEvent, value: unknown) {
@@ -425,22 +317,6 @@ function initializeServices(): void {
   jevGateSettings = new JevGateSettings(
     path.join(path.dirname(databasePath), 'jev-gates.json'),
   )
-  const jevDecisionLog = path.join(
-    path.dirname(databasePath),
-    'jev-decisions.jsonl',
-  )
-  const jevGates = new JevGates({
-    getApiKey: (workspaceRoot) => jevSettings.getApiKey(workspaceRoot),
-    log: (row) => {
-      try {
-        appendFileSync(jevDecisionLog, `${JSON.stringify(row)}\n`, {
-          mode: 0o600,
-        })
-      } catch {
-        return
-      }
-    },
-  })
   if (
     (process.platform === 'linux' || process.platform === 'darwin') &&
     (process.arch === 'x64' || process.arch === 'arm64') &&
@@ -469,23 +345,7 @@ function initializeServices(): void {
     },
     visitWatermarks: database.getWorkspaceActivityVisitWatermarks(),
   })
-  const contextPreparation = new ContextPreparation(jevSettings)
-  turnCheckpoints = new TurnCheckpointService({
-    storageDirectory: path.join(app.getPath('userData'), 'turn-checkpoints'),
-    getWorkspaceDirectory: (workspaceId) =>
-      database.getWorkspace(workspaceId)?.worktreePath ?? null,
-    getSessionSnapshot: getSavedTaskSnapshot,
-    isSessionActive: (sessionId) => {
-      const snapshot = getSavedTaskSnapshot(sessionId)
-      return Object.values(managedSessionManager.getSnapshots()).some(
-        (session) =>
-          session.workspaceId === snapshot?.workspaceId &&
-          managedSessionManager.isSessionBusy(session.sessionId),
-      )
-    },
-  })
-  providerCapabilityService = new ProviderCapabilityService()
-  const workspaceTitleService = new WorkspaceTitleService({
+  workspaceTitleService = new WorkspaceTitleService({
     store: {
       getWorkspace: (workspaceId) => database.getWorkspace(workspaceId),
       renameWorkspaceIfUnchanged: (workspaceId, input) => {
@@ -498,67 +358,9 @@ function initializeServices(): void {
       },
     },
   })
-  managedSessionBroadcaster = new ManagedSessionIpcBroadcaster({
-    send: (event) =>
-      windowManager.broadcast(IPC_CHANNELS.managedSessionEvent, event),
-  })
-  managedSessionManager = new ManagedSessionManager({
-    store: database,
-    jevGates,
-    resolveJevGates: (config) =>
-      jevGateSettings.resolve(config.cwd, config.jevGates),
-    afterTurn: (checkpointId) => turnCheckpoints.completeTurn(checkpointId),
-    beforeInput: async ({ config, snapshot, text }) => {
-      const workspace = database.getWorkspace(config.workspaceId)
-      if (!workspace || workspace.worktreePath !== config.cwd)
-        throw new Error(
-          'The conversation workspace changed. Reopen it before sending a message.',
-        )
-      if (restoringWorkspaces.has(config.workspaceId))
-        throw new Error(
-          'Wait for checkpoint restoration before sending a message.',
-        )
-      if (database.getProject(workspace.projectId)?.kind === 'folder') {
-        return undefined
-      }
-      return turnCheckpoints.captureTurn({
-        config,
-        snapshot,
-        editedPrompt: text,
-      })
-    },
-    prepareInput: (input) => {
-      if (restoringWorkspaces.has(input.config.workspaceId))
-        throw new Error(
-          'Wait for checkpoint restoration before sending a message.',
-        )
-      const workspace = database.getWorkspace(input.config.workspaceId)
-      if (!workspace || workspace.worktreePath !== input.config.cwd) {
-        throw new Error(
-          'The conversation workspace changed. Reopen the workspace before sending a message.',
-        )
-      }
-      return contextPreparation.prepare(input)
-    },
-    onRuntimeEvent: () => undefined,
-    onUserPrompt: ({ text, workspaceId }) => {
-      workspaceTitleService.titleWorkspace(workspaceId, text)
-    },
-    onUpdate: (event) => {
-      if (event.type === 'snapshot') {
-        handleSessionSnapshot(event.snapshot)
-        managedSessionBroadcaster.update(event.snapshot)
-      } else {
-        handleSessionRemoved(event.sessionId)
-        managedSessionBroadcaster.remove(event.sessionId, event.revision)
-      }
-      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
-    },
-  })
-  taskLibrary = new TaskLibrary(database, () => ({
-    ...managedSessionManager.getSnapshots(),
-    ...Object.fromEntries(daemonSnapshots),
-  }))
+  taskLibrary = new TaskLibrary(database, () =>
+    Object.fromEntries(daemonSnapshots),
+  )
   previewManager = new PreviewManager(database, {
     onUpdate: (event) => {
       windowManager.broadcast(IPC_CHANNELS.previewEvent, event)
@@ -597,9 +399,6 @@ function initializeServices(): void {
   )
   updateManager = useFakeUpdates
     ? new FakeUpdateService({
-        activeManagedSessions: readNonNegativeInteger(
-          process.env.AIDE_FAKE_UPDATE_ACTIVE_MANAGED,
-        ),
         activeTerminalSessions: readNonNegativeInteger(
           process.env.AIDE_FAKE_UPDATE_ACTIVE_TERMINALS,
         ),
@@ -650,7 +449,6 @@ function initializeServices(): void {
   } else {
     updateRestartCoordinator = new UpdateRestartCoordinator({
       applicationRuntime,
-      managedSessions: managedSessionManager,
       terminals: terminalSessionManager,
       terminateAfterShutdownFailure: () => {
         // Shutdown has already closed the database and child services. Relaunching
@@ -702,9 +500,6 @@ applyRenderingConfiguration(app, renderingConfiguration, process.env)
 
 const windowManager = new WindowManager({
   additionalArguments: [
-    ...(process.env.AIDE_SESSION_BACKEND
-      ? [`${SESSION_BACKEND_ARGUMENT}${process.env.AIDE_SESSION_BACKEND}`]
-      : []),
     // why: read before prepareDatabase creates the file on a fresh install.
     ...(existsSync(
       getAideDatabasePath({
@@ -838,7 +633,6 @@ function createRuntimeSnapshot(): RuntimeSnapshot {
 function getSavedTaskSnapshot(sessionId: string) {
   return (
     daemonSnapshots.get(sessionId) ??
-    managedSessionManager.getSnapshots()[sessionId] ??
     database
       .listManagedSessions()
       .find((session) => session.config.sessionId === sessionId)?.snapshot ??
@@ -854,95 +648,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getTaskLibrary, (_event, query?: string) =>
     taskLibrary.getSnapshot(query),
   )
+  // why: pitwall's daemon owns the chats, so the renderer checks the id against its own list.
   ipcMain.handle(IPC_CHANNELS.openTask, (event, sessionId: unknown) => {
-    const id = requireRuntimeId(sessionId, 'conversation id')
-    if (!getSavedTaskSnapshot(id))
-      throw new Error('This conversation is no longer available.')
-    event.sender.send(IPC_CHANNELS.taskOpen, id)
+    event.sender.send(
+      IPC_CHANNELS.taskOpen,
+      requireRuntimeId(sessionId, 'conversation id'),
+    )
   })
-  ipcMain.handle(
-    IPC_CHANNELS.turnCheckpointDiff,
-    async (_event, sessionId: unknown, checkpointId: unknown) => {
-      const id = requireRuntimeId(sessionId, 'conversation id')
-      await managedSessionManager.waitForCheckpointCompletion(id)
-      return turnCheckpoints.getTurnDiff(
-        id,
-        requireRuntimeId(checkpointId, 'checkpoint id'),
-      )
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.turnCheckpointList,
-    (_event, sessionId: unknown) =>
-      turnCheckpoints.listCheckpoints(
-        requireRuntimeId(sessionId, 'conversation id'),
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.turnCheckpointPreviewRestore,
-    async (_event, sessionId: unknown, checkpointId: unknown) => {
-      const id = requireRuntimeId(sessionId, 'conversation id')
-      const snapshot = getSavedTaskSnapshot(id)
-      if (!snapshot || restoringWorkspaces.has(snapshot.workspaceId))
-        throw new Error('The conversation is unavailable during restoration.')
-      const preview = await turnCheckpoints.previewRestore(
-        id,
-        requireRuntimeId(checkpointId, 'checkpoint id'),
-      )
-      checkpointPreviews.set(preview.previewId, id)
-      return preview
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.turnCheckpointRestore,
-    async (_event, previewId: unknown, mode: CheckpointRestoreMode) => {
-      const id = requireRuntimeId(previewId, 'checkpoint preview id')
-      const sourceId = checkpointPreviews.get(id)
-      const snapshot = sourceId ? getSavedTaskSnapshot(sourceId) : null
-      if (!snapshot)
-        throw new Error('Preview the checkpoint again before restoring.')
-      const workspaceId = requireRuntimeId(snapshot.workspaceId, 'workspace id')
-      if (restoringWorkspaces.has(workspaceId))
-        throw new Error('A checkpoint restoration is already running.')
-      const workspace = database.getWorkspace(workspaceId)
-      if (!workspace)
-        throw new Error('The checkpoint workspace is no longer available.')
-      if (workspaceSetupManager.getSnapshot(workspace.id).state === 'running') {
-        throw new Error(
-          'Wait for workspace setup to finish before restoring a checkpoint.',
-        )
-      }
-      return gitWorkspaceService.runWorkspaceMutation(
-        workspace.id,
-        async () => {
-          restoringWorkspaces.add(workspace.id)
-          try {
-            const seed = await turnCheckpoints.restore(id, mode)
-            if (seed.config.cwd !== workspace.worktreePath)
-              throw new Error('The checkpoint workspace path changed.')
-            const paneId = `agent::copy-checkpoint-${randomUUID()}`
-            const sessionId = `${workspace.id}:${paneId}`
-            const identity = { paneId, sessionId, workspaceId: workspace.id }
-            managedSessionManager.registerRestoredSession(
-              { ...seed.config, ...identity },
-              { ...seed.snapshot, ...identity },
-            )
-            checkpointPreviews.delete(id)
-            windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
-            return {
-              checkpointId: seed.checkpointId,
-              editedPrompt: seed.editedPrompt,
-              mode,
-              sessionId,
-              sourceSessionId: seed.sourceSessionId,
-            }
-          } finally {
-            restoringWorkspaces.delete(workspace.id)
-          }
-        },
-      )
-    },
-  )
   ipcMain.handle(
     IPC_CHANNELS.getTaskTranscript,
     (_event, sessionId: unknown) => {
@@ -979,6 +691,15 @@ function registerIpcHandlers(): void {
       const snapshot = taskLibrary.update(sessionId, input)
       windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
       return snapshot
+    },
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.requestWorkspaceTitle,
+    (event, workspaceId: unknown, prompt: unknown) => {
+      const workspace = requireWorkspaceForSetup(event, workspaceId)
+      if (typeof prompt !== 'string' || prompt.length > 65_536)
+        throw new Error('Invalid prompt.')
+      workspaceTitleService.titleWorkspace(workspace.id, prompt)
     },
   )
   ipcMain.handle(
@@ -1095,14 +816,10 @@ function registerIpcHandlers(): void {
     requireTrustedRenderer(event)
     return workspaceSetupManager.getCollectionSnapshot()
   })
-  ipcMain.handle(IPC_CHANNELS.getManagedSessionSnapshots, () =>
-    managedSessionManager.getSnapshots(),
-  )
-  ipcMain.handle(IPC_CHANNELS.managedSessionSync, (_event, sessionId) =>
-    managedSessionBroadcaster.sync(String(sessionId)),
-  )
   ipcMain.handle(IPC_CHANNELS.getProviderCapabilities, () =>
-    providerCapabilityService.getSnapshot(),
+    isFakeProviderCatalogEnabled()
+      ? FAKE_PROVIDER_CAPABILITIES
+      : PROVIDER_CAPABILITIES,
   )
   ipcMain.handle(
     IPC_CHANNELS.getProviderSkills,
@@ -1111,20 +828,23 @@ function registerIpcHandlers(): void {
       if (forceReload !== undefined && typeof forceReload !== 'boolean') {
         throw new Error('Invalid provider skill refresh request.')
       }
-      return providerCapabilityService.getProviderSkills(
-        workspace.id,
-        workspace.worktreePath,
-        forceReload === true,
-      )
+      if (isFakeProviderCatalogEnabled()) {
+        return {
+          errors: {},
+          skills: FAKE_SKILL_FILES.map((file) => file.skill),
+        }
+      }
+      return scanProviderSkills(workspace.worktreePath)
     },
   )
   ipcMain.handle(
     IPC_CHANNELS.resolveProviderSkill,
-    (event, workspaceId: unknown, skill: unknown) => {
+    async (event, workspaceId: unknown, skill: unknown) => {
       const workspace = requireWorkspaceForSetup(event, workspaceId)
-      return providerCapabilityService.resolveProviderSkill(
-        workspace.id,
-        workspace.worktreePath,
+      return resolveProviderSkill(
+        isFakeProviderCatalogEnabled()
+          ? FAKE_SKILL_FILES
+          : await scanSkillFiles(workspace.worktreePath),
         skill,
       )
     },
@@ -1293,9 +1013,6 @@ function registerIpcHandlers(): void {
       }
       // Stop everything running in the workspace before its rows cascade away.
       await workspaceSetupManager.cancelForWorkspace(validWorkspaceId)
-      await managedSessionManager.reapSessions(
-        (snapshot) => snapshot.workspaceId === validWorkspaceId,
-      )
       terminalSessionManager.killWorkspaceSessions(validWorkspaceId)
       await gitWorkspaceService.deleteWorkspace(
         validWorkspaceId,
@@ -1373,9 +1090,6 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.runWorkspaceSetup, (event, workspaceId) => {
     const workspace = requireWorkspaceForSetup(event, workspaceId)
-    if (restoringWorkspaces.has(workspace.id)) {
-      throw new Error('Wait for checkpoint restoration before running setup.')
-    }
     return workspaceSetupManager.run(workspace.id)
   })
   ipcMain.handle(IPC_CHANNELS.cancelWorkspaceSetup, (event, workspaceId) => {
@@ -1601,59 +1315,6 @@ function registerIpcHandlers(): void {
     },
   )
   ipcMain.handle(
-    IPC_CHANNELS.managedSessionCreate,
-    async (event, input: unknown) => {
-      requireTrustedRenderer(event)
-      if (!isRecord(input)) {
-        throw new Error('Invalid managed-session configuration.')
-      }
-      const agents = await resolveConfiguredAgents(input.agents ?? [])
-      const config =
-        await providerCapabilityService.resolveManagedSessionConfig(input)
-      const workspace = requireWorkspaceForSetup(event, config.workspaceId)
-      config.cwd = workspace.worktreePath
-      if (!managedSessionManager.getSnapshots()[config.sessionId]) {
-        workspaceSetupManager.assertManagedSessionAllowed(config.workspaceId)
-      }
-      return managedSessionManager.createSession({
-        ...config,
-        readOnly: false,
-        agents,
-        orchestratorSelection: {
-          effort: config.effort,
-          mode: config.mode,
-          model: config.model,
-          ...(config.serviceTier !== undefined
-            ? { serviceTier: config.serviceTier }
-            : {}),
-        },
-      })
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionBranch,
-    (event, sessionId: unknown, responseContentItemId: unknown) => {
-      requireTrustedRenderer(event)
-      const branch = managedSessionManager.branchSession(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        requireRuntimeId(responseContentItemId, 'response id'),
-      )
-      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
-      event.sender.send(IPC_CHANNELS.taskOpen, branch.sessionId)
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionImplementPlanInNewThread,
-    async (event, sessionId: unknown, requestId: unknown) => {
-      const threadId = await managedSessionManager.implementPlanInNewThread(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        requireRuntimeId(requestId, 'request id'),
-      )
-      windowManager.broadcast(IPC_CHANNELS.taskLibraryChanged, null)
-      event.sender.send(IPC_CHANNELS.taskOpen, threadId)
-    },
-  )
-  ipcMain.handle(
     IPC_CHANNELS.managedSessionSavePlan,
     async (event, workspaceId: unknown, plan: unknown) => {
       const workspace = requireWorkspaceForSetup(event, workspaceId)
@@ -1667,35 +1328,6 @@ function registerIpcHandlers(): void {
       })
       if (result.canceled || !result.filePath) return null
       return writePlanFile(workspace.worktreePath, result.filePath, plan)
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionClose,
-    (_event, sessionId: string) =>
-      managedSessionManager.closeSession(sessionId),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedFleetAcceptNode,
-    (_event, input: unknown) => {
-      if (!isRecord(input) || typeof input.accepted !== 'boolean') {
-        throw new Error('Invalid fleet acceptance.')
-      }
-      return managedSessionManager.acceptFleetNode(
-        requireRuntimeId(input.sessionId, 'Session id'),
-        requireRuntimeId(input.nodeId, 'Node id'),
-        input.accepted,
-      )
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionInterrupt,
-    (_event, sessionId: unknown, recipientAlias: unknown) => {
-      const id = requireRuntimeId(sessionId, 'managed-session id')
-      const aliases =
-        recipientAlias === undefined
-          ? []
-          : requireRecipientAliases([recipientAlias])
-      return managedSessionManager.interruptSession(id, aliases[0])
     },
   )
   ipcMain.handle(
@@ -1734,149 +1366,6 @@ function registerIpcHandlers(): void {
       return searchProjectFiles(workspace.worktreePath, query)
     },
   )
-  // why: a queued message is checked when queued, so a bad one is refused before it waits a whole turn.
-  const handleManagedSessionInput =
-    (deliver: 'queueInput' | 'sendInput') =>
-    async (
-      event: IpcMainInvokeEvent,
-      sessionId: unknown,
-      text: unknown,
-      recipients: unknown,
-      attachments: unknown,
-      selectedSkill: unknown,
-    ) => {
-      const id = requireRuntimeId(sessionId, 'managed-session id')
-      if (typeof text !== 'string' || !text.trim() || text.length > 65_536) {
-        throw new Error('Enter a message between 1 and 65,536 characters.')
-      }
-      const session = managedSessionManager.getSnapshots()[id]
-      if (!session) throw new Error('Managed session is unavailable.')
-      const workspace = requireWorkspaceForSetup(event, session.workspaceId)
-      jevSettings.requireApiKey(workspace.worktreePath)
-      const recipientAliases = requireRecipientAliases(recipients)
-      if (selectedSkill !== undefined && recipientAliases.length > 0) {
-        throw new Error('A provider skill cannot target read-only agents.')
-      }
-      const resolvedSkill =
-        selectedSkill === undefined
-          ? undefined
-          : await providerCapabilityService.resolveProviderSkill(
-              workspace.id,
-              workspace.worktreePath,
-              selectedSkill,
-            )
-      if (resolvedSkill && resolvedSkill.provider !== session.provider) {
-        throw new Error('Selected provider skill does not match this session.')
-      }
-      return managedSessionManager[deliver](
-        id,
-        text,
-        recipientAliases,
-        validateManagedSessionAttachments(attachments),
-        resolvedSkill,
-      )
-    }
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionSendInput,
-    handleManagedSessionInput('sendInput'),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionQueueInput,
-    handleManagedSessionInput('queueInput'),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionUpdateQueue,
-    (_event, sessionId: unknown, action: unknown) =>
-      managedSessionManager.updateQueue(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        requireQueueAction(action),
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionConfigureMode,
-    (_event, sessionId: unknown, interactionMode: unknown) => {
-      if (interactionMode !== 'build' && interactionMode !== 'plan')
-        throw new Error('Invalid interaction mode.')
-      return managedSessionManager.configureSessionMode(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        interactionMode,
-      )
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionConfigurePermissionMode,
-    (_event, sessionId: unknown, permissionMode: unknown) => {
-      if (
-        permissionMode !== 'acceptEdits' &&
-        permissionMode !== 'bypassPermissions' &&
-        permissionMode !== 'default' &&
-        permissionMode !== 'plan'
-      )
-        throw new Error('Invalid permission mode.')
-      return managedSessionManager.configureSessionPermissionMode(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        permissionMode,
-      )
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionConfigureJevGates,
-    (event, sessionId: unknown, overrides: unknown) => {
-      requireTrustedRenderer(event)
-      const parsed =
-        overrides === null ? undefined : JevGateOverridesSchema.parse(overrides)
-      return managedSessionManager.configureSessionJevGates(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        parsed,
-      )
-    },
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionConfigureAgents,
-    async (_event, sessionId: unknown, agents: unknown) =>
-      managedSessionManager.configureSessionAgents(
-        requireRuntimeId(sessionId, 'managed-session id'),
-        await resolveConfiguredAgents(agents),
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionResolveRequest,
-    (
-      _event,
-      sessionId: string,
-      requestId: string,
-      decision: ManagedSessionDecision,
-      reason: unknown,
-    ) =>
-      managedSessionManager.resolveRequest(
-        sessionId,
-        requestId,
-        decision,
-        typeof reason === 'string' && reason.trim() ? reason.trim() : undefined,
-      ),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionResolveUserInput,
-    (
-      _event,
-      sessionId: string,
-      requestId: string,
-      answers: Record<string, string | string[]>,
-    ) => managedSessionManager.resolveUserInput(sessionId, requestId, answers),
-  )
-  ipcMain.handle(
-    IPC_CHANNELS.managedSessionSwitchProvider,
-    async (_event, sessionId: unknown, input: unknown) => {
-      if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
-        throw new Error('Invalid managed-session id.')
-      }
-      const selection =
-        await providerCapabilityService.resolveManagedSessionProviderSelection(
-          input,
-        )
-      return managedSessionManager.switchSessionProvider(sessionId, selection)
-    },
-  )
   ipcMain.handle(
     IPC_CHANNELS.readProjectFile,
     (event, workspaceId: unknown, relativePath: unknown) => {
@@ -1908,11 +1397,6 @@ const applicationRuntime = new ApplicationRuntime({
   },
   hasWindows: () => windowManager.hasWindows(),
   initializeServices,
-  reapStoppedManagedSessions: () => {
-    void managedSessionManager.reapSessions(
-      (snapshot) => snapshot.sessionState === 'stopped',
-    )
-  },
   registerIpcHandlers,
   shutdownServices: async (reason) => {
     if (!runtimeInitialized) return
@@ -1923,7 +1407,6 @@ const applicationRuntime = new ApplicationRuntime({
       updateHealthReporter.stop()
       await Promise.all([
         workspaceSetupManager.shutdown(),
-        managedSessionManager.closeAll(2_000),
         terminalSessionManager.closeAll(1_000),
       ])
     } finally {
@@ -1931,7 +1414,6 @@ const applicationRuntime = new ApplicationRuntime({
       runtimeInitialized = false
     }
   },
-  startReaper: setInterval,
 })
 
 function startReadyRuntime(): void {

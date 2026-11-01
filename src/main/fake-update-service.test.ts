@@ -132,7 +132,6 @@ describe('FakeUpdateService', () => {
 
   it('requires confirmation when configured active work is present', async () => {
     const service = new FakeUpdateService({
-      activeManagedSessions: 2,
       activeTerminalSessions: 1,
       activeWorkspaceSetups: 1,
       currentVersion: '1.0.0',
@@ -142,7 +141,6 @@ describe('FakeUpdateService', () => {
     })
 
     await expect(service.requestRestart(false)).resolves.toMatchObject({
-      activeManagedSessions: 2,
       activeTerminalSessions: 1,
       activeWorkspaceSetups: 1,
       confirmationRequired: true,

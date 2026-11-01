@@ -11,18 +11,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 /**
- * Starts a pitwall daemon of its own when `AIDE_E2E_PITWALL` names a pitwall binary, and points every spec's aide at it.
- * @remarks The daemon gets fresh config, state, runtime and home folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent, calls GitHub or reads the user's session files. Without the variable the suite runs on the built-in backend, through `AIDE_SESSION_BACKEND=built-in`.
+ * Starts a pitwall daemon of its own from the binary `AIDE_E2E_PITWALL` names, and points every spec's aide at it.
+ * @remarks The daemon gets fresh config, state, runtime and home folders, `PITWALL_FAKE_PROVIDERS=1` and a fake `gh`, so it never meets the user's daemon, runs an agent, calls GitHub or reads the user's session files. aide has no other session backend, so the suite needs the variable.
  */
-export default async function globalSetup(): Promise<
-  (() => Promise<void>) | undefined
-> {
+export default async function globalSetup(): Promise<() => Promise<void>> {
   const binary = process.env.AIDE_E2E_PITWALL
-  if (!binary) {
-    // why: pitwall is aide's default backend, and this run has no daemon.
-    process.env.AIDE_SESSION_BACKEND ??= 'built-in'
-    return undefined
-  }
+  if (!binary)
+    throw new Error(
+      'AIDE_E2E_PITWALL must name a pitwall binary; aide runs every session on its daemon.',
+    )
   // why: os.tmpdir() keeps the socket path under the 108-byte limit of a Unix socket.
   const root = mkdtempSync(path.join(tmpdir(), 'aide-pitwall-'))
   const folders = {
@@ -71,7 +68,6 @@ export default async function globalSetup(): Promise<
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   // Specs spread process.env into Electron's env, so these reach every aide they launch.
-  process.env.AIDE_SESSION_BACKEND = 'pitwall'
   process.env.XDG_STATE_HOME = folders.XDG_STATE_HOME
   // Where e2e/usage-page.spec.ts writes the session files and config the daemon's readUsage reads.
   process.env.AIDE_E2E_PITWALL_HOME = folders.HOME

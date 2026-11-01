@@ -560,19 +560,13 @@ describe('UpdateManager', () => {
       createMainWindow: vi.fn(),
       hasWindows: () => false,
       initializeServices: vi.fn(),
-      reapStoppedManagedSessions: vi.fn(),
       registerIpcHandlers: vi.fn(),
       shutdownServices,
-      startReaper: () => ({}),
     })
     const release = vi.fn()
     const terminateAfterShutdownFailure = vi.fn()
     const coordinator = new UpdateRestartCoordinator({
       applicationRuntime,
-      managedSessions: {
-        beginQuiescing: () => release,
-        getActiveSessionCount: () => 0,
-      },
       terminals: {
         beginQuiescing: () => release,
         getActiveSessionCount: () => 0,

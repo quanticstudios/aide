@@ -40,14 +40,6 @@ async function verifyPackagedRuntime(appRoot) {
     'node_modules',
     'node-pty',
   )
-  const claude = join(
-    resources,
-    'app.asar.unpacked',
-    'node_modules',
-    '@anthropic-ai',
-    'claude-agent-sdk-linux-x64',
-    'claude',
-  )
 
   await stat(join(resources, 'app.asar'))
   assert.equal(
@@ -55,10 +47,6 @@ async function verifyPackagedRuntime(appRoot) {
     'updaterCacheDirName: aide-updater\n',
   )
   await stat(join(nodePty, 'build', 'Release', 'pty.node'))
-  assert.ok(
-    (await stat(claude)).mode & 0o111,
-    'The packaged Claude Agent SDK executable is not executable.',
-  )
   await run(
     join(appRoot, 'aide'),
     ['-e', 'require(process.argv[1])', nodePty],
@@ -96,10 +84,6 @@ export async function verifyLinuxPackage(
     assert.match(
       stdout,
       /resources\/app\.asar\.unpacked\/node_modules\/node-pty\/.*pty\.node\n/,
-    )
-    assert.match(
-      stdout,
-      /resources\/app\.asar\.unpacked\/node_modules\/@anthropic-ai\/claude-agent-sdk-linux-x64\//,
     )
 
     const extractionDirectory = await mkdtemp(join(tmpdir(), 'aide-package-'))

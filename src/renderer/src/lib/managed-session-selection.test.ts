@@ -22,7 +22,6 @@ describe('managed session selection', () => {
   }
 
   const storedDefaults: ComposerDefaults = {
-    agents: [],
     effort: 'low',
     model: 'gpt-5.6-terra',
     permissionMode: 'bypassPermissions',

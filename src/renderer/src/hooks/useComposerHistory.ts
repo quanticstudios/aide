@@ -12,15 +12,10 @@ import {
 import type { ManagedDraft } from '../lib/managed-draft-storage'
 import { isMac } from '../lib/platform'
 
-const emptyDraft: ManagedDraft = { attachments: [], recipients: [], text: '' }
+const emptyDraft: ManagedDraft = { attachments: [], text: '' }
 
 function isEmptyDraft(draft: ManagedDraft): boolean {
-  return (
-    !draft.text &&
-    draft.attachments.length === 0 &&
-    draft.recipients.length === 0 &&
-    !draft.selectedSkill
-  )
+  return !draft.text && draft.attachments.length === 0 && !draft.selectedSkill
 }
 
 function getErrorMessage(error: unknown): string {

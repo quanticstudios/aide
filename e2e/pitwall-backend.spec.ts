@@ -39,28 +39,13 @@ function createRepository(): string {
   return repository
 }
 
-async function setDaemonBackend(page: Page, isOn: boolean): Promise<void> {
-  const openSidebar = page.getByRole('button', { name: 'Open sidebar' })
-  if (await openSidebar.isVisible()) await openSidebar.click()
-  await page.getByRole('button', { name: 'Open settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-  const toggle = settings.getByRole('switch', {
-    name: 'Run sessions on the pitwall daemon',
-  })
-  if ((await toggle.isChecked()) !== isOn) await toggle.press('Space')
-  await expect(toggle).toBeChecked({ checked: isOn })
-  await settings.getByRole('button', { name: 'Back to app' }).click()
-}
-
-// The daemon-backend CI job sets AIDE_E2E_PITWALL; e2e/pitwall-daemon.ts starts the daemon these specs talk to.
+// e2e/pitwall-daemon.ts starts the daemon these specs talk to, from the binary AIDE_E2E_PITWALL names.
 test.describe('pitwall daemon backend', () => {
-  test.skip(!pitwall, 'needs AIDE_E2E_PITWALL, a pitwall binary')
-
   let app: ElectronApplication | null = null
   let dataDirectory: string | null = null
   let repository: string | null = null
 
-  async function launch(backend: string): Promise<Page> {
+  async function launch(): Promise<Page> {
     repository = createRepository()
     dataDirectory = mkdtempSync(path.join(tmpdir(), 'aide-pitwall-e2e-data-'))
     app = await electron.launch({
@@ -72,8 +57,6 @@ test.describe('pitwall daemon backend', () => {
       env: {
         ...process.env,
         AIDE_DATABASE_PATH: path.join(dataDirectory, 'aide.sqlite3'),
-        AIDE_FAKE_MANAGED_PROVIDERS: '1',
-        AIDE_SESSION_BACKEND: backend,
         AIDE_SOFTWARE_RENDERING: '1',
         AIDE_TEST_PROJECT_PICK_PATH: repository,
         ELECTRON_OZONE_PLATFORM_HINT: 'x11',
@@ -101,7 +84,7 @@ test.describe('pitwall daemon backend', () => {
   })
 
   test('shows a chat started with pitwall chat new without a reload, and opens it in its workspace', async () => {
-    const page = await launch('pitwall')
+    const page = await launch()
     await page.getByRole('button', { name: 'Open task history' }).click()
     const tasks = page.getByLabel('Saved tasks')
     await expect(tasks).toBeVisible()
@@ -125,7 +108,7 @@ test.describe('pitwall daemon backend', () => {
   })
 
   test('renames and pins a chat in task history, and keeps both after a reload', async () => {
-    const page = await launch('pitwall')
+    const page = await launch()
     execFileSync(
       pitwall as string,
       ['chat', 'new', '--dir', repository as string, '--', 'rename me'],
@@ -156,87 +139,5 @@ test.describe('pitwall daemon backend', () => {
     expect(found.tasks.map((entry) => [entry.title, entry.pinned])).toEqual([
       ['Renamed on the daemon', true],
     ])
-  })
-
-  test('keeps built-in sessions across a switch to pitwall and back, and imports them into its history', async () => {
-    const page = await launch('built-in')
-    await page.getByRole('button', { name: /add pane/i }).click()
-    await page.getByRole('button', { name: /^agent\b/i }).click()
-    await app?.evaluate(() => {
-      globalThis.fetch = async (url, options) => {
-        if (url !== 'https://api.typesafe.ai/v1/systemone') {
-          throw new Error(`Unexpected request: ${url}`)
-        }
-        const request = JSON.parse(String(options?.body)) as {
-          questions: Record<string, unknown>
-        }
-        return new Response(
-          JSON.stringify({
-            answers: Object.fromEntries(
-              Object.keys(request.questions).map((key) => [
-                key,
-                { noul: 0.8, type: 'noul' },
-              ]),
-            ),
-            model: 'jev-1.13.0',
-            usage: { input_tokens: 10, output_tokens: 1 },
-          }),
-          { headers: { 'content-type': 'application/json' } },
-        )
-      }
-    })
-    await page.evaluate(async () => {
-      const storage = await window.aide.getStorageSnapshot()
-      const workspace = storage.workspaces[0]
-      if (!workspace) throw new Error('Workspace unavailable.')
-      await window.aide.updateJevSettings(workspace.id, {
-        allowProcessing: true,
-      })
-    })
-    await page
-      .getByRole('textbox', { name: /claude prompt/i })
-      .fill('keep me built in')
-    await page.getByRole('button', { name: /send prompt/i }).click()
-    const content = page
-      .getByTestId('managed-session-content')
-      .filter({ hasText: 'Handled: keep me built in' })
-    await expect(content).toBeVisible()
-
-    // A second task, archived in aide; the first stays open and gets pinned.
-    await page.getByRole('button', { name: /add pane/i }).click()
-    await page.getByRole('button', { name: /^agent unified/i }).click()
-    const activePane = page.locator('[data-active-pane="true"]')
-    await activePane
-      .getByRole('textbox', { name: /claude prompt/i })
-      .fill('archive me in aide')
-    await activePane.getByRole('button', { name: /send prompt/i }).click()
-    await expect(
-      activePane.getByTestId('managed-session-content'),
-    ).toContainText('Handled: archive me in aide')
-    await page.getByRole('button', { name: 'Open task history' }).click()
-    const tasks = page.getByLabel('Saved tasks').getByTestId('saved-task')
-    // why: the workspace takes its name from the first prompt, so both cards show 'keep me built in'.
-    const archived = tasks.filter({ hasText: 'archive me in aide' })
-    const open = tasks
-      .filter({ hasText: 'keep me built in' })
-      .filter({ hasNotText: 'archive me in aide' })
-    await open.getByRole('button', { name: 'Pin', exact: true }).click()
-    await expect(open).toContainText('Pinned · ')
-    await archived.getByRole('button', { name: 'Archive', exact: true }).click()
-    await expect(archived).toHaveCount(0)
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
-
-    // The switch imports both into pitwall as archived chats, and each keeps its aide state (ENG-2707).
-    await setDaemonBackend(page, true)
-    await page.getByRole('button', { name: 'Open task history' }).click()
-    await expect(open).toContainText('Pinned · ')
-    await expect(archived).toHaveCount(0)
-    await page.getByRole('checkbox', { name: 'Archived', exact: true }).check()
-    await expect(archived).toBeVisible()
-    await expect(open).toHaveCount(0)
-    await page.keyboard.press('Escape')
-
-    await setDaemonBackend(page, false)
-    await expect(content).toContainText('Handled: keep me built in')
   })
 })

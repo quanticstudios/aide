@@ -713,7 +713,7 @@ describe('DaemonTransport', () => {
     })
     await settle()
     const selection = { provider: 'codex' as const, id: 'codex:skill:ab12' }
-    await transport.queue(SESSION_ID, 'ship it', [], [], selection)
+    await transport.queue(SESSION_ID, 'ship it', [], selection)
     expect(resolved).toEqual([['aide-workspace', selection]])
     expect(daemon.commands.at(-1)).toMatchObject({
       type: 'send',
@@ -731,7 +731,7 @@ describe('DaemonTransport', () => {
     start()
     await settle()
     await expect(
-      transport.send(SESSION_ID, 'x', [], [], selection),
+      transport.send(SESSION_ID, 'x', [], selection),
     ).rejects.toThrow('no provider skills')
   })
 
@@ -896,7 +896,7 @@ describe('DaemonTransport', () => {
     expect(daemon.commands.at(-1)).toMatchObject({ type: 'readUsage', days: 7 })
   })
 
-  it('refuses a command the server did not list, or the protocol lacks', async () => {
+  it('refuses a command the server did not list', async () => {
     daemon.capabilities = daemon.capabilities.filter(
       (type) => type !== 'interrupt',
     )
@@ -905,13 +905,6 @@ describe('DaemonTransport', () => {
     await expect(transport.interrupt(SESSION_ID)).rejects.toThrow(
       'This pitwall does not support interrupt yet.',
     )
-    await expect(
-      transport.acceptFleetNode({
-        sessionId: SESSION_ID,
-        nodeId: 'n',
-        accepted: true,
-      }),
-    ).rejects.toMatchObject({ code: 'unsupported' })
     expect(daemon.commands).toEqual([])
   })
 

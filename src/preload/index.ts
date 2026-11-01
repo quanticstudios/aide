@@ -1,29 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { CheckpointRestoreMode } from '../shared/checkpoints'
-import type { ManagedSessionAgentConfig } from '../shared/conversation-routing'
 import type { DiagnosticsSnapshot } from '../shared/diagnostics'
 import type { ExecutableProbeInput } from '../shared/executable'
 import {
   type AideApi,
   EXISTING_INSTALL_ARGUMENT,
   IPC_CHANNELS,
-  type ManagedSessionIpcEvent,
-  SESSION_BACKEND_ARGUMENT,
 } from '../shared/ipc'
-import type {
-  ManagedSessionAttachment,
-  ManagedSessionConfig,
-  ManagedSessionDecision,
-  ManagedSessionInteractionMode,
-  ManagedSessionPermissionMode,
-  ManagedSessionProviderSelection,
-} from '../shared/managed-session'
 import type {
   ProjectAppearance,
   WorkspacePersistenceEvent,
 } from '../shared/persistence'
 import type { PreviewNavigationReport } from '../shared/preview'
-import type { ProviderSkillSelection } from '../shared/provider-skills'
 import type { AppShortcutEvent } from '../shared/shortcuts'
 import type { TaskNotificationEvent } from '../shared/task-notification'
 import type {
@@ -41,6 +28,8 @@ const aideApi: AideApi = {
   getTaskTranscript: (sessionId) =>
     ipcRenderer.invoke(IPC_CHANNELS.getTaskTranscript, sessionId),
   openTask: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.openTask, sessionId),
+  requestWorkspaceTitle: (workspaceId, prompt) =>
+    ipcRenderer.invoke(IPC_CHANNELS.requestWorkspaceTitle, workspaceId, prompt),
   updateTaskMetadata: (sessionId, input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateTaskMetadata, sessionId, input),
   setTaskNotifications: (enabled) =>
@@ -102,57 +91,8 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.attachWorkspace, input),
   createTerminalSession: (input: TerminalSessionConfig) =>
     ipcRenderer.invoke(IPC_CHANNELS.terminalCreate, input),
-  createManagedSession: (input: ManagedSessionConfig) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionCreate, input),
-  branchManagedSession: (sessionId: string, responseContentItemId: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionBranch,
-      sessionId,
-      responseContentItemId,
-    ),
-  implementManagedSessionPlanInNewThread: (sessionId, requestId) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionImplementPlanInNewThread,
-      sessionId,
-      requestId,
-    ),
   saveManagedSessionPlan: (workspaceId, plan) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionSavePlan, workspaceId, plan),
-  acceptManagedFleetNode: (input) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedFleetAcceptNode, input),
-  configureManagedSessionJevGates: (sessionId: string, overrides) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionConfigureJevGates,
-      sessionId,
-      overrides,
-    ),
-  configureManagedSessionAgents: (
-    sessionId: string,
-    agents: readonly ManagedSessionAgentConfig[],
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionConfigureAgents,
-      sessionId,
-      agents,
-    ),
-  configureManagedSessionMode: (
-    sessionId: string,
-    interactionMode: ManagedSessionInteractionMode,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionConfigureMode,
-      sessionId,
-      interactionMode,
-    ),
-  configureManagedSessionPermissionMode: (
-    sessionId: string,
-    permissionMode: ManagedSessionPermissionMode,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionConfigurePermissionMode,
-      sessionId,
-      permissionMode,
-    ),
   createWorkspace: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createWorkspace, input),
   renameWorkspace: (workspaceId, name) =>
@@ -173,16 +113,11 @@ const aideApi: AideApi = {
     ),
   detectWorktreeBranch: (worktreePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.detectWorktreeBranch, worktreePath),
-  closeManagedSession: (sessionId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionClose, sessionId),
   exportSupportBundle: () =>
     ipcRenderer.invoke(IPC_CHANNELS.exportSupportBundle),
   getDiagnosticsSnapshot: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getDiagnosticsSnapshot),
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
-  defaultSessionBackend: process.argv
-    .find((argument) => argument.startsWith(SESSION_BACKEND_ARGUMENT))
-    ?.slice(SESSION_BACKEND_ARGUMENT.length),
   isExistingInstall: process.argv.includes(EXISTING_INSTALL_ARGUMENT),
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
   reportDaemonSession: (sessionId, snapshot) =>
@@ -200,10 +135,6 @@ const aideApi: AideApi = {
   updatePreferences: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.updatePreferences, input),
   getStorageSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageSnapshot),
-  getManagedSessionSnapshots: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.getManagedSessionSnapshots),
-  syncManagedSession: (sessionId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.managedSessionSync, sessionId),
   getProviderCapabilities: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getProviderCapabilities),
   getProviderSkills: (workspaceId: string, forceReload?: boolean) =>
@@ -212,7 +143,7 @@ const aideApi: AideApi = {
       workspaceId,
       forceReload,
     ),
-  resolveProviderSkill: (workspaceId: string, skill: ProviderSkillSelection) =>
+  resolveProviderSkill: (workspaceId, skill) =>
     ipcRenderer.invoke(IPC_CHANNELS.resolveProviderSkill, workspaceId, skill),
   getWorkspacePreviewSnapshot: (workspaceId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspacePreviewSnapshot, workspaceId),
@@ -271,12 +202,6 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.getWorkspaceScopeDiff, workspaceId, scope),
   pickProjectRoot: (defaultPath?: string | null) =>
     ipcRenderer.invoke(IPC_CHANNELS.pickProjectRoot, defaultPath ?? null),
-  interruptManagedSession: (sessionId: string, recipientAlias?: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionInterrupt,
-      sessionId,
-      recipientAlias,
-    ),
   pickManagedSessionFiles: (workspaceId) =>
     ipcRenderer.invoke(IPC_CHANNELS.managedSessionPickFiles, workspaceId),
   searchManagedSessionFiles: (workspaceId, query) =>
@@ -325,16 +250,6 @@ const aideApi: AideApi = {
 
     return () => {
       ipcRenderer.off(IPC_CHANNELS.updatePreferencesEvent, listener)
-    }
-  },
-  onManagedSessionEvent: (callback) => {
-    const listener = (_event: unknown, payload: ManagedSessionIpcEvent) =>
-      callback(payload)
-
-    ipcRenderer.on(IPC_CHANNELS.managedSessionEvent, listener)
-
-    return () => {
-      ipcRenderer.off(IPC_CHANNELS.managedSessionEvent, listener)
     }
   },
   onPreviewEvent: (callback) => {
@@ -415,30 +330,6 @@ const aideApi: AideApi = {
       workspaceId,
       input,
     ),
-  resolveManagedSessionRequest: (
-    sessionId: string,
-    requestId: string,
-    decision: ManagedSessionDecision,
-    reason?: string,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionResolveRequest,
-      sessionId,
-      requestId,
-      decision,
-      reason,
-    ),
-  resolveManagedSessionUserInput: (
-    sessionId: string,
-    requestId: string,
-    answers: Record<string, string | string[]>,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionResolveUserInput,
-      sessionId,
-      requestId,
-      answers,
-    ),
   setActiveSelection: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.setActiveSelection, input),
   updateProjectSetupCommand: (projectId: string, command: string | null) =>
@@ -455,67 +346,6 @@ const aideApi: AideApi = {
     ipcRenderer.invoke(IPC_CHANNELS.cancelWorkspaceSetup, workspaceId),
   selectPreviewTab: (workspaceId: string, tabId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.previewSelectTab, workspaceId, tabId),
-  sendManagedSessionInput: (
-    sessionId: string,
-    text: string,
-    recipients?: readonly string[],
-    attachments?: readonly ManagedSessionAttachment[],
-    selectedSkill?: ProviderSkillSelection,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionSendInput,
-      sessionId,
-      text,
-      recipients,
-      attachments,
-      selectedSkill,
-    ),
-  queueManagedSessionInput: (
-    sessionId,
-    text,
-    recipients,
-    attachments,
-    selectedSkill,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionQueueInput,
-      sessionId,
-      text,
-      recipients,
-      attachments,
-      selectedSkill,
-    ),
-  updateManagedSessionQueue: (sessionId, action) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionUpdateQueue,
-      sessionId,
-      action,
-    ),
-  getTurnCheckpointDiff: (sessionId: string, checkpointId: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.turnCheckpointDiff,
-      sessionId,
-      checkpointId,
-    ),
-  listTurnCheckpoints: (sessionId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointList, sessionId),
-  previewTurnCheckpointRestore: (sessionId: string, checkpointId: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.turnCheckpointPreviewRestore,
-      sessionId,
-      checkpointId,
-    ),
-  restoreTurnCheckpoint: (previewId: string, mode: CheckpointRestoreMode) =>
-    ipcRenderer.invoke(IPC_CHANNELS.turnCheckpointRestore, previewId, mode),
-  switchManagedSessionProvider: (
-    sessionId: string,
-    selection: ManagedSessionProviderSelection,
-  ) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.managedSessionSwitchProvider,
-      sessionId,
-      selection,
-    ),
   validateExecutableCommand: (command: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.executableValidate, command),
   writeTerminalInput: (sessionId: string, data: string) =>

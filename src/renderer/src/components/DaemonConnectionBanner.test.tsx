@@ -54,7 +54,7 @@ describe('DaemonConnectionBanner', () => {
     expect(markup).toContain(text)
     expect(markup).toContain(command)
     expect(markup).toContain('Check again')
-    expect(markup).toContain('Use built-in sessions')
+    expect(markup).not.toContain('built-in')
     expect(markup).toContain('role="alert"')
   })
 

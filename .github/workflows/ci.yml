@@ -13,6 +13,10 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # why: pitwall#264 (an imported chat keeps its pin) lands on #259 (rename and pin), which lands on #251 (checkpoints, turn diffs, rewind preview), #255 and #257 (switch provider); those land on top of #256's Jev gates, #252's permission-mode fakes, #254's attachments, #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
+  PITWALL_COMMIT: 0bedcf79631fc80419ad8175b320b0adf65b5532
+
 jobs:
   linux:
     name: Linux security and quality
@@ -73,18 +77,9 @@ jobs:
       - name: Verify native PTY Electron ABI
         run: bun run test:native
 
-      - name: Install Chromium and its Linux dependencies
-        run: bun run playwright install --with-deps chromium
-
-      - name: Run Electron end-to-end tests under Xvfb
-        run: bun run test:e2e
-
   e2e-pitwall:
     name: Electron e2e on the pitwall daemon
     runs-on: ubuntu-24.04
-    env:
-      # why: pitwall#264 (an imported chat keeps its pin) lands on #259 (rename and pin), which lands on #251 (checkpoints, turn diffs, rewind preview), #255 and #257 (switch provider); those land on top of #256's Jev gates, #252's permission-mode fakes, #254's attachments, #250's snapshot fields, #245's pull requests and #247's fakes; move to the first release containing them.
-      PITWALL_COMMIT: 0bedcf79631fc80419ad8175b320b0adf65b5532
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -154,10 +149,38 @@ jobs:
   perf-budget:
     name: Perf budget
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       # v7.0.1, pinned to the upstream release commit.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # v7.0.1, pinned to the upstream release commit.
+      - name: Check out pitwall
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: quanticstudios/pitwall
+          ref: ${{ env.PITWALL_COMMIT }}
+          path: .pitwall
+          persist-credentials: false
+
+      # v7, the commit pitwall's own CI pins.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: .pitwall/go.mod
+          cache-dependency-path: .pitwall/go.sum
+
+      - name: Install pitwall's native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles-dev libegl-dev libffi-dev libxcursor-dev libxfixes-dev
+
+      - name: Build pitwall
+        working-directory: .pitwall
+        # why: pitwall's CI and release build Gio's OpenGL path; Vulkan needs headers this runner lacks.
+        env:
+          GOFLAGS: -tags=novulkan
+        run: go build -o "$RUNNER_TEMP/pitwall" ./cmd/pitwall
 
       # v7.1.0, pinned to the upstream release commit; package.json requires Node 26.13.0.
       - name: Set up Node.js
@@ -187,8 +210,9 @@ jobs:
       - name: Verify native PTY Electron ABI
         run: bun run test:native
 
+      # e2e/pitwall-daemon.ts starts the daemon with fake providers in temp folders.
       - name: Measure five streaming agents under Xvfb
-        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 PERF_SECONDS=60 xvfb-run -a bun run perf:baseline
+        run: env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 PERF_SECONDS=60 AIDE_E2E_PITWALL="$RUNNER_TEMP/pitwall" xvfb-run -a bun run perf:baseline
 
       - name: Check the perf budget
         run: node scripts/perf-budget.mjs perf-baseline.json

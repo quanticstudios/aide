@@ -71,7 +71,6 @@ import {
   resolvePaneCloseConfirmation,
 } from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
-import { useSessionBackend } from './lib/session-backend'
 import { getSessionTransport } from './lib/session-transport'
 import {
   readGlobalSidebarOpen,
@@ -276,7 +275,6 @@ function WorkspaceApp() {
   const [isWorkspaceSwitcherVisible, setIsWorkspaceSwitcherVisible] =
     useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
-  const [isFleetOpen, setIsFleetOpen] = useState(false)
   const [isSidebarOpen, setIsSidebarOpen] = useState(readGlobalSidebarOpen)
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -2665,7 +2663,6 @@ function WorkspaceApp() {
         onResizePane: handleResizePane,
         onSelectProject: handleProjectSelection,
         onSelectWorkspace: handleWorkspaceSelection,
-        onToggleFleet: () => setIsFleetOpen((current) => !current),
         onToggleSidebar: toggleSidebar,
         projects,
         updateAction: paletteUpdateAction,
@@ -2751,7 +2748,6 @@ function WorkspaceApp() {
         (project) => project.id === projectSetupProjectId,
       ) ?? null)
     : null
-  useSessionBackend()
   const sessionTransport = getSessionTransport()
 
   return (
@@ -2763,12 +2759,10 @@ function WorkspaceApp() {
       activeWorkspace={activeWorkspace}
       isSidebarOpen={isSidebarOpen}
       onToggleSidebar={toggleSidebar}
-      isFleetOpen={isFleetOpen}
       jevGates={jevGates}
       onUpdateWorkspaceJevGates={(overrides) =>
         updateJevGates('workspace', overrides)
       }
-      onFleetOpenChange={setIsFleetOpen}
       onClosePane={handleClosePane}
       onCloseSurface={handleCloseSurface}
       onResizePane={handleResizePane}

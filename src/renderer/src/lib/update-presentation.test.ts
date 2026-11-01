@@ -295,16 +295,14 @@ describe('update helper values', () => {
   it('summarizes every active process before restart', () => {
     expect(
       getRestartPreflightSummary({
-        activeManagedSessions: 2,
         activeTerminalSessions: 1,
         activeWorkspaceSetups: 3,
         confirmationRequired: true,
         restarting: false,
       }),
     ).toEqual({
-      activeCount: 6,
-      detail:
-        '2 managed sessions, 1 terminal session, and 3 workspace setup tasks are active.',
+      activeCount: 4,
+      detail: '1 terminal session and 3 workspace setup tasks are active.',
     })
   })
 })

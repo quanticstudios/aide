@@ -20,12 +20,8 @@ const gitEnvironment = {
   GIT_COMMITTER_NAME: 'Aide Electron Test',
 }
 
-// why: these specs need aide's own default, and a pitwall it cannot find, so they never start the user's daemon.
-const {
-  AIDE_SESSION_BACKEND: _backend,
-  PITWALL_SOCKET: _socket,
-  ...env
-} = process.env
+// why: these specs need a pitwall aide cannot find, so they never start the user's daemon.
+const { PITWALL_SOCKET: _socket, ...env } = process.env
 const pathWithoutPitwall = (process.env.PATH ?? '')
   .split(path.delimiter)
   .filter((dir) => !existsSync(path.join(dir, 'pitwall')))
@@ -57,7 +53,7 @@ test.describe('pitwall as the default session backend', () => {
     rmSync(root, { force: true, recursive: true })
   })
 
-  async function launch(backend?: 'built-in'): Promise<Page> {
+  async function launch(): Promise<Page> {
     await app?.close()
     const database = path.join(root, 'data', 'aide.sqlite3')
     const isFresh = !existsSync(database)
@@ -69,7 +65,6 @@ test.describe('pitwall as the default session backend', () => {
       ),
       env: {
         ...env,
-        ...(backend ? { AIDE_SESSION_BACKEND: backend } : {}),
         AIDE_DATABASE_PATH: database,
         AIDE_FAKE_MANAGED_PROVIDERS: '1',
         AIDE_SOFTWARE_RENDERING: '1',
@@ -98,59 +93,47 @@ test.describe('pitwall as the default session backend', () => {
     return page
   }
 
-  async function expectDaemonToggle(page: Page, isOn: boolean): Promise<void> {
-    const openSidebar = page.getByRole('button', { name: 'Open sidebar' })
-    if (await openSidebar.isVisible()) await openSidebar.click()
-    await page
-      .getByRole('button', { name: 'Open settings', exact: true })
-      .click()
-    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-    await expect(
-      settings.getByRole('switch', {
-        name: 'Run sessions on the pitwall daemon',
-      }),
-    ).toBeChecked({ checked: isOn })
-    await settings.getByRole('button', { name: 'Back to app' }).click()
+  /** Leaves localStorage as an install from before pitwall became the default had it. */
+  async function makeUpgradedInstall(page: Page) {
+    await page.evaluate(() =>
+      window.localStorage.removeItem('aide.pitwall-default-notice-seen'),
+    )
   }
 
-  test('a fresh install runs on pitwall, says it is missing, and falls back to built-in', async () => {
+  test('a fresh install says pitwall is missing, with no built-in fallback', async () => {
     const page = await launch()
     const setup = page.getByTestId('pitwall-setup-card')
     await expect(setup).toContainText('pitwall is not installed')
+    await expect(setup.getByRole('button')).toHaveText(['Check again'])
     await expect(page.getByTestId('daemon-default-notice')).toHaveCount(0)
-
-    await setup.getByRole('button', { name: 'Use built-in sessions' }).click()
-    await expect(setup).toHaveCount(0)
-    await expectDaemonToggle(page, false)
-
-    const relaunched = await launch()
-    await expectDaemonToggle(relaunched, false)
-    await expect(relaunched.getByTestId('pitwall-setup-card')).toHaveCount(0)
   })
 
   test('an upgraded install gets the notice once', async () => {
-    await launch('built-in')
+    await makeUpgradedInstall(await launch())
     const page = await launch()
     const notice = page.getByTestId('daemon-default-notice')
     await expect(notice).toContainText('Sessions now run on pitwall')
+    await expect(notice.getByRole('button')).toHaveText(['Got it'])
     await notice.getByRole('button', { name: 'Got it' }).click()
     await expect(notice).toHaveCount(0)
 
     const relaunched = await launch()
     await expect(relaunched.getByTestId('pitwall-setup-card')).toBeVisible()
     await expect(relaunched.getByTestId('daemon-default-notice')).toHaveCount(0)
-    await expectDaemonToggle(relaunched, true)
   })
 
-  test('the notice switches an upgraded install back to built-in', async () => {
-    await launch('built-in')
+  test('an install that went back to built-in gets the notice again', async () => {
+    const first = await launch()
+    await expect(first.getByTestId('daemon-default-notice')).toHaveCount(0)
+    await first.evaluate(() =>
+      window.localStorage.setItem('aide.session-backend', 'built-in'),
+    )
     const page = await launch()
     const notice = page.getByTestId('daemon-default-notice')
-    await notice
-      .getByRole('button', { name: 'Switch back to built-in' })
-      .click()
+    await notice.getByRole('button', { name: 'Got it' }).click()
     await expect(notice).toHaveCount(0)
-    await expect(page.getByTestId('pitwall-setup-card')).toHaveCount(0)
-    await expectDaemonToggle(page, false)
+
+    const relaunched = await launch()
+    await expect(relaunched.getByTestId('daemon-default-notice')).toHaveCount(0)
   })
 })

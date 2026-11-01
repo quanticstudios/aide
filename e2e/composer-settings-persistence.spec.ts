@@ -76,14 +76,6 @@ async function openAgentPane(page: Page): Promise<void> {
   await page.getByRole('button', { name: /^agent\b/i }).click()
 }
 
-async function expectComposerAgentModel(page: Page, label: string) {
-  await page.getByRole('button', { name: 'Agents', exact: true }).click()
-  await expect(
-    page.getByRole('button', { name: label, exact: true }),
-  ).toBeVisible()
-  await page.getByRole('button', { name: 'Close agent settings' }).click()
-}
-
 test.describe('composer settings persistence', () => {
   let app: ElectronApplication | null = null
   let dataDirectory: string | null = null
@@ -134,21 +126,6 @@ test.describe('composer settings persistence', () => {
       launched.page.getByRole('button', { name: 'Reasoning settings' }),
     ).toHaveText(/Low · Fast/)
 
-    await launched.page
-      .getByRole('button', { name: 'Agents', exact: true })
-      .click()
-    await launched.page
-      .getByRole('button', { name: 'Claude Sonnet 5', exact: true })
-      .click()
-    await launched.page
-      .locator('[data-model-selector-menu]')
-      .getByRole('button')
-      .filter({ hasText: 'Claude Opus 5' })
-      .click()
-    await launched.page
-      .getByRole('button', { name: 'Close agent settings' })
-      .click()
-
     await app.close()
     launched = await launchAideApp(repository, dataDirectory)
     app = launched.app
@@ -160,7 +137,6 @@ test.describe('composer settings persistence', () => {
     await expect(
       page.getByRole('button', { name: 'Reasoning settings' }),
     ).toHaveText(/Low · Fast/)
-    await expectComposerAgentModel(page, 'Claude Opus 5')
     await expect(
       page.getByRole('button', { name: /^Full access\b/ }),
     ).toBeVisible()

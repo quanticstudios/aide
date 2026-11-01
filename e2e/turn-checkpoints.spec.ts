@@ -172,8 +172,6 @@ test.describe('turn checkpoints', () => {
         (task) => task.workspaceId === workspace?.id,
       )
     })
-    expect(tasks).toHaveLength(
-      process.env.AIDE_SESSION_BACKEND === 'pitwall' ? 1 : 2,
-    )
+    expect(tasks).toHaveLength(1)
   })
 })

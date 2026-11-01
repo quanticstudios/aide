@@ -134,7 +134,7 @@ export interface ManagedSessionConfig {
   paneId: string
   permissionMode?: ManagedSessionPermissionMode
   readOnly?: boolean
-  /** Codex app-server `model/list` service tier identifier. */
+  /** Codex service tier identifier. */
   serviceTier?: string | null
   sessionId: string
   /** A safe fallback explanation prepared by the main-process capability gate. */

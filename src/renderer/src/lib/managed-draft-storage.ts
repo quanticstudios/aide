@@ -7,7 +7,6 @@ const managedDraftStoreName = 'managed-drafts'
 
 export interface ManagedDraft {
   attachments: ManagedSessionAttachment[]
-  recipients: string[]
   selectedSkill?: ProviderSkill
   text: string
 }
@@ -40,8 +39,6 @@ export function validateManagedDraft(value: unknown): ManagedDraft {
   const draft = value as Partial<ManagedDraft>
   if (
     typeof draft.text !== 'string' ||
-    !Array.isArray(draft.recipients) ||
-    !draft.recipients.every((recipient) => typeof recipient === 'string') ||
     !Array.isArray(draft.attachments) ||
     (draft.selectedSkill !== undefined && !isProviderSkill(draft.selectedSkill))
   ) {
@@ -49,7 +46,6 @@ export function validateManagedDraft(value: unknown): ManagedDraft {
   }
   return {
     attachments: draft.attachments,
-    recipients: draft.recipients,
     ...(draft.selectedSkill ? { selectedSkill: draft.selectedSkill } : {}),
     text: draft.text,
   }

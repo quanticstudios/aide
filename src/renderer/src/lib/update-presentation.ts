@@ -311,7 +311,6 @@ export function getRestartPreflightSummary(
   }
 
   const entries = [
-    countLabel(status.activeManagedSessions, 'managed session'),
     countLabel(status.activeTerminalSessions, 'terminal session'),
     countLabel(
       status.activeWorkspaceSetups,
@@ -320,12 +319,10 @@ export function getRestartPreflightSummary(
     ),
   ]
   const activeCount =
-    status.activeManagedSessions +
-    status.activeTerminalSessions +
-    status.activeWorkspaceSetups
+    status.activeTerminalSessions + status.activeWorkspaceSetups
 
   return {
     activeCount,
-    detail: `${entries[0]}, ${entries[1]}, and ${entries[2]} are active.`,
+    detail: `${entries[0]} and ${entries[1]} are active.`,
   }
 }

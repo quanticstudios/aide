@@ -2,7 +2,6 @@ import type { ManagedSessionAttachment } from '../../../shared/managed-session'
 import { MANAGED_SESSION_MAX_ATTACHMENTS } from '../../../shared/managed-session'
 
 export type MentionMenuSelection =
-  | { readonly agentIndex: number; readonly kind: 'agent' }
   | { readonly filePath: string; readonly kind: 'file' }
   | { readonly kind: 'skill'; readonly skillIndex: number }
 
@@ -42,17 +41,14 @@ export function removeWorkspaceFileMention(
 
 export function resolveMentionMenuSelection(
   activeIndex: number,
-  agentCount: number,
   skillCount: number,
   filePaths: readonly string[],
 ): MentionMenuSelection | null {
-  if (activeIndex < agentCount) {
-    return activeIndex >= 0 ? { agentIndex: activeIndex, kind: 'agent' } : null
+  if (activeIndex < 0) return null
+  if (activeIndex < skillCount) {
+    return { kind: 'skill', skillIndex: activeIndex }
   }
-  if (activeIndex < agentCount + skillCount) {
-    return { kind: 'skill', skillIndex: activeIndex - agentCount }
-  }
-  const filePath = filePaths[activeIndex - agentCount - skillCount]
+  const filePath = filePaths[activeIndex - skillCount]
   return filePath ? { filePath, kind: 'file' } : null
 }
 
