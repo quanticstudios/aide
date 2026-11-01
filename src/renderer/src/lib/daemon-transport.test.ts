@@ -1029,6 +1029,22 @@ describe('DaemonTransport', () => {
     ])
   })
 
+  it('tells the session list of the changes aide makes itself, until it unsubscribes', async () => {
+    const local = new Set<() => void>()
+    start({
+      subscribeLocalChanges: (listener) => {
+        local.add(listener)
+        return () => local.delete(listener)
+      },
+    })
+    const listener = vi.fn()
+    const unsubscribe = transport.subscribeSessionList(listener)
+    for (const notify of local) notify()
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    expect(local.size).toBe(0)
+  })
+
   it('lists live chats while pitwall refuses to list archived ones', async () => {
     daemon.emit(fixture.deltas[0])
     start()

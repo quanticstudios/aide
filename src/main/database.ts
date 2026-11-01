@@ -161,6 +161,17 @@ interface SqlManagedSessionRow {
   workspace_id: string
 }
 
+/** One stored session for pitwall's `import`; `persisted` is null for a row that no longer parses, which never verifies. */
+export interface SessionImportCandidate {
+  persisted: PersistedManagedSession | null
+  pinned: boolean
+  sessionId: string
+  title: string | null
+  updatedAt: string
+  /** The `updated_at` pitwall's copy was last verified at, else null. */
+  verifiedUpdatedAt: string | null
+}
+
 export interface QueuedUpdateHealthEvent {
   event: UpdateHealthEvent
   id: number
@@ -459,7 +470,22 @@ const MIGRATIONS = [
       CHECK (sounds IN (0, 1));
     `,
   },
+  {
+    version: 19,
+    // why: proof that pitwall holds each session as stored at updated_at, so the session tables drop only once every row has it.
+    sql: `
+      CREATE TABLE IF NOT EXISTS session_imports (
+        session_id TEXT PRIMARY KEY,
+        updated_at TEXT NOT NULL,
+        app_version TEXT NOT NULL,
+        verified_at TEXT NOT NULL
+      );
+    `,
+  },
 ]
+
+/** The tables pitwall's daemon replaces; they drop after a verified import (ENG-2707). */
+const SESSION_TABLES = ['managed_session_snapshots', 'managed_task_metadata']
 
 const UPDATE_HEALTH_QUEUE_LIMIT = 100
 const UPDATE_HEALTH_TTL_MS = 30 * 24 * 60 * 60 * 1_000
@@ -1378,6 +1404,7 @@ export class AideDatabase {
       return null
     }
 
+    this.ensureSessionTables()
     this.database
       .prepare(
         `
@@ -1403,11 +1430,13 @@ export class AideDatabase {
   }
 
   public getTaskMetadata(sessionId: string): TaskMetadata {
-    const row = this.database
-      .prepare(
-        'SELECT title, pinned, archived, read_activity_key FROM managed_task_metadata WHERE session_id = ?',
-      )
-      .get(sessionId)
+    const row = !this.hasSessionTables()
+      ? undefined
+      : this.database
+          .prepare(
+            'SELECT title, pinned, archived, read_activity_key FROM managed_task_metadata WHERE session_id = ?',
+          )
+          .get(sessionId)
     return {
       title: typeof row?.title === 'string' ? row.title : null,
       pinned: row?.pinned === 1,
@@ -1433,6 +1462,7 @@ export class AideDatabase {
       .strict()
       .parse(input)
     const next = { ...this.getTaskMetadata(sessionId), ...parsed }
+    this.ensureSessionTables()
     this.database
       .prepare(`
       INSERT INTO managed_task_metadata (session_id, title, pinned, archived, read_activity_key)
@@ -1545,6 +1575,7 @@ export class AideDatabase {
   }
 
   public listManagedSessions(): PersistedManagedSession[] {
+    if (!this.hasSessionTables()) return []
     const rows = this.database
       .prepare(
         `
@@ -1570,6 +1601,144 @@ export class AideDatabase {
         return []
       }
     })
+  }
+
+  /** Every stored session row, parsed or not, for pitwall's `import`; empty once the tables dropped. */
+  public listSessionImportCandidates(): SessionImportCandidate[] {
+    if (!this.hasSessionTables()) return []
+    const rows = this.database
+      .prepare(
+        `
+          SELECT s.session_id, s.payload_json, s.updated_at, m.title, m.pinned,
+            i.updated_at AS verified_updated_at
+          FROM managed_session_snapshots s
+          LEFT JOIN managed_task_metadata m ON m.session_id = s.session_id
+          LEFT JOIN session_imports i ON i.session_id = s.session_id
+          ORDER BY s.updated_at ASC, s.session_id ASC
+        `,
+      )
+      .all() as {
+      payload_json: string
+      pinned: number | null
+      session_id: string
+      title: string | null
+      updated_at: string
+      verified_updated_at: string | null
+    }[]
+    return rows.map((row) => {
+      let persisted: PersistedManagedSession | null = null
+      try {
+        persisted = this.normalizeManagedSession(JSON.parse(row.payload_json))
+        if (persisted.config.sessionId !== row.session_id) persisted = null
+      } catch {}
+      return {
+        persisted,
+        pinned: row.pinned === 1,
+        sessionId: row.session_id,
+        title: row.title,
+        updatedAt: row.updated_at,
+        verifiedUpdatedAt: row.verified_updated_at,
+      }
+    })
+  }
+
+  /** Records that pitwall holds `sessionId` as stored at `updatedAt`, checked by reading it back. */
+  public recordSessionImport(
+    sessionId: string,
+    updatedAt: string,
+    appVersion: string,
+  ): void {
+    this.database
+      .prepare(
+        `
+          INSERT INTO session_imports (session_id, updated_at, app_version, verified_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(session_id) DO UPDATE SET updated_at = excluded.updated_at,
+            app_version = excluded.app_version, verified_at = excluded.verified_at
+        `,
+      )
+      .run(sessionId, updatedAt, appVersion, new Date().toISOString())
+  }
+
+  /**
+   * Drops the session tables once pitwall holds every stored session, each verified by a release before `appVersion`.
+   * @remarks `backup` must leave a copy of the database first; it runs only when the drop is due, and its path comes back. Null when nothing dropped.
+   */
+  public dropImportedSessionTables(
+    appVersion: string,
+    backup: () => string,
+  ): string | null {
+    if (!this.hasSessionTables() || this.countUnimportedSessions(appVersion)) {
+      return null
+    }
+    const backupPath = backup()
+    const copy = new DatabaseSync(backupPath, { readOnly: true })
+    let copied: number
+    try {
+      copied = (
+        copy
+          .prepare('SELECT COUNT(*) AS count FROM managed_session_snapshots')
+          .get() as { count: number }
+      ).count
+    } finally {
+      copy.close()
+    }
+    this.database.exec('BEGIN IMMEDIATE;')
+    try {
+      const stored = (
+        this.database
+          .prepare('SELECT COUNT(*) AS count FROM managed_session_snapshots')
+          .get() as { count: number }
+      ).count
+      // A session saved since the check, or a backup that missed rows, waits for the next run.
+      if (copied !== stored || this.countUnimportedSessions(appVersion)) {
+        this.database.exec('ROLLBACK;')
+        return null
+      }
+      for (const table of SESSION_TABLES) {
+        this.database.exec(`DROP TABLE ${table};`)
+      }
+      this.database.exec('COMMIT;')
+    } catch (error) {
+      this.database.exec('ROLLBACK;')
+      throw error
+    }
+    return backupPath
+  }
+
+  private countUnimportedSessions(appVersion: string): number {
+    return (
+      this.database
+        .prepare(
+          `
+            SELECT COUNT(*) AS count FROM managed_session_snapshots s
+            LEFT JOIN session_imports i ON i.session_id = s.session_id
+              AND i.updated_at = s.updated_at AND i.app_version <> ?
+            WHERE i.session_id IS NULL
+          `,
+        )
+        .get(appVersion) as { count: number }
+    ).count
+  }
+
+  private hasSessionTables(): boolean {
+    return Boolean(
+      this.database
+        .prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'managed_session_snapshots'",
+        )
+        .get(),
+    )
+  }
+
+  /** Brings back the session tables a verified import dropped, for a built-in backend that still saves sessions. */
+  private ensureSessionTables(): void {
+    if (this.hasSessionTables()) return
+    for (const migration of MIGRATIONS) {
+      if (migration.version === 9 || migration.version === 10) {
+        this.database.exec(migration.sql)
+      }
+    }
   }
 
   public reconcileInterruptedManagedSessions(

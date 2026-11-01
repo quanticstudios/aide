@@ -158,7 +158,7 @@ test.describe('pitwall daemon backend', () => {
     ])
   })
 
-  test('keeps built-in sessions across a switch to pitwall and back', async () => {
+  test('keeps built-in sessions across a switch to pitwall and back, and imports them into its history', async () => {
     const page = await launch('built-in')
     await page.getByRole('button', { name: /add pane/i }).click()
     await page.getByRole('button', { name: /^agent\b/i }).click()
@@ -200,8 +200,17 @@ test.describe('pitwall daemon backend', () => {
     const content = page.getByTestId('managed-session-content')
     await expect(content).toContainText('Handled: keep me built in')
 
+    // The switch imports the built-in session into pitwall as an archived chat (ENG-2707).
     await setDaemonBackend(page, true)
-    await expect(content).not.toContainText('Handled: keep me built in')
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    await page.getByRole('checkbox', { name: 'Archived' }).check()
+    await expect(
+      page
+        .getByLabel('Saved tasks')
+        .getByTestId('saved-task')
+        .filter({ hasText: 'keep me built in' }),
+    ).toBeVisible()
+    await page.keyboard.press('Escape')
 
     await setDaemonBackend(page, false)
     await expect(content).toContainText('Handled: keep me built in')

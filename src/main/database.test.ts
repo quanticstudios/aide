@@ -21,7 +21,7 @@ describe('createAideDatabase', () => {
       migrationStrategy:
         'Ordered SQL migrations tracked with PRAGMA user_version.',
       projects: [],
-      schemaVersion: 18,
+      schemaVersion: 19,
       workspaceLayouts: {},
       workspaces: [],
     })

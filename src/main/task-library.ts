@@ -14,7 +14,7 @@ import {
 } from '../shared/task-notification'
 import type { AideDatabase } from './database'
 
-function taskTitle(
+export function taskTitle(
   metadata: { title: string | null },
   snapshot: ManagedSessionSnapshot,
 ): string {

@@ -146,6 +146,8 @@ export interface DaemonTransportOptions {
     sessionId: string,
     snapshot: ManagedSessionSnapshot | null,
   ) => void
+  /** Tells of list changes pitwall does not push, such as the sessions Electron main imports into it. */
+  readonly subscribeLocalChanges?: (listener: () => void) => () => void
 }
 
 export function isDaemonTransport(
@@ -966,7 +968,9 @@ export function createDaemonTransport(
       listListeners.add(listener)
       if (listListeners.size === 1 && !watchAll)
         void quietly('subscribeSessions')
+      const unsubscribeLocal = options.subscribeLocalChanges?.(listener)
       return () => {
+        unsubscribeLocal?.()
         if (
           listListeners.delete(listener) &&
           listListeners.size === 0 &&
