@@ -84,7 +84,7 @@ export async function importSessions(
 /** Sends one session and reads it back; false when pitwall refused it or its copy lacks part of the transcript. */
 async function importOne(
   daemon: Daemon,
-  { persisted, sessionId, title, updatedAt }: SessionImportCandidate,
+  { persisted, pinned, sessionId, title, updatedAt }: SessionImportCandidate,
 ): Promise<boolean> {
   if (!persisted) return false
   const { config, snapshot } = persisted
@@ -113,6 +113,7 @@ async function importOne(
     effort: config.effort,
     permissionMode: config.permissionMode,
     title: taskTitle({ title }, snapshot),
+    pinned,
     createdAt: rfc3339(
       snapshot.turns[0]?.startedAt ?? snapshot.content[0]?.createdAt,
     ),

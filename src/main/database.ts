@@ -164,6 +164,7 @@ interface SqlManagedSessionRow {
 /** One stored session for pitwall's `import`; `persisted` is null for a row that no longer parses, which never verifies. */
 export interface SessionImportCandidate {
   persisted: PersistedManagedSession | null
+  pinned: boolean
   sessionId: string
   title: string | null
   updatedAt: string
@@ -1608,7 +1609,7 @@ export class AideDatabase {
     const rows = this.database
       .prepare(
         `
-          SELECT s.session_id, s.payload_json, s.updated_at, m.title,
+          SELECT s.session_id, s.payload_json, s.updated_at, m.title, m.pinned,
             i.updated_at AS verified_updated_at
           FROM managed_session_snapshots s
           LEFT JOIN managed_task_metadata m ON m.session_id = s.session_id
@@ -1618,6 +1619,7 @@ export class AideDatabase {
       )
       .all() as {
       payload_json: string
+      pinned: number | null
       session_id: string
       title: string | null
       updated_at: string
@@ -1631,6 +1633,7 @@ export class AideDatabase {
       } catch {}
       return {
         persisted,
+        pinned: row.pinned === 1,
         sessionId: row.session_id,
         title: row.title,
         updatedAt: row.updated_at,

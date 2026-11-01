@@ -89,7 +89,7 @@ interface FakePitwallOptions {
 class FakePitwall {
   readonly chats = new Map<
     string,
-    { title: string; snapshot: ManagedSessionSnapshot }
+    { pinned: boolean; title: string; snapshot: ManagedSessionSnapshot }
   >()
   imports = 0
 
@@ -151,7 +151,11 @@ class FakePitwall {
         }
         const snapshot = frame.snapshot as ManagedSessionSnapshot
         if (this.options.truncate?.has(sessionId)) snapshot.content.pop()
-        this.chats.set(sessionId, { snapshot, title: frame.title as string })
+        this.chats.set(sessionId, {
+          pinned: frame.pinned === true,
+          snapshot,
+          title: frame.title as string,
+        })
         reply({
           type: 'result',
           id: frame.id,
@@ -225,7 +229,10 @@ describe('importSessions', () => {
     database.saveManagedSession(
       session(workspaceId, 'session-2', ['Rename the button', 'Renamed.']),
     )
-    database.updateTaskMetadata('session-2', { title: 'Button rename' })
+    database.updateTaskMetadata('session-2', {
+      pinned: true,
+      title: 'Button rename',
+    })
   })
 
   afterEach(() => {
@@ -243,7 +250,7 @@ describe('importSessions', () => {
     })
   }
 
-  it('imports every session with its title and transcript, once, and drops the tables a release later behind a backup', async () => {
+  it('imports every session with its title, pin and transcript, once, and drops the tables a release later behind a backup', async () => {
     const pitwall = new FakePitwall()
     expect(await run(pitwall)).toEqual({
       dropped: null,
@@ -252,6 +259,8 @@ describe('importSessions', () => {
     })
     expect(pitwall.chats.get('session-1')?.title).toBe('Fix the login form')
     expect(pitwall.chats.get('session-2')?.title).toBe('Button rename')
+    expect(pitwall.chats.get('session-1')?.pinned).toBe(false)
+    expect(pitwall.chats.get('session-2')?.pinned).toBe(true)
     for (const stored of database.listManagedSessions()) {
       const chat = pitwall.chats.get(stored.config.sessionId)?.snapshot
       expect(chat?.content.map((item) => item.text)).toEqual(
