@@ -61,6 +61,7 @@ export async function importSessions(
             candidate.sessionId,
             candidate.updatedAt,
             options.appVersion,
+            candidate.archived,
           )
           verified += 1
         } else {

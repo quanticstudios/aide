@@ -118,6 +118,8 @@ export interface DaemonTransportOptions {
     load: () => string[]
     save: (chats: string[]) => void
   }
+  /** Takes, once each, the chats Electron main imported that aide had not archived; they join `closedChats`, so aide lists them as open and opening one unarchives it. */
+  readonly takeImportedOpenChats?: () => Promise<string[]>
   /** The hello name; pitwall gates the chats an `aide` client starts with the Jev settings aide's main process hands over. */
   readonly clientName?: string
   readonly clientVersion: string
@@ -555,6 +557,17 @@ export function createDaemonTransport(
     })
   }
 
+  /** Adds the imported chats that were open in aide to `closedChats`, and subscribes again a pane that found none of them. */
+  async function takeImported(): Promise<void> {
+    const chats =
+      (await options.takeImportedOpenChats?.().catch(() => [])) ?? []
+    for (const chat of chats) {
+      setClosed(chat, true)
+      // why: a pane open on it before main imported it found no chat; pitwall's unarchive answers ok for a live chat, so a second subscribe is harmless.
+      if (sessions.get(chat)?.state === null) subscribe(chat, 0)
+    }
+  }
+
   /** Unarchives a chat and subscribes again a pane already showing it. */
   async function unarchive(chat: string): Promise<void> {
     await command('unarchive', { sessionId: chat })
@@ -754,8 +767,10 @@ export function createDaemonTransport(
   ): string {
     const known = panes.get(chat)
     if (known) return known
-    // why: a chat started outside aide gets an Agent pane of its own, so opening it shows the chat instead of starting one.
-    const id = `${workspaceId}:agent::copy-pitwall-${chat}`
+    // why: a chat started outside aide gets an Agent pane of its own, so opening it shows the chat instead of starting one; one main imported keeps aide's id.
+    const id = chat.startsWith(`${workspaceId}:`)
+      ? chat
+      : `${workspaceId}:agent::copy-pitwall-${chat}`
     chatIds.set(id, chat)
     panes.set(chat, id)
     options.chatIds?.save(Object.fromEntries(chatIds))
@@ -790,6 +805,7 @@ export function createDaemonTransport(
         })),
         options.aideTasks.listSessions(),
         options.getWorkspaces(),
+        takeImported(),
       ])
     const aideIds = workspaceIds(projects.projects, aideWorkspaces)
     const aideTasks = new Map(

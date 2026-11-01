@@ -197,19 +197,43 @@ test.describe('pitwall daemon backend', () => {
       .getByRole('textbox', { name: /claude prompt/i })
       .fill('keep me built in')
     await page.getByRole('button', { name: /send prompt/i }).click()
-    const content = page.getByTestId('managed-session-content')
-    await expect(content).toContainText('Handled: keep me built in')
+    const content = page
+      .getByTestId('managed-session-content')
+      .filter({ hasText: 'Handled: keep me built in' })
+    await expect(content).toBeVisible()
 
-    // The switch imports the built-in session into pitwall as an archived chat (ENG-2707).
+    // A second task, archived in aide; the first stays open and gets pinned.
+    await page.getByRole('button', { name: /add pane/i }).click()
+    await page.getByRole('button', { name: /^agent unified/i }).click()
+    const activePane = page.locator('[data-active-pane="true"]')
+    await activePane
+      .getByRole('textbox', { name: /claude prompt/i })
+      .fill('archive me in aide')
+    await activePane.getByRole('button', { name: /send prompt/i }).click()
+    await expect(
+      activePane.getByTestId('managed-session-content'),
+    ).toContainText('Handled: archive me in aide')
+    await page.getByRole('button', { name: 'Open task history' }).click()
+    const tasks = page.getByLabel('Saved tasks').getByTestId('saved-task')
+    // why: the workspace takes its name from the first prompt, so both cards show 'keep me built in'.
+    const archived = tasks.filter({ hasText: 'archive me in aide' })
+    const open = tasks
+      .filter({ hasText: 'keep me built in' })
+      .filter({ hasNotText: 'archive me in aide' })
+    await open.getByRole('button', { name: 'Pin', exact: true }).click()
+    await expect(open).toContainText('Pinned · ')
+    await archived.getByRole('button', { name: 'Archive', exact: true }).click()
+    await expect(archived).toHaveCount(0)
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+    // The switch imports both into pitwall as archived chats, and each keeps its aide state (ENG-2707).
     await setDaemonBackend(page, true)
     await page.getByRole('button', { name: 'Open task history' }).click()
-    await page.getByRole('checkbox', { name: 'Archived' }).check()
-    await expect(
-      page
-        .getByLabel('Saved tasks')
-        .getByTestId('saved-task')
-        .filter({ hasText: 'keep me built in' }),
-    ).toBeVisible()
+    await expect(open).toContainText('Pinned · ')
+    await expect(archived).toHaveCount(0)
+    await page.getByRole('checkbox', { name: 'Archived', exact: true }).check()
+    await expect(archived).toBeVisible()
+    await expect(open).toHaveCount(0)
     await page.keyboard.press('Escape')
 
     await setDaemonBackend(page, false)

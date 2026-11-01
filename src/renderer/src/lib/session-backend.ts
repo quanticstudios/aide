@@ -95,6 +95,7 @@ function applySessionBackend(): void {
         save: (chats) =>
           window.localStorage.setItem(CLOSED_CHATS_KEY, JSON.stringify(chats)),
       },
+      takeImportedOpenChats: () => api.takeImportedOpenSessions(),
       clientVersion: version,
       getEndpoint: () => api.getPitwallEndpoint(),
       resolveSkill: (workspaceId, skill) =>

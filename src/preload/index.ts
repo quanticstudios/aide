@@ -187,6 +187,8 @@ const aideApi: AideApi = {
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
   reportDaemonSession: (sessionId, snapshot) =>
     ipcRenderer.invoke(IPC_CHANNELS.reportDaemonSession, sessionId, snapshot),
+  takeImportedOpenSessions: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.takeImportedOpenSessions),
   getUpdatePreferences: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getUpdatePreferences),
   getUpdateSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateSnapshot),

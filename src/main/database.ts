@@ -163,6 +163,7 @@ interface SqlManagedSessionRow {
 
 /** One stored session for pitwall's `import`; `persisted` is null for a row that no longer parses, which never verifies. */
 export interface SessionImportCandidate {
+  archived: boolean
   persisted: PersistedManagedSession | null
   pinned: boolean
   sessionId: string
@@ -480,6 +481,17 @@ const MIGRATIONS = [
         app_version TEXT NOT NULL,
         verified_at TEXT NOT NULL
       );
+    `,
+  },
+  {
+    version: 20,
+    // why: managed_task_metadata drops after the import, so whether aide had the task archived, and whether the daemon transport took it as open, live here; a row verified without them imports again.
+    sql: `
+      ALTER TABLE session_imports ADD COLUMN archived INTEGER NOT NULL DEFAULT 0
+      CHECK (archived IN (0, 1));
+      ALTER TABLE session_imports ADD COLUMN taken INTEGER NOT NULL DEFAULT 0
+      CHECK (taken IN (0, 1));
+      DELETE FROM session_imports;
     `,
   },
 ]
@@ -1610,7 +1622,7 @@ export class AideDatabase {
       .prepare(
         `
           SELECT s.session_id, s.payload_json, s.updated_at, m.title, m.pinned,
-            i.updated_at AS verified_updated_at
+            m.archived, i.updated_at AS verified_updated_at
           FROM managed_session_snapshots s
           LEFT JOIN managed_task_metadata m ON m.session_id = s.session_id
           LEFT JOIN session_imports i ON i.session_id = s.session_id
@@ -1618,6 +1630,7 @@ export class AideDatabase {
         `,
       )
       .all() as {
+      archived: number | null
       payload_json: string
       pinned: number | null
       session_id: string
@@ -1632,6 +1645,7 @@ export class AideDatabase {
         if (persisted.config.sessionId !== row.session_id) persisted = null
       } catch {}
       return {
+        archived: row.archived === 1,
         persisted,
         pinned: row.pinned === 1,
         sessionId: row.session_id,
@@ -1647,17 +1661,36 @@ export class AideDatabase {
     sessionId: string,
     updatedAt: string,
     appVersion: string,
+    archived: boolean,
   ): void {
     this.database
       .prepare(
         `
-          INSERT INTO session_imports (session_id, updated_at, app_version, verified_at)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO session_imports (session_id, updated_at, app_version, verified_at, archived)
+          VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(session_id) DO UPDATE SET updated_at = excluded.updated_at,
-            app_version = excluded.app_version, verified_at = excluded.verified_at
+            app_version = excluded.app_version, verified_at = excluded.verified_at,
+            archived = excluded.archived
         `,
       )
-      .run(sessionId, updatedAt, appVersion, new Date().toISOString())
+      .run(
+        sessionId,
+        updatedAt,
+        appVersion,
+        new Date().toISOString(),
+        Number(archived),
+      )
+  }
+
+  /** The imported sessions aide had not archived, each returned once, for the daemon transport to list as open tasks. */
+  public takeImportedOpenSessions(): string[] {
+    return (
+      this.database
+        .prepare(
+          'UPDATE session_imports SET taken = 1 WHERE archived = 0 AND taken = 0 RETURNING session_id',
+        )
+        .all() as { session_id: string }[]
+    ).map((row) => row.session_id)
   }
 
   /**

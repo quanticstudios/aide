@@ -180,6 +180,7 @@ export const IPC_CHANNELS = {
   getTaskTranscript: 'tasks:transcript',
   getPitwallEndpoint: 'pitwall:get-endpoint',
   reportDaemonSession: 'pitwall:report-session',
+  takeImportedOpenSessions: 'pitwall:take-imported-open-sessions',
   updateTaskMetadata: 'tasks:update',
   setTaskNotifications: 'tasks:notifications',
   setTaskNotificationSounds: 'tasks:notification-sounds',
@@ -440,6 +441,8 @@ export interface AideApi {
     sessionId: string,
     snapshot: ManagedSessionSnapshot | null,
   ) => Promise<void>
+  /** The sessions main imported into pitwall that aide had not archived, each returned once, so the daemon transport lists them as open tasks. */
+  takeImportedOpenSessions: () => Promise<string[]>
   getTaskTranscript: (
     sessionId: string,
   ) => Promise<ManagedSessionSnapshot | null>

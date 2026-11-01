@@ -1308,6 +1308,59 @@ describe('DaemonTransport', () => {
     ])
   })
 
+  it('lists a chat main imported as open when aide had it open, and unarchives it when its pane opens', async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.archived = true
+    daemon.listsArchived = true
+    daemon.capabilities.push('unarchive')
+    const closed: string[][] = []
+    // Main has not imported it yet at the first list.
+    const taken: string[][] = [[], [SESSION_ID]]
+    start({
+      closedChats: { load: () => [], save: (chats) => closed.push(chats) },
+      takeImportedOpenChats: async () => taken.shift() ?? [],
+      // An imported chat keeps aide's `<workspace id>:<pane id>` as its id.
+      getWorkspaces: async () => [{ id: 'workspace-1', path: '/repo' }],
+    })
+    await settle()
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: SESSION_ID, archived: true },
+    ])
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: SESSION_ID, archived: false },
+    ])
+    expect(daemon.archived).toBe(true)
+    expect(closed).toEqual([[SESSION_ID]])
+
+    const updates = watch()
+    await settle()
+    expect(daemon.archived).toBe(false)
+    expect(lastSnapshot(updates)).toEqual(daemon.state()?.snapshot)
+    expect(closed.at(-1)).toEqual([])
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      { sessionId: SESSION_ID, paneId: 'claude-session', archived: false },
+    ])
+  })
+
+  it('unarchives an imported open chat in the pane that showed it before main imported it', async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.archived = true
+    daemon.listsArchived = true
+    daemon.capabilities.push('unarchive')
+    start({
+      takeImportedOpenChats: async () => [SESSION_ID],
+      getWorkspaces: async () => [{ id: 'workspace-1', path: '/repo' }],
+    })
+    await settle()
+    const updates = watch()
+    await settle()
+    expect(lastSnapshot(updates)).toBeUndefined()
+    await transport.listSessions()
+    await settle()
+    expect(daemon.archived).toBe(false)
+    expect(lastSnapshot(updates)).toEqual(daemon.state()?.snapshot)
+  })
+
   it('closes a pane that has no chat without an error', async () => {
     start()
     await settle()
