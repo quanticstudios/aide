@@ -1297,7 +1297,7 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
-  it('names the changed files when no Codex generator is wired', async () => {
+  it('names the changed files in a commit or pull request message', async () => {
     const { repoRoot } = createRepositoryWithRemote()
     writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
     writeFileSync(path.join(repoRoot, 'notes.txt'), 'notes\n')
@@ -1323,43 +1323,6 @@ describe('GitWorkspaceService', () => {
       message: 'Updates notes.txt and README.md.',
       ok: true,
     })
-
-    database.close()
-  })
-
-  it('asks the Codex generator for a message and falls back when it fails', async () => {
-    const { repoRoot } = createRepositoryWithRemote()
-    writeFileSync(path.join(repoRoot, 'README.md'), '# aide\nchanged\n')
-    const database = createAideDatabase(':memory:')
-    const prompts: string[] = []
-    let failNext = false
-    const service = new GitWorkspaceService(
-      database,
-      undefined,
-      async (input) => {
-        prompts.push(input.prompt)
-        if (failNext) throw new Error('Codex is unavailable.')
-        return '"Describe the readme change"\n'
-      },
-    )
-    const imported = await service.importProject(repoRoot)
-
-    await expect(
-      service.generateWorkspaceGitMessage({
-        kind: 'commit',
-        workspaceId: imported.workspaceId,
-      }),
-    ).resolves.toEqual({ message: 'Describe the readme change', ok: true })
-    expect(prompts[0]).toContain('README.md')
-    expect(prompts[0]).toContain('+changed')
-
-    failNext = true
-    await expect(
-      service.generateWorkspaceGitMessage({
-        kind: 'commit',
-        workspaceId: imported.workspaceId,
-      }),
-    ).resolves.toEqual({ message: 'Update README.md', ok: true })
 
     database.close()
   })

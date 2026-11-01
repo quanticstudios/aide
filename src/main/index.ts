@@ -115,11 +115,7 @@ import { UpdateRestartCoordinator } from './update-restart-coordinator'
 import { WindowManager } from './window-manager'
 import { WorkspaceActivityService } from './workspace-activity-service'
 import { WorkspaceSetupManager } from './workspace-setup-manager'
-import {
-  generateWorkspaceTitleWithCodex,
-  lunaModelId,
-  WorkspaceTitleService,
-} from './workspace-title-service'
+import { WorkspaceTitleService } from './workspace-title-service'
 
 if (process.platform === 'linux') app.setDesktopName('aide.desktop')
 if (process.env.AIDE_DATABASE_PATH) {
@@ -457,18 +453,7 @@ function initializeServices(): void {
       platform: process.platform,
     })
   }
-  gitWorkspaceService = new GitWorkspaceService(
-    database,
-    undefined,
-    async ({ prompt, workspaceId }) => {
-      const workspace = database.getWorkspace(workspaceId)
-      const model = lunaModelId(await providerCapabilityService.getSnapshot())
-      if (!workspace || !model) {
-        throw new Error('No Codex model is available to write a message.')
-      }
-      return generateWorkspaceTitleWithCodex({ model, prompt, workspace })
-    },
-  )
+  gitWorkspaceService = new GitWorkspaceService(database)
   workspaceSetupManager = new WorkspaceSetupManager({
     onUpdate: (event) => {
       windowManager.broadcast(IPC_CHANNELS.workspaceSetupEvent, event)
@@ -501,7 +486,6 @@ function initializeServices(): void {
   })
   providerCapabilityService = new ProviderCapabilityService()
   const workspaceTitleService = new WorkspaceTitleService({
-    getCapabilities: () => providerCapabilityService.getSnapshot(),
     store: {
       getWorkspace: (workspaceId) => database.getWorkspace(workspaceId),
       renameWorkspaceIfUnchanged: (workspaceId, input) => {
@@ -558,7 +542,7 @@ function initializeServices(): void {
     },
     onRuntimeEvent: () => undefined,
     onUserPrompt: ({ text, workspaceId }) => {
-      workspaceTitleService.requestTitle(workspaceId, text)
+      workspaceTitleService.titleWorkspace(workspaceId, text)
     },
     onUpdate: (event) => {
       if (event.type === 'snapshot') {
