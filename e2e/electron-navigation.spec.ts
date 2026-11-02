@@ -1761,8 +1761,10 @@ test.describe('electron spatial navigation', () => {
       })
       .click()
     await expect(healthReporting).toBeEnabled()
-    await expect(healthReporting).toBeChecked()
+    await expect(healthReporting).not.toBeChecked()
     await healthReporting.focus()
+    await page.keyboard.press('Space')
+    await expect(healthReporting).toBeChecked()
     await page.keyboard.press('Space')
     await expect(healthReporting).not.toBeChecked()
 
