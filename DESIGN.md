@@ -78,12 +78,8 @@ Two ladders exist. The four-step ladder is what new components use. The named su
 | `--popover-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | Text on popovers. |
 | `--overlay` | `#ffffff` | `#1c1f26` | `#101111` | HeroUI overlay background. |
 | `--overlay-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | Text on overlays. |
-| `--secondary` | `#eef0f3` | `#1c1f26` | `#101111` | HeroUI secondary button fill. |
-| `--secondary-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | Text on secondary buttons. Nothing reads it today. |
-| `--muted` | `#eef0f3` | `#1c1f26` | `#101111` | HeroUI muted fill. |
-| `--accent` | `#eef0f3` | `#1c1f26` | `#101111` | HeroUI accent fill. A neutral surface, despite the name. |
-| `--accent-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | Text on `--accent`. |
-| `--accent-soft-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | HeroUI soft accent text. |
+| `--secondary` | `#eef0f3` | `#1c1f26` | `#101111` | Hover fill at 60% alpha in two composer menus (`ComposerStashMenu`, `ManagedComposer`). HeroUI does not read it. |
+| `--secondary-foreground` | `#14161b` | `#f2f3f5` | `#f4f4f6` | Text on `--secondary`. Nothing reads it today. |
 
 ### Interactive color
 
@@ -97,6 +93,20 @@ Blue marks the one thing you can act on. Dark uses a single bright blue for fill
 | `--primary-on-dark` | `#0062cc` | `#2997ff` | `#2997ff` | Links in transcripts, the text caret, active composer tools. |
 | `--ring` | `#0071e3` | `#2997ff` | `#0071e3` | HeroUI and Tailwind focus rings. |
 | `--focus` | `#0071e3` | `#2997ff` | `#0071e3` | HeroUI focus color. |
+
+### HeroUI roles
+
+HeroUI's components read these names with HeroUI's meanings, so aide defines them as aliases of its own tokens and never uses them as surfaces. Each palette block repeats the aliases, so a scoped palette preview resolves them against its own values. `scripts/check-contrast.mjs` checks `--muted` on every surface and each foreground on its fill.
+
+| Token | Value in every palette | Role |
+|---|---|---|
+| `--muted` | `var(--muted-foreground)` | HeroUI secondary text: field descriptions, switch and checkbox help text, toast bodies, `text-muted`. |
+| `--accent` | `var(--primary)` | HeroUI brand fill: `variant="primary"` buttons, checked switches, checkboxes and radios. |
+| `--accent-foreground` | `var(--primary-foreground)` | Text on `--accent`. |
+| `--accent-soft-foreground` | `var(--foreground)` | Text on `variant="secondary"` buttons, kept neutral rather than blue. |
+| `--default` | `var(--surface-3)` | HeroUI neutral fill: secondary and tertiary buttons, chips. |
+| `--default-foreground` | `var(--foreground)` | Text on `--default`. |
+| `--switch-control-bg` | `--foreground` at 24% | The track of an unchecked switch, set on `.switch`. A `--default` track vanished on raised rows. Both switch thumbs use HeroUI's white primitive, because Dark's `--accent-foreground` is near black. |
 
 ### State accents
 
@@ -314,7 +324,7 @@ One layout token exists:
 
 | Token | Value | Where |
 |---|---|---|
-| `--radius-xs` | `4px` | Keycaps, the focus outline. |
+| `--radius-xs` | `4px` | Keycaps. |
 | `--radius-sm` | `6px` | Menu and list box rows. |
 | `--radius-md` | `8px` | Popovers, menus, tooltips, the command palette, composer tools, sidebar rows, buttons. |
 | `--radius-lg` | `10px` | Pane frames, the approval card, code blocks. |
@@ -420,6 +430,6 @@ A workspace row's background also reports agent activity. Error gets a 3% `--acc
 | `.hairline`, `.hairline-soft`, `.hairline-strong` | A 1px border in `--border`, `--border-soft` or `--border-strong`. Defined, unused today. |
 | `.system-notice` | 12px muted text centered between two `--border` rules. |
 
-Focus is a 2px `--primary` outline with a 1px offset and `--radius-xs` corners, on `:focus-visible` only. Text inputs skip the outline and show focus through the caret (`--primary-on-dark`) and their container's edge. Selected text gets a 28% tint of `--accent-blue`.
+Focus is a 2px `--primary` outline with a 1px offset that follows the element's own corners, on `:focus-visible` only. A dialog container that holds focus itself shows no outline. Text inputs skip the outline and show focus through the caret (`--primary-on-dark`) and their container's edge. Selected text gets a 28% tint of `--accent-blue`.
 
 The persisted-state recovery screen (`.recovery-*` classes at the top of styles.css) reads the canvas, `--surface` for its card, the surface ladder, `--border` and `--border-strong`, `--primary` for Restore, `--accent-yellow` and `--accent-red`, so it follows the palette like everything else.

@@ -56,6 +56,12 @@
   color.
 - The workspace setup log opens under the status line, so Retry setup stays
   beside it.
+- Field descriptions, Diagnostics values and other secondary text in dialogs
+  are readable again in every theme.
+- Primary buttons are blue, checked switches show a blue track with a white
+  thumb, and unchecked switches show a visible track.
+- A focused dialog or rounded control keeps its own corners instead of turning
+  square, and a dialog no longer draws a focus ring around itself.
 
 ## 0.0.3 (2026-11-01)
 

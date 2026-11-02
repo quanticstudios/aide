@@ -162,14 +162,18 @@
   --primary-focus: #0071e3;
   --primary-on-dark: #2997ff;
 
-  /* Secondary / muted (surface-elevated for ladder coherence) */
+  /* Secondary: a raised neutral surface (hover fills). */
   --secondary: #101111;
   --secondary-foreground: #f4f4f6;
-  --muted: #101111;
   --muted-foreground: #9c9c9d;
-  --accent: #101111;
-  --accent-foreground: #f4f4f6;
-  --accent-soft-foreground: #f4f4f6;
+
+  /* why: HeroUI reads these as muted text, brand fill and neutral fill; each palette repeats them so a scoped preview resolves its own values. */
+  --muted: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-foreground: var(--primary-foreground);
+  --accent-soft-foreground: var(--foreground);
+  --default: var(--surface-3);
+  --default-foreground: var(--foreground);
 
   /* Text ladder */
   --body: #cdcdcd;
@@ -316,11 +320,14 @@
 
   --secondary: #1c1f26;
   --secondary-foreground: #f2f3f5;
-  --muted: #1c1f26;
   --muted-foreground: #8e939c;
-  --accent: #1c1f26;
-  --accent-foreground: #f2f3f5;
-  --accent-soft-foreground: #f2f3f5;
+
+  --muted: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-foreground: var(--primary-foreground);
+  --accent-soft-foreground: var(--foreground);
+  --default: var(--surface-3);
+  --default-foreground: var(--foreground);
 
   --body: #c4c8ce;
   --body-muted: #c4c8ce;
@@ -406,11 +413,14 @@
 
   --secondary: #eef0f3;
   --secondary-foreground: #14161b;
-  --muted: #eef0f3;
   --muted-foreground: #596070;
-  --accent: #eef0f3;
-  --accent-foreground: #14161b;
-  --accent-soft-foreground: #14161b;
+
+  --muted: var(--muted-foreground);
+  --accent: var(--primary);
+  --accent-foreground: var(--primary-foreground);
+  --accent-soft-foreground: var(--foreground);
+  --default: var(--surface-3);
+  --default-foreground: var(--foreground);
 
   --body: #2c3038;
   --body-muted: #2c3038;
@@ -609,10 +619,13 @@
   border-radius: var(--radius-sm);
 }
 
-/* why: HeroUI colors toast descriptions with text-muted, which this file defines as a
-   surface color, so the body would vanish into the toast. */
-.toast__description {
-  color: var(--muted-foreground);
+/* why: HeroUI's unchecked track is a surface step that vanishes on a raised row, and its checked thumb takes --accent-foreground, which Dark sets dark for text on blue. */
+.switch {
+  --switch-control-bg: color-mix(in oklab, var(--foreground) 24%, transparent);
+}
+
+.switch__thumb {
+  background-color: var(--white);
 }
 
 /* ── Utility classes (DESIGN.md §Components) ──────── */
@@ -1242,7 +1255,11 @@ button:active:not(:disabled),
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
-  border-radius: var(--radius-xs);
+}
+
+/* why: react-aria focuses the dialog container itself when nothing inside asks for focus; a ring around the whole dialog marks no control. */
+[role="dialog"]:focus-visible {
+  outline: none;
 }
 
 /* Text fields show focus via the caret and their container border. */
