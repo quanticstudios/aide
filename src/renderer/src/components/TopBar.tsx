@@ -1,4 +1,4 @@
-import { Button, Toolbar } from '@heroui/react'
+import { Button, Dropdown, Header, Toolbar, Tooltip } from '@heroui/react'
 import {
   Columns2,
   Expand,
@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import type { RefObject } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
@@ -122,7 +122,107 @@ function SurfaceTab({
   )
 }
 
-function PaneActionBar({
+const SPLIT_ACTIONS = [
+  {
+    icon: Columns2,
+    label: 'Split horizontally',
+    menuLabel: 'Split horizontal with',
+    type: 'split-horizontal',
+  },
+  {
+    icon: Rows2,
+    label: 'Split vertically',
+    menuLabel: 'Split vertical with',
+    type: 'split-vertical',
+  },
+] as const
+
+const PANE_ACTION_BUTTON_CLASS =
+  'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40'
+const NEUTRAL_TONE_CLASS =
+  'text-muted-foreground hover:bg-surface-tertiary hover:text-foreground'
+
+function SplitPaneMenu({
+  isDisabled,
+  onSplit,
+  split,
+  viewOptions,
+}: {
+  readonly isDisabled: boolean
+  readonly onSplit: (paneType: string) => void
+  readonly split: (typeof SPLIT_ACTIONS)[number]
+  readonly viewOptions: ReturnType<typeof listCreatablePaneCatalogEntries>
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const Icon = split.icon
+
+  // invariant: the menu cannot outlive the pane it would split, including for the current commit.
+  if (isDisabled && isOpen) {
+    setIsOpen(false)
+  }
+
+  return (
+    <Tooltip closeDelay={0} delay={350} isDisabled={isOpen}>
+      <Tooltip.Trigger className="flex shrink-0" role="none" tabIndex={-1}>
+        {/* why: the top bar row clips overflow, so the menu has to portal out of it. */}
+        <Dropdown isOpen={isOpen} onOpenChange={setIsOpen}>
+          <Dropdown.Trigger
+            aria-label={split.label}
+            className={cn(
+              PANE_ACTION_BUTTON_CLASS,
+              NEUTRAL_TONE_CLASS,
+              'grid place-items-center',
+              isOpen && 'bg-surface-tertiary text-foreground',
+            )}
+            isDisabled={isDisabled}
+          >
+            <Icon aria-hidden="true" className="size-4" />
+          </Dropdown.Trigger>
+          <Dropdown.Popover
+            className="w-48 rounded-lg floating-surface p-1"
+            placement="bottom end"
+          >
+            <Dropdown.Menu
+              aria-label={split.menuLabel}
+              className="outline-none"
+              onAction={(key) => onSplit(String(key))}
+            >
+              <Dropdown.Section>
+                <Header className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  {split.menuLabel}
+                </Header>
+                {viewOptions.map((view) => {
+                  const ViewIcon = view.icon
+
+                  return (
+                    <Dropdown.Item
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-tertiary data-[focused]:bg-surface-tertiary"
+                      id={view.id}
+                      key={view.id}
+                      textValue={view.defaultMetadata.type}
+                    >
+                      <ViewIcon className="size-3.5 text-muted-foreground" />
+                      <span>{view.defaultMetadata.type}</span>
+                    </Dropdown.Item>
+                  )
+                })}
+              </Dropdown.Section>
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
+      </Tooltip.Trigger>
+      <Tooltip.Content
+        className="rounded-md border border-border bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-md"
+        placement="bottom"
+      >
+        {split.label}
+      </Tooltip.Content>
+    </Tooltip>
+  )
+}
+
+/** Split, resize and close controls for the active pane; each split opens a pane-type menu. */
+export function PaneActionBar({
   activePaneId,
   onClosePane,
   onResizePane,
@@ -139,34 +239,7 @@ function PaneActionBar({
   ) => void
   readonly projectKind: ProjectRecord['kind']
 }) {
-  const [pickerMode, setPickerMode] = useState<
-    'split-horizontal' | 'split-vertical' | null
-  >(null)
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  // The picker cannot outlive its target pane, including for the current commit.
-  if (activePaneId === null && pickerMode !== null) {
-    setPickerMode(null)
-  }
-
-  useEffect(() => {
-    if (!pickerMode) {
-      return
-    }
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === 'Escape') {
-        setPickerMode(null)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [pickerMode])
-
   const viewOptions = listCreatablePaneCatalogEntries(projectKind)
-
   const isDisabled = !activePaneId
 
   const actions: ReadonlyArray<{
@@ -175,18 +248,6 @@ function PaneActionBar({
     readonly onPress: () => void
     readonly tone: 'neutral' | 'destructive'
   }> = [
-    {
-      icon: Columns2,
-      label: 'Split horizontally',
-      onPress: () => setPickerMode('split-horizontal'),
-      tone: 'neutral',
-    },
-    {
-      icon: Rows2,
-      label: 'Split vertically',
-      onPress: () => setPickerMode('split-vertical'),
-      tone: 'neutral',
-    },
     {
       icon: Shrink,
       label: 'Shrink pane',
@@ -207,75 +268,42 @@ function PaneActionBar({
     },
   ]
 
-  const pickerLabel =
-    pickerMode === 'split-horizontal'
-      ? 'Split horizontal with'
-      : 'Split vertical with'
-
   return (
-    <div className="relative shrink-0" ref={containerRef}>
-      <div className="flex flex-row items-center gap-0.5">
-        {actions.map((action) => {
-          const Icon = action.icon
-          const toneClass =
-            action.tone === 'destructive'
-              ? 'text-accent-red hover:bg-accent-red-soft hover:text-accent-red'
-              : 'text-muted-foreground hover:bg-surface-tertiary hover:text-foreground'
+    <div className="flex shrink-0 flex-row items-center gap-0.5">
+      {SPLIT_ACTIONS.map((split) => (
+        <SplitPaneMenu
+          isDisabled={isDisabled}
+          key={split.type}
+          onSplit={(paneType) => {
+            if (activePaneId) onSplitPane(activePaneId, split.type, paneType)
+          }}
+          split={split}
+          viewOptions={viewOptions}
+        />
+      ))}
+      {actions.map((action) => {
+        const Icon = action.icon
+        const toneClass =
+          action.tone === 'destructive'
+            ? 'text-accent-red hover:bg-accent-red-soft hover:text-accent-red'
+            : NEUTRAL_TONE_CLASS
 
-          return (
-            <IconTooltip key={action.label} label={action.label}>
-              <Button
-                aria-label={action.label}
-                className={cn(
-                  'size-8 rounded border border-transparent bg-transparent transition-colors disabled:opacity-40',
-                  toneClass,
-                )}
-                isDisabled={isDisabled}
-                isIconOnly
-                onPress={action.onPress}
-                size="sm"
-                variant="ghost"
-              >
-                <Icon className="size-4" />
-              </Button>
-            </IconTooltip>
-          )
-        })}
-      </div>
-
-      {pickerMode && activePaneId ? (
-        <>
-          <button
-            aria-label="Close pane picker"
-            className="fixed inset-0 z-10"
-            onClick={() => setPickerMode(null)}
-            type="button"
-          />
-          <div className="absolute right-0 top-full z-20 mt-1.5 w-48 rounded-lg floating-surface p-1">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-              {pickerLabel}
-            </p>
-            {viewOptions.map((view) => {
-              const Icon = view.icon
-
-              return (
-                <button
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-tertiary"
-                  key={view.type}
-                  onClick={() => {
-                    onSplitPane(activePaneId, pickerMode, view.type)
-                    setPickerMode(null)
-                  }}
-                  type="button"
-                >
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span>{view.defaultMetadata.type}</span>
-                </button>
-              )
-            })}
-          </div>
-        </>
-      ) : null}
+        return (
+          <IconTooltip key={action.label} label={action.label}>
+            <Button
+              aria-label={action.label}
+              className={cn(PANE_ACTION_BUTTON_CLASS, toneClass)}
+              isDisabled={isDisabled}
+              isIconOnly
+              onPress={action.onPress}
+              size="sm"
+              variant="ghost"
+            >
+              <Icon className="size-4" />
+            </Button>
+          </IconTooltip>
+        )
+      })}
     </div>
   )
 }

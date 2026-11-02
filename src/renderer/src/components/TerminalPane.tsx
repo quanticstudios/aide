@@ -8,17 +8,21 @@ import type { AideApi } from '../../../shared/ipc'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import { shouldBlockTerminalShortcutInput } from '../../../shared/shortcuts'
 import type { TerminalEvent } from '../../../shared/terminal'
+import {
+  getFontPreference,
+  subscribeFontPreference,
+} from '../lib/font-preference'
 import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import {
   clearTerminalPaneRunning,
   setTerminalPaneRunning,
 } from '../lib/pane-close-warning'
-import {
-  getFontPreference,
-  subscribeFontPreference,
-} from '../lib/font-preference'
 import { takeTerminalInput } from '../lib/terminal-input'
-import { readTerminalTheme, terminalFont } from '../lib/terminal-theme'
+import {
+  readTerminalTheme,
+  TERMINAL_MIN_CONTRAST_RATIO,
+  terminalFont,
+} from '../lib/terminal-theme'
 import { subscribePalette } from '../lib/theme-preference'
 
 interface TerminalPaneProps {
@@ -198,6 +202,7 @@ export default function TerminalPane({
       allowTransparency: true,
       convertEol: true,
       cursorBlink: true,
+      minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
       ...terminalFont(getFontPreference()),
       theme: readTerminalTheme(getComputedStyle(document.documentElement)),
     })

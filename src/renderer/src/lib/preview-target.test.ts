@@ -10,6 +10,14 @@ describe('normalizePreviewUrl', () => {
   it('prepends http for a bare localhost target', () => {
     expect(normalizePreviewUrl('localhost:3000')).toBe('http://localhost:3000')
   })
+
+  it('returns a half-typed target unchanged instead of throwing', () => {
+    expect(normalizePreviewUrl('http://')).toBe('http://')
+    expect(isAllowedPreviewUrl(normalizePreviewUrl('http://'))).toBe(false)
+    expect(normalizePreviewUrl('http://127.0.0.1:41731/')).toBe(
+      'http://127.0.0.1:41731',
+    )
+  })
 })
 
 describe('isAllowedPreviewUrl', () => {

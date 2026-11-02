@@ -3,16 +3,17 @@ import { describe, expect, it } from 'vitest'
 import { readTerminalTheme, terminalFont } from './terminal-theme'
 
 describe('readTerminalTheme', () => {
-  it('reads each ANSI slot from its token and keeps the pane background', () => {
+  it('reads each ANSI slot and the pane background from its token', () => {
     const tokens: Record<string, string> = {
       '--accent-purple': ' #7a45d6',
+      '--background': '#eceef2',
       '--terminal-cyan': '#0f6e85',
       '--terminal-white': '#5c6370',
     }
     const theme = readTerminalTheme({
       getPropertyValue: (name: string) => tokens[name] ?? '',
     })
-    expect(theme.background).toBe('transparent')
+    expect(theme.background).toBe('#eceef2')
     expect(theme.magenta).toBe('#7a45d6')
     expect(theme.brightMagenta).toBe('#7a45d6')
     expect(theme.cyan).toBe('#0f6e85')

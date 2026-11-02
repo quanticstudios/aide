@@ -1222,7 +1222,7 @@ test.describe('shared model chat', () => {
     await page.setViewportSize({ width: 1100, height: 720 })
 
     await page.getByRole('button', { name: 'Split horizontally' }).click()
-    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Terminal', exact: true }).click()
 
     const prompt = page.getByRole('textbox', { name: /claude prompt/i })
     await prompt.fill('/')

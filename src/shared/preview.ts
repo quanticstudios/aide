@@ -50,6 +50,10 @@ export function normalizePreviewUrl(value: string): string {
   const candidate = /^https?:\/\//i.test(trimmedValue)
     ? trimmedValue
     : `http://${trimmedValue}`
+  // why: the preview field normalizes on every keystroke, so a half-typed target like `http://` must not throw.
+  if (!URL.canParse(candidate)) {
+    return candidate
+  }
   const url = new URL(candidate)
 
   return `${url.protocol}//${url.host}${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`

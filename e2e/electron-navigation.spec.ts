@@ -631,7 +631,7 @@ test.describe('electron spatial navigation', () => {
     await importProject(page)
     await addPane(page, /terminal/i)
     await page.getByLabel(/split vertically/i).click()
-    await page.getByRole('button', { name: /^Agent$/ }).click()
+    await page.getByRole('menuitem', { name: /^Agent$/ }).click()
     await addPane(page, /git/i)
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
 
@@ -677,7 +677,7 @@ test.describe('electron spatial navigation', () => {
     await page.getByRole('button', { name: 'Git review', exact: true }).click()
     await expect(page.getByTestId('active-pane-name')).toHaveText('Git review')
     await page.getByLabel(/split vertically/i).click()
-    await page.getByRole('button', { name: /^Agent$/ }).click()
+    await page.getByRole('menuitem', { name: /^Agent$/ }).click()
 
     await expect(
       page.locator('.workspace-strip .workspace-strip-item'),
