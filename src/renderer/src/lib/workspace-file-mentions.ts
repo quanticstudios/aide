@@ -41,15 +41,14 @@ export function removeWorkspaceFileMention(
 
 export function resolveMentionMenuSelection(
   activeIndex: number,
-  skillCount: number,
   filePaths: readonly string[],
+  skillCount: number,
 ): MentionMenuSelection | null {
   if (activeIndex < 0) return null
-  if (activeIndex < skillCount) {
-    return { kind: 'skill', skillIndex: activeIndex }
-  }
-  const filePath = filePaths[activeIndex - skillCount]
-  return filePath ? { filePath, kind: 'file' } : null
+  const filePath = filePaths[activeIndex]
+  if (filePath) return { filePath, kind: 'file' }
+  const skillIndex = activeIndex - filePaths.length
+  return skillIndex < skillCount ? { kind: 'skill', skillIndex } : null
 }
 
 export function appendWorkspaceFileAttachment(

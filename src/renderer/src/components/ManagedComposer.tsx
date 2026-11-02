@@ -967,6 +967,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
               (skill) => isUnifiedPane || skill.provider === selectedProvider,
             ),
             workspaceFileMentionQuery,
+            { namesOnly: true },
           ).slice(0, 6)
         : [],
     [
@@ -1536,8 +1537,8 @@ export default function ManagedComposer({
               event.preventDefault()
               const selection = resolveMentionMenuSelection(
                 recipientActiveIndex,
-                recipientSkillSuggestions.length,
                 workspaceFileSuggestions,
+                recipientSkillSuggestions.length,
               )
               if (selection?.kind === 'file') {
                 selectWorkspaceFileFromMention(selection.filePath)

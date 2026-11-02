@@ -124,6 +124,7 @@ export function extractSlashQuery(draft: string): string | null {
 export function filterProviderSkills(
   skills: readonly ProviderSkill[],
   query: string,
+  { namesOnly = false }: { readonly namesOnly?: boolean } = {},
 ): ProviderSkill[] {
   const normalize = (value: string) =>
     value
@@ -150,7 +151,7 @@ export function filterProviderSkills(
             ? 1
             : words.every((word) => name.includes(word))
               ? 2
-              : words.every((word) => searchable.includes(word))
+              : !namesOnly && words.every((word) => searchable.includes(word))
                 ? 3
                 : -1
       return { skill, rank }
