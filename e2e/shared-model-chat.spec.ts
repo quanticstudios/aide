@@ -671,11 +671,17 @@ test.describe('shared model chat', () => {
         text: 'Keep this draft after closing the pane',
       })
 
+    // why: an Agent tab takes its chat's first prompt as its name.
     const agentTab = page
       .locator('.workspace-strip')
-      .getByRole('button', { name: 'Agent', exact: true })
+      .getByRole('button', { name: 'initialize shared chat', exact: true })
     await agentTab.hover()
-    await page.getByRole('button', { name: 'Close Agent', exact: true }).click()
+    await page
+      .getByRole('button', {
+        name: 'Close initialize shared chat',
+        exact: true,
+      })
+      .click()
     await expect(prompt).toBeHidden()
 
     await page.getByRole('button', { name: /add pane/i }).click()

@@ -238,7 +238,7 @@ export function GitLineFeedback({
   readonly selectedSessionId: string
   readonly sessions: readonly Pick<
     ManagedSessionSnapshot,
-    'provider' | 'sessionId'
+    'content' | 'provider' | 'sessionId'
   >[]
 }) {
   return (
