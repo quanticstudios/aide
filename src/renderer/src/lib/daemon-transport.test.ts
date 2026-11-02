@@ -120,6 +120,7 @@ class MockDaemon {
   /** Lists archived chats, as a pitwall with unarchive does, instead of refusing to. */
   listsArchived = false
   title = 'Chat'
+  chatState: string | undefined = undefined
   running = true
   readonly subscribed = new Set<FakeSocket>()
   readonly commands: Frame[] = []
@@ -195,6 +196,7 @@ class MockDaemon {
       id: SESSION_ID,
       title: this.title,
       pinned: this.pinned,
+      state: this.chatState,
       workspaceId: 'workspace-1',
       recentPrompt: 'Explain the build setup',
     }
@@ -1245,6 +1247,7 @@ describe('DaemonTransport', () => {
 
   it("takes attention and read state from aide's task library and marks a chat read there", async () => {
     daemon.emit(fixture.deltas[0])
+    daemon.chatState = 'waiting'
     const id = 'aide-workspace:agent'
     const marked: unknown[] = []
     start({
@@ -1328,6 +1331,61 @@ describe('DaemonTransport', () => {
     await settle()
     await transport.interrupt('pane-1')
     expect(daemon.commands.at(-1)).toMatchObject({ sessionId: SESSION_ID })
+  })
+
+  it("names a task after aide's project and workspace, not pitwall's branch label", async () => {
+    daemon.emit(fixture.deltas[0])
+    start({
+      getWorkspaces: async () => [
+        {
+          branch: 'main',
+          id: 'aide-workspace',
+          label: 'Workspace 3',
+          path: '/repo',
+          project: 'alpha',
+        },
+      ],
+    })
+    await settle()
+    expect((await transport.listSessions()).tasks).toMatchObject([
+      {
+        branchName: 'main',
+        projectName: 'alpha',
+        workspaceId: 'aide-workspace',
+        workspaceName: 'Workspace 3',
+      },
+    ])
+  })
+
+  it('drops an unread approval once pitwall no longer waits on it', async () => {
+    daemon.emit(fixture.deltas[0])
+    daemon.workspacePath = '/elsewhere'
+    const stale = {
+      activityKey: 'approval:1:request-1',
+      archived: false,
+      pinned: false,
+      readActivityKey: null,
+      sessionId: SESSION_ID,
+      status: 'approval',
+      unread: true,
+    } as SavedTask
+    start({
+      aideTasks: {
+        listSessions: async () => ({
+          notificationSoundsEnabled: false,
+          notificationsEnabled: true,
+          tasks: [stale],
+        }),
+        updateSession: async () => {
+          throw new Error('unexpected updateSession')
+        },
+      },
+    })
+    await settle()
+    const [task] = (await transport.listSessions()).tasks
+    expect(task?.sessionId).toBe(SESSION_ID)
+    expect(task?.status).not.toBe('approval')
+    expect(task?.unread).toBe(false)
   })
 
   it("leaves out chats in folders that are none of aide's workspaces", async () => {
