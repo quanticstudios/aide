@@ -6,6 +6,7 @@ import ThreadErrorBanner from './ThreadErrorBanner'
 describe('threadError', () => {
   const failed = {
     lastError: 'Fake managed provider error',
+    lastErrorAt: '2026-11-02T10:00:01.000Z',
     turns: [
       {
         completedAt: '2026-11-02T10:00:01.000Z',
@@ -30,9 +31,22 @@ describe('threadError', () => {
     expect(
       threadError({
         lastError: 'Turn interrupted',
+        lastErrorAt: turn.completedAt,
         turns: [{ ...turn, state: 'interrupted' }],
       }),
     ).toBeNull()
+  })
+
+  it('reports a failure that came after a stopped turn, such as a provider that fails to start', () => {
+    const [turn] = failed.turns
+    if (!turn) throw new Error('no turn')
+    expect(
+      threadError({
+        lastError: 'spawn failed: provider exited',
+        lastErrorAt: '2026-11-02T10:05:00.000Z',
+        turns: [{ ...turn, state: 'interrupted' }],
+      }),
+    ).toEqual({ kind: null, message: 'spawn failed: provider exited' })
   })
 })
 

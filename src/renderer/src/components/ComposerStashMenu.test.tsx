@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 describe('ComposerStashMenu', () => {
-  it('closes on Escape', () => {
+  it('closes on Escape and returns focus to its button', () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -31,7 +31,13 @@ describe('ComposerStashMenu', () => {
         />,
       ),
     )
-    act(() => container.querySelector('button')?.click())
+    const trigger = container.querySelector('button')
+    act(() => trigger?.click())
+    container
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="composer-stash-menu"] button',
+      )
+      ?.focus()
     expect(
       container.querySelector('[data-testid="composer-stash-menu"]'),
     ).not.toBeNull()
@@ -42,6 +48,7 @@ describe('ComposerStashMenu', () => {
     expect(
       container.querySelector('[data-testid="composer-stash-menu"]'),
     ).toBeNull()
+    expect(document.activeElement).toBe(trigger)
     act(() => root.unmount())
   })
 })

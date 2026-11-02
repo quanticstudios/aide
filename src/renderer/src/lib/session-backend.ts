@@ -1,10 +1,12 @@
 import { version } from '../../../../package.json'
+import type { TurnCheckpointDiff } from '../../../shared/checkpoints'
 import type { AideApi } from '../../../shared/ipc'
 import { createDaemonTransport, type DaemonTransport } from './daemon-transport'
 import { setSessionTransport } from './session-transport'
 
 const CHAT_IDS_KEY = 'aide.pitwall-chat-ids'
 const CLOSED_CHATS_KEY = 'aide.pitwall-closed-chats'
+const TURN_DIFFS_KEY = 'aide.pitwall-turn-diffs'
 // why: 'built-in' here means the user went back to the built-in backend, which ENG-2898 removed.
 const STORAGE_KEY = 'aide.session-backend'
 const NOTICE_KEY = 'aide.pitwall-default-notice-seen'
@@ -77,6 +79,22 @@ export function initializeSessionBackend(): void {
         },
         save: (chats) =>
           window.localStorage.setItem(CLOSED_CHATS_KEY, JSON.stringify(chats)),
+      },
+      turnDiffs: {
+        load: () => {
+          try {
+            return JSON.parse(
+              window.localStorage.getItem(TURN_DIFFS_KEY) ?? '{}',
+            ) as Record<string, TurnCheckpointDiff>
+          } catch {
+            return {}
+          }
+        },
+        save: (diffs) => {
+          try {
+            window.localStorage.setItem(TURN_DIFFS_KEY, JSON.stringify(diffs))
+          } catch {}
+        },
       },
       takeImportedOpenChats: () => api.takeImportedOpenSessions(),
       clientVersion: version,

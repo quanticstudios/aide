@@ -187,20 +187,12 @@ function TurnGroupBlockContent({
       !group.items.some(
         (item) => item.kind === 'assistant-text' && item.text.trim(),
       ) ? (
-        <p
-          className="px-1 text-[13px] text-muted-foreground"
-          data-testid="empty-response"
-        >
-          (empty response)
-        </p>
-      ) : null}
-      {isLast && endedLabel ? (
         <div
           className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
-          data-testid="turn-ended"
+          data-testid="empty-response"
         >
           <span className="h-px flex-1 bg-[var(--border-soft)]" />
-          {endedLabel}
+          No response
           <span className="h-px flex-1 bg-[var(--border-soft)]" />
         </div>
       ) : null}
@@ -319,6 +311,16 @@ function TurnGroupBlockContent({
               </div>
             </details>
           ))}
+        </div>
+      ) : null}
+      {isLast && endedLabel ? (
+        <div
+          className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
+          data-testid="turn-ended"
+        >
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+          {endedLabel}
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
         </div>
       ) : null}
     </div>

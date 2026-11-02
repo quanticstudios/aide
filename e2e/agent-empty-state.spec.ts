@@ -173,9 +173,7 @@ test.describe('agent empty state', () => {
     const page = await openAgentPane(app)
 
     await sendPrompt(page, 'empty reply')
-    await expect(page.getByTestId('empty-response')).toHaveText(
-      '(empty response)',
-    )
+    await expect(page.getByTestId('empty-response')).toHaveText('No response')
     await expect(
       page.getByTestId('managed-content-assistant-text'),
     ).toHaveCount(0)

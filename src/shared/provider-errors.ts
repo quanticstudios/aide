@@ -32,20 +32,24 @@ export function classifyProviderError(
   )
 }
 
-/** The error a chat's banner shows: its last error with a known fix, or any failure the user did not cause by stopping the turn. */
+/** The error a chat's banner shows: its last error, unless it only reports the turn the user stopped. */
 export function threadError(
   snapshot: Pick<
     ManagedSessionSnapshot,
-    'lastError' | 'lastErrorKind' | 'turns'
+    'lastError' | 'lastErrorAt' | 'lastErrorKind' | 'turns'
   > | null,
 ): { kind: ManagedSessionErrorKind | null; message: string } | null {
   if (!snapshot?.lastError) return null
-  const kind =
-    snapshot.lastErrorKind ?? classifyProviderError(snapshot.lastError)
-  const lastState = snapshot.turns.at(-1)?.state
-  // why: pitwall reports a stopped turn as lastError "Turn interrupted", which is no failure.
-  if (!kind && (lastState === 'interrupted' || lastState === 'cancelled')) {
+  const last = snapshot.turns.at(-1)
+  // why: pitwall reports a stopped turn as a lastError stamped with the turn's end, which is no failure.
+  if (
+    (last?.state === 'interrupted' || last?.state === 'cancelled') &&
+    last.completedAt === snapshot.lastErrorAt
+  ) {
     return null
   }
-  return { kind, message: snapshot.lastError }
+  return {
+    kind: snapshot.lastErrorKind ?? classifyProviderError(snapshot.lastError),
+    message: snapshot.lastError,
+  }
 }
