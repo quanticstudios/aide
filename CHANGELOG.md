@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.0.4 (2026-11-02)
+
 - Split horizontally and Split vertically open their pane menu again, and
   picking Agent there adds an Agent pane instead of a Terminal.
 - Typing a URL into a Preview pane no longer crashes the pane.
