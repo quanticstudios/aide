@@ -14,7 +14,7 @@ import {
 } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-
+import { parseTurnDiffPatch } from '../shared/checkpoints'
 import type {
   AttachWorkspaceRequest,
   CreateWorkspaceRequest,
@@ -32,10 +32,10 @@ import type {
   WorkspaceGitMessageKind,
   WorkspaceGitMessageResult,
   WorkspaceGitMutationResult,
-  WorkspaceGitPullResult,
   WorkspaceGitPullRequest,
   WorkspaceGitPullRequestInput,
   WorkspaceGitPullRequestResult,
+  WorkspaceGitPullResult,
   WorkspaceGitRevertInput,
   WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
@@ -54,7 +54,6 @@ import type {
 } from '../shared/persistence'
 import { isLinkedWorktree } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
-import { parseTurnDiffPatch } from '../shared/checkpoints'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
@@ -2197,7 +2196,7 @@ export class GitWorkspaceService {
       return
     const ignored = `${relative[0] === '.worktrees' ? '.worktrees' : relative.join('/')}/`
     try {
-      await this.runGit(['check-ignore', '-q', ignored], repoRoot)
+      await this.runGit(['check-ignore', '-q', '--', ignored], repoRoot)
       return
     } catch (error) {
       if ((error as { code?: unknown }).code !== 1) throw error
@@ -2210,7 +2209,7 @@ export class GitWorkspaceService {
     const old = await readFile(excludePath, 'utf8').catch(() => '')
     await appendFile(
       excludePath,
-      `${old && !old.endsWith('\n') ? '\n' : ''}/${ignored}\n`,
+      `${old && !old.endsWith('\n') ? '\n' : ''}/${ignored.replace(/[\\*?[\]!# ]/g, '\\$&')}\n`,
     )
   }
 

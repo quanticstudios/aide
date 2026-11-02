@@ -3,6 +3,7 @@ import { closeSync, fstatSync, openSync, readdirSync } from 'node:fs'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import TOML from '@iarna/toml'
 import type { PitwallStatus } from '../shared/ipc'
 import { resolveExecutablePath } from './executable-resolution'
 import {
@@ -227,7 +228,7 @@ export async function findPitwall(
 
 /**
  * Turns pitwall's web listener on in its config.toml, which the daemon rereads every 2 seconds, then finds the daemon again.
- * @remarks The user asks for it on the setup card. It writes only a missing config.toml or one without a `[web]` table; a `[web]` the user wrote stays theirs, and the error says what to set in it.
+ * @remarks The user asks for it on the setup card. It writes only a missing config.toml or one that parses with no `web` key; a `[web]` the user wrote stays theirs, and the error says what to set in it.
  */
 export async function enablePitwallWeb(
   options: FindPitwallOptions,
@@ -243,7 +244,15 @@ export async function enablePitwallWeb(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
     throw error
   })
-  if (/^\s*(\[\s*web\s*\]|web\s*[.=])/m.test(old)) {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = TOML.parse(old)
+  } catch (error) {
+    throw new Error(
+      `${config} is not valid TOML (${(error as Error).message.split('\n')[0]}). Add the lines yourself.`,
+    )
+  }
+  if ('web' in parsed) {
     throw new Error(
       `${config} already has a [web] table. Set enabled = true in it.`,
     )

@@ -338,6 +338,35 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('excludes custom worktree paths literally, whatever characters they hold', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+    mkdirSync(path.join(repoRoot, 'nested', 'feature1'), { recursive: true })
+    writeFileSync(path.join(repoRoot, 'nested', 'feature1', 'mine.txt'), 'x\n')
+
+    for (const [branchName, worktreePath] of [
+      ['bracket', path.join(repoRoot, 'nested', 'feature[1]')],
+      ['scratch', path.join(repoRoot, '-scratch')],
+    ]) {
+      await service.createWorkspace({
+        baseBranch: 'main',
+        branchName,
+        name: branchName,
+        projectId: imported.projectId,
+        windowId: null,
+        worktreePath,
+      })
+    }
+
+    expect(
+      runGit(repoRoot, ['status', '--porcelain', '--untracked-files=all']),
+    ).toBe('?? nested/feature1/mine.txt')
+
+    database.close()
+  })
+
   it('creates a new branch worktree from the selected base branch', async () => {
     const repoRoot = createGitRepository()
     const database = createAideDatabase(':memory:')

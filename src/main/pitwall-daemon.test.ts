@@ -244,14 +244,31 @@ describe.skipIf(process.platform === 'win32')('enablePitwallWeb', () => {
     )
   })
 
-  it('leaves a [web] table the user wrote alone and says what to set', async () => {
+  it.each([
+    '[web]\nport = 4000\n',
+    '["web"]\nport = 4000\n',
+    "[ 'web' ]\nport = 4000\n",
+    '"web" = { enabled = false }\n',
+    'web.port = 4000\n',
+    '[web.extra]\nkey = 1\n',
+  ])('leaves the [web] the user wrote in %j alone and says what to set', async (mine) => {
     const { config, options } = setupWeb()
     mkdirSync(path.dirname(config), { recursive: true })
-    writeFileSync(config, '[web]\nport = 4000\n')
+    writeFileSync(config, mine)
     await expect(enablePitwallWeb(options)).rejects.toThrow(
       `${config} already has a [web] table. Set enabled = true in it.`,
     )
-    expect(readFileSync(config, 'utf8')).toBe('[web]\nport = 4000\n')
+    expect(readFileSync(config, 'utf8')).toBe(mine)
+  })
+
+  it('writes nothing into a config.toml it cannot read as TOML', async () => {
+    const { config, options } = setupWeb()
+    mkdirSync(path.dirname(config), { recursive: true })
+    writeFileSync(config, 'theme = \n')
+    await expect(enablePitwallWeb(options)).rejects.toThrow(
+      `${config} is not valid TOML`,
+    )
+    expect(readFileSync(config, 'utf8')).toBe('theme = \n')
   })
 })
 
