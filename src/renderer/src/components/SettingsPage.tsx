@@ -151,6 +151,13 @@ function JevThresholdInput({
   const placeholder = (gates[section] as unknown as Record<string, number>)[
     field
   ]
+  // why: saving per keystroke would store each valid prefix, so typing 0.907 saved 0.9 before the error showed.
+  function commit() {
+    setDraft(null)
+    if (draft === null || error) return
+    const next = draft.trim() === '' ? undefined : Number(draft)
+    if (next !== stored) onCommit(next)
+  }
   return (
     <span className="flex flex-col gap-1">
       <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
@@ -162,12 +169,10 @@ function JevThresholdInput({
           className="h-7 w-16 rounded-md border border-border bg-surface-3 px-2 text-[12px] tabular-nums text-foreground transition-colors placeholder:text-muted-foreground focus:border-primary disabled:opacity-50 aria-[invalid=true]:border-destructive"
           disabled={isDisabled}
           inputMode="decimal"
-          onBlur={() => setDraft(null)}
-          onChange={(event) => {
-            const next = event.target.value
-            setDraft(next)
-            if (jevGateThresholdError(gates, section, field, next)) return
-            onCommit(next.trim() === '' ? undefined : Number(next))
+          onBlur={commit}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit()
           }}
           placeholder={String(placeholder)}
           spellCheck={false}

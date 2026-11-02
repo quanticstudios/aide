@@ -107,4 +107,12 @@ describe('fontStack', () => {
     )
     expect(fontStack(' , ', 'x')).toBeNull()
   })
+
+  it('keeps generic keywords in any case and quotes a generic name written in quotes', async () => {
+    const { fontStack } = await loadPreference()
+    expect(fontStack('Fira Code, Monospace', 'x')).toBe(
+      '"Fira Code", monospace, x',
+    )
+    expect(fontStack('"monospace"', 'x')).toBe('"monospace", x')
+  })
 })

@@ -89,13 +89,17 @@ const GENERIC_FAMILIES = new Set([
 export function fontStack(family: string, fallback: string): string | null {
   const names = family
     .split(',')
-    .map((name) => name.trim().replace(/^["']|["']$/g, ''))
-    .filter(Boolean)
+    .map((name) => name.trim())
+    .filter((name) => name.replace(/["']/g, '') !== '')
   if (names.length === 0) return null
   return [
-    ...names.map((name) =>
-      GENERIC_FAMILIES.has(name) ? name : JSON.stringify(name),
-    ),
+    ...names.map((name) => {
+      // warn: CSS generic keywords are case-insensitive, and a quoted one is a family name, not the keyword.
+      const keyword = name.toLowerCase()
+      return GENERIC_FAMILIES.has(keyword)
+        ? keyword
+        : JSON.stringify(name.replace(/^["']|["']$/g, ''))
+    }),
     fallback,
   ].join(', ')
 }

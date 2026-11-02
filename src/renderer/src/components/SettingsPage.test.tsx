@@ -185,7 +185,9 @@ describe('SettingsPage Jev gate thresholds', () => {
     )
     if (!input) throw new Error('threshold input missing')
 
-    typeInto(input, '0.907')
+    for (const keystrokes of ['0', '0.', '0.9', '0.90', '0.907']) {
+      typeInto(input, keystrokes)
+    }
 
     expect(input.value).toBe('0.907')
     expect(input.getAttribute('aria-invalid')).toBe('true')
@@ -199,7 +201,7 @@ describe('SettingsPage Jev gate thresholds', () => {
     expect(host.textContent).not.toContain('Keep this at or below')
   })
 
-  it('saves a valid threshold as typed', () => {
+  it('saves a valid threshold once, on blur', () => {
     const { host, onUpdateGlobalJevGates } = renderSettings('jev-gate-settings')
     const input = host.querySelector<HTMLInputElement>(
       'input[aria-label="Lane routing: High risk at or above"]',
@@ -207,9 +209,34 @@ describe('SettingsPage Jev gate thresholds', () => {
     if (!input) throw new Error('threshold input missing')
 
     typeInto(input, '0.7')
+    expect(onUpdateGlobalJevGates).not.toHaveBeenCalled()
 
-    expect(onUpdateGlobalJevGates).toHaveBeenLastCalledWith({
+    act(() => {
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    })
+    expect(onUpdateGlobalJevGates).toHaveBeenCalledOnce()
+    expect(onUpdateGlobalJevGates).toHaveBeenCalledWith({
       laneRouting: { highAbove: 0.7 },
+    })
+  })
+
+  it('saves a valid threshold on Enter', () => {
+    const { host, onUpdateGlobalJevGates } = renderSettings('jev-gate-settings')
+    const input = host.querySelector<HTMLInputElement>(
+      'input[aria-label="Tool call gate: Allow below"]',
+    )
+    if (!input) throw new Error('threshold input missing')
+
+    typeInto(input, '0.2')
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }),
+      )
+    })
+
+    expect(onUpdateGlobalJevGates).toHaveBeenCalledOnce()
+    expect(onUpdateGlobalJevGates).toHaveBeenCalledWith({
+      toolGate: { allowBelow: 0.2 },
     })
   })
 })
