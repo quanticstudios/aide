@@ -1,3 +1,4 @@
+import { getOrderedWorkspaces } from './workspace-shortcuts'
 import type {
   PersistenceSnapshot,
   WorkspaceRecord,
@@ -257,6 +258,50 @@ export function applyWorkspaceSelection(
   )
 }
 
+/** Selects `paneId` on `surfaceId`, switching to the workspace and project that own it. */
+export function applyPaneLocation(
+  snapshot: PersistenceSnapshot,
+  state: SpatialNavigationState,
+  workspaceId: string,
+  surfaceId: string,
+  paneId: string,
+  getSurfaceIdsForWorkspace: SurfaceResolver,
+  getPaneIdsForSurface: PaneResolver,
+): SpatialNavigationState {
+  const workspace = snapshot.workspaces.find(
+    (candidate) => candidate.id === workspaceId,
+  )
+
+  if (!workspace) {
+    return state
+  }
+
+  return resolveSpatialNavigationState(
+    snapshot,
+    {
+      ...state,
+      activePaneId: paneId,
+      activeProjectId: workspace.projectId,
+      activeSurfaceId: surfaceId,
+      activeWorkspaceId: workspace.id,
+      rememberedPaneIdsBySurface: {
+        ...state.rememberedPaneIdsBySurface,
+        [surfaceId]: paneId,
+      },
+      rememberedSurfaceIdsByWorkspace: {
+        ...state.rememberedSurfaceIdsByWorkspace,
+        [workspace.id]: surfaceId,
+      },
+      rememberedWorkspaceIdsByProject: {
+        ...state.rememberedWorkspaceIdsByProject,
+        [workspace.projectId]: workspace.id,
+      },
+    },
+    getSurfaceIdsForWorkspace,
+    getPaneIdsForSurface,
+  )
+}
+
 export function applySurfaceSelection(
   snapshot: PersistenceSnapshot,
   state: SpatialNavigationState,
@@ -320,15 +365,16 @@ export function moveRelativeWorkspace(
   direction: -1 | 1,
   getSurfaceIdsForWorkspace: SurfaceResolver,
   getPaneIdsForSurface: PaneResolver,
+  scope: 'project' | 'all' = 'project',
 ): SpatialNavigationState {
   if (!state.activeProjectId || !state.activeWorkspaceId) {
     return state
   }
 
-  const projectWorkspaces = getProjectWorkspaces(
-    snapshot,
-    state.activeProjectId,
-  )
+  const projectWorkspaces =
+    scope === 'all'
+      ? getOrderedWorkspaces(snapshot.projects, snapshot.workspaces)
+      : getProjectWorkspaces(snapshot, state.activeProjectId)
 
   if (projectWorkspaces.length === 0) {
     return state

@@ -49,3 +49,13 @@ export function resolveProjectShortcutTarget(
 
   return projects[index] ?? null
 }
+
+/** Whether the sidebar's Ctrl+N project hints show after `event`: only while Ctrl or Cmd is held alone. */
+export function shouldShowProjectHints(
+  event: Pick<KeyboardEvent, 'key' | 'type'>,
+): boolean {
+  return (
+    event.type === 'keydown' &&
+    (event.key === 'Control' || event.key === 'Meta')
+  )
+}
