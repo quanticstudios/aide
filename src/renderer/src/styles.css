@@ -1252,6 +1252,13 @@ button:active:not(:disabled),
 
 /* ── Global focus ring ────────────────────────────────────────────────── */
 
+/* why: transition-colors also animates outline-color, so a ring would fade in from currentColor on every keyboard focus. */
+@layer base {
+  * {
+    outline-color: var(--primary);
+  }
+}
+
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
