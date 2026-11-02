@@ -44,7 +44,10 @@ function RewindChangeList({
           <span className="w-16 shrink-0 uppercase text-muted-foreground">
             {change.status}
           </span>
-          <span className="min-w-0 truncate" title={getRewindChangeLabel(change)}>
+          <span
+            className="min-w-0 truncate"
+            title={getRewindChangeLabel(change)}
+          >
             {getRewindChangeLabel(change)}
           </span>
           {isLater?.(change) ? (

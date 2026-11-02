@@ -1015,9 +1015,9 @@ describe('DaemonTransport', () => {
       { path: 'index.ts', status: 'modified' },
     ])
     await transport.rewind(preview.previewId, 'code-and-conversation')
-    expect(daemon.commands.find((frame) => frame.type === 'rewind')).toMatchObject(
-      { keepFiles: false, turnOnly: true },
-    )
+    expect(
+      daemon.commands.find((frame) => frame.type === 'rewind'),
+    ).toMatchObject({ keepFiles: false, turnOnly: true })
   })
 
   it('resubscribes the session list after a reconnect', async () => {
