@@ -77,7 +77,9 @@ function SettingSwitch({
     <div className={className}>
       <Switch
         aria-describedby={descriptionId}
-        isDisabled={isDisabled || isPending}
+        isDisabled={isDisabled}
+        // why: read-only, not disabled, while saving, so the switch keeps keyboard focus for the next toggle.
+        isReadOnly={isPending}
         isSelected={isSelected}
         onChange={onChange}
       >

@@ -59,4 +59,60 @@ describe('UpdateModal', () => {
       healthReportingEnabled: false,
     })
   })
+
+  it('keeps the health switch focused and enabled while its change saves', async () => {
+    const onUpdatePreferences = vi.fn(() => new Promise<void>(() => {}))
+    const noop = vi.fn(async () => {})
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() =>
+      root.render(
+        <UpdateModal
+          actionError={null}
+          isOpen
+          onCheck={noop}
+          onClearActionError={vi.fn()}
+          onConfirmRestart={noop}
+          onDownload={noop}
+          onOpenChange={vi.fn()}
+          onRequestRestart={noop}
+          onRetry={noop}
+          onSnooze={noop}
+          onUpdatePreferences={onUpdatePreferences}
+          preferences={{
+            automaticDownloads: true,
+            healthDisclosureAcknowledged: true,
+            healthReportingEnabled: false,
+            revision: 1,
+            snoozedUntil: null,
+          }}
+          presentationNow={new Date('2026-11-02T12:00:00Z')}
+          restartStatus={null}
+          snapshot={null}
+        />,
+      ),
+    )
+    unmount = () => {
+      act(() => root.unmount())
+      host.remove()
+    }
+
+    const toggle = [
+      ...document.querySelectorAll<HTMLInputElement>('input[role="switch"]'),
+    ].find((input) =>
+      input
+        .closest('label')
+        ?.textContent?.includes('Share privacy-bounded update health reports'),
+    )
+    if (!toggle) throw new Error('health switch missing')
+    toggle.focus()
+    await act(async () => toggle.click())
+
+    expect(onUpdatePreferences).toHaveBeenCalledWith({
+      healthReportingEnabled: true,
+    })
+    expect(toggle.disabled).toBe(false)
+    expect(document.activeElement).toBe(toggle)
+  })
 })
