@@ -1,8 +1,10 @@
 import {
   chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -11,6 +13,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  enablePitwallWeb,
   findPitwall,
   getPitwallInstallPaths,
   isPitwallTooOld,
@@ -47,8 +50,10 @@ function setup(version: string | null) {
 echo "$@" >> "${root}/calls"
 case "$1" in
   --version) echo "pitwall ${version}" ;;
+  config) echo "${root}/config/pitwall/config.toml" ;;
   daemon)
     echo $$ > "${root}/daemon.pid"
+    ls -l /proc/$$/fd > "${root}/daemon-fds" 2>/dev/null
     printf '{"url":"ws://127.0.0.1:41234/ws","token":"${TOKEN}","pid":%s}' $$ > "${state}/pitwall/web.json"
     exec sleep 30 ;;
 esac
@@ -158,6 +163,43 @@ describe.skipIf(process.platform === 'win32')('findPitwall', () => {
     expect(calls()).toEqual(['--version'])
   })
 
+  it.skipIf(process.platform !== 'linux')(
+    'puts /dev/null over every descriptor aide has open, so the daemon keeps none of them',
+    async () => {
+      const { options } = setup('v0.1.7')
+      // why: Electron leaves some descriptors, DevTools' port among them, without close-on-exec; an open file stands in for one.
+      const open = openSync(path.join(root, 'devtools-port'), 'w')
+      try {
+        expect(await findPitwall(options)).toMatchObject({ status: 'ready' })
+      } finally {
+        closeSync(open)
+      }
+      const fds = readFileSync(path.join(root, 'daemon-fds'), 'utf8')
+      expect(fds).toMatch(new RegExp(` ${open} -> /dev/null$`, 'm'))
+      expect(fds).not.toContain('devtools-port')
+    },
+  )
+
+  it('reports why the daemon it starts exits, and where pitwall logged it', async () => {
+    const { options } = setup('v0.1.7')
+    writeFileSync(
+      path.join(root, 'bin', 'pitwall'),
+      `#!/bin/sh
+case "$1" in
+  --version) echo "pitwall v0.1.7" ;;
+  daemon) echo "pitwall: listen unix /run/x/pitwall.sock: bind: invalid argument" >&2; exit 1 ;;
+esac
+`,
+    )
+    const crashLog = path.join(root, 'state', 'pitwall', 'crash.log')
+    writeFileSync(crashLog, 'pitwall: an older failure\n')
+    expect(await findPitwall(options)).toEqual({
+      status: 'failed',
+      log: crashLog,
+      reason: 'listen unix /run/x/pitwall.sock: bind: invalid argument',
+    })
+  })
+
   it('reports no endpoint when the daemon it starts publishes none', async () => {
     const { options } = setup('v0.1.7')
     const script = path.join(root, 'bin', 'pitwall')
@@ -166,6 +208,50 @@ describe.skipIf(process.platform === 'win32')('findPitwall', () => {
     expect(await findPitwall({ ...options, timeoutMs: 300 })).toEqual({
       status: 'noEndpoint',
     })
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('enablePitwallWeb', () => {
+  /** A fake pitwall whose daemon, like pitwall's, writes web.json only with [web] enabled = true in its config. */
+  function setupWeb() {
+    const fake = setup('v0.1.7')
+    const config = path.join(root, 'config', 'pitwall', 'config.toml')
+    const script = path.join(root, 'bin', 'pitwall')
+    writeFileSync(
+      script,
+      readFileSync(script, 'utf8').replace(
+        '  daemon)\n',
+        `  daemon)\n    grep -q '^enabled = true' "${config}" 2>/dev/null || exit 0\n`,
+      ),
+    )
+    return { ...fake, config, options: { ...fake.options, timeoutMs: 500 } }
+  }
+
+  it('writes [web] enabled = true into a missing config.toml and connects', async () => {
+    const { config, options } = setupWeb()
+    expect(await findPitwall(options)).toEqual({ status: 'noEndpoint' })
+    expect(await enablePitwallWeb(options)).toMatchObject({ status: 'ready' })
+    expect(readFileSync(config, 'utf8')).toBe('[web]\nenabled = true\n')
+  })
+
+  it("appends the table to a config.toml that has none and keeps the user's lines", async () => {
+    const { config, options } = setupWeb()
+    mkdirSync(path.dirname(config), { recursive: true })
+    writeFileSync(config, '# mine\ntheme = "aide-dark"')
+    expect(await enablePitwallWeb(options)).toMatchObject({ status: 'ready' })
+    expect(readFileSync(config, 'utf8')).toBe(
+      '# mine\ntheme = "aide-dark"\n\n[web]\nenabled = true\n',
+    )
+  })
+
+  it('leaves a [web] table the user wrote alone and says what to set', async () => {
+    const { config, options } = setupWeb()
+    mkdirSync(path.dirname(config), { recursive: true })
+    writeFileSync(config, '[web]\nport = 4000\n')
+    await expect(enablePitwallWeb(options)).rejects.toThrow(
+      `${config} already has a [web] table. Set enabled = true in it.`,
+    )
+    expect(readFileSync(config, 'utf8')).toBe('[web]\nport = 4000\n')
   })
 })
 

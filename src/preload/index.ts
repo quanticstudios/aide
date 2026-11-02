@@ -120,6 +120,7 @@ const aideApi: AideApi = {
   getRuntimeSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.getRuntimeSnapshot),
   isExistingInstall: process.argv.includes(EXISTING_INSTALL_ARGUMENT),
   getPitwallEndpoint: () => ipcRenderer.invoke(IPC_CHANNELS.getPitwallEndpoint),
+  enablePitwallWeb: () => ipcRenderer.invoke(IPC_CHANNELS.enablePitwallWeb),
   reportDaemonSession: (sessionId, snapshot) =>
     ipcRenderer.invoke(IPC_CHANNELS.reportDaemonSession, sessionId, snapshot),
   takeImportedOpenSessions: () =>

@@ -155,6 +155,7 @@ export const IPC_CHANNELS = {
   getTaskLibrary: 'tasks:list',
   getTaskTranscript: 'tasks:transcript',
   getPitwallEndpoint: 'pitwall:get-endpoint',
+  enablePitwallWeb: 'pitwall:enable-web',
   reportDaemonSession: 'pitwall:report-session',
   takeImportedOpenSessions: 'pitwall:take-imported-open-sessions',
   updateTaskMetadata: 'tasks:update',
@@ -225,6 +226,8 @@ export type PitwallStatus =
     }
   /** pitwall runs, or was started, but published no endpoint: its web listener is off. */
   | { readonly status: 'noEndpoint' }
+  /** The daemon aide started exited at once; `reason` is the last line it printed to `log`, pitwall's crash.log. */
+  | { readonly status: 'failed'; readonly log: string; readonly reason: string }
 
 export interface AideApi {
   getPersistedStateRecovery: () => Promise<PersistedStateRecovery | null>
@@ -376,6 +379,8 @@ export interface AideApi {
   isExistingInstall?: boolean
   /** The daemon's endpoint and token, for the daemon transport only; starts the daemon when none runs. */
   getPitwallEndpoint: () => Promise<PitwallStatus>
+  /** Turns on pitwall's web listener in its config.toml, at the user's request, and finds the daemon again. */
+  enablePitwallWeb: () => Promise<PitwallStatus>
   /** Hands main a pitwall chat's snapshot under aide's ids, or null once it is gone, for sidebar activity, notifications, badge and unread. */
   reportDaemonSession: (
     sessionId: string,

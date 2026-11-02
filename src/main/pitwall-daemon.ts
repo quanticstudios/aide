@@ -1,5 +1,6 @@
-import { execFile, spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { execFile, type StdioOptions, spawn } from 'node:child_process'
+import { closeSync, fstatSync, openSync, readdirSync } from 'node:fs'
+import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { PitwallStatus } from '../shared/ipc'
@@ -94,16 +95,100 @@ async function isDaemonRunning(options: FindPitwallOptions): Promise<boolean> {
 }
 
 /**
+ * The daemon's stdio: its output to `log`, and /dev/null over every other descriptor aide has open.
+ * @remarks Electron leaves some descriptors without close-on-exec, DevTools' port and Chromium's locks among them, and a detached daemon would keep them after aide quits. Windows passes only the handles it is given.
+ */
+function daemonStdio(log: number): {
+  devNull: number | null
+  stdio: StdioOptions
+} {
+  const stdio: (number | 'ignore')[] = ['ignore', log, log]
+  if (process.platform === 'win32') return { devNull: null, stdio }
+  let open: number[] = []
+  for (const dir of ['/proc/self/fd', '/dev/fd']) {
+    try {
+      open = readdirSync(dir).map(Number)
+      break
+    } catch {}
+  }
+  const devNull = openSync('/dev/null', 'r+')
+  for (const fd of open) if (fd > 2) stdio[fd] = devNull
+  return { devNull, stdio: Array.from(stdio, (entry) => entry ?? 'ignore') }
+}
+
+/**
+ * Starts `pitwall daemon` detached, its output in pitwall's crash.log as pitwall's own window does it.
+ * @returns A promise of the reason the daemon gave if it fails within its first seconds; it never settles otherwise.
+ */
+async function startDaemon(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  stateDir: string,
+): Promise<string> {
+  const log = path.join(stateDir, 'crash.log')
+  await mkdir(stateDir, { recursive: true })
+  const logFd = openSync(log, 'a')
+  const start = fstatSync(logFd).size
+  const { devNull, stdio } = daemonStdio(logFd)
+  let failed: (reason: string) => void = () => undefined
+  const failure = new Promise<string>((resolve) => {
+    failed = resolve
+  })
+  try {
+    const daemon = spawn(bin, ['daemon'], {
+      detached: true,
+      env,
+      stdio,
+      windowsHide: true,
+    })
+    daemon.on('error', (error) => failed(error.message))
+    // why: an exit 0 is a daemon that lost the socket lock to another starting one, which publishes the endpoint.
+    daemon.on('exit', async (code, signal) => {
+      if (code === 0) return
+      const output = await readFile(log, 'utf8').catch(() => '')
+      const reason = output
+        .slice(start)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1)
+      failed(
+        reason?.replace(/^pitwall:\s*/, '') ??
+          `pitwall daemon exited with ${signal ?? `code ${code}`}`,
+      )
+    })
+    daemon.unref()
+  } finally {
+    closeSync(logFd)
+    if (devNull !== null) closeSync(devNull)
+  }
+  return failure
+}
+
+/** Polls `web.json` until it names a live daemon, or for `timeoutMs`. */
+async function waitForEndpoint(file: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const endpoint = await readPitwallEndpoint(file)
+    if (endpoint) return endpoint
+  }
+  return null
+}
+
+/**
  * Finds pitwall's daemon, starting it when none publishes a live endpoint.
  * @remarks Starts `pitwall daemon` detached, as pitwall's own window does, only when no daemon holds the socket lock, and never stops one.
  */
 export async function findPitwall(
   options: FindPitwallOptions,
 ): Promise<PitwallStatus> {
-  const file = path.join(
-    getPitwallStateDir(options.env, options.platform, options.home),
-    'web.json',
+  const stateDir = getPitwallStateDir(
+    options.env,
+    options.platform,
+    options.home,
   )
+  const file = path.join(stateDir, 'web.json')
   const running = await readPitwallEndpoint(file)
   if (running) return { status: 'ready', endpoint: running }
 
@@ -122,19 +207,57 @@ export async function findPitwall(
   }
 
   if (await isDaemonRunning(options)) return { status: 'noEndpoint' }
-  const daemon = spawn(bin, ['daemon'], {
-    detached: true,
-    env: options.env,
-    stdio: 'ignore',
-    windowsHide: true,
-  })
-  daemon.on('error', () => undefined)
-  daemon.unref()
-  const deadline = Date.now() + (options.timeoutMs ?? 5000)
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    const endpoint = await readPitwallEndpoint(file)
-    if (endpoint) return { status: 'ready', endpoint }
+  const found = await Promise.race([
+    startDaemon(bin, options.env, stateDir).then((reason) => ({ reason })),
+    waitForEndpoint(file, options.timeoutMs ?? 5000).then((endpoint) => ({
+      endpoint,
+    })),
+  ])
+  if ('reason' in found) {
+    return {
+      status: 'failed',
+      log: path.join(stateDir, 'crash.log'),
+      reason: found.reason,
+    }
   }
-  return { status: 'noEndpoint' }
+  return found.endpoint
+    ? { status: 'ready', endpoint: found.endpoint }
+    : { status: 'noEndpoint' }
+}
+
+/**
+ * Turns pitwall's web listener on in its config.toml, which the daemon rereads every 2 seconds, then finds the daemon again.
+ * @remarks The user asks for it on the setup card. It writes only a missing config.toml or one without a `[web]` table; a `[web]` the user wrote stays theirs, and the error says what to set in it.
+ */
+export async function enablePitwallWeb(
+  options: FindPitwallOptions,
+): Promise<PitwallStatus> {
+  const bin = await resolvePitwall(options)
+  if (!bin) return { status: 'missing', platform: options.platform }
+  const { stdout } = await execFileAsync(bin, ['config', 'path'], {
+    env: options.env,
+    timeout: 5000,
+  })
+  const config = stdout.trim()
+  const old = await readFile(config, 'utf8').catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
+    throw error
+  })
+  if (/^\s*(\[\s*web\s*\]|web\s*[.=])/m.test(old)) {
+    throw new Error(
+      `${config} already has a [web] table. Set enabled = true in it.`,
+    )
+  }
+  await mkdir(path.dirname(config), { recursive: true })
+  await appendFile(
+    config,
+    `${old && !old.endsWith('\n') ? '\n' : ''}${old ? '\n' : ''}[web]\nenabled = true\n`,
+  )
+  const deadline = Date.now() + (options.timeoutMs ?? 5000)
+  let status = await findPitwall(options)
+  while (status.status === 'noEndpoint' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    status = await findPitwall(options)
+  }
+  return status
 }

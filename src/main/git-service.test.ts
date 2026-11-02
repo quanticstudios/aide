@@ -307,6 +307,37 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('keeps worktrees inside the repo out of its git status', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    for (const worktreePath of [
+      path.join(repoRoot, '.worktrees', 'feature-one'),
+      path.join(repoRoot, '.worktrees', 'feature-two'),
+      path.join(repoRoot, 'nested', 'feature-three'),
+    ]) {
+      await service.createWorkspace({
+        baseBranch: 'main',
+        branchName: path.basename(worktreePath),
+        name: path.basename(worktreePath),
+        projectId: imported.projectId,
+        windowId: null,
+        worktreePath,
+      })
+    }
+
+    expect(runGit(repoRoot, ['status', '--porcelain'])).toBe('')
+    expect(
+      readFileSync(path.join(repoRoot, '.git', 'info', 'exclude'), 'utf8')
+        .split('\n')
+        .filter((line) => line.startsWith('/')),
+    ).toEqual(['/.worktrees/', '/nested/feature-three/'])
+
+    database.close()
+  })
+
   it('creates a new branch worktree from the selected base branch', async () => {
     const repoRoot = createGitRepository()
     const database = createAideDatabase(':memory:')

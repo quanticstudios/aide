@@ -27,6 +27,7 @@ import {
   EXISTING_INSTALL_ARGUMENT,
   IPC_CHANNELS,
   type PitwallEndpoint,
+  type PitwallStatus,
 } from '../shared/ipc'
 import type { ManagedSessionSnapshot } from '../shared/managed-session'
 import type {
@@ -75,7 +76,7 @@ import {
   resetPersistedState,
   restoreKnownGoodPersistedState,
 } from './persistence-recovery'
-import { findPitwall } from './pitwall-daemon'
+import { enablePitwallWeb, findPitwall } from './pitwall-daemon'
 import { type PitwallJev, syncPitwallJev } from './pitwall-jev'
 import { allowPitwallOrigin } from './pitwall-endpoint'
 import { writePlanFile } from './plan-file'
@@ -857,8 +858,10 @@ function registerIpcHandlers(): void {
     previewManager.list(),
   )
   ipcMain.handle(IPC_CHANNELS.getRuntimeSnapshot, () => createRuntimeSnapshot())
-  ipcMain.handle(IPC_CHANNELS.getPitwallEndpoint, async () => {
-    const found = await findPitwall({
+  const usePitwall = async (
+    find: typeof findPitwall,
+  ): Promise<PitwallStatus> => {
+    const found = await find({
       env: process.env,
       home: homedir(),
       platform: process.platform,
@@ -869,7 +872,11 @@ function registerIpcHandlers(): void {
     await syncJevToPitwall()
     if (found.status === 'ready') startSessionImport(found.endpoint)
     return found
-  })
+  }
+  ipcMain.handle(IPC_CHANNELS.getPitwallEndpoint, () => usePitwall(findPitwall))
+  ipcMain.handle(IPC_CHANNELS.enablePitwallWeb, () =>
+    usePitwall(enablePitwallWeb),
+  )
   ipcMain.handle(IPC_CHANNELS.getUpdateSnapshot, (event) => {
     requireTrustedRenderer(event)
     return updateManager.getSnapshot()

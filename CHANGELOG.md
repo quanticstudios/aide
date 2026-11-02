@@ -37,6 +37,25 @@
 - Removing a skill chip clears its notice, and a file mention at the end of the
   draft leaves no trailing space.
 - The answer field of an input request no longer says to leave it blank.
+- When pitwall's web listener is off, the setup card offers Turn on for aide,
+  which adds `[web] enabled = true` to pitwall's config.toml and connects. A
+  fresh install no longer needs a hand edit.
+- When the pitwall daemon aide starts exits at once, the card says pitwall
+  could not start, with its error and the path of its crash.log, instead of
+  asking you to edit config.toml.
+- The daemon aide starts no longer holds aide's open files and ports, such as
+  the DevTools port, after aide quits.
+- New worktrees inside the repository are added to `.git/info/exclude`, so they
+  no longer show as an untracked change.
+- Safe mode no longer tries to reach pitwall, which filled the log with errors.
+- A new chat says before your first message when Jev needs a TypeSafe key or
+  workspace permission, with a link to Settings.
+- The pitwall setup card sits below the top bar instead of covering its
+  buttons.
+- Safe mode marks Restore as the main action and shows Reset in its warning
+  color.
+- The workspace setup log opens under the status line, so Retry setup stays
+  beside it.
 
 ## 0.0.3 (2026-11-01)
 

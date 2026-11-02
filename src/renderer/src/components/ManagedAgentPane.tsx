@@ -987,6 +987,7 @@ export default function ManagedAgentPane({
           ) : (
             <ManagedEmptyState
               model={selectedModel}
+              onOpenJevSettings={onOpenJevSettings}
               onPickPrompt={handlePickRecentPrompt}
               providerLabel={providerLabel}
               sessionId={sessionId}

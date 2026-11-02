@@ -3,17 +3,20 @@ import { useEffect, useState } from 'react'
 import type { WorkspaceRecord } from '../../../shared/persistence'
 import { useWorkspaceGitStatus } from '../hooks/useWorkspaceGitStatus'
 import { getSessionTransport } from '../lib/session-transport'
+import { JevFirstRunHint } from './JevSetup'
 
 const RECENT_PROMPT_LIMIT = 3
 
 export default function ManagedEmptyState({
   model,
+  onOpenJevSettings,
   onPickPrompt,
   providerLabel,
   sessionId,
   workspace,
 }: {
   readonly model: string | undefined
+  readonly onOpenJevSettings: (trigger: HTMLElement) => void
   readonly onPickPrompt: (text: string) => void
   readonly providerLabel: string
   readonly sessionId: string
@@ -71,6 +74,10 @@ export default function ManagedEmptyState({
           {model ? ` · ${model}` : ''}
         </p>
       </div>
+      <JevFirstRunHint
+        onOpenSettings={onOpenJevSettings}
+        workspaceId={workspace.id}
+      />
       {recentPrompts.length > 0 ? (
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">

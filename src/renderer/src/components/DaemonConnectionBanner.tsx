@@ -21,9 +21,11 @@ export default function DaemonConnectionBanner({
   )
   if (connection.status === 'connected') return null
   if (connection.status === 'unavailable') {
+    const api = typeof window === 'undefined' ? undefined : window.aide
     return (
       <PitwallSetupCard
         onCheckAgain={transport.checkAgain}
+        onTurnOn={api ? () => api.enablePitwallWeb() : undefined}
         pitwall={connection.pitwall}
       />
     )

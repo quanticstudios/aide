@@ -422,4 +422,4 @@ A workspace row's background also reports agent activity. Error gets a 3% `--acc
 
 Focus is a 2px `--primary` outline with a 1px offset and `--radius-xs` corners, on `:focus-visible` only. Text inputs skip the outline and show focus through the caret (`--primary-on-dark`) and their container's edge. Selected text gets a 28% tint of `--accent-blue`.
 
-The persisted-state recovery screen (`.recovery-*` classes at the top of styles.css) reads the canvas, the surface ladder, `--border-strong`, `--accent-yellow` and `--accent-red`, so it follows the palette like everything else.
+The persisted-state recovery screen (`.recovery-*` classes at the top of styles.css) reads the canvas, `--surface` for its card, the surface ladder, `--border` and `--border-strong`, `--primary` for Restore, `--accent-yellow` and `--accent-red`, so it follows the palette like everything else.

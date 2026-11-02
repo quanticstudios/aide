@@ -1,6 +1,7 @@
 import { version } from '../../../../package.json'
 import type { TurnCheckpointDiff } from '../../../shared/checkpoints'
 import type { AideApi } from '../../../shared/ipc'
+import type { PersistedStateRecovery } from '../../../shared/recovery'
 import { createDaemonTransport, type DaemonTransport } from './daemon-transport'
 import { setSessionTransport } from './session-transport'
 
@@ -126,4 +127,16 @@ export function initializeSessionBackend(): void {
     })
   }
   setSessionTransport(daemon)
+}
+
+/**
+ * Asks main whether saved data needs recovery, and starts the session backend only when it does not.
+ * @remarks Safe mode registers no pitwall handlers, so a transport started there fails every connect.
+ */
+export async function startAfterRecoveryCheck(
+  api: AideApi,
+): Promise<PersistedStateRecovery | null> {
+  const recovery = await api.getPersistedStateRecovery()
+  if (!recovery) initializeSessionBackend()
+  return recovery
 }
