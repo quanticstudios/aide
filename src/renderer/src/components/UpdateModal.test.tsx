@@ -10,7 +10,7 @@ let unmount = () => {}
 afterEach(() => unmount())
 
 describe('UpdateModal', () => {
-  it('records only the acknowledgement when Acknowledge is pressed', async () => {
+  it('leaves health reporting off when Acknowledge is pressed', async () => {
     const onUpdatePreferences = vi.fn(async () => {})
     const noop = vi.fn(async () => {})
     const host = document.createElement('div')
@@ -33,7 +33,7 @@ describe('UpdateModal', () => {
           preferences={{
             automaticDownloads: true,
             healthDisclosureAcknowledged: false,
-            healthReportingEnabled: false,
+            healthReportingEnabled: true,
             revision: 1,
             snoozedUntil: null,
           }}
@@ -56,6 +56,7 @@ describe('UpdateModal', () => {
 
     expect(onUpdatePreferences).toHaveBeenCalledWith({
       healthDisclosureAcknowledged: true,
+      healthReportingEnabled: false,
     })
   })
 })

@@ -303,14 +303,11 @@ export default function UpdateModal({
                     isPending={pendingAction === 'disclosure'}
                     onPress={() =>
                       void runAction('disclosure', () =>
-                        isHealthAcknowledged
-                          ? onUpdatePreferences({
-                              healthDisclosureAcknowledged: false,
-                              healthReportingEnabled: false,
-                            })
-                          : onUpdatePreferences({
-                              healthDisclosureAcknowledged: true,
-                            }),
+                        // why: reporting defaults to enabled behind the acknowledgement, so acknowledging alone would start sharing.
+                        onUpdatePreferences({
+                          healthDisclosureAcknowledged: !isHealthAcknowledged,
+                          healthReportingEnabled: false,
+                        }),
                       )
                     }
                     size="sm"
