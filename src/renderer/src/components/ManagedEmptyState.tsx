@@ -8,6 +8,7 @@ import { JevFirstRunHint } from './JevSetup'
 const RECENT_PROMPT_LIMIT = 3
 
 export default function ManagedEmptyState({
+  jevRefused,
   model,
   onOpenJevSettings,
   onPickPrompt,
@@ -15,6 +16,8 @@ export default function ManagedEmptyState({
   sessionId,
   workspace,
 }: {
+  /** A send was refused for Jev, so the error banner already says what the hint would. */
+  readonly jevRefused: boolean
   readonly model: string | undefined
   readonly onOpenJevSettings: (trigger: HTMLElement) => void
   readonly onPickPrompt: (text: string) => void
@@ -74,10 +77,12 @@ export default function ManagedEmptyState({
           {model ? ` · ${model}` : ''}
         </p>
       </div>
-      <JevFirstRunHint
-        onOpenSettings={onOpenJevSettings}
-        workspaceId={workspace.id}
-      />
+      {jevRefused ? null : (
+        <JevFirstRunHint
+          onOpenSettings={onOpenJevSettings}
+          workspaceId={workspace.id}
+        />
+      )}
       {recentPrompts.length > 0 ? (
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">
