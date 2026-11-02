@@ -8,7 +8,7 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import type { UpdatePresentation } from '../lib/update-presentation'
-import TopBar, { PaneActionBar } from './TopBar'
+import TopBar, { PaneActionBar, paneStripScrollLeft } from './TopBar'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
@@ -99,19 +99,6 @@ describe('TopBar', () => {
     expect(isDisabled('Grow pane')).toBe(false)
   })
 
-  it('scrolls the active pane tab into view when it changes', async () => {
-    const scrolled: string[] = []
-    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (
-      this: Element,
-    ) {
-      scrolled.push(this.textContent ?? '')
-    })
-    await renderTopBar({ activeSurfaceId: 'surface-0' })
-    await renderTopBar({ activeSurfaceId: 'surface-2' })
-    expect(scrolled.at(-1)).toContain('Preview target')
-    vi.restoreAllMocks()
-  })
-
   it('names the project before the workspace when asked', async () => {
     await renderTopBar({ showProjectName: true })
     const heading = document.querySelector('[data-testid="workspace-heading"]')
@@ -199,5 +186,35 @@ describe('PaneActionBar', () => {
 
     await act(async () => root.unmount())
     container.remove()
+  })
+})
+
+describe('paneStripScrollLeft', () => {
+  // Six 100px tabs 4px apart, starting after the strip's 16px start inset, in a 300px strip.
+  const tabs = [0, 1, 2, 3, 4, 5].map((index) => ({
+    left: 16 + index * 104,
+    width: 100,
+  }))
+  const reveal = (activeIndex: number, scrollLeft: number) =>
+    paneStripScrollLeft(tabs, activeIndex, {
+      endInset: 24,
+      scrollLeft,
+      startInset: 16,
+      viewWidth: 300,
+    })
+
+  it('starts the strip on a tab when revealing a tab on the right', () => {
+    const left = reveal(5, 0)
+    expect(tabs.some((tab) => tab.left - 16 === left)).toBe(true)
+    expect(tabs[5].left + tabs[5].width).toBeLessThanOrEqual(left + 300 - 24)
+  })
+
+  it('clears the start fade when revealing a tab on the left', () => {
+    expect(reveal(1, 400)).toBe(tabs[1].left - 16)
+  })
+
+  it('realigns a strip that rests mid-tab even when the active tab shows', () => {
+    const left = reveal(4, 300)
+    expect(left).toBe(tabs[3].left - 16)
   })
 })

@@ -133,6 +133,38 @@ function SurfaceTab({
   )
 }
 
+// invariant: these match the strip's scroll-pl-4 and scroll-pr-6, where the edge fades sit.
+const PANE_STRIP_START_INSET = 16
+const PANE_STRIP_END_INSET = 24
+
+/** The pane strip's scroll position that shows the whole active tab with a tab, not a sliver, at its start. */
+export function paneStripScrollLeft(
+  tabs: readonly { left: number; width: number }[],
+  activeIndex: number,
+  strip: {
+    endInset: number
+    scrollLeft: number
+    startInset: number
+    viewWidth: number
+  },
+): number {
+  const active = tabs[activeIndex]
+  if (!active) return strip.scrollLeft
+  const lowest = active.left + active.width + strip.endInset - strip.viewWidth
+  const highest = active.left - strip.startInset
+  const aligned = tabs
+    .map((tab) => tab.left - strip.startInset)
+    .filter((left) => left >= lowest && left <= highest)
+  const best = aligned.length
+    ? aligned.reduce((closest, left) =>
+        Math.abs(left - strip.scrollLeft) < Math.abs(closest - strip.scrollLeft)
+          ? left
+          : closest,
+      )
+    : highest
+  return Math.max(best, 0)
+}
+
 const SPLIT_ACTIONS = [
   {
     icon: Columns2,
@@ -358,10 +390,34 @@ export default function TopBar({
   useEffect(() => {
     const strip = stripRef.current
     if (!activeSurfaceId || !strip) return
-    const reveal = () =>
-      strip
-        .querySelector('[data-active="true"]')
-        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    const reveal = () => {
+      const elements = [
+        ...strip.querySelectorAll<HTMLElement>('.group\\/surface-tab'),
+      ]
+      const activeIndex = elements.findIndex(
+        (element) => element.dataset.active,
+      )
+      if (activeIndex === -1) return
+      const origin = strip.getBoundingClientRect().left - strip.scrollLeft
+      const tabs = elements.map((element) => {
+        const rect = element.getBoundingClientRect()
+        return { left: rect.left - origin, width: rect.width }
+      })
+      const left = paneStripScrollLeft(tabs, activeIndex, {
+        endInset: PANE_STRIP_END_INSET,
+        scrollLeft: strip.scrollLeft,
+        startInset: PANE_STRIP_START_INSET,
+        viewWidth: strip.clientWidth,
+      })
+      // why: near the end the aligned position can lie past the scroll range, so the strip grows its end padding to reach it.
+      const toolbar = strip.firstElementChild as HTMLElement | null
+      if (toolbar) toolbar.style.paddingRight = ''
+      const shortfall = left - (strip.scrollWidth - strip.clientWidth)
+      if (toolbar && shortfall > 0) {
+        toolbar.style.paddingRight = `${PANE_STRIP_END_INSET + shortfall}px`
+      }
+      strip.scrollLeft = left
+    }
     reveal()
     const observer = new ResizeObserver(reveal)
     observer.observe(strip)
@@ -418,7 +474,7 @@ export default function TopBar({
         </div>
 
         <div
-          className="min-w-0 flex-1 overflow-x-auto py-1 [mask-image:linear-gradient(to_right,transparent,black_0.75rem,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]"
+          className="min-w-0 flex-1 scroll-pr-6 scroll-pl-4 overflow-x-auto py-1 [mask-image:linear-gradient(to_right,transparent_0.75rem,black_1rem,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]"
           onWheel={(event) => {
             if (event.deltaX === 0)
               event.currentTarget.scrollLeft += event.deltaY
@@ -427,7 +483,7 @@ export default function TopBar({
         >
           <Toolbar
             aria-label="Pane selector"
-            className="workspace-strip inline-flex min-w-max gap-1 bg-transparent pl-3 pr-6"
+            className="workspace-strip inline-flex min-w-max gap-1 bg-transparent pl-4 pr-6"
           >
             {visibleSurfaces.map((surface, index) => (
               <SurfaceTab
