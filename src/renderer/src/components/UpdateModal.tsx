@@ -1,20 +1,12 @@
-import {
-  Alert,
-  Button,
-  Description,
-  Label,
-  Modal,
-  ProgressBar,
-  Switch,
-} from '@heroui/react'
-import { useMemo, useState } from 'react'
+import { Alert, Button, Label, Modal, ProgressBar, Switch } from '@heroui/react'
+import { useId, useMemo, useState } from 'react'
 
 import {
   getRestartPreflightSummary,
   getUpdateProgressAnnouncement,
   resolveUpdatePresentation,
-} from '@/lib/update-presentation'
-import type { UpdatePresentationTone } from '@/lib/update-presentation'
+} from '../lib/update-presentation'
+import type { UpdatePresentationTone } from '../lib/update-presentation'
 import type {
   UpdatePreferencesInput,
   UpdatePreferencesSnapshot,
@@ -79,23 +71,32 @@ function SettingSwitch({
   readonly label: string
   readonly onChange: (selected: boolean) => void
 }) {
+  const descriptionId = useId()
+  // why: outside the Switch, so a disabled switch does not fade the disclosure you must read before enabling it.
   return (
-    <Switch
-      className={className}
-      isDisabled={isDisabled || isPending}
-      isSelected={isSelected}
-      onChange={onChange}
-    >
-      <Switch.Content className="min-h-10 gap-3">
-        <Switch.Control className="ring-1 ring-border ring-inset">
-          <Switch.Thumb />
-        </Switch.Control>
-        <span className="text-sm font-medium text-foreground">{label}</span>
-      </Switch.Content>
-      <Description className="pl-13 text-xs leading-5 text-muted-foreground">
+    <div className={className}>
+      <Switch
+        aria-describedby={descriptionId}
+        isDisabled={isDisabled}
+        // why: read-only, not disabled, while saving, so the switch keeps keyboard focus for the next toggle.
+        isReadOnly={isPending}
+        isSelected={isSelected}
+        onChange={onChange}
+      >
+        <Switch.Content className="min-h-10 gap-3">
+          <Switch.Control className="ring-1 ring-border ring-inset">
+            <Switch.Thumb />
+          </Switch.Control>
+          <span className="text-sm font-medium text-foreground">{label}</span>
+        </Switch.Content>
+      </Switch>
+      <p
+        className="pl-13 text-xs leading-5 text-muted-foreground"
+        id={descriptionId}
+      >
         {description}
-      </Description>
-    </Switch>
+      </p>
+    </div>
   )
 }
 
@@ -304,15 +305,11 @@ export default function UpdateModal({
                     isPending={pendingAction === 'disclosure'}
                     onPress={() =>
                       void runAction('disclosure', () =>
-                        isHealthAcknowledged
-                          ? onUpdatePreferences({
-                              healthDisclosureAcknowledged: false,
-                              healthReportingEnabled: false,
-                            })
-                          : onUpdatePreferences({
-                              healthDisclosureAcknowledged: true,
-                              healthReportingEnabled: true,
-                            }),
+                        // why: reporting defaults to enabled behind the acknowledgement, so acknowledging alone would start sharing.
+                        onUpdatePreferences({
+                          healthDisclosureAcknowledged: !isHealthAcknowledged,
+                          healthReportingEnabled: false,
+                        }),
                       )
                     }
                     size="sm"

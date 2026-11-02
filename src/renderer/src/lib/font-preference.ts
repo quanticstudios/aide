@@ -65,6 +65,45 @@ export function subscribeFontPreference(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
+// see: styles.css `--ui-font-family` and `--code-font-family` — these repeat their default stacks.
+const UI_FONT_FALLBACK =
+  '"Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif'
+const CODE_FONT_FALLBACK =
+  '"Geist Mono Variable", "JetBrains Mono", ui-monospace, Menlo, monospace'
+const GENERIC_FAMILIES = new Set([
+  'cursive',
+  'emoji',
+  'fantasy',
+  'math',
+  'monospace',
+  'sans-serif',
+  'serif',
+  'system-ui',
+  'ui-monospace',
+  'ui-rounded',
+  'ui-sans-serif',
+  'ui-serif',
+])
+
+/** Quotes each family the user typed and appends the default stack, so a missing font falls back to it instead of serif. */
+export function fontStack(family: string, fallback: string): string | null {
+  const names = family
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.replace(/["']/g, '') !== '')
+  if (names.length === 0) return null
+  return [
+    ...names.map((name) => {
+      // warn: CSS generic keywords are case-insensitive, and a quoted one is a family name, not the keyword.
+      const keyword = name.toLowerCase()
+      return GENERIC_FAMILIES.has(keyword)
+        ? keyword
+        : JSON.stringify(name.replace(/^["']|["']$/g, ''))
+    }),
+    fallback,
+  ].join(', ')
+}
+
 function setRootProperty(name: string, value: string | null): void {
   const style = document.documentElement.style
   if (value) style.setProperty(name, value)
@@ -73,14 +112,20 @@ function setRootProperty(name: string, value: string | null): void {
 
 function applyFontPreference(): void {
   current = parseFontPreference(window.localStorage.getItem(STORAGE_KEY))
-  setRootProperty('--ui-font-family', current.uiFamily)
+  setRootProperty(
+    '--ui-font-family',
+    fontStack(current.uiFamily, UI_FONT_FALLBACK),
+  )
   setRootProperty(
     '--ui-font-scale',
     current.uiSize === null
       ? null
       : String(current.uiSize / DEFAULT_UI_FONT_SIZE),
   )
-  setRootProperty('--code-font-family', current.codeFamily)
+  setRootProperty(
+    '--code-font-family',
+    fontStack(current.codeFamily, CODE_FONT_FALLBACK),
+  )
   setRootProperty(
     '--code-font-size',
     current.codeSize === null ? null : `${current.codeSize}px`,

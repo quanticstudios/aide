@@ -1,5 +1,5 @@
 import { Button, Input, Switch } from '@heroui/react'
-import { KeyRound } from 'lucide-react'
+import { Check, KeyRound } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
 import {
   JEV_CONSENT_REQUIRED_MESSAGE,
@@ -80,6 +80,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
   const [allowProcessing, setAllowProcessing] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -104,6 +105,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
       onSubmit={async (event) => {
         event.preventDefault()
         setSaving(true)
+        setSaved(false)
         setError(null)
         try {
           const value = await window.aide.updateJevSettings(workspaceId, {
@@ -112,6 +114,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
           })
           setStatus(value)
           setApiKey('')
+          setSaved(true)
           window.dispatchEvent(new Event(JEV_SETTINGS_CHANGED))
         } catch {
           setError(
@@ -137,27 +140,30 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
         Jev prepares context for every request. TypeSafe receives your request,
         conversation evidence, and selected workspace excerpts.
       </p>
-      <label className="flex flex-col gap-1" htmlFor={inputId}>
+      <label className="flex flex-col gap-1.5 font-medium" htmlFor={inputId}>
         TypeSafe API key {status?.hasCredential ? '(configured)' : ''}
         <Input
           aria-label="TypeSafe API key"
           id={inputId}
           autoComplete="off"
-          className="rounded border border-border bg-surface px-2 py-1"
+          className="h-8 rounded-md border border-border bg-surface-3 px-2 font-normal transition-colors focus:border-primary disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!status?.canStoreCredential || saving}
           maxLength={4096}
-          onChange={(event) => setApiKey(event.target.value)}
+          onChange={(event) => {
+            setApiKey(event.target.value)
+            setSaved(false)
+          }}
           type="password"
           value={apiKey}
         />
       </label>
       {status?.hasCredential && !status.allowProcessing ? (
-        <p>
+        <p className="text-[12px] leading-4 text-muted-foreground">
           Allow processing below and save to enable messages in this workspace.
         </p>
       ) : null}
       {status && !status.canStoreCredential && !status.hasCredential ? (
-        <p>
+        <p className="text-[12px] leading-4 text-muted-foreground">
           Enable your operating system keyring, or launch Aide with
           TYPESAFE_API_KEY.
         </p>
@@ -168,7 +174,10 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
           aria-label="Allow TypeSafe processing for this workspace"
           isSelected={allowProcessing}
           isDisabled={saving}
-          onChange={setAllowProcessing}
+          onChange={(isSelected) => {
+            setAllowProcessing(isSelected)
+            setSaved(false)
+          }}
           size="sm"
         >
           <Switch.Content>
@@ -180,7 +189,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          className="rounded-md bg-primary px-3 py-2 font-medium text-primary-foreground disabled:opacity-50"
+          className="h-8 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground disabled:opacity-50"
           isDisabled={saving || !status}
           type="submit"
         >
@@ -188,7 +197,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
         </Button>
         {status?.hasCredential && status.canStoreCredential ? (
           <Button
-            className="rounded border border-border px-3 py-1"
+            className="h-8 rounded-md border border-border bg-surface-3 px-3 text-[13px] font-medium text-foreground hover:bg-surface-4"
             isDisabled={saving}
             onPress={async () => {
               setSaving(true)
@@ -201,6 +210,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
                 )
                 setAllowProcessing(false)
                 setApiKey('')
+                setSaved(false)
                 setError(null)
                 window.dispatchEvent(new Event(JEV_SETTINGS_CHANGED))
               } catch {
@@ -214,8 +224,27 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
             Remove saved key
           </Button>
         ) : null}
+        {/* why: aria-live, not role="status", so the readiness line above stays the form's only status. */}
+        <span
+          aria-live="polite"
+          className="flex items-center gap-1 text-[12px] text-muted-foreground"
+        >
+          {saved ? (
+            <>
+              <Check
+                aria-hidden="true"
+                className="size-3.5 text-accent-green"
+              />
+              Saved
+            </>
+          ) : null}
+        </span>
       </div>
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? (
+        <p className="text-[12px] leading-4 text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
     </form>
   )
 }

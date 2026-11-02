@@ -83,6 +83,22 @@
   and permission menus.
 - Focus rings in the top bar are no longer clipped, and they appear blue at
   once instead of fading in from black.
+- A code or interface font that is not installed falls back to the default
+  font instead of a serif face. Generic names such as Monospace work in any
+  case.
+- A Jev gate threshold saves when you leave the field or press Enter. A value
+  outside 0 to 1, or on the wrong side of its partner, stays as you typed it
+  with the reason under the field, and nothing is saved.
+- Saving Jev settings shows "Saved" next to the button.
+- While you search settings, no category stays highlighted in the left list.
+- Lane routing and Completion check now say that pitwall chats ignore them.
+- Acknowledge in the update dialog only acknowledges the health report
+  disclosure. Turning on sharing is a separate switch, and its disclosure stays
+  readable while the switch is off.
+- Settings inputs show a blue edge while focused, and pages no longer shift
+  sideways when a long page shows a scrollbar.
+- The Worktree setup and Delete workspace dialogs match the others: the same
+  surface and a plain Cancel button.
 
 ## 0.0.3 (2026-11-01)
 

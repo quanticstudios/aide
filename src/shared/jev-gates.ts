@@ -4,9 +4,9 @@ import { z } from 'zod'
 export interface JevGateSettings {
   /** Auto-resolves tool approvals when Jev is confident; the middle band still prompts. */
   toolGate: { enabled: boolean; allowBelow: number; denyAbove: number }
-  /** Raises the fleet risk class from Jev risk judgments before an agent is dispatched. */
+  /** Rates a request high or critical risk from Jev's risk score; pitwall chats ignore it. */
   laneRouting: { enabled: boolean; highAbove: number; criticalAbove: number }
-  /** Flags an agent result that fails Jev completion checks before the orchestrator reads it. */
+  /** Flags an agent result that fails Jev completion checks; pitwall chats ignore it. */
   completionCheck: { enabled: boolean; minPass: number }
 }
 
@@ -103,7 +103,7 @@ export const JEV_GATE_ROWS: readonly JevGateRow[] = [
     section: 'laneRouting',
     label: 'Lane routing',
     description:
-      'Raise the fleet risk class from Jev risk judgments before an agent is consulted.',
+      "Rate a request high or critical risk from Jev's risk score. pitwall chats ignore this gate; only the tool call gate applies to them.",
     thresholds: [
       { field: 'highAbove', label: 'High risk at or above', summary: 'high ≥' },
       {
@@ -127,7 +127,7 @@ export const JEV_GATE_ROWS: readonly JevGateRow[] = [
     section: 'completionCheck',
     label: 'Completion check',
     description:
-      'Flag an agent result that misses the request, claims unverified work, or leaks a secret.',
+      'Flag an agent result that misses the request, claims unverified work, or leaks a secret. pitwall chats ignore this gate.',
     thresholds: [
       { field: 'minPass', label: 'Minimum pass', summary: 'pass ≥' },
     ],
@@ -147,6 +147,39 @@ export function formatJevGateThresholds(
         `${threshold.summary} ${values[threshold.field].toFixed(2)}`,
     )
     .join(', ')
+}
+
+const ORDERED_THRESHOLDS: Partial<
+  Record<JevGateSection, readonly [low: string, high: string]>
+> = {
+  laneRouting: ['highAbove', 'criticalAbove'],
+  toolGate: ['allowBelow', 'denyAbove'],
+}
+
+/** Says why a typed threshold cannot be saved against the other bar in `settings`, or null when it can; blank inherits. */
+export function jevGateThresholdError(
+  settings: JevGateSettings,
+  section: JevGateSection,
+  field: string,
+  text: string,
+): string | null {
+  if (text.trim() === '') return null
+  const value = Number(text)
+  if (!Number.isFinite(value) || value < 0 || value > 1)
+    return 'Enter a number from 0 to 1.'
+  const pair = ORDERED_THRESHOLDS[section]
+  if (!pair) return null
+  const [low, high] = pair
+  const values = settings[section] as unknown as Record<string, number>
+  const name = (other: string) =>
+    JEV_GATE_ROWS.find((row) => row.section === section)
+      ?.thresholds.find((threshold) => threshold.field === other)
+      ?.summary.split(' ')[0]
+  if (field === low && value > values[high])
+    return `Keep this at or below ${name(high)} (${values[high].toFixed(2)}).`
+  if (field === high && value < values[low])
+    return `Keep this at or above ${name(low)} (${values[low].toFixed(2)}).`
+  return null
 }
 
 /** Sets one override field on a layer; an undefined value drops the field and any section it empties. */

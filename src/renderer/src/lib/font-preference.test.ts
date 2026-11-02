@@ -76,7 +76,9 @@ describe('setFontPreference', () => {
     const style = document.documentElement.style
 
     setFontPreference({ codeSize: 14, uiFamily: 'Inter', uiSize: 21 })
-    expect(style.getPropertyValue('--ui-font-family')).toBe('Inter')
+    expect(style.getPropertyValue('--ui-font-family')).toBe(
+      '"Inter", "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif',
+    )
     expect(style.getPropertyValue('--ui-font-scale')).toBe('1.5')
     expect(style.getPropertyValue('--code-font-size')).toBe('14px')
     expect(style.getPropertyValue('--code-font-family')).toBe('')
@@ -87,5 +89,30 @@ describe('setFontPreference', () => {
     expect(style.getPropertyValue('--ui-font-family')).toBe('')
     expect(style.getPropertyValue('--ui-font-scale')).toBe('')
     expect(style.getPropertyValue('--code-font-size')).toBe('')
+  })
+})
+
+describe('fontStack', () => {
+  it('keeps the default stack behind a family that may not be installed', async () => {
+    const { fontStack } = await loadPreference()
+    expect(fontStack('DejaVu Sans Mono', 'ui-monospace, monospace')).toBe(
+      '"DejaVu Sans Mono", ui-monospace, monospace',
+    )
+  })
+
+  it('quotes each listed family once and leaves generic families bare', async () => {
+    const { fontStack } = await loadPreference()
+    expect(fontStack(" 'Fira Code', Source Code Pro 2, monospace ", 'x')).toBe(
+      '"Fira Code", "Source Code Pro 2", monospace, x',
+    )
+    expect(fontStack(' , ', 'x')).toBeNull()
+  })
+
+  it('keeps generic keywords in any case and quotes a generic name written in quotes', async () => {
+    const { fontStack } = await loadPreference()
+    expect(fontStack('Fira Code, Monospace', 'x')).toBe(
+      '"Fira Code", monospace, x',
+    )
+    expect(fontStack('"monospace"', 'x')).toBe('"monospace", x')
   })
 })

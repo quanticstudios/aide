@@ -49,7 +49,7 @@ export default function DeleteWorkspaceModal({
         variant="opaque"
       >
         <Modal.Container placement="center" size="md">
-          <Modal.Dialog className="rounded-xl border border-border bg-surface shadow-[0_20px_60px_color-mix(in_srgb,var(--shadow-color)_40%,transparent)]">
+          <Modal.Dialog className="rounded-xl floating-surface">
             <Modal.Header>
               <Modal.Heading>Delete "{workspace.name}"?</Modal.Heading>
             </Modal.Header>
@@ -62,7 +62,7 @@ export default function DeleteWorkspaceModal({
                 <label className="flex items-start gap-2 text-foreground">
                   <input
                     checked={removeWorktree}
-                    className="mt-0.5"
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
                     disabled={isDeleting}
                     onChange={(event) =>
                       setRemoveWorktree(event.target.checked)
@@ -85,11 +85,7 @@ export default function DeleteWorkspaceModal({
               {error ? <p className="text-accent-red">{error}</p> : null}
             </Modal.Body>
             <Modal.Footer>
-              <Button
-                isDisabled={isDeleting}
-                onPress={onClose}
-                variant="secondary"
-              >
+              <Button isDisabled={isDeleting} onPress={onClose} variant="ghost">
                 Cancel
               </Button>
               <Button
