@@ -1289,6 +1289,13 @@ export function createDaemonTransport(
         turnFiles: PitwallFile[]
         turnPatch: string
       }>('rewindPreview', { sessionId, turnId: turn.id })
+      const cached = turn.checkpointId
+        ? turnDiffs.get(turn.checkpointId)
+        : undefined
+      // why: pitwall's last-turn files run to the files now, so the diff read when the turn ended names its own.
+      const ownFiles = (await cached?.catch(() => null))?.files.map(
+        ({ path, status }) => ({ path, status }),
+      )
       // pitwall keeps no preview: rewind names the turn.
       const previewId = `rewind-${++nextId}`
       previews.set(previewId, {
@@ -1319,7 +1326,7 @@ export function createDaemonTransport(
         previewId,
         restorePatch: found.patch,
         sessionRevision: snapshot.revision,
-        turnChanges: found.turnFiles.map(toChange),
+        turnChanges: ownFiles ?? found.turnFiles.map(toChange),
         turnPatch: found.turnPatch,
       } satisfies TurnCheckpointPreview
     },

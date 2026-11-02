@@ -964,7 +964,7 @@ describe('DaemonTransport', () => {
   })
 
   it("keeps a finished turn's diff as first read, so later edits don't join it", async () => {
-    daemon.capabilities.push('checkpointDiff')
+    daemon.capabilities.push('checkpointDiff', 'rewindPreview')
     for (const delta of fixture.deltas) daemon.emit(delta)
     const turn = fixture.deltas.find((delta) => delta.type === 'turn')
     if (turn?.type !== 'turn') throw new Error('the fixture has no turn')
@@ -989,6 +989,17 @@ describe('DaemonTransport', () => {
     const later = await transport.getCheckpointDiff(SESSION_ID, 'cp-1')
     expect(later).toEqual(first)
     expect(later.files.map((file) => file.path)).toEqual(['README.md'])
+
+    daemon.answers.set('rewindPreview', {
+      files: [...readme.files, { path: 'notes.md', status: 'deleted' }],
+      patch: 'back',
+      turnFiles: [...readme.files, { path: 'notes.md', status: 'added' }],
+      turnPatch: '',
+    })
+    const preview = await transport.previewRewind(SESSION_ID, 'cp-1')
+    expect(preview.turnChanges).toEqual([
+      { path: 'README.md', status: 'modified' },
+    ])
   })
 
   it("reverts the turn's own files when pitwall can, and lists what it keeps", async () => {

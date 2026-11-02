@@ -8,6 +8,7 @@ import type {
   TurnCheckpointRestoreResult,
 } from '../../../shared/checkpoints'
 import { getSessionTransport } from '../lib/session-transport'
+import { cn } from '../lib/utils'
 
 interface ManagedRewindDialogProps {
   readonly checkpointId: string
@@ -80,7 +81,14 @@ export function RewindRestoreContent({
       </p>
 
       <fieldset className="space-y-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+            mode === 'conversation-only'
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:bg-surface-2',
+          )}
+        >
           <input
             checked={mode === 'conversation-only'}
             className="mt-1"
@@ -97,7 +105,14 @@ export function RewindRestoreContent({
             </span>
           </span>
         </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+            mode === 'code-and-conversation'
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:bg-surface-2',
+          )}
+        >
           <input
             checked={mode === 'code-and-conversation'}
             className="mt-1"
@@ -233,7 +248,7 @@ export default function ManagedRewindDialog({
             <Modal.Header>
               <Modal.Heading>Edit from here</Modal.Heading>
             </Modal.Header>
-            <Modal.Body className="gap-4 text-foreground">
+            <Modal.Body className="flex flex-col gap-4 text-foreground">
               <RewindRestoreContent
                 error={error}
                 mode={mode}
