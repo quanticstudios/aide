@@ -1,6 +1,72 @@
 import { Button, Input, Switch } from '@heroui/react'
+import { KeyRound } from 'lucide-react'
 import { useEffect, useId, useState } from 'react'
-import type { JevSettingsStatus } from '../../../shared/jev'
+import {
+  JEV_CONSENT_REQUIRED_MESSAGE,
+  JEV_CREDENTIAL_REQUIRED_MESSAGE,
+  type JevSettingsStatus,
+} from '../../../shared/jev'
+
+/** Fired on window after Jev setup saves, so a first-run hint reads the settings again. */
+const JEV_SETTINGS_CHANGED = 'aide:jev-settings-changed'
+
+/** What a send would be refused with, in main's order (`JevSettings.requireApiKey`), or null once Jev is ready or still loading. */
+export function getJevFirstRunMessage(
+  status: JevSettingsStatus | null,
+): string | null {
+  if (!status) return null
+  if (!status.allowProcessing) return JEV_CONSENT_REQUIRED_MESSAGE
+  if (!status.hasCredential) return JEV_CREDENTIAL_REQUIRED_MESSAGE
+  return null
+}
+
+/** Tells a user with no TypeSafe key, or no permission for this workspace, before they type the message a send would refuse. */
+export function JevFirstRunHint({
+  onOpenSettings,
+  workspaceId,
+}: {
+  readonly onOpenSettings: (trigger: HTMLElement) => void
+  readonly workspaceId: string
+}) {
+  const [status, setStatus] = useState<JevSettingsStatus | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      void window.aide
+        ?.getJevSettings(workspaceId)
+        .then((value) => {
+          if (!cancelled) setStatus(value)
+        })
+        .catch(() => undefined)
+    load()
+    window.addEventListener(JEV_SETTINGS_CHANGED, load)
+    return () => {
+      cancelled = true
+      window.removeEventListener(JEV_SETTINGS_CHANGED, load)
+    }
+  }, [workspaceId])
+
+  const message = getJevFirstRunMessage(status)
+  if (!message) return null
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-md border border-accent-yellow/40 bg-accent-yellow-soft px-3 py-2 text-[13px] text-foreground"
+      data-testid="jev-first-run-hint"
+      role="note"
+    >
+      <KeyRound aria-hidden className="size-3.5 shrink-0 text-accent-yellow" />
+      <span className="min-w-0 flex-1">{message}</span>
+      <button
+        className="shrink-0 rounded-xs font-semibold underline underline-offset-2"
+        onClick={(event) => onOpenSettings(event.currentTarget)}
+        type="button"
+      >
+        Open Settings
+      </button>
+    </div>
+  )
+}
 
 interface JevSetupProps {
   readonly workspaceId: string
@@ -46,6 +112,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
           })
           setStatus(value)
           setApiKey('')
+          window.dispatchEvent(new Event(JEV_SETTINGS_CHANGED))
         } catch {
           setError(
             'Jev settings could not be saved. Check secure credential storage and try again.',
@@ -135,6 +202,7 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
                 setAllowProcessing(false)
                 setApiKey('')
                 setError(null)
+                window.dispatchEvent(new Event(JEV_SETTINGS_CHANGED))
               } catch {
                 setError('The saved TypeSafe credential could not be removed.')
               } finally {

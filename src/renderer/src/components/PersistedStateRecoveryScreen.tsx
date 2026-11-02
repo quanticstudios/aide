@@ -62,6 +62,7 @@ export default function PersistedStateRecoveryScreen({
         ) : null}
         <div className="recovery-actions">
           <button
+            className="recovery-primary-button"
             disabled={isWorking || !recovery.knownGoodBackupPath}
             onClick={() =>
               runAction(() => api.restoreKnownGoodPersistedState())

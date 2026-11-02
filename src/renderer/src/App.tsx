@@ -71,6 +71,7 @@ import {
   resolvePaneCloseConfirmation,
 } from './lib/pane-close-warning'
 import { hydrateRevisionedState } from './lib/revisioned-hydration'
+import { startAfterRecoveryCheck } from './lib/session-backend'
 import { getSessionTransport } from './lib/session-transport'
 import {
   readGlobalSidebarOpen,
@@ -222,8 +223,7 @@ export default function App() {
       return
     }
 
-    void api
-      .getPersistedStateRecovery()
+    void startAfterRecoveryCheck(api)
       .then(setPersistedStateRecovery)
       .catch((error: unknown) => setStartupError(getErrorMessage(error)))
   }, [])

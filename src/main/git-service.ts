@@ -1,10 +1,20 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, existsSync } from 'node:fs'
-import { lstat, open, readlink, realpath, rm, stat } from 'node:fs/promises'
+import {
+  appendFile,
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  stat,
+} from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
-
+import { parseTurnDiffPatch } from '../shared/checkpoints'
 import type {
   AttachWorkspaceRequest,
   CreateWorkspaceRequest,
@@ -22,10 +32,10 @@ import type {
   WorkspaceGitMessageKind,
   WorkspaceGitMessageResult,
   WorkspaceGitMutationResult,
-  WorkspaceGitPullResult,
   WorkspaceGitPullRequest,
   WorkspaceGitPullRequestInput,
   WorkspaceGitPullRequestResult,
+  WorkspaceGitPullResult,
   WorkspaceGitRevertInput,
   WorkspaceGitStatusFailure,
   WorkspaceGitStatusResult,
@@ -44,7 +54,6 @@ import type {
 } from '../shared/persistence'
 import { isLinkedWorktree } from '../shared/persistence'
 import { resolveExecutablePath } from './executable-resolution'
-import { parseTurnDiffPatch } from '../shared/checkpoints'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_OUTPUT_CHARACTERS = 20_000
@@ -1345,6 +1354,7 @@ export class GitWorkspaceService {
     let worktreeCreated = false
 
     try {
+      await this.excludeWorktree(repoRoot, worktreePath)
       await this.runGit(gitArgs, repoRoot)
       worktreeCreated = true
 
@@ -2167,6 +2177,40 @@ export class GitWorkspaceService {
     } catch {
       return null
     }
+  }
+
+  /**
+   * Adds a worktree inside the repo to `.git/info/exclude` unless git ignores it already, as pitwall's `excludeWorktrees` does, so it never shows as an untracked change.
+   * @remarks One `/.worktrees/` line covers aide's default folder; any other path inside the repo gets its own line. `.gitignore` is the user's and stays as it is.
+   */
+  private async excludeWorktree(
+    repoRoot: string,
+    worktreePath: string,
+  ): Promise<void> {
+    const relative = path.relative(repoRoot, worktreePath).split(path.sep)
+    if (
+      relative[0] === '' ||
+      relative[0] === '..' ||
+      path.isAbsolute(relative[0])
+    )
+      return
+    const ignored = `${relative[0] === '.worktrees' ? '.worktrees' : relative.join('/')}/`
+    try {
+      await this.runGit(['check-ignore', '-q', '--', ignored], repoRoot)
+      return
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 1) throw error
+    }
+    const excludePath = path.resolve(
+      repoRoot,
+      await this.runGit(['rev-parse', '--git-path', 'info/exclude'], repoRoot),
+    )
+    await mkdir(path.dirname(excludePath), { recursive: true })
+    const old = await readFile(excludePath, 'utf8').catch(() => '')
+    await appendFile(
+      excludePath,
+      `${old && !old.endsWith('\n') ? '\n' : ''}/${ignored.replace(/[\\*?[\]!# ]/g, '\\$&')}\n`,
+    )
   }
 
   private async runGit(args: string[], cwd: string): Promise<string> {

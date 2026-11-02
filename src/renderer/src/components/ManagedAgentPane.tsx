@@ -41,8 +41,6 @@ import { requestFrameFlush } from '../lib/frame-flush'
 import { saveManagedDraft } from '../lib/managed-draft-storage'
 import type { ManagedSessionUpdate } from '../lib/managed-session-events'
 import { groupContentByTurn } from '../lib/managed-session-grouping'
-import { getSessionTransport } from '../lib/session-transport'
-import { buildTranscriptRows } from '../lib/transcript-rows'
 import {
   canChangeManagedSessionSelection,
   composerProviderSelectionInput,
@@ -51,17 +49,19 @@ import {
   planManagedSessionSelectionChange,
   providerSelectionHydrationKey,
 } from '../lib/managed-session-selection'
-import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { NewThreadContext, takeThreadPrompt } from '../lib/new-thread'
+import { resolveTerminalLaunchModeForPaneId } from '../lib/pane-catalog'
 import { usePullRequest } from '../lib/pull-request'
+import { getSessionTransport } from '../lib/session-transport'
+import { buildTranscriptRows } from '../lib/transcript-rows'
 import { WorkspaceIdContext } from '../lib/workspace-id'
 import { WorkspaceVisibilityContext } from '../lib/workspace-visibility'
 import { ConversationMinimap, type MinimapAnchor } from './ConversationMinimap'
+import DiffPanel from './DiffPanel'
 import ManagedComposer, { useManagedComposer } from './ManagedComposer'
 import ManagedEmptyState from './ManagedEmptyState'
 import ManagedPendingApprovalPanel from './ManagedPendingApprovalPanel'
 import ManagedPullRequestRow from './ManagedPullRequestRow'
-import DiffPanel from './DiffPanel'
 import ManagedQueuedMessages from './ManagedQueuedMessages'
 import ManagedRewindDialog from './ManagedRewindDialog'
 import PlanCard from './PlanCard'
@@ -987,6 +987,11 @@ export default function ManagedAgentPane({
           ) : (
             <ManagedEmptyState
               model={selectedModel}
+              jevRefused={
+                error === JEV_CONSENT_REQUIRED_MESSAGE ||
+                error === JEV_CREDENTIAL_REQUIRED_MESSAGE
+              }
+              onOpenJevSettings={onOpenJevSettings}
               onPickPrompt={handlePickRecentPrompt}
               providerLabel={providerLabel}
               sessionId={sessionId}

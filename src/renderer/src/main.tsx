@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { initializeAnimationPreference } from './lib/animation-preference'
 import { initializeFontPreference } from './lib/font-preference'
-import { initializeSessionBackend } from './lib/session-backend'
 import { getSessionTransport } from './lib/session-transport'
 import { initializeThemePreference } from './lib/theme-preference'
 import './styles.css'
@@ -11,7 +10,6 @@ import './styles.css'
 initializeAnimationPreference()
 initializeThemePreference()
 initializeFontPreference()
-initializeSessionBackend()
 // why: e2e reads and drives sessions through whichever backend is active, as the app does.
 Object.defineProperty(window, 'aideSessions', { get: getSessionTransport })
 

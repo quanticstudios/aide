@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { DaemonConnection } from '../lib/daemon-transport'
 import DaemonConnectionBanner from './DaemonConnectionBanner'
+import PitwallSetupCard from './PitwallSetupCard'
 
 function render(connection: DaemonConnection): string {
   return renderToStaticMarkup(
@@ -49,6 +50,15 @@ describe('DaemonConnectionBanner', () => {
       'pitwall is not listening for aide',
       'enabled = true',
     ],
+    [
+      {
+        status: 'failed',
+        log: '/state/pitwall/crash.log',
+        reason: 'listen unix /run/pitwall.sock: bind: invalid argument',
+      },
+      'Its full output is in /state/pitwall/crash.log.',
+      'listen unix /run/pitwall.sock: bind: invalid argument',
+    ],
   ] as const)('tells the user what to run when pitwall is %o', (pitwall, text, command) => {
     const markup = render({ status: 'unavailable', pitwall })
     expect(markup).toContain(text)
@@ -56,6 +66,28 @@ describe('DaemonConnectionBanner', () => {
     expect(markup).toContain('Check again')
     expect(markup).not.toContain('built-in')
     expect(markup).toContain('role="alert"')
+  })
+
+  it('offers to turn the web listener on only where the app can write the config', () => {
+    const card = (onTurnOn?: () => Promise<unknown>) =>
+      renderToStaticMarkup(
+        <PitwallSetupCard
+          onCheckAgain={() => undefined}
+          onTurnOn={onTurnOn}
+          pitwall={{ status: 'noEndpoint' }}
+        />,
+      )
+    expect(card(async () => undefined)).toContain('Turn on for aide')
+    expect(card()).not.toContain('Turn on for aide')
+    expect(
+      renderToStaticMarkup(
+        <PitwallSetupCard
+          onCheckAgain={() => undefined}
+          onTurnOn={async () => undefined}
+          pitwall={{ status: 'missing', platform: 'linux' }}
+        />,
+      ),
+    ).not.toContain('Turn on for aide')
   })
 
   it('shows the version mismatch as an alert', () => {

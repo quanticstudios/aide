@@ -6,6 +6,7 @@ import {
   dismissDaemonDefaultNotice,
   initializeSessionBackend,
   isDaemonDefaultNoticeDue,
+  startAfterRecoveryCheck,
 } from './session-backend'
 import { getSessionTransport, setSessionTransport } from './session-transport'
 
@@ -37,6 +38,21 @@ describe('session backend', () => {
     expect(getSessionTransport()).toBeNull()
     initializeSessionBackend()
     expect(isDaemonTransport(getSessionTransport())).toBe(true)
+  })
+
+  it('starts no session backend while saved data is in recovery', async () => {
+    stubWindow()
+    const api = window.aide as AideApi
+    const recovery = { message: 'damaged' }
+    api.getPersistedStateRecovery = vi.fn(async () => recovery as never)
+    expect(await startAfterRecoveryCheck(api)).toBe(recovery)
+    expect(getSessionTransport()).toBeNull()
+    expect(api.getPitwallEndpoint).not.toHaveBeenCalled()
+
+    api.getPersistedStateRecovery = vi.fn(async () => null)
+    expect(await startAfterRecoveryCheck(api)).toBeNull()
+    expect(isDaemonTransport(getSessionTransport())).toBe(true)
+    expect(api.getPitwallEndpoint).toHaveBeenCalled()
   })
 
   it('shows the default notice once to an upgraded install', () => {
