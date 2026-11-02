@@ -87,6 +87,7 @@ import ManagedComposerAttachments, {
 } from './ManagedComposerAttachments'
 import ModelSelector from './ModelSelector'
 import ReasoningExtrasDropdown from './ReasoningExtrasDropdown'
+import { answerPlaceholder } from './ManagedPendingUserInputPanel'
 import RecipientMentionMenu from './RecipientMentionMenu'
 
 type ManagedSlashMenuItem =
@@ -843,15 +844,13 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
         setAttachments(nextAttachments)
         const nextDraft = removeWorkspaceFileMention(draftInput, mention)
         setDraftInput(nextDraft)
-        setComposerCursorIndex(mention.startIndex)
+        const cursor = Math.min(mention.startIndex, nextDraft.length)
+        setComposerCursorIndex(cursor)
         setIsRecipientMenuDismissed(true)
         setError(null)
         requestAnimationFrame(() => {
           textareaRef.current?.focus()
-          textareaRef.current?.setSelectionRange(
-            mention.startIndex,
-            mention.startIndex,
-          )
+          textareaRef.current?.setSelectionRange(cursor, cursor)
         })
       } catch (attachmentError) {
         setError(getErrorMessage(attachmentError))
@@ -1100,7 +1099,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       setSelectedSkill(skill)
       setDraftInput(nextDraft)
       setIsRecipientMenuDismissed(true)
-      setSelectionNotice(`/${skill.name} runs with ${skill.owner}.`)
+      setSelectionNotice(skillNotice(skill))
       textareaRef.current?.focus()
     },
     [
@@ -1117,7 +1116,7 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
       const mention = getWorkspaceFileMention(draftInput, composerCursorIndex)
       if (!mention) return
       const nextDraft = removeWorkspaceFileMention(draftInput, mention)
-      setComposerCursorIndex(mention.startIndex)
+      setComposerCursorIndex(Math.min(mention.startIndex, nextDraft.length))
       void selectProviderSkill(skill, nextDraft)
     },
     [composerCursorIndex, draftInput, selectProviderSkill],
@@ -1181,6 +1180,10 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
 }
 
 type ManagedComposerProps = ReturnType<typeof useManagedComposer>
+
+function skillNotice(skill: ProviderSkill): string {
+  return `/${skill.name} runs with ${skill.owner}.`
+}
 
 /** Which button ends the composer's toolbar: answer a question, deny with feedback, stop the turn, or send. */
 export function getComposerAction({
@@ -1257,6 +1260,7 @@ export default function ManagedComposer({
   setOpenComposerMenu,
   setRecipientActiveIndex,
   setSelectedSkill,
+  setSelectionNotice,
   setSlashActiveIndex,
   slashActiveIndex,
   slashMenuItems,
@@ -1475,7 +1479,12 @@ export default function ManagedComposer({
             aria-label={`Remove /${selectedSkill.name}`}
             className="max-w-full break-all rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-left text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
             data-testid="managed-provider-skill-chip"
-            onClick={() => setSelectedSkill(null)}
+            onClick={() => {
+              setSelectedSkill(null)
+              setSelectionNotice((notice) =>
+                notice === skillNotice(selectedSkill) ? null : notice,
+              )
+            }}
             type="button"
           >
             @{selectedSkill.owner} · /{selectedSkill.name} ×
@@ -1677,7 +1686,11 @@ export default function ManagedComposer({
         }}
         placeholder={
           activeQuestion
-            ? 'Type your own answer, or leave this blank to use the selected option'
+            ? answerPlaceholder(
+                activeQuestion.questions.some(
+                  (question) => question.options.length > 0,
+                ),
+              )
             : 'Ask anything · @ for context · / for skills'
         }
         rows={3}

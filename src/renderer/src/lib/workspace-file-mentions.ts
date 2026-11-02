@@ -34,6 +34,8 @@ export function removeWorkspaceFileMention(
 ): string {
   const beforeMention = draft.slice(0, mention.startIndex)
   const afterMention = draft.slice(mention.endIndex)
+  // why: a trailing space is invisible, so the next word typed after it would bring a second one.
+  if (afterMention === '') return beforeMention.trimEnd()
   return beforeMention.endsWith(' ') && afterMention.startsWith(' ')
     ? `${beforeMention}${afterMention.slice(1)}`
     : `${beforeMention}${afterMention}`

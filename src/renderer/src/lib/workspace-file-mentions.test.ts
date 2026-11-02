@@ -36,6 +36,16 @@ describe('workspace file mentions', () => {
     ).toBe('Please inspect next')
   })
 
+  it('leaves no trailing space when the mention ends the draft', () => {
+    expect(
+      removeWorkspaceFileMention('look at @REA', {
+        endIndex: 12,
+        query: 'REA',
+        startIndex: 8,
+      }),
+    ).toBe('look at')
+  })
+
   it('resolves Enter or Tab to the first file before any skill', () => {
     expect(resolveMentionMenuSelection(0, ['README.md'], 6)).toEqual({
       filePath: 'README.md',
