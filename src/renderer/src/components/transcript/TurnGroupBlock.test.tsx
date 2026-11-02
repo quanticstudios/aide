@@ -288,7 +288,7 @@ describe('TurnGroupBlock interrupt', () => {
           canBranch={false}
           checkpointId={null}
           isCompleted={false}
-          isInterrupted
+          endedLabel="Interrupted"
           isRunning={false}
           onBranch={noop}
           onEditFromHere={noop}
@@ -302,7 +302,7 @@ describe('TurnGroupBlock interrupt', () => {
       ),
     )
     expect(
-      container.querySelector('[data-testid="turn-interrupted"]')?.textContent,
+      container.querySelector('[data-testid="turn-ended"]')?.textContent,
     ).toBe('Interrupted')
     act(() => root.unmount())
   })

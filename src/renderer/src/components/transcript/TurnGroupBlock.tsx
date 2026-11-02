@@ -51,7 +51,7 @@ function TurnGroupBlockContent({
   canBranch,
   checkpointId,
   isCompleted,
-  isInterrupted = false,
+  endedLabel = null,
   isRunning,
   onBranch,
   onEditFromHere,
@@ -65,7 +65,8 @@ function TurnGroupBlockContent({
   readonly canBranch: boolean
   readonly checkpointId: string | null
   readonly isCompleted: boolean
-  readonly isInterrupted?: boolean
+  /** Why a turn ended without finishing, said under it: `Interrupted` or `Failed`. */
+  readonly endedLabel?: string | null
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
   readonly onEditFromHere: (
@@ -193,13 +194,13 @@ function TurnGroupBlockContent({
           (empty response)
         </p>
       ) : null}
-      {isLast && isInterrupted ? (
+      {isLast && endedLabel ? (
         <div
           className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
-          data-testid="turn-interrupted"
+          data-testid="turn-ended"
         >
           <span className="h-px flex-1 bg-[var(--border-soft)]" />
-          Interrupted
+          {endedLabel}
           <span className="h-px flex-1 bg-[var(--border-soft)]" />
         </div>
       ) : null}
