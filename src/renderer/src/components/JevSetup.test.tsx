@@ -75,6 +75,8 @@ describe('JevSetup', () => {
 
     expect(updateJevSettings).toHaveBeenCalledOnce()
     expect(host.textContent).toContain('Saved')
+    expect(host.querySelectorAll('[role="status"]')).toHaveLength(1)
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Ready')
 
     const input = host.querySelector<HTMLInputElement>('input[type="password"]')
     if (!input) throw new Error('key input missing')

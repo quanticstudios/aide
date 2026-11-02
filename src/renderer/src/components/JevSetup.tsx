@@ -224,9 +224,10 @@ export default function JevSetup({ workspaceId }: JevSetupProps) {
             Remove saved key
           </Button>
         ) : null}
+        {/* why: aria-live, not role="status", so the readiness line above stays the form's only status. */}
         <span
+          aria-live="polite"
           className="flex items-center gap-1 text-[12px] text-muted-foreground"
-          role="status"
         >
           {saved ? (
             <>
