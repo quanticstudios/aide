@@ -11,6 +11,13 @@ interface ManagedPendingUserInputPanelProps {
   readonly request: ManagedSessionPendingUserInput
 }
 
+/** The answer field's placeholder: picking an option fills the field, so it never says to leave it blank. */
+export function answerPlaceholder(hasOptions: boolean): string {
+  return hasOptions
+    ? 'Pick an option above or type your own answer'
+    : 'Type your answer'
+}
+
 export default function ManagedPendingUserInputPanel({
   answers,
   onAnswerChange,
@@ -68,7 +75,7 @@ export default function ManagedPendingUserInputPanel({
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               onAnswerChange(question.id, event.target.value)
             }
-            placeholder="Type your own answer, or leave this blank to use the selected option"
+            placeholder={answerPlaceholder(question.options.length > 0)}
             value={answers[question.id] ?? ''}
             variant="secondary"
           />

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import type { ManagedSessionSnapshot } from '../shared/managed-session'
+import { plainPromptLine } from '../shared/prompt-title'
 import {
   getTaskActivity,
   type SavedTask,
@@ -23,8 +24,7 @@ export function taskTitle(
   )?.text
   return (
     metadata.title ??
-    firstPrompt?.replace(/\s+/g, ' ').slice(0, 100) ??
-    'New conversation'
+    (plainPromptLine(firstPrompt ?? '').slice(0, 100) || 'New conversation')
   )
 }
 

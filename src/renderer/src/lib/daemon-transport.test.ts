@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { TurnCheckpointDiff } from '../../../shared/checkpoints'
 import type { PitwallStatus } from '../../../shared/ipc'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import type { SavedTask } from '../../../shared/task-library'
@@ -942,6 +943,7 @@ describe('DaemonTransport', () => {
     expect(preview).toMatchObject({
       changes: [{ path: 'new.md', previousPath: 'old.md', status: 'renamed' }],
       restorePatch: 'back',
+      keptChanges: null,
       turnChanges: [],
       turnPatch: '',
     })
@@ -960,6 +962,96 @@ describe('DaemonTransport', () => {
         keepFiles: true,
       },
     ])
+  })
+
+  it("reads a turn's diff as it ends, so edits made before the first look don't join it, even after a reload", async () => {
+    daemon.capabilities.push('checkpointDiff', 'rewindPreview')
+    for (const delta of fixture.deltas) daemon.emit(delta)
+    const turn = fixture.deltas.find((delta) => delta.type === 'turn')
+    if (turn?.type !== 'turn') throw new Error('the fixture has no turn')
+    const readme = {
+      files: [{ path: 'README.md', status: 'modified' }],
+      patch:
+        'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n before\n+after\n',
+    }
+    const withNotes = {
+      files: [...readme.files, { path: 'notes.md', status: 'added' }],
+      patch: `${readme.patch}diff --git a/notes.md b/notes.md\nnew file mode 100644\n--- /dev/null\n+++ b/notes.md\n@@ -0,0 +1 @@\n+mine\n`,
+    }
+    let saved: Record<string, TurnCheckpointDiff> = {}
+    const turnDiffs = {
+      load: () => saved,
+      save: (diffs: Record<string, TurnCheckpointDiff>) => {
+        saved = diffs
+      },
+    }
+    start({ turnDiffs })
+    transport.subscribeSession(SESSION_ID, () => undefined)
+    await settle()
+    let seq = (fixture.deltas.at(-1)?.seq ?? 0) + 1
+    daemon.emit({
+      ...turn,
+      seq: seq++,
+      turn: { ...turn.turn, checkpointId: 'cp-1', state: 'running' },
+    })
+    await settle()
+    daemon.answers.set('checkpointDiff', readme)
+    daemon.emit({
+      ...turn,
+      seq: seq++,
+      turn: { ...turn.turn, checkpointId: 'cp-1', state: 'completed' },
+    })
+    await settle()
+    // The user edits files before anything in aide looks at the turn.
+    daemon.answers.set('checkpointDiff', withNotes)
+    const diff = await transport.getCheckpointDiff(SESSION_ID, 'cp-1')
+    expect(diff.files.map((file) => file.path)).toEqual(['README.md'])
+
+    daemon.answers.set('rewindPreview', {
+      files: [...readme.files, { path: 'notes.md', status: 'deleted' }],
+      patch: 'back',
+      turnFiles: withNotes.files,
+      turnPatch: '',
+    })
+    const preview = await transport.previewRewind(SESSION_ID, 'cp-1')
+    expect(preview.turnChanges).toEqual([
+      { path: 'README.md', status: 'modified' },
+    ])
+
+    transport.dispose()
+    start({ turnDiffs })
+    await settle()
+    const reloaded = await transport.getCheckpointDiff(SESSION_ID, 'cp-1')
+    expect(reloaded.files.map((file) => file.path)).toEqual(['README.md'])
+  })
+
+  it("reverts the turn's own files when pitwall can, and lists what it keeps", async () => {
+    daemon.capabilities.push('rewindPreview', 'rewind')
+    for (const delta of fixture.deltas) daemon.emit(delta)
+    const turn = fixture.deltas.find((delta) => delta.type === 'turn')
+    if (turn?.type !== 'turn') throw new Error('the fixture has no turn')
+    daemon.emit({
+      ...turn,
+      seq: (fixture.deltas.at(-1)?.seq ?? 0) + 1,
+      turn: { ...turn.turn, checkpointId: 'cp-1' },
+    })
+    daemon.answers.set('rewindPreview', {
+      files: [{ path: 'README.md', status: 'modified' }],
+      kept: [{ path: 'index.ts', status: 'modified' }],
+      patch: 'back',
+      turnFiles: [{ path: 'README.md', status: 'modified' }],
+      turnPatch: '',
+    })
+    start()
+    await settle()
+    const preview = await transport.previewRewind(SESSION_ID, 'cp-1')
+    expect(preview.keptChanges).toEqual([
+      { path: 'index.ts', status: 'modified' },
+    ])
+    await transport.rewind(preview.previewId, 'code-and-conversation')
+    expect(
+      daemon.commands.find((frame) => frame.type === 'rewind'),
+    ).toMatchObject({ keepFiles: false, turnOnly: true })
   })
 
   it('resubscribes the session list after a reconnect', async () => {

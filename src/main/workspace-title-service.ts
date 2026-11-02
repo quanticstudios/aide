@@ -1,3 +1,5 @@
+import { plainPromptLine } from '../shared/prompt-title'
+
 const MAX_PROMPT_EXCERPT_LENGTH = 480
 
 type WorkspaceNameSource = 'default' | 'generated' | 'manual'
@@ -26,7 +28,7 @@ interface WorkspaceTitleServiceOptions {
 }
 
 function promptExcerpt(text: string): string | null {
-  const excerpt = text.trim().replace(/\s+/g, ' ')
+  const excerpt = plainPromptLine(text)
   return excerpt ? excerpt.slice(0, MAX_PROMPT_EXCERPT_LENGTH) : null
 }
 

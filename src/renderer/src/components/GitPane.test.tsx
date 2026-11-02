@@ -16,15 +16,28 @@ describe('GitLineFeedback', () => {
         onSend={vi.fn()}
         selectedSessionId="session-a"
         sessions={[
-          { provider: 'claude', sessionId: 'session-a' },
-          { provider: 'codex', sessionId: 'session-b' },
+          { content: [], provider: 'claude', sessionId: 'session-a' },
+          {
+            content: [
+              {
+                id: 'prompt',
+                kind: 'user-prompt',
+                provider: 'codex',
+                text: 'fix the **login** flow',
+                turnId: 'turn-1',
+                updatedAt: '2026-11-02T10:00:00.000Z',
+              },
+            ],
+            provider: 'codex',
+            sessionId: 'session-b',
+          },
         ]}
       />,
     )
 
     expect(markup).toMatch(/<details(?![^>]*\bopen\b)[^>]*>/)
     expect(markup).toContain('Agent 1 · Claude')
-    expect(markup).toContain('Agent 2 · Codex')
+    expect(markup).toContain('fix the login flow · Codex')
     expect(markup).not.toContain('copy-instance')
   })
 })

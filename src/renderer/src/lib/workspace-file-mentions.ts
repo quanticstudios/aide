@@ -34,6 +34,8 @@ export function removeWorkspaceFileMention(
 ): string {
   const beforeMention = draft.slice(0, mention.startIndex)
   const afterMention = draft.slice(mention.endIndex)
+  // why: a trailing space is invisible, so the next word typed after it would bring a second one.
+  if (afterMention === '') return beforeMention.trimEnd()
   return beforeMention.endsWith(' ') && afterMention.startsWith(' ')
     ? `${beforeMention}${afterMention.slice(1)}`
     : `${beforeMention}${afterMention}`
@@ -41,15 +43,14 @@ export function removeWorkspaceFileMention(
 
 export function resolveMentionMenuSelection(
   activeIndex: number,
-  skillCount: number,
   filePaths: readonly string[],
+  skillCount: number,
 ): MentionMenuSelection | null {
   if (activeIndex < 0) return null
-  if (activeIndex < skillCount) {
-    return { kind: 'skill', skillIndex: activeIndex }
-  }
-  const filePath = filePaths[activeIndex - skillCount]
-  return filePath ? { filePath, kind: 'file' } : null
+  const filePath = filePaths[activeIndex]
+  if (filePath) return { filePath, kind: 'file' }
+  const skillIndex = activeIndex - filePaths.length
+  return skillIndex < skillCount ? { kind: 'skill', skillIndex } : null
 }
 
 export function appendWorkspaceFileAttachment(

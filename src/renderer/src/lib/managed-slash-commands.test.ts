@@ -33,6 +33,15 @@ describe('filterProviderSkills', () => {
     ])
   })
 
+  it('matches names alone for an @ mention, skipping description matches', () => {
+    expect(
+      filterProviderSkills(providerSkills, 'chang', { namesOnly: true }),
+    ).toEqual([])
+    expect(filterProviderSkills(providerSkills, 'chang')).toEqual([
+      providerSkills[0],
+    ])
+  })
+
   it('returns every provider skill for an empty query', () => {
     expect(filterProviderSkills(providerSkills, '')).toEqual(providerSkills)
   })

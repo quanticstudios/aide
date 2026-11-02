@@ -165,8 +165,9 @@ test.describe('usage limit and provider error banners', () => {
     await send(page, 'auth error')
     await expect(banner).toContainText('Claude is not signed in')
     await expect(banner).toContainText(
-      'Run `claude` in a terminal and sign in with /login, then retry.',
+      'Run claude in a terminal and sign in with /login, then retry.',
     )
+    await expect(banner.locator('code')).toHaveText('claude')
     await banner.getByRole('button', { name: 'Retry' }).click()
     await expect(
       page

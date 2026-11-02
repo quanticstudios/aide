@@ -6,7 +6,7 @@ import type {
 } from '../../../shared/managed-session'
 
 interface ThreadErrorBannerProps {
-  readonly kind: ManagedSessionErrorKind
+  readonly kind: ManagedSessionErrorKind | null
   readonly message: string
   readonly onRetry: () => void
   readonly provider: ManagedSessionProvider
@@ -38,13 +38,37 @@ const COPY: Record<
   }),
 }
 
+function genericCopy(provider: ManagedSessionProvider) {
+  return {
+    fix: 'Retry sends your last message again.',
+    title: `${PROVIDER_NAMES[provider]} stopped with an error`,
+  }
+}
+
+/** Renders the backtick spans of a fix as inline code. */
+function FixText({ text }: { readonly text: string }) {
+  return text.split(/(`[^`]+`)/).map((part, index) =>
+    part.startsWith('`') && part.endsWith('`') && part.length > 1 ? (
+      <code
+        className="rounded bg-surface px-1 py-px font-mono text-[12px]"
+        // biome-ignore lint/suspicious/noArrayIndexKey: the split parts of a fixed string never reorder.
+        key={index}
+      >
+        {part.slice(1, -1)}
+      </code>
+    ) : (
+      part
+    ),
+  )
+}
+
 export default function ThreadErrorBanner({
   kind,
   message,
   onRetry,
   provider,
 }: ThreadErrorBannerProps) {
-  const { fix, title } = COPY[kind](provider)
+  const { fix, title } = kind ? COPY[kind](provider) : genericCopy(provider)
   return (
     <div
       className="mx-auto w-full max-w-3xl rounded-lg border border-accent-red bg-accent-red-soft px-4 py-3"
@@ -55,7 +79,9 @@ export default function ThreadErrorBanner({
         <AlertTriangle className="mt-0.5 size-4 shrink-0 text-accent-red" />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-sm text-foreground">{fix}</p>
+          <p className="mt-1 text-sm text-foreground">
+            <FixText text={fix} />
+          </p>
           <p className="mt-1 break-words font-mono text-[11px] text-muted-foreground">
             {message}
           </p>

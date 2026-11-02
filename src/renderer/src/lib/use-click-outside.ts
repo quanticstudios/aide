@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import { useEffect } from 'react'
 
-/** Calls onClose when a pointer press lands outside the referenced element. */
+/** Calls onClose when a pointer press lands outside the referenced element, or on Escape, which also refocuses the element's first button. */
 export function useClickOutside(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
@@ -15,8 +15,19 @@ export function useClickOutside(
         onClose()
       }
     }
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      onClose()
+      // invariant: a menu's trigger is the first button in its container, so focus returns where it was opened.
+      ref.current?.querySelector('button')?.focus()
+    }
 
     document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('keydown', handleKey)
+    return () => {
+      document.removeEventListener('mousedown', handler)
+      document.removeEventListener('keydown', handleKey)
+    }
   }, [active, onClose, ref])
 }

@@ -26,6 +26,7 @@ import type {
 } from '../../../shared/git'
 import type { ManagedSessionSnapshot } from '../../../shared/managed-session'
 import type { WorkspaceRecord } from '../../../shared/persistence'
+import { chatTitle } from '../../../shared/prompt-title'
 import {
   buildGitFileTree,
   dominantGitChangeKind,
@@ -237,7 +238,7 @@ export function GitLineFeedback({
   readonly selectedSessionId: string
   readonly sessions: readonly Pick<
     ManagedSessionSnapshot,
-    'provider' | 'sessionId'
+    'content' | 'provider' | 'sessionId'
   >[]
 }) {
   return (
@@ -271,7 +272,7 @@ export function GitLineFeedback({
               >
                 {sessions.map((session, index) => (
                   <option key={session.sessionId} value={session.sessionId}>
-                    Agent {index + 1} ·{' '}
+                    {chatTitle(session) ?? `Agent ${index + 1}`} ·{' '}
                     {session.provider === 'codex' ? 'Codex' : 'Claude'}
                   </option>
                 ))}

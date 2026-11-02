@@ -20,6 +20,7 @@ const preview: TurnCheckpointPreview = {
   },
   createdAt: '2026-09-17T10:01:00.000Z',
   expiresAt: '2026-09-17T10:11:00.000Z',
+  keptChanges: null,
   previewId: '11111111-1111-1111-1111-111111111111',
   restorePatch: 'diff --git a/src/new.ts b/src/new.ts\n',
   sessionRevision: 3,
@@ -43,6 +44,44 @@ describe('RewindRestoreContent', () => {
     expect(markup).toContain('src/new.ts')
     expect(markup).toContain('src/old.ts')
     expect(markup).toContain('src/current.ts')
+  })
+
+  it('marks files a revert changes that this message did not change', () => {
+    const markup = renderToStaticMarkup(
+      <RewindRestoreContent
+        error={null}
+        mode="code-and-conversation"
+        onModeChange={vi.fn()}
+        preview={preview}
+      />,
+    )
+
+    expect(markup.match(/After this message/g)).toHaveLength(1)
+    expect(markup).toContain('edits made after this')
+  })
+
+  it('lists files edited after the message as kept when pitwall reverts the turn alone', () => {
+    const markup = renderToStaticMarkup(
+      <RewindRestoreContent
+        error={null}
+        mode="code-and-conversation"
+        onModeChange={vi.fn()}
+        preview={{
+          ...preview,
+          changes: [{ path: 'README.md', status: 'modified' }],
+          keptChanges: [{ path: 'index.ts', status: 'modified' }],
+          turnChanges: [
+            { path: 'README.md', status: 'modified' },
+            { path: 'index.ts', status: 'modified' },
+          ],
+        }}
+      />,
+    )
+
+    expect(markup).toContain('Edited after this message, kept as they are')
+    expect(markup).toContain('index.ts')
+    expect(markup).not.toContain('After this message<')
+    expect(markup).not.toContain('edits made after this')
   })
 
   it('shows the restore error instead of hiding it', () => {

@@ -8,6 +8,7 @@ import type {
   TurnCheckpointRestoreResult,
 } from '../../../shared/checkpoints'
 import { getSessionTransport } from '../lib/session-transport'
+import { cn } from '../lib/utils'
 
 interface ManagedRewindDialogProps {
   readonly checkpointId: string
@@ -25,6 +26,40 @@ export function getRewindChangeLabel(change: TurnCheckpointChange): string {
     return `${change.previousPath} → ${change.path}`
   }
   return change.path
+}
+
+function RewindChangeList({
+  changes,
+  isLater,
+}: {
+  readonly changes: readonly TurnCheckpointChange[]
+  readonly isLater?: (change: TurnCheckpointChange) => boolean
+}) {
+  return (
+    <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs">
+      {changes.map((change) => (
+        <li
+          className="flex min-w-0 items-baseline gap-2"
+          key={`${change.status}:${change.previousPath ?? ''}:${change.path}`}
+        >
+          <span className="w-16 shrink-0 uppercase text-muted-foreground">
+            {change.status}
+          </span>
+          <span
+            className="min-w-0 truncate"
+            title={getRewindChangeLabel(change)}
+          >
+            {getRewindChangeLabel(change)}
+          </span>
+          {isLater?.(change) ? (
+            <span className="ml-auto shrink-0 rounded bg-accent-yellow-soft px-1.5 font-sans text-[11px] text-accent-yellow">
+              After this message
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export function RewindRestoreContent({
@@ -46,7 +81,14 @@ export function RewindRestoreContent({
       </p>
 
       <fieldset className="space-y-2">
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+            mode === 'conversation-only'
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:bg-surface-2',
+          )}
+        >
           <input
             checked={mode === 'conversation-only'}
             className="mt-1"
@@ -63,7 +105,14 @@ export function RewindRestoreContent({
             </span>
           </span>
         </label>
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
+        <label
+          className={cn(
+            'flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+            mode === 'code-and-conversation'
+              ? 'border-primary bg-primary/5'
+              : 'border-border hover:bg-surface-2',
+          )}
+        >
           <input
             checked={mode === 'code-and-conversation'}
             className="mt-1"
@@ -88,18 +137,16 @@ export function RewindRestoreContent({
         </h3>
         {preview ? (
           preview.changes.length ? (
-            <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-surface-2 p-3 font-mono text-xs">
-              {preview.changes.map((change) => (
-                <li
-                  key={`${change.status}:${change.previousPath ?? ''}:${change.path}`}
-                >
-                  <span className="mr-2 uppercase text-muted-foreground">
-                    {change.status}
-                  </span>
-                  {getRewindChangeLabel(change)}
-                </li>
-              ))}
-            </ul>
+            <RewindChangeList
+              changes={preview.changes}
+              isLater={(change) =>
+                preview.keptChanges === null &&
+                preview.turnChanges !== null &&
+                !preview.turnChanges.some(
+                  (turnChange) => turnChange.path === change.path,
+                )
+              }
+            />
           ) : (
             <p className="rounded-lg border border-border bg-surface-2 p-3 text-sm text-muted-foreground">
               Reverting files would not change the workspace.
@@ -110,7 +157,22 @@ export function RewindRestoreContent({
             Loading the preview…
           </p>
         )}
+        {preview?.keptChanges === null && preview.changes.length ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            This pitwall reverts every listed file, edits made after this
+            message included.
+          </p>
+        ) : null}
       </section>
+
+      {preview?.keptChanges?.length ? (
+        <section aria-label="Files edited after this message">
+          <h3 className="mb-2 text-sm font-semibold text-foreground">
+            Edited after this message, kept as they are
+          </h3>
+          <RewindChangeList changes={preview.keptChanges} />
+        </section>
+      ) : null}
 
       {error ? (
         <p className="text-sm text-accent-red" role="alert">
@@ -186,7 +248,7 @@ export default function ManagedRewindDialog({
             <Modal.Header>
               <Modal.Heading>Edit from here</Modal.Heading>
             </Modal.Header>
-            <Modal.Body className="gap-4 text-foreground">
+            <Modal.Body className="flex flex-col gap-4 text-foreground">
               <RewindRestoreContent
                 error={error}
                 mode={mode}

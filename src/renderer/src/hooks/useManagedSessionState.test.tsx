@@ -10,7 +10,10 @@ import {
   type SessionTransport,
   setSessionTransport,
 } from '../lib/session-transport'
-import { useManagedSessionState } from './useManagedSessionState'
+import {
+  useManagedSessionState,
+  useManagedSessionTitle,
+} from './useManagedSessionState'
 
 function snapshot(
   revision: number,
@@ -74,5 +77,55 @@ describe('useManagedSessionState', () => {
 
     act(() => root.unmount())
     expect(fake.unsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+describe('useManagedSessionTitle', () => {
+  function titled(revision: number, text: string): ManagedSessionSnapshot {
+    return {
+      ...snapshot(revision, 'ready'),
+      content: [
+        {
+          id: `prompt-${revision}`,
+          kind: 'user-prompt',
+          provider: null,
+          text,
+          turnId: 'turn-1',
+          updatedAt: '2026-11-02T10:00:00.000Z',
+        },
+      ],
+    }
+  }
+
+  it('keeps a newer pushed title when the first read answers late', async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    let answer: (value: Record<string, ManagedSessionSnapshot>) => void =
+      () => {}
+    let push: (update: ManagedSessionUpdate) => void = () => {}
+    setSessionTransport({
+      getSessions: () =>
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+      subscribeSession: (
+        _sessionId: string,
+        listener: (update: ManagedSessionUpdate) => void,
+      ) => {
+        push = listener
+        return () => {}
+      },
+    } as unknown as SessionTransport)
+    const seen: (string | null)[] = []
+    function Probe() {
+      seen.push(useManagedSessionTitle('session-1'))
+      return null
+    }
+    const root = createRoot(document.createElement('div'))
+    await act(async () => root.render(<Probe />))
+
+    act(() => push({ snapshot: titled(2, 'edit readme'), type: 'snapshot' }))
+    await act(async () => answer({ 'session-1': titled(1, 'stale title') }))
+    expect(seen.at(-1)).toBe('edit readme')
+    act(() => root.unmount())
   })
 })

@@ -43,10 +43,13 @@ export interface TurnCheckpointSummary {
 }
 
 export interface TurnCheckpointPreview {
+  /** What a file revert writes back. */
   changes: TurnCheckpointChange[]
   checkpoint: TurnCheckpointSummary
   createdAt: string
   expiresAt: string
+  /** Turn files edited again after the turn, which the revert keeps; null when pitwall reverts every file. */
+  keptChanges: TurnCheckpointChange[] | null
   previewId: string
   restorePatch: string
   sessionRevision: number

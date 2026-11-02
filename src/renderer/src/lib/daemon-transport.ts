@@ -1,6 +1,7 @@
 import {
   parseTurnDiffPatch,
   type TurnCheckpointChange,
+  type TurnCheckpointDiff,
   type TurnCheckpointPreview,
 } from '../../../shared/checkpoints'
 import {
@@ -117,6 +118,11 @@ export interface DaemonTransportOptions {
   readonly closedChats?: {
     load: () => string[]
     save: (chats: string[]) => void
+  }
+  /** Keeps each turn's diff as read when the turn ended, by checkpoint, so a reload still has it. */
+  readonly turnDiffs?: {
+    load: () => Record<string, TurnCheckpointDiff>
+    save: (diffs: Record<string, TurnCheckpointDiff>) => void
   }
   /** Takes, once each, the chats Electron main imported that aide had not archived; they join `closedChats`, so aide lists them as open and opening one unarchives it. */
   readonly takeImportedOpenChats?: () => Promise<string[]>
@@ -270,6 +276,9 @@ function toChange(file: PitwallFile): TurnCheckpointChange {
     : { path: file.path, status: file.status }
 }
 
+// ponytail: a fixed count of saved turn diffs; size by bytes if large patches crowd localStorage.
+const KEPT_TURN_DIFFS = 50
+
 function unsupported(name: string): Promise<never> {
   return Promise.reject(
     new DaemonCommandError(
@@ -301,8 +310,21 @@ export function createDaemonTransport(
   >()
   const previews = new Map<
     string,
-    { checkpointId: string; prompt: string; sessionId: string; turnId: string }
+    {
+      checkpointId: string
+      prompt: string
+      sessionId: string
+      turnId: string
+      turnOnly: boolean
+    }
   >()
+  /** Each turn's diff read the moment the turn ended, by checkpoint, so edits made after it don't join it. */
+  const savedTurnDiffs = new Map(
+    Object.entries(options.turnDiffs?.load() ?? {}),
+  )
+  const turnDiffs = new Map<string, Promise<TurnCheckpointDiff>>(
+    [...savedTurnDiffs].map(([key, diff]) => [key, Promise.resolve(diff)]),
+  )
   let connection: DaemonConnection = { status: 'connecting' }
   let socket: WebSocket | null = null
   let capabilities = new Set<string>()
@@ -610,7 +632,17 @@ export function createDaemonTransport(
     const snapshot = replaced
       ? shareSnapshotContent(entry.state?.snapshot, state.snapshot)
       : state.snapshot
+    const before = entry.state?.snapshot.turns
     entry.state = { seq: state.seq, snapshot }
+    for (const turn of snapshot.turns) {
+      if (
+        turn.checkpointId &&
+        turn.state !== 'running' &&
+        before?.some(({ id, state }) => id === turn.id && state === 'running')
+      ) {
+        captureTurnDiff(sessionId, turn.id, turn.checkpointId)
+      }
+    }
     for (const listener of entry.listeners) {
       listener({ snapshot, type: 'snapshot' })
     }
@@ -711,6 +743,46 @@ export function createDaemonTransport(
   }
 
   /** The snapshot this transport holds for a subscribed chat, else a fresh `read`. */
+  async function readTurnDiff(
+    sessionId: string,
+    turnId: string,
+  ): Promise<TurnCheckpointDiff> {
+    const diff = await command<{ files: PitwallFile[]; patch: string }>(
+      'checkpointDiff',
+      { sessionId, turnId },
+    )
+    const status = new Map(diff.files.map((file) => [file.path, file.status]))
+    const files = parseTurnDiffPatch(diff.patch).map((file) => ({
+      ...file,
+      status: status.get(file.path) ?? file.status,
+    }))
+    return {
+      additions: files.reduce((total, file) => total + file.additions, 0),
+      deletions: files.reduce((total, file) => total + file.deletions, 0),
+      files,
+    }
+  }
+
+  /** Reads a turn's diff as it ends, before later edits can join it, and keeps the last `KEPT_TURN_DIFFS`. */
+  function captureTurnDiff(
+    sessionId: string,
+    turnId: string,
+    checkpointId: string,
+  ): void {
+    const diff = readTurnDiff(sessionId, turnId)
+    turnDiffs.set(checkpointId, diff)
+    diff.then(
+      (read) => {
+        savedTurnDiffs.delete(checkpointId)
+        savedTurnDiffs.set(checkpointId, read)
+        for (const key of [...savedTurnDiffs.keys()].slice(0, -KEPT_TURN_DIFFS))
+          savedTurnDiffs.delete(key)
+        options.turnDiffs?.save(Object.fromEntries(savedTurnDiffs))
+      },
+      () => turnDiffs.delete(checkpointId),
+    )
+  }
+
   /** The turn whose checkpoint is `checkpointId`, or whose id it is. */
   async function checkpointTurn(sessionId: string, checkpointId: string) {
     const snapshot = await currentSnapshot(sessionId)
@@ -1240,29 +1312,29 @@ export function createDaemonTransport(
     },
     getCheckpointDiff: async (sessionId, checkpointId) => {
       const { turn } = await checkpointTurn(sessionId, checkpointId)
-      const diff = await command<{ files: PitwallFile[]; patch: string }>(
-        'checkpointDiff',
-        { sessionId, turnId: turn.id },
+      const captured = turn.checkpointId
+        ? turnDiffs.get(turn.checkpointId)
+        : undefined
+      return (
+        (await captured?.catch(() => null)) ?? readTurnDiff(sessionId, turn.id)
       )
-      const status = new Map(diff.files.map((file) => [file.path, file.status]))
-      const files = parseTurnDiffPatch(diff.patch).map((file) => ({
-        ...file,
-        status: status.get(file.path) ?? file.status,
-      }))
-      return {
-        additions: files.reduce((total, file) => total + file.additions, 0),
-        deletions: files.reduce((total, file) => total + file.deletions, 0),
-        files,
-      }
     },
     previewRewind: async (sessionId, checkpointId) => {
       const { snapshot, turn } = await checkpointTurn(sessionId, checkpointId)
       const found = await command<{
         files: PitwallFile[]
+        kept?: PitwallFile[]
         patch: string
         turnFiles: PitwallFile[]
         turnPatch: string
       }>('rewindPreview', { sessionId, turnId: turn.id })
+      const cached = turn.checkpointId
+        ? turnDiffs.get(turn.checkpointId)
+        : undefined
+      // why: pitwall's last-turn files run to the files now, so the diff read when the turn ended names its own.
+      const ownFiles = (await cached?.catch(() => null))?.files.map(
+        ({ path, status }) => ({ path, status }),
+      )
       // pitwall keeps no preview: rewind names the turn.
       const previewId = `rewind-${++nextId}`
       previews.set(previewId, {
@@ -1276,6 +1348,7 @@ export function createDaemonTransport(
           '',
         sessionId,
         turnId: turn.id,
+        turnOnly: found.kept !== undefined,
       })
       const now = new Date().toISOString()
       return {
@@ -1288,10 +1361,11 @@ export function createDaemonTransport(
         },
         createdAt: now,
         expiresAt: now,
+        keptChanges: found.kept?.map(toChange) ?? null,
         previewId,
         restorePatch: found.patch,
         sessionRevision: snapshot.revision,
-        turnChanges: found.turnFiles.map(toChange),
+        turnChanges: ownFiles ?? found.turnFiles.map(toChange),
         turnPatch: found.turnPatch,
       } satisfies TurnCheckpointPreview
     },
@@ -1307,6 +1381,10 @@ export function createDaemonTransport(
         sessionId: preview.sessionId,
         turnId: preview.turnId,
         keepFiles: mode === 'conversation-only',
+        // why: a pitwall that answers `kept` can revert the turn's own files alone; an older one ignores the key.
+        ...(preview.turnOnly && mode === 'code-and-conversation'
+          ? { turnOnly: true }
+          : {}),
       })
       previews.delete(previewId)
       return {

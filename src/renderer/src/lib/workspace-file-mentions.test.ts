@@ -36,15 +36,25 @@ describe('workspace file mentions', () => {
     ).toBe('Please inspect next')
   })
 
-  it('resolves Enter or Tab selection to the highlighted file after skills', () => {
-    expect(resolveMentionMenuSelection(1, 1, ['src/shared/fleet.ts'])).toEqual({
-      filePath: 'src/shared/fleet.ts',
+  it('leaves no trailing space when the mention ends the draft', () => {
+    expect(
+      removeWorkspaceFileMention('look at @REA', {
+        endIndex: 12,
+        query: 'REA',
+        startIndex: 8,
+      }),
+    ).toBe('look at')
+  })
+
+  it('resolves Enter or Tab to the first file before any skill', () => {
+    expect(resolveMentionMenuSelection(0, ['README.md'], 6)).toEqual({
+      filePath: 'README.md',
       kind: 'file',
     })
   })
 
-  it('resolves an installed skill before files', () => {
-    expect(resolveMentionMenuSelection(0, 1, [])).toEqual({
+  it('resolves a skill listed after the files', () => {
+    expect(resolveMentionMenuSelection(1, ['README.md'], 1)).toEqual({
       kind: 'skill',
       skillIndex: 0,
     })

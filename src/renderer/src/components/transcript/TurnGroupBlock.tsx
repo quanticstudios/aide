@@ -51,6 +51,7 @@ function TurnGroupBlockContent({
   canBranch,
   checkpointId,
   isCompleted,
+  endedLabel = null,
   isRunning,
   onBranch,
   onEditFromHere,
@@ -64,6 +65,8 @@ function TurnGroupBlockContent({
   readonly canBranch: boolean
   readonly checkpointId: string | null
   readonly isCompleted: boolean
+  /** Why a turn ended without finishing, said under it: `Interrupted` or `Failed`. */
+  readonly endedLabel?: string | null
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
   readonly onEditFromHere: (
@@ -184,12 +187,14 @@ function TurnGroupBlockContent({
       !group.items.some(
         (item) => item.kind === 'assistant-text' && item.text.trim(),
       ) ? (
-        <p
-          className="px-1 text-[13px] text-muted-foreground"
+        <div
+          className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
           data-testid="empty-response"
         >
-          (empty response)
-        </p>
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+          No response
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+        </div>
       ) : null}
       {isLast && !isRunning && checkpointId && turnDiff?.files.length ? (
         <div
@@ -306,6 +311,16 @@ function TurnGroupBlockContent({
               </div>
             </details>
           ))}
+        </div>
+      ) : null}
+      {isLast && endedLabel ? (
+        <div
+          className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
+          data-testid="turn-ended"
+        >
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+          {endedLabel}
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
         </div>
       ) : null}
     </div>

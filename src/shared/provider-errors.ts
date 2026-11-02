@@ -1,4 +1,7 @@
-import type { ManagedSessionErrorKind } from './managed-session'
+import type {
+  ManagedSessionErrorKind,
+  ManagedSessionSnapshot,
+} from './managed-session'
 
 const ERROR_KIND_PATTERNS: [ManagedSessionErrorKind, RegExp][] = [
   [
@@ -27,4 +30,26 @@ export function classifyProviderError(
     ERROR_KIND_PATTERNS.find(([, pattern]) => pattern.test(message))?.[0] ??
     null
   )
+}
+
+/** The error a chat's banner shows: its last error, unless it only reports the turn the user stopped. */
+export function threadError(
+  snapshot: Pick<
+    ManagedSessionSnapshot,
+    'lastError' | 'lastErrorAt' | 'lastErrorKind' | 'turns'
+  > | null,
+): { kind: ManagedSessionErrorKind | null; message: string } | null {
+  if (!snapshot?.lastError) return null
+  const last = snapshot.turns.at(-1)
+  // why: pitwall reports a stopped turn as a lastError stamped with the turn's end, which is no failure.
+  if (
+    (last?.state === 'interrupted' || last?.state === 'cancelled') &&
+    last.completedAt === snapshot.lastErrorAt
+  ) {
+    return null
+  }
+  return {
+    kind: snapshot.lastErrorKind ?? classifyProviderError(snapshot.lastError),
+    message: snapshot.lastError,
+  }
 }

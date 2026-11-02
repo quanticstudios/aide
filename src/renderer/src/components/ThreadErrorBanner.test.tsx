@@ -1,0 +1,80 @@
+import { renderToStaticMarkup } from 'react-dom/server'
+import { describe, expect, it, vi } from 'vitest'
+import { threadError } from '../../../shared/provider-errors'
+import ThreadErrorBanner from './ThreadErrorBanner'
+
+describe('threadError', () => {
+  const failed = {
+    lastError: 'Fake managed provider error',
+    lastErrorAt: '2026-11-02T10:00:01.000Z',
+    turns: [
+      {
+        completedAt: '2026-11-02T10:00:01.000Z',
+        id: 'turn-1',
+        provider: 'claude' as const,
+        startedAt: '2026-11-02T10:00:00.000Z',
+        state: 'failed' as const,
+      },
+    ],
+  }
+
+  it('reports a failure with no known fix', () => {
+    expect(threadError(failed)).toEqual({
+      kind: null,
+      message: 'Fake managed provider error',
+    })
+  })
+
+  it('stays quiet about a turn the user stopped', () => {
+    const [turn] = failed.turns
+    if (!turn) throw new Error('no turn')
+    expect(
+      threadError({
+        lastError: 'Turn interrupted',
+        lastErrorAt: turn.completedAt,
+        turns: [{ ...turn, state: 'interrupted' }],
+      }),
+    ).toBeNull()
+  })
+
+  it('reports a failure that came after a stopped turn, such as a provider that fails to start', () => {
+    const [turn] = failed.turns
+    if (!turn) throw new Error('no turn')
+    expect(
+      threadError({
+        lastError: 'spawn failed: provider exited',
+        lastErrorAt: '2026-11-02T10:05:00.000Z',
+        turns: [{ ...turn, state: 'interrupted' }],
+      }),
+    ).toEqual({ kind: null, message: 'spawn failed: provider exited' })
+  })
+})
+
+describe('ThreadErrorBanner', () => {
+  it('shows an unclassified error with its message and Retry', () => {
+    const markup = renderToStaticMarkup(
+      <ThreadErrorBanner
+        kind={null}
+        message="Fake managed provider error"
+        onRetry={vi.fn()}
+        provider="claude"
+      />,
+    )
+    expect(markup).toContain('Claude stopped with an error')
+    expect(markup).toContain('Fake managed provider error')
+    expect(markup).toContain('Retry')
+  })
+
+  it('renders backticked commands as code, not raw backticks', () => {
+    const markup = renderToStaticMarkup(
+      <ThreadErrorBanner
+        kind="auth"
+        message="Not logged in"
+        onRetry={vi.fn()}
+        provider="claude"
+      />,
+    )
+    expect(markup).not.toContain('`')
+    expect(markup).toContain('<code')
+  })
+})
