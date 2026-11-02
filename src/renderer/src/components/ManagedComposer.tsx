@@ -7,6 +7,7 @@ import {
   LockOpen,
   PenLine,
   RefreshCw,
+  Square,
   X,
 } from 'lucide-react'
 import type {
@@ -1181,6 +1182,24 @@ export function useManagedComposer(pane: ManagedComposerPaneState) {
 
 type ManagedComposerProps = ReturnType<typeof useManagedComposer>
 
+/** Which button ends the composer's toolbar: answer a question, deny with feedback, stop the turn, or send. */
+export function getComposerAction({
+  draft,
+  hasPendingApproval,
+  hasQuestion,
+  isRunning,
+}: {
+  readonly draft: string
+  readonly hasPendingApproval: boolean
+  readonly hasQuestion: boolean
+  readonly isRunning: boolean
+}): 'answer' | 'deny' | 'send' | 'stop' {
+  const hasDraft = draft.trim().length > 0
+  if (hasQuestion) return 'answer'
+  if (hasPendingApproval && hasDraft) return 'deny'
+  return isRunning && !hasDraft ? 'stop' : 'send'
+}
+
 export default function ManagedComposer({
   activeAnswers,
   activeQuestion,
@@ -1248,6 +1267,12 @@ export default function ManagedComposer({
   textareaRef,
   workspaceFileSuggestions,
 }: ManagedComposerProps) {
+  const composerAction = getComposerAction({
+    draft: draftInput,
+    hasPendingApproval: Boolean(snapshot?.pendingApprovals[0]),
+    hasQuestion: Boolean(activeQuestion),
+    isRunning: snapshot?.sessionState === 'running',
+  })
   return (
     <div
       className="relative mx-auto w-full max-w-3xl rounded-2xl bg-surface-2 shadow-[0_1px_2px_color-mix(in_srgb,var(--shadow-color)_50%,transparent),0_0_0_1px_var(--border)] transition-shadow focus-within:shadow-[0_0_0_1px_var(--primary),0_8px_24px_-12px_color-mix(in_srgb,var(--shadow-color)_80%,transparent)]"
@@ -1729,7 +1754,7 @@ export default function ManagedComposer({
             summary={snapshot.usageSummary}
           />
         ) : null}
-        {activeQuestion ? (
+        {composerAction === 'answer' && activeQuestion ? (
           <button
             className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
             disabled={isSubmitting || !allQuestionsAnswered}
@@ -1741,7 +1766,7 @@ export default function ManagedComposer({
             ) : null}
             Submit answer
           </button>
-        ) : snapshot?.pendingApprovals[0] && draftInput.trim().length > 0 ? (
+        ) : composerAction === 'deny' && snapshot?.pendingApprovals[0] ? (
           <button
             className="flex shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-30"
             disabled={isSubmitting || !isDraftHydrated}
@@ -1752,6 +1777,20 @@ export default function ManagedComposer({
             {snapshot.pendingApprovals[0].requestType === 'plan-approval'
               ? 'Refine the plan'
               : 'Deny with this feedback'}
+          </button>
+        ) : composerAction === 'stop' ? (
+          <button
+            aria-label="Stop"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors duration-150 hover:bg-primary-focus"
+            data-testid="composer-stop"
+            onClick={() => {
+              const transport = getSessionTransport()
+              if (transport) void transport.interrupt(sessionId)
+            }}
+            title="Stop (Esc)"
+            type="button"
+          >
+            <Square className="size-3 fill-current" />
           </button>
         ) : (
           <button

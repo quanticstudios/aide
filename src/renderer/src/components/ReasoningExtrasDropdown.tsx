@@ -73,8 +73,10 @@ export default function ReasoningExtrasDropdown({
       : effortOption
         ? formatReasoningLabel(effortOption.id, effortOption.label)
         : effort
-  const extraLabel =
-    serviceTierOption?.label ?? (provider === 'claude' ? null : 'Default')
+  // why: "Default" names the standard service tier, so it only reads as one when the model offers tiers.
+  const extraLabel = modelCapability?.serviceTiers.length
+    ? (serviceTierOption?.label ?? 'Default')
+    : null
   const hasReasoningOptions = modelCapability
     ? modelCapability.reasoningEfforts.length > 0 ||
       modelCapability.serviceTiers.length > 0

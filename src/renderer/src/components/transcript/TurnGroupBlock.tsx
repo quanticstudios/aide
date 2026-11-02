@@ -51,6 +51,7 @@ function TurnGroupBlockContent({
   canBranch,
   checkpointId,
   isCompleted,
+  isInterrupted = false,
   isRunning,
   onBranch,
   onEditFromHere,
@@ -64,6 +65,7 @@ function TurnGroupBlockContent({
   readonly canBranch: boolean
   readonly checkpointId: string | null
   readonly isCompleted: boolean
+  readonly isInterrupted?: boolean
   readonly isRunning: boolean
   readonly onBranch: (responseContentItemId: string) => void
   readonly onEditFromHere: (
@@ -190,6 +192,16 @@ function TurnGroupBlockContent({
         >
           (empty response)
         </p>
+      ) : null}
+      {isLast && isInterrupted ? (
+        <div
+          className="flex items-center gap-3 px-1 text-[12px] text-muted-foreground"
+          data-testid="turn-interrupted"
+        >
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+          Interrupted
+          <span className="h-px flex-1 bg-[var(--border-soft)]" />
+        </div>
       ) : null}
       {isLast && !isRunning && checkpointId && turnDiff?.files.length ? (
         <div

@@ -269,3 +269,41 @@ describe('TurnGroupBlock work summary', () => {
     act(() => root.unmount())
   })
 })
+
+describe('TurnGroupBlock interrupt', () => {
+  it('marks a turn the user stopped', () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const [row] = buildTranscriptRows(
+      groupContentByTurn([
+        contentItem('prompt', 'turn-1', 'user-prompt', 'Question'),
+        contentItem('partial', 'turn-1', 'assistant-text', 'Half an answer'),
+      ]),
+    )
+    if (!row) throw new Error('no row')
+    act(() =>
+      root.render(
+        <TurnGroupBlock
+          canBranch={false}
+          checkpointId={null}
+          isCompleted={false}
+          isInterrupted
+          isRunning={false}
+          onBranch={noop}
+          onEditFromHere={noop}
+          onOpenDiff={noop}
+          providerLabel="Claude"
+          rewindDisabledReason={null}
+          row={row}
+          sessionId="session"
+          workedForMs={null}
+        />,
+      ),
+    )
+    expect(
+      container.querySelector('[data-testid="turn-interrupted"]')?.textContent,
+    ).toBe('Interrupted')
+    act(() => root.unmount())
+  })
+})

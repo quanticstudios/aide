@@ -937,6 +937,10 @@ export default function ManagedAgentPane({
                         canBranch={turn?.state === 'completed'}
                         checkpointId={turn?.checkpointId ?? null}
                         isCompleted={turn?.state === 'completed'}
+                        isInterrupted={
+                          turn?.state === 'interrupted' ||
+                          turn?.state === 'cancelled'
+                        }
                         isRunning={turn?.state === 'running'}
                         onBranch={handleTurnBranch}
                         onEditFromHere={handleTurnEditFromHere}
