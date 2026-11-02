@@ -1,11 +1,22 @@
 import { Button, InputGroup, ListBox, Select, Switch } from '@heroui/react'
 import { ArrowLeft, Search, Settings } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   formatJevGateThresholds,
   JEV_GATE_ROWS,
   type JevGateOverrides,
+  type JevGateSection,
+  type JevGateSettings,
   type JevGateSnapshot,
+  jevGateThresholdError,
   resolveJevGates,
   withJevGateOverride,
 } from '../../../shared/jev-gates'
@@ -68,7 +79,7 @@ function FontSettingRow({
   readonly row: (typeof FONT_ROWS)[number]
 }) {
   const inputClassName =
-    'h-8 rounded-md border border-border bg-surface-3 px-2 text-[13px] text-foreground placeholder:text-muted-foreground'
+    'h-8 rounded-md border border-border bg-surface-3 px-2 text-[13px] text-foreground transition-colors placeholder:text-muted-foreground focus:border-primary'
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
       <span className="min-w-0">
@@ -110,6 +121,66 @@ function FontSettingRow({
         />
       </span>
     </div>
+  )
+}
+
+// why: a draft keeps what you type on screen, so a value that cannot be saved shows its reason instead of being clamped.
+function JevThresholdInput({
+  gates,
+  isDisabled,
+  label,
+  onCommit,
+  rowLabel,
+  section,
+  field,
+  stored,
+}: {
+  readonly field: string
+  readonly gates: JevGateSettings
+  readonly isDisabled: boolean
+  readonly label: string
+  readonly onCommit: (value: number | undefined) => void
+  readonly rowLabel: string
+  readonly section: JevGateSection
+  readonly stored: number | undefined
+}) {
+  const errorId = useId()
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? (stored === undefined ? '' : String(stored))
+  const error = jevGateThresholdError(gates, section, field, text)
+  const placeholder = (gates[section] as unknown as Record<string, number>)[
+    field
+  ]
+  return (
+    <span className="flex flex-col gap-1">
+      <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        {label}
+        <input
+          aria-describedby={error ? errorId : undefined}
+          aria-invalid={error ? true : undefined}
+          aria-label={`${rowLabel}: ${label}`}
+          className="h-7 w-16 rounded-md border border-border bg-surface-3 px-2 text-[12px] tabular-nums text-foreground transition-colors placeholder:text-muted-foreground focus:border-primary disabled:opacity-50 aria-[invalid=true]:border-destructive"
+          disabled={isDisabled}
+          inputMode="decimal"
+          onBlur={() => setDraft(null)}
+          onChange={(event) => {
+            const next = event.target.value
+            setDraft(next)
+            if (jevGateThresholdError(gates, section, field, next)) return
+            onCommit(next.trim() === '' ? undefined : Number(next))
+          }}
+          placeholder={String(placeholder)}
+          spellCheck={false}
+          type="text"
+          value={text}
+        />
+      </label>
+      {error ? (
+        <span className="text-[12px] leading-4 text-destructive" id={errorId}>
+          {error}
+        </span>
+      ) : null}
+    </span>
   )
 }
 
@@ -433,6 +504,8 @@ export default function SettingsPage({
     }
   }, [query, selectedSection])
 
+  // why: while a search shows results from several sections, no single one is current.
+  const currentSection = query.trim() ? null : selectedSection
   const globalOverrides = jevGates?.global ?? {}
   const globalGates = resolveJevGates(globalOverrides)
 
@@ -570,9 +643,9 @@ export default function SettingsPage({
             <Button
               variant="ghost"
               size="sm"
-              aria-current={selectedSection === section.id ? 'page' : undefined}
+              aria-current={currentSection === section.id ? 'page' : undefined}
               className={`shrink-0 justify-start rounded-md px-2.5 min-[740px]:w-full py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                selectedSection === section.id
+                currentSection === section.id
                   ? 'bg-surface-4 font-medium text-foreground'
                   : 'text-muted-foreground hover:bg-surface-3 hover:text-foreground'
               }`}
@@ -586,7 +659,7 @@ export default function SettingsPage({
         </nav>
       </aside>
 
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div className="mx-auto w-full max-w-[800px] px-4 py-6 sm:px-6 min-[740px]:px-8 min-[740px]:py-10">
           {error || updatePreferencesError ? (
             <p
@@ -703,7 +776,7 @@ export default function SettingsPage({
                     }}
                   >
                     <Select.Trigger className="h-8 min-h-8 rounded-md bg-surface-3 text-[13px]">
-                      <Select.Value />
+                      <Select.Value className="text-[13px]" />
                       <Select.Indicator />
                     </Select.Trigger>
                     <Select.Popover className="z-[60] min-w-40">
@@ -783,52 +856,34 @@ export default function SettingsPage({
                       <p className="mt-0.5 text-[12px] leading-4 text-muted-foreground">
                         {formatJevGateThresholds(globalGates, row.section)}
                       </p>
-                      <div className="mt-2 flex flex-wrap gap-3">
+                      <div className="mt-2.5 flex flex-wrap items-start gap-x-5 gap-y-2">
                         {row.thresholds.map((threshold) => (
-                          <label
-                            className="flex items-center gap-1.5 text-[12px] text-muted-foreground"
+                          <JevThresholdInput
+                            field={threshold.field}
+                            gates={globalGates}
+                            isDisabled={!jevGates}
                             key={threshold.field}
-                          >
-                            {threshold.label}
-                            <input
-                              aria-label={`${row.label}: ${threshold.label}`}
-                              className="w-20 rounded border border-border bg-surface-3 px-1.5 py-0.5 text-[12px] text-foreground"
-                              disabled={!jevGates}
-                              max={1}
-                              min={0}
-                              onChange={(event) => {
-                                const parsed = Number(event.target.value)
-                                onUpdateGlobalJevGates(
-                                  withJevGateOverride(
-                                    globalOverrides,
-                                    row.section,
-                                    threshold.field,
-                                    Number.isFinite(parsed) &&
-                                      event.target.value !== ''
-                                      ? Math.min(1, Math.max(0, parsed))
-                                      : undefined,
-                                  ),
-                                )
-                              }}
-                              placeholder={String(
-                                (
-                                  globalGates[row.section] as unknown as Record<
-                                    string,
-                                    number
-                                  >
-                                )[threshold.field],
-                              )}
-                              step={0.05}
-                              type="number"
-                              value={
-                                (
-                                  globalOverrides[row.section] as
-                                    | Record<string, number>
-                                    | undefined
-                                )?.[threshold.field] ?? ''
-                              }
-                            />
-                          </label>
+                            label={threshold.label}
+                            onCommit={(value) =>
+                              onUpdateGlobalJevGates(
+                                withJevGateOverride(
+                                  globalOverrides,
+                                  row.section,
+                                  threshold.field,
+                                  value,
+                                ),
+                              )
+                            }
+                            rowLabel={row.label}
+                            section={row.section}
+                            stored={
+                              (
+                                globalOverrides[row.section] as
+                                  | Record<string, number>
+                                  | undefined
+                              )?.[threshold.field]
+                            }
+                          />
                         ))}
                       </div>
                     </div>

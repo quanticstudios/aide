@@ -5,6 +5,7 @@ import {
   formatJevGateThresholds,
   JEV_GATE_DEFAULTS,
   JevGateOverridesSchema,
+  jevGateThresholdError,
   resolveJevGates,
   withJevGateOverride,
   withoutJevGateSection,
@@ -139,5 +140,41 @@ describe('anyJevGateEnabled', () => {
     expect(
       anyJevGateEnabled(resolveJevGates({ toolGate: { enabled: true } })),
     ).toBe(true)
+  })
+})
+
+describe('jevGateThresholdError', () => {
+  const defaults = resolveJevGates()
+
+  it('accepts a blank field and a value between the other bar', () => {
+    expect(
+      jevGateThresholdError(defaults, 'laneRouting', 'highAbove', ''),
+    ).toBeNull()
+    expect(
+      jevGateThresholdError(defaults, 'laneRouting', 'highAbove', '0.7'),
+    ).toBeNull()
+    expect(
+      jevGateThresholdError(defaults, 'completionCheck', 'minPass', '1'),
+    ).toBeNull()
+  })
+
+  it('refuses values outside 0 to 1 and text that is not a number', () => {
+    for (const text of ['1.5', '-0.1', 'abc']) {
+      expect(
+        jevGateThresholdError(defaults, 'completionCheck', 'minPass', text),
+      ).toBe('Enter a number from 0 to 1.')
+    }
+  })
+
+  it('refuses a low bar above its high bar and a high bar below its low bar', () => {
+    expect(
+      jevGateThresholdError(defaults, 'laneRouting', 'highAbove', '0.907'),
+    ).toBe('Keep this at or below critical (0.85).')
+    expect(
+      jevGateThresholdError(defaults, 'laneRouting', 'criticalAbove', '0.5'),
+    ).toBe('Keep this at or above high (0.60).')
+    expect(
+      jevGateThresholdError(defaults, 'toolGate', 'denyAbove', '0.05'),
+    ).toBe('Keep this at or above allow (0.10).')
   })
 })

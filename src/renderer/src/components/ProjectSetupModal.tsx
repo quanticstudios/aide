@@ -87,7 +87,7 @@ export default function ProjectSetupModal({
               <Button
                 isDisabled={isSaving}
                 onPress={() => onOpenChange(false)}
-                variant="secondary"
+                variant="ghost"
               >
                 Cancel
               </Button>
