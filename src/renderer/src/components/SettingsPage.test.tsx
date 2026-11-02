@@ -25,6 +25,21 @@ describe('SettingsPage', () => {
     )
   })
 
+  it('lists the terminal drawer and the composer menu chords', () => {
+    const keys = SETTINGS_SHORTCUT_GROUPS.flatMap((group) =>
+      group.shortcuts.map((shortcut) => shortcut.keys.join('+')),
+    )
+
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'Ctrl+`',
+        'Ctrl/Cmd+Shift+M',
+        'Ctrl/Cmd+Shift+E',
+        'Ctrl/Cmd+Shift+A',
+      ]),
+    )
+  })
+
   it('filters shortcut labels and descriptions from settings search', () => {
     const groups = filterSettingsShortcutGroups('visible model')
 
