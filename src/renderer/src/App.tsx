@@ -1106,7 +1106,6 @@ function WorkspaceApp() {
         direction,
         getSurfaceIdsForWorkspace,
         getPaneIdsForWorkspace,
-        isWorkspaceSwitcherVisible ? 'all' : 'project',
       )
       resolvedNavigationStateRef.current = selection
       setSelection(selection)
@@ -1114,7 +1113,6 @@ function WorkspaceApp() {
     [
       getPaneIdsForWorkspace,
       getSurfaceIdsForWorkspace,
-      isWorkspaceSwitcherVisible,
       navigationSnapshot,
       resolvedNavigationState,
       setSelection,
@@ -2953,7 +2951,7 @@ function WorkspaceApp() {
               projectName={activeProject?.name ?? null}
               summaries={workspaceSummaries}
               visible
-              workspaces={orderedWorkspaces}
+              workspaces={projectWorkspaces}
             />
           </Suspense>
         ) : null}

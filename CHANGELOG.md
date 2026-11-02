@@ -64,9 +64,6 @@
   square, and a dialog no longer draws a focus ring around itself.
 - Opening a conversation from Task history, the Activity inbox or a
   notification switches to its workspace.
-- While the workspace switcher is open, Alt+J and Alt+K move through the
-  workspaces of every project, and the switcher lists them all with their
-  project.
 - The Ctrl+1 project hints in the sidebar go away after Ctrl+K, Ctrl+Tab or
   Ctrl+B.
 - Workspace setup status and the "Sessions now run on pitwall" notice sit above

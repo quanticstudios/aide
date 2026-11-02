@@ -1,4 +1,3 @@
-import { getOrderedWorkspaces } from './workspace-shortcuts'
 import type {
   PersistenceSnapshot,
   WorkspaceRecord,
@@ -365,16 +364,15 @@ export function moveRelativeWorkspace(
   direction: -1 | 1,
   getSurfaceIdsForWorkspace: SurfaceResolver,
   getPaneIdsForSurface: PaneResolver,
-  scope: 'project' | 'all' = 'project',
 ): SpatialNavigationState {
   if (!state.activeProjectId || !state.activeWorkspaceId) {
     return state
   }
 
-  const projectWorkspaces =
-    scope === 'all'
-      ? getOrderedWorkspaces(snapshot.projects, snapshot.workspaces)
-      : getProjectWorkspaces(snapshot, state.activeProjectId)
+  const projectWorkspaces = getProjectWorkspaces(
+    snapshot,
+    state.activeProjectId,
+  )
 
   if (projectWorkspaces.length === 0) {
     return state

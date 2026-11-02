@@ -37,14 +37,10 @@ export default function WorkspaceSwitcherOverlay({
   }
 
   const isOverviewMode = mode === 'overview'
-  const spansProjects =
-    new Set(workspaces.map((workspace) => workspace.projectId)).size > 1
   const overlayTitle = isOverviewMode ? 'Overview' : 'Workspace switcher'
   const overlaySubtitle = isOverviewMode
     ? 'Jump across projects and workspaces.'
-    : spansProjects
-      ? 'All projects'
-      : (projectName ?? 'Current project')
+    : (projectName ?? 'Current project')
 
   return (
     <div
@@ -199,9 +195,6 @@ export default function WorkspaceSwitcherOverlay({
                         </Label>
                       </div>
                       <Description className="truncate font-mono text-[11px] text-muted-foreground">
-                        {spansProjects && summary?.projectName
-                          ? `${summary.projectName} · `
-                          : null}
                         {summary?.branchName ?? workspace.branchName}
                       </Description>
                     </div>

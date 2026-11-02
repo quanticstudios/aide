@@ -376,29 +376,39 @@ describe('spatial navigation transitions', () => {
     expect(opened.activePaneId).toBe('git')
   })
 
-  it('crosses projects when moving across all workspaces', () => {
+  it('keeps Alt+J inside the project, so Ctrl+2 restores the other project selection', () => {
     const snapshot = createSnapshot()
-    const baseState = resolveSpatialNavigationState(
+    const start = resolveSpatialNavigationState(
       snapshot,
       createDefaultSpatialNavigationState(),
       getSurfaceIdsForWorkspace,
       getPaneIdsForSurface,
     )
-    const move = (state: typeof baseState, direction: -1 | 1) =>
-      moveRelativeWorkspace(
-        snapshot,
-        state,
-        direction,
-        getSurfaceIdsForWorkspace,
-        getPaneIdsForSurface,
-        'all',
-      )
+    const projectA = applyProjectSelection(
+      snapshot,
+      start,
+      'project-a',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const moved = moveRelativeWorkspace(
+      snapshot,
+      projectA,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const projectB = applyProjectSelection(
+      snapshot,
+      moved,
+      'project-b',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
 
-    const wrapped = move(baseState, 1)
-    expect(wrapped.activeProjectId).toBe('project-a')
-    expect(wrapped.activeWorkspaceId).toBe('workspace-a1')
-    expect(move(wrapped, -1).activeWorkspaceId).toBe('workspace-b2')
-    expect(move(move(baseState, -1), -1).activeWorkspaceId).toBe('workspace-a2')
+    expect(projectA.activeWorkspaceId).toBe('workspace-a2')
+    expect(moved.activeWorkspaceId).toBe('workspace-a1')
+    expect(projectB.activeWorkspaceId).toBe('workspace-b2')
   })
 
   it('keeps horizontal pane order during repeated movement', () => {
