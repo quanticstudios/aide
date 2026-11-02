@@ -112,7 +112,7 @@ function formatPathList(paths: readonly string[]): string {
   const remaining = paths.length - head.length
 
   if (remaining > 0) {
-    return `${head.join(', ')} and ${remaining} more files`
+    return `${head.join(', ')} and ${remaining} more ${remaining === 1 ? 'file' : 'files'}`
   }
 
   if (head.length < 2) {
@@ -565,7 +565,7 @@ export class GitWorkspaceService {
 
     try {
       const output = await this.runGit(
-        ['status', '--porcelain=v2', '--branch'],
+        ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
         workspace.worktreePath,
       )
       const files = parseWorkspaceGitFiles(output)

@@ -114,7 +114,10 @@ const previewRenderer = (args: PaneRenderArgs): ReactNode =>
       />
     </PaneLoadBoundary>
   ) : (
-    paneNoticeRenderer(args)
+    // why: one positioned webview serves every Preview pane, so only the active pane can show it.
+    <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+      Select this pane to show the preview.
+    </div>
   )
 
 const gitRenderer = (args: PaneRenderArgs): ReactNode => (

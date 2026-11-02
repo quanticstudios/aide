@@ -210,6 +210,93 @@ interface GitPaneProps {
   readonly workspace: WorkspaceRecord
 }
 
+const FIELD_CLASS =
+  'rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground'
+
+/** Collapsed form that sends a comment on one diff line to an Agent pane in this workspace. */
+export function GitLineFeedback({
+  feedback,
+  isSendDisabled,
+  line,
+  onFeedbackChange,
+  onLineChange,
+  onSelectSession,
+  onSend,
+  selectedSessionId,
+  sessions,
+}: {
+  readonly feedback: string
+  readonly isSendDisabled: boolean
+  readonly line: string
+  readonly onFeedbackChange: (feedback: string) => void
+  readonly onLineChange: (line: string) => void
+  readonly onSelectSession: (sessionId: string) => void
+  readonly onSend: () => void
+  readonly selectedSessionId: string
+  readonly sessions: readonly Pick<
+    ManagedSessionSnapshot,
+    'provider' | 'sessionId'
+  >[]
+}) {
+  return (
+    <details
+      className="group shrink-0 rounded-md border border-border bg-surface-1"
+      data-testid="git-line-feedback"
+    >
+      <summary className="flex cursor-pointer select-none list-none items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-foreground hover:bg-surface-2 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+        Line feedback
+      </summary>
+      <div className="space-y-2 border-t border-border p-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+            Line
+            <input
+              className={cn(FIELD_CLASS, 'w-24')}
+              min="1"
+              onChange={(event) => onLineChange(event.target.value)}
+              type="number"
+              value={line}
+            />
+          </label>
+          {sessions.length > 1 ? (
+            <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+              Agent pane
+              <select
+                className={FIELD_CLASS}
+                onChange={(event) => onSelectSession(event.target.value)}
+                value={selectedSessionId}
+              >
+                {sessions.map((session, index) => (
+                  <option key={session.sessionId} value={session.sessionId}>
+                    Agent {index + 1} ·{' '}
+                    {session.provider === 'codex' ? 'Codex' : 'Claude'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+        <textarea
+          aria-label="Feedback for the workspace Agent pane"
+          className={cn(FIELD_CLASS, 'block min-h-16 w-full')}
+          onChange={(event) => onFeedbackChange(event.target.value)}
+          placeholder="What should the agent change on this line?"
+          value={feedback}
+        />
+        <Button
+          isDisabled={isSendDisabled}
+          onPress={onSend}
+          size="sm"
+          variant="secondary"
+        >
+          Send feedback
+        </Button>
+      </div>
+    </details>
+  )
+}
+
 export default function GitPane({ isActive, workspace }: GitPaneProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isDiffLoading, setIsDiffLoading] = useState(false)
@@ -883,7 +970,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
 
   return (
     <section
-      className="git-pane relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
+      className="git-pane @container relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       data-testid="git-pane"
     >
       <div className="flex h-[var(--pane-header-h)] shrink-0 items-center justify-between gap-3 border-b border-border px-5">
@@ -952,556 +1039,504 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
         </div>
       ) : null}
 
-      <div className="grid gap-3 border-b border-border p-4 xl:grid-cols-2">
-        <Surface
-          className="space-y-2 rounded-lg border border-border p-3"
-          variant="secondary"
-        >
-          <p className="text-sm font-medium text-foreground">
-            Commit staged changes
-          </p>
-          <div className="flex items-center justify-between gap-2">
-            <label
-              className="block text-xs text-muted-foreground"
-              htmlFor="git-commit-message"
-            >
-              Commit message
-            </label>
-            <Button
-              isDisabled={isMutating}
-              onPress={() => {
-                void generateMessage('commit').then((generated) => {
-                  if (generated) setCommitMessage(generated)
-                })
-              }}
-              size="sm"
-              variant="ghost"
-            >
-              Generate
-            </Button>
-          </div>
-          <textarea
-            className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-            id="git-commit-message"
-            onChange={(event) => setCommitMessage(event.target.value)}
-            placeholder="Describe the staged change"
-            value={commitMessage}
-          />
-          <p className="text-xs text-muted-foreground">
-            Leave the message empty to describe the change from the diff.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              isDisabled={
-                isMutating || !status.hasStagedChanges || !commitMessage.trim()
-              }
-              onPress={() => void startSyncAction('commit')}
-              size="sm"
-              variant="secondary"
-            >
-              Commit index
-            </Button>
-            <Button
-              isDisabled={isMutating || hasConflicts}
-              onPress={() => void startSyncAction('commit-all-and-push')}
-              size="sm"
-            >
-              Commit all and push
-            </Button>
-          </div>
-        </Surface>
-
-        <Surface
-          className="space-y-2 rounded-lg border border-border p-3"
-          variant="secondary"
-        >
-          <p className="text-sm font-medium text-foreground">Pull request</p>
-          {pullRequest ? (
-            <div className="space-y-2" data-testid="git-pane-pull-request">
-              <a
-                className="block text-sm text-foreground underline"
-                href={pullRequest.url}
-                rel="noreferrer"
-                target="_blank"
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
+        data-testid="git-pane-body"
+      >
+        <div className="grid shrink-0 gap-3 border-b border-border p-4 @xl:grid-cols-2">
+          <Surface
+            className="space-y-2 rounded-lg border border-border p-3"
+            variant="secondary"
+          >
+            <p className="text-sm font-medium text-foreground">
+              Commit staged changes
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <label
+                className="block text-xs text-muted-foreground"
+                htmlFor="git-commit-message"
               >
-                #{pullRequest.number} {pullRequest.title}
-              </a>
-              <div className="flex flex-wrap items-center gap-2">
-                <Chip size="sm" variant="secondary">
-                  {formatPullRequestState(pullRequest)}
-                </Chip>
-                <span className="text-xs text-muted-foreground">
-                  {pullRequest.headRefName} → {pullRequest.baseRefName}
-                </span>
-              </div>
-              {(() => {
-                const checks = summarizePullRequestChecks(pullRequest.checks)
-                return (
-                  <p
-                    className="text-xs text-muted-foreground"
-                    data-testid="git-pane-check-summary"
-                  >
-                    {checks.passing} passing · {checks.failing} failing ·{' '}
-                    {checks.pending} pending
-                  </p>
-                )
-              })()}
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <label
-                  className="block text-xs text-muted-foreground"
-                  htmlFor="git-pr-title"
-                >
-                  Title
-                </label>
-                <Button
-                  isDisabled={isMutating}
-                  onPress={() => {
-                    void generateMessage('pull-request-title').then(
-                      (generated) => {
-                        if (generated) setPullRequestTitle(generated)
-                      },
-                    )
-                  }}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Generate title
-                </Button>
-              </div>
-              <input
-                className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                id="git-pr-title"
-                onChange={(event) => setPullRequestTitle(event.target.value)}
-                value={pullRequestTitle}
-              />
-              <div className="flex items-center justify-between gap-2">
-                <label
-                  className="block text-xs text-muted-foreground"
-                  htmlFor="git-pr-body"
-                >
-                  Description
-                </label>
-                <Button
-                  isDisabled={isMutating}
-                  onPress={() => {
-                    void generateMessage('pull-request-body').then(
-                      (generated) => {
-                        if (generated) setPullRequestBody(generated)
-                      },
-                    )
-                  }}
-                  size="sm"
-                  variant="ghost"
-                >
-                  Generate description
-                </Button>
-              </div>
-              <textarea
-                className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                id="git-pr-body"
-                onChange={(event) => setPullRequestBody(event.target.value)}
-                value={pullRequestBody}
-              />
-            </>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              isDisabled={isMutating}
-              onPress={() => void startSyncAction('push')}
-              size="sm"
-              variant="secondary"
-            >
-              Push branch
-            </Button>
-            <Button
-              isDisabled={isMutating}
-              onPress={() => void pullBranch()}
-              size="sm"
-              variant="secondary"
-            >
-              Pull
-            </Button>
-            {hasConflicts ? (
+                Commit message
+              </label>
               <Button
                 isDisabled={isMutating}
-                onPress={() => void abortPull()}
-                size="sm"
-                variant="danger"
-              >
-                Abort pull
-              </Button>
-            ) : null}
-            {pullRequest ? (
-              <Button
-                isDisabled={isMutating}
-                onPress={() => void refreshPullRequest()}
+                onPress={() => {
+                  void generateMessage('commit').then((generated) => {
+                    if (generated) setCommitMessage(generated)
+                  })
+                }}
                 size="sm"
                 variant="ghost"
               >
-                Refresh pull request
+                Generate
               </Button>
-            ) : (
+            </div>
+            <textarea
+              className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+              id="git-commit-message"
+              onChange={(event) => setCommitMessage(event.target.value)}
+              placeholder="Describe the staged change"
+              value={commitMessage}
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave the message empty to describe the change from the diff.
+            </p>
+            <div className="flex flex-wrap gap-2">
               <Button
-                isDisabled={isMutating}
-                onPress={() => void createPullRequest()}
+                isDisabled={
+                  isMutating ||
+                  !status.hasStagedChanges ||
+                  !commitMessage.trim()
+                }
+                onPress={() => void startSyncAction('commit')}
+                size="sm"
+                variant="secondary"
+              >
+                Commit index
+              </Button>
+              <Button
+                isDisabled={isMutating || hasConflicts}
+                onPress={() => void startSyncAction('commit-all-and-push')}
                 size="sm"
               >
-                Create pull request
+                Commit all and push
               </Button>
-            )}
-          </div>
-        </Surface>
-      </div>
-
-      {status.files.length === 0 ? (
-        <div className="flex h-full min-h-0 items-center justify-center p-6">
-          <Surface className="max-w-lg rounded-lg border border-border p-6 text-center">
-            <h3 className="text-lg font-semibold text-foreground">
-              Workspace is clean
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Changed files will show up here once this worktree diverges from
-              its current branch state.
-            </p>
-          </Surface>
-        </div>
-      ) : (
-        <div className="grid min-h-0 min-w-0 w-full flex-1 gap-4 overflow-hidden p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <Surface
-            className="flex min-h-0 flex-col rounded-lg border border-border"
-            variant="secondary"
-          >
-            <div className="border-b border-border px-4 py-3">
-              <p className="eyebrow">Changed files</p>
-            </div>
-
-            <div
-              className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1"
-              data-testid="git-pane-file-list"
-            >
-              {fileTree.map((node) => (
-                <GitFileTreeRow
-                  collapsed={collapsedDirs}
-                  depth={0}
-                  key={node.path}
-                  node={node}
-                  onSelectFile={setSelectedPath}
-                  onToggleDir={toggleDir}
-                  selectedPath={selectedFile?.path ?? null}
-                />
-              ))}
             </div>
           </Surface>
 
           <Surface
-            className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border"
+            className="space-y-2 rounded-lg border border-border p-3"
             variant="secondary"
           >
-            {selectedFile ? (
-              <>
+            <p className="text-sm font-medium text-foreground">Pull request</p>
+            {pullRequest ? (
+              <div className="space-y-2" data-testid="git-pane-pull-request">
+                <a
+                  className="block text-sm text-foreground underline"
+                  href={pullRequest.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  #{pullRequest.number} {pullRequest.title}
+                </a>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Chip size="sm" variant="secondary">
+                    {formatPullRequestState(pullRequest)}
+                  </Chip>
+                  <span className="text-xs text-muted-foreground">
+                    {pullRequest.headRefName} → {pullRequest.baseRefName}
+                  </span>
+                </div>
                 {(() => {
-                  const FileIcon = iconForGitFile(selectedFile)
+                  const checks = summarizePullRequestChecks(pullRequest.checks)
                   return (
-                    <div className="flex items-center gap-3 border-b border-border px-4 py-2">
-                      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-                      <div
-                        className="min-w-0 flex-1 truncate font-mono text-sm text-foreground"
-                        data-testid="git-pane-selected-file"
-                      >
-                        {selectedFile.path}
-                        {selectedFile.originalPath ? (
-                          <span className="ml-2 text-muted-foreground">
-                            ← {selectedFile.originalPath}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <span
-                            className={cn(
-                              'size-1.5 rounded-full',
-                              gitChangeKindColorClass(selectedFile.staged),
-                            )}
-                          />
-                          staged: {formatGitChangeKind(selectedFile.staged)}
-                        </span>
-                        <span className="text-border">·</span>
-                        <span className="flex items-center gap-1">
-                          <span
-                            className={cn(
-                              'size-1.5 rounded-full',
-                              gitChangeKindColorClass(selectedFile.unstaged),
-                            )}
-                          />
-                          unstaged: {formatGitChangeKind(selectedFile.unstaged)}
-                        </span>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        {selectedFile.isUnstaged ? (
-                          <Button
-                            isDisabled={isMutating}
-                            onPress={() => {
-                              const api = getAideApi()
-                              if (!api) {
-                                setActionError(
-                                  'Desktop bridge did not load. Reload the app window.',
-                                )
-                                return
-                              }
-                              void runMutation(() =>
-                                api.stageWorkspaceGitFile({
-                                  filePath: selectedFile.path,
-                                  workspaceId: workspace.id,
-                                }),
-                              )
-                            }}
-                            size="sm"
-                            variant="secondary"
-                          >
-                            Stage
-                          </Button>
-                        ) : null}
-                        {selectedFile.isStaged ? (
-                          <Button
-                            isDisabled={isMutating}
-                            onPress={() => {
-                              const api = getAideApi()
-                              if (!api) {
-                                setActionError(
-                                  'Desktop bridge did not load. Reload the app window.',
-                                )
-                                return
-                              }
-                              void runMutation(() =>
-                                api.unstageWorkspaceGitFile({
-                                  filePath: selectedFile.path,
-                                  workspaceId: workspace.id,
-                                }),
-                              )
-                            }}
-                            size="sm"
-                            variant="secondary"
-                          >
-                            Unstage
-                          </Button>
-                        ) : null}
-                        <Button
-                          isDisabled={isMutating || !visibleDiff}
-                          onPress={() => setIsRevertConfirmationOpen(true)}
-                          size="sm"
-                          variant="danger"
-                        >
-                          Revert file
-                        </Button>
-                      </div>
-                      <div className="flex shrink-0 gap-1 rounded-md border border-border bg-surface-secondary p-0.5">
-                        <button
-                          className={cn(
-                            'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
-                            diffLayout === 'side-by-side'
-                              ? 'bg-surface text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                          onClick={() => setDiffLayout('side-by-side')}
-                          type="button"
-                        >
-                          Split
-                        </button>
-                        <button
-                          className={cn(
-                            'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
-                            diffLayout === 'line-by-line'
-                              ? 'bg-surface text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                          onClick={() => setDiffLayout('line-by-line')}
-                          type="button"
-                        >
-                          Inline
-                        </button>
-                      </div>
-                    </div>
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="git-pane-check-summary"
+                    >
+                      {checks.passing} passing · {checks.failing} failing ·{' '}
+                      {checks.pending} pending
+                    </p>
                   )
                 })()}
-                <div
-                  className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden p-3"
-                  data-testid="git-pane-diff-surface"
-                >
-                  {visibleDiffError ? (
-                    <Surface
-                      className="rounded-md border border-accent-red p-3"
-                      variant="tertiary"
-                    >
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-destructive">
-                        Diff unavailable
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        {visibleDiffError}
-                      </p>
-                    </Surface>
-                  ) : null}
-
-                  {isDiffLoading && !visibleDiff ? (
-                    <p className="text-sm text-muted-foreground">
-                      Loading file diff…
-                    </p>
-                  ) : null}
-
-                  {visibleDiff?.sections.map((section) => (
-                    <div
-                      className="flex min-h-0 min-w-0 flex-1 flex-col"
-                      key={`${visibleDiff.path}:${section.kind}`}
-                    >
-                      {section.isTruncated ? (
-                        <div className="mb-1 flex items-center gap-2">
-                          <Chip color="warning" size="sm" variant="secondary">
-                            Truncated
-                          </Chip>
-                        </div>
-                      ) : null}
-                      <div
-                        className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border bg-surface"
-                        data-testid={`git-pane-diff-${section.kind}`}
-                      >
-                        <GitDiffView
-                          filePath={visibleDiff.path}
-                          outputFormat={diffLayout}
-                          patch={section.patch}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                  {isRevertConfirmationOpen && visibleDiff ? (
-                    <Surface
-                      className="space-y-2 rounded-md border border-accent-red p-3"
-                      variant="tertiary"
-                    >
-                      <p className="text-sm text-foreground">
-                        Revert the displayed changes for {selectedFile.path}?
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Aide checks the preview fingerprint before it changes
-                        the file.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          isDisabled={isMutating}
-                          onPress={() => {
-                            const api = getAideApi()
-                            if (!api) {
-                              setActionError(
-                                'Desktop bridge did not load. Reload the app window.',
-                              )
-                              return
-                            }
-                            void runMutation(() =>
-                              api.revertWorkspaceGitFile({
-                                filePath: selectedFile.path,
-                                fingerprint: visibleDiff.fingerprint,
-                                workspaceId: workspace.id,
-                              }),
-                            ).then((reverted) => {
-                              if (reverted) setIsRevertConfirmationOpen(false)
-                            })
-                          }}
-                          size="sm"
-                          variant="danger"
-                        >
-                          Confirm revert
-                        </Button>
-                        <Button
-                          isDisabled={isMutating}
-                          onPress={() => setIsRevertConfirmationOpen(false)}
-                          size="sm"
-                          variant="secondary"
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </Surface>
-                  ) : null}
-                  <Surface
-                    className="space-y-2 rounded-md border border-border p-3"
-                    variant="tertiary"
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    className="block text-xs text-muted-foreground"
+                    htmlFor="git-pr-title"
                   >
-                    <p className="text-sm font-medium text-foreground">
-                      Line feedback
-                    </p>
-                    {reviewAgentSessions.length > 1 ? (
-                      <>
-                        <label
-                          className="block text-xs text-muted-foreground"
-                          htmlFor="git-review-agent"
-                        >
-                          Agent pane
-                        </label>
-                        <select
-                          className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                          id="git-review-agent"
-                          onChange={(event) =>
-                            setReviewAgentSessionId(event.target.value)
-                          }
-                          value={reviewAgentSessionId}
-                        >
-                          {reviewAgentSessions.map((session) => (
-                            <option
-                              key={session.sessionId}
-                              value={session.sessionId}
-                            >
-                              {session.paneId}
-                            </option>
-                          ))}
-                        </select>
-                      </>
-                    ) : null}
-                    <label
-                      className="block text-xs text-muted-foreground"
-                      htmlFor="git-review-line"
-                    >
-                      Line number
-                    </label>
-                    <input
-                      className="w-28 rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                      id="git-review-line"
-                      min="1"
-                      onChange={(event) => setReviewLine(event.target.value)}
-                      type="number"
-                      value={reviewLine}
-                    />
-                    <label
-                      className="block text-xs text-muted-foreground"
-                      htmlFor="git-review-feedback"
-                    >
-                      Feedback for the workspace Agent pane
-                    </label>
-                    <textarea
-                      className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
-                      id="git-review-feedback"
-                      onChange={(event) =>
-                        setReviewFeedback(event.target.value)
-                      }
-                      value={reviewFeedback}
-                    />
-                    <Button
-                      isDisabled={
-                        isMutating || !reviewFeedback.trim() || !reviewLine
-                      }
-                      onPress={() => void sendReviewFeedback()}
-                      size="sm"
-                      variant="secondary"
-                    >
-                      Send feedback
-                    </Button>
-                  </Surface>
+                    Title
+                  </label>
+                  <Button
+                    isDisabled={isMutating}
+                    onPress={() => {
+                      void generateMessage('pull-request-title').then(
+                        (generated) => {
+                          if (generated) setPullRequestTitle(generated)
+                        },
+                      )
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Generate title
+                  </Button>
                 </div>
+                <input
+                  className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                  id="git-pr-title"
+                  onChange={(event) => setPullRequestTitle(event.target.value)}
+                  value={pullRequestTitle}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    className="block text-xs text-muted-foreground"
+                    htmlFor="git-pr-body"
+                  >
+                    Description
+                  </label>
+                  <Button
+                    isDisabled={isMutating}
+                    onPress={() => {
+                      void generateMessage('pull-request-body').then(
+                        (generated) => {
+                          if (generated) setPullRequestBody(generated)
+                        },
+                      )
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    Generate description
+                  </Button>
+                </div>
+                <textarea
+                  className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
+                  id="git-pr-body"
+                  onChange={(event) => setPullRequestBody(event.target.value)}
+                  value={pullRequestBody}
+                />
               </>
-            ) : null}
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                isDisabled={isMutating}
+                onPress={() => void startSyncAction('push')}
+                size="sm"
+                variant="secondary"
+              >
+                Push branch
+              </Button>
+              <Button
+                isDisabled={isMutating}
+                onPress={() => void pullBranch()}
+                size="sm"
+                variant="secondary"
+              >
+                Pull
+              </Button>
+              {hasConflicts ? (
+                <Button
+                  isDisabled={isMutating}
+                  onPress={() => void abortPull()}
+                  size="sm"
+                  variant="danger"
+                >
+                  Abort pull
+                </Button>
+              ) : null}
+              {pullRequest ? (
+                <Button
+                  isDisabled={isMutating}
+                  onPress={() => void refreshPullRequest()}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Refresh pull request
+                </Button>
+              ) : (
+                <Button
+                  isDisabled={isMutating}
+                  onPress={() => void createPullRequest()}
+                  size="sm"
+                >
+                  Create pull request
+                </Button>
+              )}
+            </div>
           </Surface>
         </div>
-      )}
+
+        {status.files.length === 0 ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+            <Surface className="max-w-lg rounded-lg border border-border p-6 text-center">
+              <h3 className="text-lg font-semibold text-foreground">
+                Workspace is clean
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Changed files will show up here once this worktree diverges from
+                its current branch state.
+              </p>
+            </Surface>
+          </div>
+        ) : (
+          <div className="grid min-h-[32rem] min-w-0 w-full flex-1 grid-rows-[minmax(0,12rem)_minmax(0,1fr)] gap-4 overflow-hidden p-4 @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:grid-rows-1">
+            <Surface
+              className="flex min-h-0 flex-col rounded-lg border border-border"
+              variant="secondary"
+            >
+              <div className="border-b border-border px-4 py-3">
+                <p className="eyebrow">Changed files</p>
+              </div>
+
+              <div
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1"
+                data-testid="git-pane-file-list"
+              >
+                {fileTree.map((node) => (
+                  <GitFileTreeRow
+                    collapsed={collapsedDirs}
+                    depth={0}
+                    key={node.path}
+                    node={node}
+                    onSelectFile={setSelectedPath}
+                    onToggleDir={toggleDir}
+                    selectedPath={selectedFile?.path ?? null}
+                  />
+                ))}
+              </div>
+            </Surface>
+
+            <Surface
+              className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border"
+              variant="secondary"
+            >
+              {selectedFile ? (
+                <>
+                  {(() => {
+                    const FileIcon = iconForGitFile(selectedFile)
+                    return (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
+                        <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <div
+                          className="min-w-40 flex-1 truncate font-mono text-sm text-foreground"
+                          data-testid="git-pane-selected-file"
+                        >
+                          {selectedFile.path}
+                          {selectedFile.originalPath ? (
+                            <span className="ml-2 text-muted-foreground">
+                              ← {selectedFile.originalPath}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <span
+                              className={cn(
+                                'size-1.5 rounded-full',
+                                gitChangeKindColorClass(selectedFile.staged),
+                              )}
+                            />
+                            staged: {formatGitChangeKind(selectedFile.staged)}
+                          </span>
+                          <span className="text-border">·</span>
+                          <span className="flex items-center gap-1">
+                            <span
+                              className={cn(
+                                'size-1.5 rounded-full',
+                                gitChangeKindColorClass(selectedFile.unstaged),
+                              )}
+                            />
+                            unstaged:{' '}
+                            {formatGitChangeKind(selectedFile.unstaged)}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          {selectedFile.isUnstaged ? (
+                            <Button
+                              isDisabled={isMutating}
+                              onPress={() => {
+                                const api = getAideApi()
+                                if (!api) {
+                                  setActionError(
+                                    'Desktop bridge did not load. Reload the app window.',
+                                  )
+                                  return
+                                }
+                                void runMutation(() =>
+                                  api.stageWorkspaceGitFile({
+                                    filePath: selectedFile.path,
+                                    workspaceId: workspace.id,
+                                  }),
+                                )
+                              }}
+                              size="sm"
+                              variant="secondary"
+                            >
+                              Stage
+                            </Button>
+                          ) : null}
+                          {selectedFile.isStaged ? (
+                            <Button
+                              isDisabled={isMutating}
+                              onPress={() => {
+                                const api = getAideApi()
+                                if (!api) {
+                                  setActionError(
+                                    'Desktop bridge did not load. Reload the app window.',
+                                  )
+                                  return
+                                }
+                                void runMutation(() =>
+                                  api.unstageWorkspaceGitFile({
+                                    filePath: selectedFile.path,
+                                    workspaceId: workspace.id,
+                                  }),
+                                )
+                              }}
+                              size="sm"
+                              variant="secondary"
+                            >
+                              Unstage
+                            </Button>
+                          ) : null}
+                          <Button
+                            isDisabled={isMutating || !visibleDiff}
+                            onPress={() => setIsRevertConfirmationOpen(true)}
+                            size="sm"
+                            variant="danger-soft"
+                          >
+                            Revert file
+                          </Button>
+                        </div>
+                        <div className="flex shrink-0 gap-1 rounded-md border border-border bg-surface-secondary p-0.5">
+                          <button
+                            className={cn(
+                              'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
+                              diffLayout === 'side-by-side'
+                                ? 'bg-surface text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground',
+                            )}
+                            onClick={() => setDiffLayout('side-by-side')}
+                            type="button"
+                          >
+                            Split
+                          </button>
+                          <button
+                            className={cn(
+                              'rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors',
+                              diffLayout === 'line-by-line'
+                                ? 'bg-surface text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground',
+                            )}
+                            onClick={() => setDiffLayout('line-by-line')}
+                            type="button"
+                          >
+                            Inline
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                  <div
+                    className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+                    data-testid="git-pane-diff-surface"
+                  >
+                    {visibleDiffError ? (
+                      <Surface
+                        className="rounded-md border border-accent-red p-3"
+                        variant="tertiary"
+                      >
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-destructive">
+                          Diff unavailable
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                          {visibleDiffError}
+                        </p>
+                      </Surface>
+                    ) : null}
+
+                    {isDiffLoading && !visibleDiff ? (
+                      <p className="text-sm text-muted-foreground">
+                        Loading file diff…
+                      </p>
+                    ) : null}
+
+                    {visibleDiff?.sections.map((section) => (
+                      <div
+                        className="flex min-h-48 min-w-0 flex-1 flex-col"
+                        key={`${visibleDiff.path}:${section.kind}`}
+                      >
+                        {section.isTruncated ? (
+                          <div className="mb-1 flex items-center gap-2">
+                            <Chip color="warning" size="sm" variant="secondary">
+                              Truncated
+                            </Chip>
+                          </div>
+                        ) : null}
+                        <div
+                          className="min-h-0 min-w-0 flex-1 overflow-auto rounded-md border border-border bg-surface"
+                          data-testid={`git-pane-diff-${section.kind}`}
+                        >
+                          <GitDiffView
+                            filePath={visibleDiff.path}
+                            outputFormat={diffLayout}
+                            patch={section.patch}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {isRevertConfirmationOpen && visibleDiff ? (
+                      <Surface
+                        className="space-y-2 rounded-md border border-accent-red p-3"
+                        variant="tertiary"
+                      >
+                        <p className="text-sm text-foreground">
+                          Revert the displayed changes for {selectedFile.path}?
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Aide checks the preview fingerprint before it changes
+                          the file.
+                        </p>
+                        <div className="flex gap-2">
+                          <Button
+                            isDisabled={isMutating}
+                            onPress={() => {
+                              const api = getAideApi()
+                              if (!api) {
+                                setActionError(
+                                  'Desktop bridge did not load. Reload the app window.',
+                                )
+                                return
+                              }
+                              void runMutation(() =>
+                                api.revertWorkspaceGitFile({
+                                  filePath: selectedFile.path,
+                                  fingerprint: visibleDiff.fingerprint,
+                                  workspaceId: workspace.id,
+                                }),
+                              ).then((reverted) => {
+                                if (reverted) setIsRevertConfirmationOpen(false)
+                              })
+                            }}
+                            size="sm"
+                            variant="danger"
+                          >
+                            Confirm revert
+                          </Button>
+                          <Button
+                            isDisabled={isMutating}
+                            onPress={() => setIsRevertConfirmationOpen(false)}
+                            size="sm"
+                            variant="secondary"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </Surface>
+                    ) : null}
+                    <GitLineFeedback
+                      feedback={reviewFeedback}
+                      isSendDisabled={
+                        isMutating || !reviewFeedback.trim() || !reviewLine
+                      }
+                      line={reviewLine}
+                      onFeedbackChange={setReviewFeedback}
+                      onLineChange={setReviewLine}
+                      onSelectSession={setReviewAgentSessionId}
+                      onSend={() => void sendReviewFeedback()}
+                      selectedSessionId={reviewAgentSessionId}
+                      sessions={reviewAgentSessions}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </Surface>
+          </div>
+        )}
+      </div>
 
       {pendingSyncAction ? (
         <div

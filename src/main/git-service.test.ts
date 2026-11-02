@@ -615,6 +615,26 @@ describe('GitWorkspaceService', () => {
     database.close()
   })
 
+  it('lists each file inside an untracked folder instead of the folder', async () => {
+    const repoRoot = createGitRepository()
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    mkdirSync(path.join(repoRoot, 'docs'))
+    mkdirSync(path.join(repoRoot, 'src', 'lib'), { recursive: true })
+    writeFileSync(path.join(repoRoot, 'docs', 'notes.md'), 'notes\n')
+    writeFileSync(path.join(repoRoot, 'src', 'lib', 'util.ts'), 'export {}\n')
+
+    const result = await service.getWorkspaceStatus(imported.workspaceId)
+
+    expect(
+      result.ok ? result.status.files.map((file) => file.path) : result,
+    ).toEqual(['docs/notes.md', 'src/lib/util.ts'])
+
+    database.close()
+  })
+
   it('returns staged, unstaged, and untracked diff sections for changed files', async () => {
     const repoRoot = createGitRepository()
     runGit(repoRoot, ['config', 'diff.mnemonicPrefix', 'true'])
@@ -1321,6 +1341,28 @@ describe('GitWorkspaceService', () => {
       }),
     ).resolves.toEqual({
       message: 'Updates notes.txt and README.md.',
+      ok: true,
+    })
+
+    database.close()
+  })
+
+  it('counts the files a commit message leaves out in the singular for one', async () => {
+    const { repoRoot } = createRepositoryWithRemote()
+    for (const name of ['a.txt', 'b.txt', 'c.txt', 'd.txt']) {
+      writeFileSync(path.join(repoRoot, name), `${name}\n`)
+    }
+    const database = createAideDatabase(':memory:')
+    const service = new GitWorkspaceService(database)
+    const imported = await service.importProject(repoRoot)
+
+    await expect(
+      service.generateWorkspaceGitMessage({
+        kind: 'commit',
+        workspaceId: imported.workspaceId,
+      }),
+    ).resolves.toEqual({
+      message: 'Update a.txt, b.txt, c.txt and 1 more file',
       ok: true,
     })
 
