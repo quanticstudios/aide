@@ -30,7 +30,10 @@ import {
   type ProviderSelectionInput,
   resolveProviderSelection,
 } from '../../../shared/provider-capabilities'
-import { classifyProviderError } from '../../../shared/provider-errors'
+import {
+  classifyProviderError,
+  threadError,
+} from '../../../shared/provider-errors'
 import type { ProviderSkill } from '../../../shared/provider-skills'
 import type { ManagedSessionMode } from '../../../shared/terminal'
 import { useTranscriptFollow } from '../hooks/useTranscriptFollow'
@@ -858,9 +861,7 @@ export default function ManagedAgentPane({
       : null
   // why: a session that failed to start has no snapshot, so its error only reaches the pane as the start call's message.
   const startErrorKind = snapshot ? null : classifyProviderError(error)
-  // why: pitwall's snapshot carries lastError but no kind, so name the fix here for both backends.
-  const lastErrorKind =
-    snapshot?.lastErrorKind ?? classifyProviderError(snapshot?.lastError)
+  const lastError = threadError(snapshot)
   const retryLastPrompt = () => {
     const text = snapshot?.content
       .filter((item) => item.kind === 'user-prompt')
@@ -1037,10 +1038,10 @@ export default function ManagedAgentPane({
             onRetry={() => void ensureSession()}
             provider={selectedProvider}
           />
-        ) : lastErrorKind && snapshot?.lastError ? (
+        ) : lastError && snapshot ? (
           <ThreadErrorBanner
-            kind={lastErrorKind}
-            message={snapshot.lastError}
+            kind={lastError.kind}
+            message={lastError.message}
             onRetry={retryLastPrompt}
             provider={snapshot.provider}
           />
