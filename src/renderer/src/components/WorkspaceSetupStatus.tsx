@@ -19,7 +19,7 @@ function setupAccent(state: WorkspaceSetupSnapshot['state']): string {
     return 'border-accent-yellow/50 bg-accent-yellow-soft'
   if (state === 'succeeded')
     return 'border-accent-green/40 bg-accent-green-soft'
-  return 'border-border bg-surface/95'
+  return 'border-border bg-surface-1'
 }
 
 export default function WorkspaceSetupStatus({
@@ -42,7 +42,7 @@ export default function WorkspaceSetupStatus({
     <aside
       aria-label="Workspace setup"
       className={cn(
-        'absolute right-4 top-3 z-20 flex max-w-sm flex-col gap-1 rounded-lg border px-3 py-2 shadow-lg backdrop-blur',
+        'flex shrink-0 flex-col gap-1 border-b px-3 py-1',
         setupAccent(setup.state),
       )}
       data-testid="workspace-setup-status"

@@ -196,6 +196,7 @@ export default function TaskLibraryControl({
       <IconTooltip label="Task history">
         <Button
           aria-label="Open task history"
+          className="size-8 shrink-0 rounded-md"
           isIconOnly
           size="sm"
           variant="ghost"
@@ -217,6 +218,7 @@ export default function TaskLibraryControl({
       >
         <Button
           aria-label={`Open activity inbox${unreadCount ? ` (${unreadCount} unread)` : ''}`}
+          className="h-8 min-w-8 shrink-0 gap-1 rounded-md px-2 tabular-nums"
           size="sm"
           variant="ghost"
           onPress={() => {

@@ -781,7 +781,7 @@ function WorkspaceOverflowMenu({
   )
 }
 
-function ArchivedWorkspacesMenu({
+export function ArchivedWorkspacesMenu({
   archivedWorkspaces,
   onDelete,
   projects,
@@ -826,9 +826,10 @@ function ArchivedWorkspacesMenu({
                   </span>
                 </span>
                 <Button
-                  onPress={() =>
+                  onPress={() => {
+                    if (archivedWorkspaces.length === 1) setIsOpen(false)
                     void window.aide.archiveWorkspace(workspace.id, false)
-                  }
+                  }}
                   size="sm"
                   variant="ghost"
                 >
@@ -1105,7 +1106,7 @@ export default function SidebarTree({
                         </Kbd>
                       ) : null}
                       {attentionCount > 0 ? (
-                        <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow-soft text-[9px] font-semibold text-accent-yellow">
+                        <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent-yellow px-1 text-[10px] font-semibold tabular-nums text-background">
                           {attentionCount}
                         </span>
                       ) : null}
@@ -1270,6 +1271,9 @@ export default function SidebarTree({
                                   !isActiveWorkspace &&
                                   'hover:bg-surface-secondary',
                               )}
+                              aria-current={
+                                isActiveWorkspace ? 'true' : undefined
+                              }
                               data-testid={`workspace-row-${workspace.id}`}
                               onClick={() => {
                                 onSelectWorkspace(workspace.id)

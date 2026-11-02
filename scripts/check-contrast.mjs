@@ -36,7 +36,13 @@ const SYNTAX = [
 
 /** Each pair is a text token over a stack of background layers, bottom first. WCAG AA asks 4.5:1 for body text. */
 export const PAIRS = [
-  ...['--foreground', '--body', '--muted-foreground', '--primary-on-dark']
+  ...[
+    '--foreground',
+    '--body',
+    '--muted-foreground',
+    '--muted',
+    '--primary-on-dark',
+  ]
     .concat(STATUS)
     .flatMap((text) => SURFACES.map((surface) => [text, [surface]])),
   ...STATUS.filter((status) => status !== '--destructive').map((status) => [
@@ -47,6 +53,9 @@ export const PAIRS = [
   ['--terminal-cyan', ['--background']],
   ['--terminal-white', ['--background']],
   ['--primary-foreground', ['--primary']],
+  ['--accent-foreground', ['--accent']],
+  ['--default-foreground', ['--default']],
+  ['--accent-soft-foreground', ['--default']],
   ['--field-foreground', ['--field-background']],
   ['--field-placeholder', ['--field-background']],
   ['--sidebar-foreground', ['--sidebar']],

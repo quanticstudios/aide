@@ -151,6 +151,7 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
         keys: ['Ctrl/Cmd', '1–9'],
         label: 'Open project by sidebar position',
       },
+      { keys: ['Ctrl', '`'], label: 'Show or hide the terminal drawer' },
     ],
   },
   {
@@ -181,6 +182,17 @@ export const SETTINGS_SHORTCUT_GROUPS: readonly SettingsShortcutGroup[] = [
         label: 'Choose a suggestion',
       },
       { keys: ['Esc'], label: 'Close suggestions' },
+      {
+        description: 'While the agent works and no menu is open',
+        keys: ['Esc'],
+        label: 'Stop the agent',
+      },
+      { keys: ['Ctrl/Cmd', 'Shift', 'M'], label: 'Open the model menu' },
+      { keys: ['Ctrl/Cmd', 'Shift', 'E'], label: 'Open the effort menu' },
+      {
+        keys: ['Ctrl/Cmd', 'Shift', 'A'],
+        label: 'Open the permission menu',
+      },
     ],
   },
   {

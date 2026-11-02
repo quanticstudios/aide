@@ -120,7 +120,7 @@ export default function WorkspaceSwitcherOverlay({
           className={cn(
             isOverviewMode
               ? 'grid max-h-[60vh] grid-cols-2 gap-2 overflow-y-auto md:grid-cols-3'
-              : 'space-y-1',
+              : 'max-h-[70vh] space-y-1 overflow-y-auto',
           )}
           onAction={(key: Key) => handleWorkspaceSelection(String(key))}
           onSelectionChange={(keys) => {

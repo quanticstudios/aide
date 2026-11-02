@@ -35,6 +35,7 @@ const LazyTerminalPane = lazy(() => import('./TerminalPane'))
 interface AppShellProps {
   readonly activePaneId: string | null
   readonly activeSurfaceId: string | null
+  readonly canResizePane: boolean
   readonly archivedWorkspaces: readonly WorkspaceRecord[]
   readonly projects: readonly ProjectRecord[]
   readonly workspaces: readonly WorkspaceRecord[]
@@ -83,6 +84,7 @@ interface AppShellProps {
 export default function AppShell({
   activePaneId,
   activeSurfaceId,
+  canResizePane,
   archivedWorkspaces,
   projects,
   workspaces,
@@ -229,11 +231,13 @@ export default function AppShell({
         <TopBar
           activePaneId={activePaneId}
           activeSurfaceId={activeSurfaceId}
+          canResizePane={canResizePane}
           activeProject={activeProject}
           activeWorkspace={activeWorkspace}
           isSidebarOpen={isSidebarExpanded}
           isTerminalAvailable={Boolean(activeWorkspace)}
           isTerminalOpen={isTerminalOpen}
+          showProjectName={projects.length > 1}
           sidebarToggleRef={sidebarToggleRef}
           onClosePane={onClosePane}
           onCloseSurface={onCloseSurface}

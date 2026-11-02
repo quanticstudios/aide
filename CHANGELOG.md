@@ -56,6 +56,33 @@
   color.
 - The workspace setup log opens under the status line, so Retry setup stays
   beside it.
+- Field descriptions, Diagnostics values and other secondary text in dialogs
+  are readable again in every theme.
+- Primary buttons are blue, checked switches show a blue track with a white
+  thumb, and unchecked switches show a visible track.
+- A focused dialog or rounded control keeps its own corners instead of turning
+  square, and a dialog no longer draws a focus ring around itself.
+- Opening a conversation from Task history, the Activity inbox or a
+  notification switches to its workspace.
+- The Ctrl+1 project hints in the sidebar go away after Ctrl+K, Ctrl+Tab or
+  Ctrl+B.
+- Workspace setup status and the "Sessions now run on pitwall" notice sit above
+  the panes instead of covering them or the sidebar footer.
+- The archived workspaces popover closes after you restore the last one.
+- The top bar keeps the active pane tab in view, fades tabs that scroll off,
+  names the project when you have more than one, and shows the version and
+  update buttons as icons below 1440 pixels wide.
+- Shrink pane and Grow pane are disabled when the pane has nothing to share
+  its space with.
+- Task history and the Activity inbox name the project and workspace instead
+  of repeating the branch, and the bell stops counting an approval that
+  expired.
+- The project attention count is easier to read, and screen readers announce
+  the current workspace.
+- Settings > Keyboard shortcuts lists Ctrl+` and the composer's model, effort
+  and permission menus.
+- Focus rings in the top bar are no longer clipped, and they appear blue at
+  once instead of fading in from black.
 
 ## 0.0.3 (2026-11-01)
 

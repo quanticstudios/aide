@@ -909,10 +909,24 @@ export function createDaemonTransport(
         const workspaceId =
           aideWorkspaceId ??
           (panes.has(chat.id) ? id.slice(0, id.indexOf(':')) : chat.workspaceId)
-        const own = aideTasks.get(id)
-        const names =
-          workspace ??
-          aideWorkspaces.find((candidate) => candidate.id === workspaceId)
+        const live = toTaskStatus(chat)
+        const recorded = aideTasks.get(id)
+        // why: aide's record keeps an approval that expired or was answered outside aide until it sees the chat again.
+        const own =
+          recorded &&
+          (recorded.status === 'approval' || recorded.status === 'input') &&
+          live !== 'approval'
+            ? undefined
+            : recorded
+        const aideNames = aideWorkspaces.find(
+          (candidate) => candidate.id === workspaceId,
+        )
+        // why: pitwall labels a workspace by its branch; aide's own project and workspace names are what the user typed.
+        const names = {
+          branch: aideNames?.branch ?? workspace?.branch,
+          label: aideNames?.label ?? workspace?.label,
+          project: aideNames?.project ?? workspace?.project,
+        }
         if (needle) {
           // shortcut: the transcript of a chat aide holds no snapshot of goes unsearched; add a pitwall search command if that is missed.
           const snapshot = sessions.get(chat.id)?.state?.snapshot
@@ -939,7 +953,7 @@ export function createDaemonTransport(
           title: chat.title,
           updatedAt: chat.updatedAt,
           provider: chat.provider,
-          status: own?.status ?? toTaskStatus(chat),
+          status: own?.status ?? live,
           activityKey: own?.activityKey ?? null,
           unread: own?.unread ?? false,
           excerpt: chat.recentPrompt ?? '',

@@ -75,7 +75,7 @@ export default function UpdateIndicator({
       <Button
         aria-label={`${presentation.indicatorLabel}. Open software update`}
         className={cn(
-          'min-h-10 shrink-0 rounded-md border px-3 text-xs font-semibold',
+          'h-8 shrink-0 gap-1.5 rounded-md border px-2.5 text-xs font-semibold',
           TONE_CLASSES[presentation.tone],
         )}
         data-testid="update-indicator"
@@ -84,7 +84,9 @@ export default function UpdateIndicator({
         variant="ghost"
       >
         <IndicatorIcon presentation={presentation} />
-        <span>{presentation.indicatorLabel}</span>
+        <span className="max-[1439px]:sr-only">
+          {presentation.indicatorLabel}
+        </span>
       </Button>
     </div>
   )

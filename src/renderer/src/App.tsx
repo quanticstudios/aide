@@ -79,6 +79,7 @@ import {
   writeGlobalSidebarOpen,
 } from './lib/sidebar-preference'
 import {
+  applyPaneLocation,
   applyPaneSelection,
   applyProjectSelection,
   applySurfaceSelection,
@@ -110,6 +111,7 @@ import { useWorkspaceSelectionStore } from './lib/workspace-selection-store'
 import {
   getOrderedWorkspaces,
   resolveProjectShortcutTarget,
+  shouldShowProjectHints,
 } from './lib/workspace-shortcuts'
 import { buildWorkspaceSummaryMap } from './lib/workspace-summary'
 import {
@@ -1423,14 +1425,7 @@ function WorkspaceApp() {
           if (!layout) continue
           layouts[surface.id] = layout
           if (collectWorkspaceLayoutPaneIds(layout).includes(task.paneId)) {
-            const selection = resolveSelectionForSnapshot(
-              snapshot,
-              task.workspaceId,
-              surface.id,
-              task.paneId,
-            )
-            resolvedNavigationStateRef.current = selection
-            setSelection(selection)
+            selectTaskPane(snapshot, surface.id)
             return
           }
         }
@@ -1447,14 +1442,43 @@ function WorkspaceApp() {
           layouts,
           surface.id,
           task.paneId,
+          false,
         )
+        const saved = storageSnapshotRef.current
+        if (
+          saved &&
+          resolveWorkspaceSurfaces(saved, task.workspaceId).some(
+            (candidate) => candidate.id === surface.id,
+          )
+        ) {
+          selectTaskPane(saved, surface.id)
+        }
       })
+
+      function selectTaskPane(
+        snapshot: PersistenceSnapshot,
+        surfaceId: string,
+      ) {
+        const selection = applyPaneLocation(
+          snapshot,
+          resolvedNavigationStateRef.current ?? resolvedNavigationState,
+          task.workspaceId,
+          surfaceId,
+          task.paneId,
+          (workspaceId) => getSurfaceIdsForSnapshot(snapshot, workspaceId),
+          (id) => getPaneIdsForSnapshotBySurface(snapshot, id),
+        )
+        resolvedNavigationStateRef.current = selection
+        setSelection(selection)
+      }
     },
     [
+      getPaneIdsForSnapshotBySurface,
+      getSurfaceIdsForSnapshot,
       navigationSnapshot,
       persistWorkspaceSurfaceStateChange,
+      resolvedNavigationState,
       workspaceMutationQueue,
-      resolveSelectionForSnapshot,
       setSelection,
     ],
   )
@@ -1987,16 +2011,8 @@ function WorkspaceApp() {
   )
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Control' || event.key === 'Meta') {
-        setShowProjectHints(true)
-      }
-    }
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Control' || event.key === 'Meta') {
-        setShowProjectHints(false)
-      }
+    const handleKey = (event: KeyboardEvent) => {
+      setShowProjectHints(shouldShowProjectHints(event))
     }
 
     const handleWindowBlur = () => {
@@ -2006,19 +2022,22 @@ function WorkspaceApp() {
       setShowProjectHints(false)
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
+    // why: capture, because the palette and overview stop the Ctrl keyup before it bubbles to window.
+    window.addEventListener('keydown', handleKey, true)
+    window.addEventListener('keyup', handleKey, true)
     window.addEventListener('blur', handleWindowBlur)
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('keydown', handleKey, true)
+      window.removeEventListener('keyup', handleKey, true)
       window.removeEventListener('blur', handleWindowBlur)
     }
   }, [])
 
   useEffect(() => {
     return window.aide.onAppShortcut((event) => {
+      // why: main swallows these chords' key events, so the Ctrl keyup that hides the hints never reaches the renderer.
+      setShowProjectHints(false)
       if (isSettingsOpen) return
 
       if (event.type === 'sidebar-toggle') {
@@ -2423,6 +2442,16 @@ function WorkspaceApp() {
         : [],
     [activeWorkspace, navigationSnapshot],
   )
+  const canResizeActivePane = useMemo(() => {
+    const { activeSurfaceId } = resolvedNavigationState
+    if (!activeWorkspace || !activeSurfaceId) return false
+    const layout = resolveSurfaceLayout(
+      navigationSnapshot,
+      activeWorkspace.id,
+      activeSurfaceId,
+    )
+    return layout ? collectWorkspaceLayoutPaneIds(layout).length > 1 : false
+  }, [activeWorkspace, navigationSnapshot, resolvedNavigationState])
   const surfaceManagedSessionIds = useMemo(() => {
     if (!activeWorkspace) return {}
     const map: Record<string, string | null> = {}
@@ -2755,6 +2784,7 @@ function WorkspaceApp() {
       activePaneId={resolvedNavigationState.activePaneId}
       archivedWorkspaces={navigationSnapshot.archivedWorkspaces ?? []}
       activeSurfaceId={resolvedNavigationState.activeSurfaceId}
+      canResizePane={canResizeActivePane}
       activeProject={activeProject}
       activeWorkspace={activeWorkspace}
       isSidebarOpen={isSidebarOpen}

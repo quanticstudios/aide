@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import type { RefObject } from 'react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { listCreatablePaneCatalogEntries } from '@/lib/pane-catalog'
 import { getSessionStateDotClass } from '@/lib/session-state-dot'
@@ -39,11 +39,13 @@ import IconTooltip from './ui/icon-tooltip'
 
 interface TopBarProps {
   readonly activePaneId: string | null
+  readonly canResizePane: boolean
   readonly activeSurfaceId: string | null
   readonly activeProject: ProjectRecord | null
   readonly activeWorkspace: WorkspaceRecord | null
   readonly isSidebarOpen: boolean
   readonly isTerminalAvailable: boolean
+  readonly showProjectName: boolean
   readonly isTerminalOpen: boolean
   readonly onClosePane: (paneId: string) => void
   readonly onCloseSurface: (surfaceId: string) => void
@@ -85,7 +87,10 @@ function SurfaceTab({
   const label = useManagedSessionTitle(managedSessionId) ?? surface.title
 
   return (
-    <div className="group/surface-tab relative flex shrink-0 items-center">
+    <div
+      className="group/surface-tab relative flex shrink-0 items-center"
+      data-active={isActive ? 'true' : undefined}
+    >
       <Button
         aria-label={label}
         className={cn(
@@ -126,6 +131,38 @@ function SurfaceTab({
       </Button>
     </div>
   )
+}
+
+// invariant: these match the strip's scroll-pl-4 and scroll-pr-6, where the edge fades sit.
+const PANE_STRIP_START_INSET = 16
+const PANE_STRIP_END_INSET = 24
+
+/** The pane strip's scroll position that shows the whole active tab with a tab, not a sliver, at its start. */
+export function paneStripScrollLeft(
+  tabs: readonly { left: number; width: number }[],
+  activeIndex: number,
+  strip: {
+    endInset: number
+    scrollLeft: number
+    startInset: number
+    viewWidth: number
+  },
+): number {
+  const active = tabs[activeIndex]
+  if (!active) return strip.scrollLeft
+  const lowest = active.left + active.width + strip.endInset - strip.viewWidth
+  const highest = active.left - strip.startInset
+  const aligned = tabs
+    .map((tab) => tab.left - strip.startInset)
+    .filter((left) => left >= lowest && left <= highest)
+  const best = aligned.length
+    ? aligned.reduce((closest, left) =>
+        Math.abs(left - strip.scrollLeft) < Math.abs(closest - strip.scrollLeft)
+          ? left
+          : closest,
+      )
+    : highest
+  return Math.max(best, 0)
 }
 
 const SPLIT_ACTIONS = [
@@ -230,12 +267,14 @@ function SplitPaneMenu({
 /** Split, resize and close controls for the active pane; each split opens a pane-type menu. */
 export function PaneActionBar({
   activePaneId,
+  canResizePane,
   onClosePane,
   onResizePane,
   onSplitPane,
   projectKind,
 }: {
   readonly activePaneId: string | null
+  readonly canResizePane: boolean
   readonly onClosePane: (paneId: string) => void
   readonly onResizePane: (paneId: string, delta: number) => void
   readonly onSplitPane: (
@@ -252,18 +291,21 @@ export function PaneActionBar({
     readonly icon: LucideIcon
     readonly label: string
     readonly onPress: () => void
+    readonly requiresSplit?: boolean
     readonly tone: 'neutral' | 'destructive'
   }> = [
     {
       icon: Shrink,
       label: 'Shrink pane',
       onPress: () => activePaneId && onResizePane(activePaneId, -0.25),
+      requiresSplit: true,
       tone: 'neutral',
     },
     {
       icon: Expand,
       label: 'Grow pane',
       onPress: () => activePaneId && onResizePane(activePaneId, 0.25),
+      requiresSplit: true,
       tone: 'neutral',
     },
     {
@@ -299,7 +341,9 @@ export function PaneActionBar({
             <Button
               aria-label={action.label}
               className={cn(PANE_ACTION_BUTTON_CLASS, toneClass)}
-              isDisabled={isDisabled}
+              isDisabled={
+                isDisabled || (action.requiresSplit && !canResizePane)
+              }
               isIconOnly
               onPress={action.onPress}
               size="sm"
@@ -317,11 +361,13 @@ export function PaneActionBar({
 export default function TopBar({
   activePaneId,
   activeSurfaceId,
+  canResizePane,
   activeProject,
   activeWorkspace,
   isSidebarOpen,
   isTerminalAvailable,
   isTerminalOpen,
+  showProjectName,
   onClosePane,
   onCloseSurface,
   onCreatePane,
@@ -339,10 +385,48 @@ export default function TopBar({
   updatePresentation,
 }: TopBarProps) {
   const visibleSurfaces = surfaces
+  const stripRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!activeSurfaceId || !strip) return
+    const reveal = () => {
+      const elements = [
+        ...strip.querySelectorAll<HTMLElement>('.group\\/surface-tab'),
+      ]
+      const activeIndex = elements.findIndex(
+        (element) => element.dataset.active,
+      )
+      if (activeIndex === -1) return
+      const origin = strip.getBoundingClientRect().left - strip.scrollLeft
+      const tabs = elements.map((element) => {
+        const rect = element.getBoundingClientRect()
+        return { left: rect.left - origin, width: rect.width }
+      })
+      const left = paneStripScrollLeft(tabs, activeIndex, {
+        endInset: PANE_STRIP_END_INSET,
+        scrollLeft: strip.scrollLeft,
+        startInset: PANE_STRIP_START_INSET,
+        viewWidth: strip.clientWidth,
+      })
+      // why: near the end the aligned position can lie past the scroll range, so the strip grows its end padding to reach it.
+      const toolbar = strip.firstElementChild as HTMLElement | null
+      if (toolbar) toolbar.style.paddingRight = ''
+      const shortfall = left - (strip.scrollWidth - strip.clientWidth)
+      if (toolbar && shortfall > 0) {
+        toolbar.style.paddingRight = `${PANE_STRIP_END_INSET + shortfall}px`
+      }
+      strip.scrollLeft = left
+    }
+    reveal()
+    const observer = new ResizeObserver(reveal)
+    observer.observe(strip)
+    return () => observer.disconnect()
+  }, [activeSurfaceId])
 
   return (
     <header className="flex h-14 shrink-0 items-center border-b border-border bg-background px-3">
-      <div className="flex w-full items-center gap-3 overflow-hidden">
+      <div className="flex h-full w-full items-center gap-3 overflow-hidden">
         <IconTooltip label={isSidebarOpen ? 'Close sidebar' : 'Open sidebar'}>
           <Button
             aria-controls="workspace-sidebar"
@@ -363,7 +447,7 @@ export default function TopBar({
           </Button>
         </IconTooltip>
         <div
-          className="flex shrink-0 items-center gap-2"
+          className="flex min-w-0 max-w-[40%] shrink-0 items-center gap-2"
           data-testid="workspace-heading"
         >
           {activeProject?.icon ? (
@@ -376,15 +460,30 @@ export default function TopBar({
               <ProjectIconView icon={activeProject.icon} />
             </span>
           ) : null}
-          <p className="display whitespace-nowrap text-[13px] text-foreground">
+          <p className="display min-w-0 truncate whitespace-nowrap text-[13px] text-foreground">
+            {showProjectName && activeWorkspace && activeProject ? (
+              <span className="text-muted-foreground">
+                {activeProject.name}
+                <span aria-hidden="true" className="px-1.5">
+                  /
+                </span>
+              </span>
+            ) : null}
             {activeWorkspace?.name ?? activeProject?.name ?? 'No workspace'}
           </p>
         </div>
 
-        <div className="pane-strip min-w-0 flex-1 overflow-x-auto">
+        <div
+          className="min-w-0 flex-1 scroll-pr-6 scroll-pl-4 overflow-x-auto py-1 [mask-image:linear-gradient(to_right,transparent_0.75rem,black_1rem,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none]"
+          onWheel={(event) => {
+            if (event.deltaX === 0)
+              event.currentTarget.scrollLeft += event.deltaY
+          }}
+          ref={stripRef}
+        >
           <Toolbar
             aria-label="Pane selector"
-            className="workspace-strip inline-flex min-w-max gap-1 bg-transparent"
+            className="workspace-strip inline-flex min-w-max gap-1 bg-transparent pl-4 pr-6"
           >
             {visibleSurfaces.map((surface, index) => (
               <SurfaceTab
@@ -417,6 +516,7 @@ export default function TopBar({
 
         <PaneActionBar
           activePaneId={activePaneId}
+          canResizePane={canResizePane}
           onClosePane={onClosePane}
           onResizePane={onResizePane}
           onSplitPane={onSplitPane}
@@ -459,7 +559,9 @@ export default function TopBar({
           variant="ghost"
         >
           <LifeBuoy aria-hidden="true" className="size-4" />
-          <span data-testid="app-version">aIDE v{version}</span>
+          <span className="max-[1439px]:sr-only" data-testid="app-version">
+            aIDE v{version}
+          </span>
         </Button>
       </div>
     </header>

@@ -6,6 +6,7 @@ import type {
   WorkspaceRecord,
 } from '../../../shared/persistence'
 import {
+  applyPaneLocation,
   applyPaneSelection,
   applyProjectSelection,
   applyWorkspaceSelection,
@@ -347,6 +348,67 @@ describe('spatial navigation transitions', () => {
         getPaneIdsForSurface,
       ).activeWorkspaceId,
     ).toBe('workspace-b1')
+  })
+
+  it('opens a pane in another project together with its workspace', () => {
+    const snapshot = createSnapshot()
+    const baseState = resolveSpatialNavigationState(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    expect(baseState.activeWorkspaceId).toBe('workspace-b2')
+
+    const opened = applyPaneLocation(
+      snapshot,
+      baseState,
+      'workspace-a1',
+      'workspace-a1:surface:git',
+      'git',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    expect(opened.activeProjectId).toBe('project-a')
+    expect(opened.activeWorkspaceId).toBe('workspace-a1')
+    expect(opened.activeSurfaceId).toBe('workspace-a1:surface:git')
+    expect(opened.activePaneId).toBe('git')
+  })
+
+  it('keeps Alt+J inside the project, so Ctrl+2 restores the other project selection', () => {
+    const snapshot = createSnapshot()
+    const start = resolveSpatialNavigationState(
+      snapshot,
+      createDefaultSpatialNavigationState(),
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const projectA = applyProjectSelection(
+      snapshot,
+      start,
+      'project-a',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const moved = moveRelativeWorkspace(
+      snapshot,
+      projectA,
+      1,
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+    const projectB = applyProjectSelection(
+      snapshot,
+      moved,
+      'project-b',
+      getSurfaceIdsForWorkspace,
+      getPaneIdsForSurface,
+    )
+
+    expect(projectA.activeWorkspaceId).toBe('workspace-a2')
+    expect(moved.activeWorkspaceId).toBe('workspace-a1')
+    expect(projectB.activeWorkspaceId).toBe('workspace-b2')
   })
 
   it('keeps horizontal pane order during repeated movement', () => {

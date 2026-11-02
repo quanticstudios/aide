@@ -7,6 +7,7 @@ import type {
 import {
   getOrderedWorkspaces,
   resolveProjectShortcutTarget,
+  shouldShowProjectHints,
 } from './workspace-shortcuts'
 
 function createWorkspace(
@@ -73,5 +74,19 @@ describe('workspace navigation order', () => {
     expect(resolveProjectShortcutTarget(projects, '3')).toBeNull()
     expect(resolveProjectShortcutTarget(projects, '0')).toBeNull()
     expect(resolveProjectShortcutTarget(projects, 'j')).toBeNull()
+  })
+})
+
+describe('shouldShowProjectHints', () => {
+  it('shows the hints only while Ctrl or Cmd is the last key pressed', () => {
+    expect(shouldShowProjectHints({ key: 'Control', type: 'keydown' })).toBe(
+      true,
+    )
+    expect(shouldShowProjectHints({ key: 'Meta', type: 'keydown' })).toBe(true)
+    expect(shouldShowProjectHints({ key: 'k', type: 'keydown' })).toBe(false)
+    expect(shouldShowProjectHints({ key: 'Tab', type: 'keydown' })).toBe(false)
+    expect(shouldShowProjectHints({ key: 'Control', type: 'keyup' })).toBe(
+      false,
+    )
   })
 })
