@@ -47,7 +47,7 @@ import {
 import { getSessionTransport } from '../lib/session-transport'
 import { cn } from '../lib/utils'
 
-import { GitDiffView, type DiffLayout } from './GitDiffView'
+import { type DiffLayout, GitDiffView } from './GitDiffView'
 
 interface DiffLoadError {
   readonly message: string
@@ -212,6 +212,8 @@ interface GitPaneProps {
 
 const FIELD_CLASS =
   'rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground'
+const INLINE_ACTION_CLASS =
+  'rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40'
 
 /** Collapsed form that sends a comment on one diff line to an Agent pane in this workspace. */
 export function GitLineFeedback({
@@ -1043,11 +1045,8 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
         className="flex min-h-0 flex-1 flex-col overflow-y-auto"
         data-testid="git-pane-body"
       >
-        <div className="grid shrink-0 gap-3 border-b border-border p-4 @xl:grid-cols-2">
-          <Surface
-            className="space-y-2 rounded-lg border border-border p-3"
-            variant="secondary"
-          >
+        <div className="grid shrink-0 gap-x-8 gap-y-6 border-b border-border p-4 @xl:grid-cols-2">
+          <section className="space-y-2">
             <p className="text-sm font-medium text-foreground">
               Commit staged changes
             </p>
@@ -1058,18 +1057,18 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
               >
                 Commit message
               </label>
-              <Button
-                isDisabled={isMutating}
-                onPress={() => {
+              <button
+                className={INLINE_ACTION_CLASS}
+                disabled={isMutating}
+                onClick={() => {
                   void generateMessage('commit').then((generated) => {
                     if (generated) setCommitMessage(generated)
                   })
                 }}
-                size="sm"
-                variant="ghost"
+                type="button"
               >
                 Generate
-              </Button>
+              </button>
             </div>
             <textarea
               className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
@@ -1102,12 +1101,9 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                 Commit all and push
               </Button>
             </div>
-          </Surface>
+          </section>
 
-          <Surface
-            className="space-y-2 rounded-lg border border-border p-3"
-            variant="secondary"
-          >
+          <section className="space-y-2">
             <p className="text-sm font-medium text-foreground">Pull request</p>
             {pullRequest ? (
               <div className="space-y-2" data-testid="git-pane-pull-request">
@@ -1149,20 +1145,20 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                   >
                     Title
                   </label>
-                  <Button
-                    isDisabled={isMutating}
-                    onPress={() => {
+                  <button
+                    className={INLINE_ACTION_CLASS}
+                    disabled={isMutating}
+                    onClick={() => {
                       void generateMessage('pull-request-title').then(
                         (generated) => {
                           if (generated) setPullRequestTitle(generated)
                         },
                       )
                     }}
-                    size="sm"
-                    variant="ghost"
+                    type="button"
                   >
                     Generate title
-                  </Button>
+                  </button>
                 </div>
                 <input
                   className="w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
@@ -1177,20 +1173,20 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                   >
                     Description
                   </label>
-                  <Button
-                    isDisabled={isMutating}
-                    onPress={() => {
+                  <button
+                    className={INLINE_ACTION_CLASS}
+                    disabled={isMutating}
+                    onClick={() => {
                       void generateMessage('pull-request-body').then(
                         (generated) => {
                           if (generated) setPullRequestBody(generated)
                         },
                       )
                     }}
-                    size="sm"
-                    variant="ghost"
+                    type="button"
                   >
                     Generate description
-                  </Button>
+                  </button>
                 </div>
                 <textarea
                   className="min-h-16 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground"
@@ -1246,7 +1242,7 @@ export default function GitPane({ isActive, workspace }: GitPaneProps) {
                 </Button>
               )}
             </div>
-          </Surface>
+          </section>
         </div>
 
         {status.files.length === 0 ? (

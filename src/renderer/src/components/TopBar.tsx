@@ -156,6 +156,11 @@ function SplitPaneMenu({
   const [isOpen, setIsOpen] = useState(false)
   const Icon = split.icon
 
+  // invariant: the menu cannot outlive the pane it would split, including for the current commit.
+  if (isDisabled && isOpen) {
+    setIsOpen(false)
+  }
+
   return (
     <Tooltip closeDelay={0} delay={350} isDisabled={isOpen}>
       <Tooltip.Trigger className="flex shrink-0" role="none" tabIndex={-1}>

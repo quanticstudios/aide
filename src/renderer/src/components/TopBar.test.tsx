@@ -47,4 +47,38 @@ describe('PaneActionBar', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  it('closes an open split menu when the active pane goes away', async () => {
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', true)
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    const render = (activePaneId: string | null) =>
+      root.render(
+        <PaneActionBar
+          activePaneId={activePaneId}
+          onClosePane={vi.fn()}
+          onResizePane={vi.fn()}
+          onSplitPane={vi.fn()}
+          projectKind="git"
+        />,
+      )
+
+    await act(async () => render('pane-1'))
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Split vertically"]')
+        ?.click(),
+    )
+    expect(document.querySelector('[role="menu"]')).not.toBeNull()
+
+    await act(async () => render(null))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+
+    await act(async () => render('pane-2'))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })
