@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
+
+import TOML from '@iarna/toml'
 
 import {
   MINIMUM_RELEASE_AGE_EXCLUDES,
@@ -38,6 +41,24 @@ const validBunfig = `
 minimumReleaseAge = 604800
 minimumReleaseAgeExcludes = ${JSON.stringify(MINIMUM_RELEASE_AGE_EXCLUDES)}
 `
+
+test("Dependabot waits at least as long as Bun's minimum release age", () => {
+  const dependabot = readFileSync(
+    new URL('../.github/dependabot.yml', import.meta.url),
+    'utf8',
+  )
+  const bunUpdates = dependabot
+    .split('  - package-ecosystem: bun\n')[1]
+    ?.split('\n  - ')[0]
+  const cooldownDays = bunUpdates?.match(
+    /\n {4}cooldown:\n {6}default-days: (\d+)\n/,
+  )?.[1]
+  const bunfig = TOML.parse(
+    readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8'),
+  )
+
+  assert.ok(Number(cooldownDays) * 86400 >= bunfig.install.minimumReleaseAge)
+})
 
 test('accepts exact direct pins, the seven-day release age, and resolved security overrides', () => {
   assert.deepEqual(
