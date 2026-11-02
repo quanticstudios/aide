@@ -41,6 +41,24 @@ describe('WorkspaceTitleService', () => {
     })
   })
 
+  it('names the workspace in plain words from the first line of a markdown prompt', () => {
+    const workspace = createWorkspace()
+    const renameWorkspaceIfUnchanged = vi.fn(() => workspace)
+    const service = new WorkspaceTitleService({
+      store: { getWorkspace: () => workspace, renameWorkspaceIfUnchanged },
+    })
+
+    service.titleWorkspace(
+      workspace.id,
+      '## md **check**\n\nSome **bold**, *italic*, `inline code`',
+    )
+
+    expect(renameWorkspaceIfUnchanged).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ name: 'md check' }),
+    )
+  })
+
   it('keeps a manual rename', () => {
     const workspace = createWorkspace({
       name: 'My workspace',

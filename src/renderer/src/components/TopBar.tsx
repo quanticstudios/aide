@@ -27,7 +27,10 @@ import type {
   WorkspaceSurfaceRecord,
 } from '../../../shared/persistence'
 import type { SavedTask } from '../../../shared/task-library'
-import { useManagedSessionState } from '../hooks/useManagedSessionState'
+import {
+  useManagedSessionState,
+  useManagedSessionTitle,
+} from '../hooks/useManagedSessionState'
 import { getProjectColorClassName, ProjectIconView } from './ProjectIcon'
 import TaskLibraryControl from './TaskLibraryControl'
 import TaskNotificationToasts from './TaskNotificationToasts'
@@ -79,11 +82,12 @@ function SurfaceTab({
   readonly surface: WorkspaceSurfaceRecord
 }) {
   const sessionState = useManagedSessionState(managedSessionId)
+  const label = useManagedSessionTitle(managedSessionId) ?? surface.title
 
   return (
     <div className="group/surface-tab relative flex shrink-0 items-center">
       <Button
-        aria-label={surface.title}
+        aria-label={label}
         className={cn(
           'pane-tab workspace-strip-item h-8 rounded-md pl-2.5 pr-8 text-left text-[12px] font-semibold',
           isActive && 'is-active',
@@ -97,7 +101,9 @@ function SurfaceTab({
         <span className="grid size-5 place-items-center rounded-full border border-border bg-surface-tertiary text-[10px] font-semibold leading-none text-muted-foreground">
           {index + 1}
         </span>
-        <span>{surface.title}</span>
+        <span className="max-w-48 truncate" title={label}>
+          {label}
+        </span>
         {managedSessionId ? (
           <span
             className={`size-2 shrink-0 rounded-full ${getSessionStateDotClass(sessionState)}`}
@@ -105,7 +111,7 @@ function SurfaceTab({
         ) : null}
       </Button>
       <Button
-        aria-label={`Close ${surface.title}`}
+        aria-label={`Close ${label}`}
         className="absolute right-1 size-6 rounded opacity-0 transition-opacity hover:bg-surface-tertiary focus-visible:opacity-100 group-hover/surface-tab:opacity-100 group-focus-within/surface-tab:opacity-100"
         isIconOnly
         onMouseDown={(event) => {
@@ -375,7 +381,7 @@ export default function TopBar({
           </p>
         </div>
 
-        <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="pane-strip min-w-0 flex-1 overflow-x-auto">
           <Toolbar
             aria-label="Pane selector"
             className="workspace-strip inline-flex min-w-max gap-1 bg-transparent"

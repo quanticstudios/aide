@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { chatTitle } from '../../../shared/prompt-title'
 import type { ManagedProviderRuntimeSessionState } from '../../../shared/provider-runtime'
 import { getSessionTransport } from '../lib/session-transport'
 
@@ -59,4 +60,26 @@ export function useManagedSessionState(
   }, [sessionId])
 
   return state
+}
+
+export function useManagedSessionTitle(
+  sessionId: string | null,
+): string | null {
+  const [title, setTitle] = useState<string | null>(null)
+
+  useEffect(() => {
+    setTitle(null)
+    const transport = sessionId ? getSessionTransport() : null
+    if (!sessionId || !transport) return
+    const unsubscribe = transport.subscribeSession(sessionId, (update) =>
+      setTitle(update.type === 'removed' ? null : chatTitle(update.snapshot)),
+    )
+    void transport.getSessions().then((snapshots) => {
+      const existing = snapshots[sessionId]
+      if (existing) setTitle(chatTitle(existing))
+    })
+    return unsubscribe
+  }, [sessionId])
+
+  return title
 }
